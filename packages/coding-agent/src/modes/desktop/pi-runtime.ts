@@ -34,7 +34,10 @@ export const PI_SYSTEM_PROMPT = [
 			...writeToolSystemPromptContribution.guidelines,
 		]
 			.filter(
-				(guideline) => !/\b(?:codemode|tool_search|skill_search|powershell)\b|\bprocess tool\b/i.test(guideline),
+				(guideline) =>
+					!/\b(?:codemode|tool_search|skill_search)\b|\bprocess tool\b|\bpowershell[`"']?\s+(?:tools?\b|工具)|\btools?\s+(?:named\s+)?[`"']?powershell\b/i.test(
+						guideline,
+					),
 			)
 			.map((guideline) => `- ${guideline}`),
 	),

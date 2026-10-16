@@ -11,6 +11,7 @@
  * React 经 useSyncExternalStore 消费；fs_changed 事件总线也挂在这里。
  */
 import { useSyncExternalStore } from "react";
+import { EditorCloseCoordinator, type EditorGuard } from "./editor-close.ts";
 
 export interface SidebarTab {
 	/** 稳定 id：单例 tab = kind；文件 tab = `${kind}:${path}`。 */
@@ -195,6 +196,9 @@ export class SidebarStore {
 	private fsListeners = new Set<(dirs: string[]) => void>();
 	private state: SidebarState;
 	private readonly key: string;
+	readonly editorClose: EditorCloseCoordinator;
+	private closing = new Map<string, Promise<boolean>>();
+	private leaving?: Promise<boolean>;
 
 	/**
 	 * @param keyPrefix 持久化 key 前缀：工具侧栏用默认值；终端底栏传
@@ -203,6 +207,17 @@ export class SidebarStore {
 	constructor(cwd: string, keyPrefix = "owl.workbench.state") {
 		this.key = `${keyPrefix}.${projectKeyOf(cwd)}`;
 		this.state = this.load();
+		this.editorClose = new EditorCloseCoordinator(() => this.state.tabs, (id) => Boolean(this.state.dirty[id]));
+	}
+
+	registerEditor(id: string, guard: EditorGuard): () => void { return this.editorClose.register(id, guard); }
+	hasUnprotectedEdits(): boolean { return this.editorClose.hasUnprotectedEdits(); }
+	prepareToLeave(): Promise<boolean> {
+		if (this.leaving) return this.leaving;
+		const pending = this.editorClose.protect(() => this.state.tabs.map((tab) => tab.id), "leave", true);
+		this.leaving = pending;
+		void pending.finally(() => { if (this.leaving === pending) this.leaving = undefined; });
+		return pending;
 	}
 
 	private load(): SidebarState {
@@ -373,7 +388,17 @@ export class SidebarStore {
 		if (findLeaf(this.state.tree, leafId)) this.commit({ activePane: leafId });
 	}
 
-	closeTab(id: string): void {
+	closeTab(id: string): Promise<boolean> {
+		const existing = this.closing.get(id);
+		if (existing) return existing;
+		if (!this.editorClose.isDirty(id)) { this.closeTabNow(id); return Promise.resolve(true); }
+		const pending = this.editorClose.protect(() => [id], "close").then((allowed) => { if (allowed) this.closeTabNow(id); return allowed; });
+		this.closing.set(id, pending);
+		void pending.finally(() => { if (this.closing.get(id) === pending) this.closing.delete(id); });
+		return pending;
+	}
+
+	private closeTabNow(id: string): void {
 		const leaf = findLeafWithTab(this.state.tree, id);
 		if (!leaf) return;
 		const index = leaf.tabs.findIndex((tab) => tab.id === id);
@@ -392,12 +417,22 @@ export class SidebarStore {
 	}
 
 	/** 关闭其他：leaf 内语义（只留该 leaf 的这个 tab），其他分屏不动。 */
-	closeOthers(id: string): void {
+	async closeOthers(id: string): Promise<boolean> {
 		const leaf = findLeafWithTab(this.state.tree, id);
-		if (!leaf) return;
-		const tree = replaceLeaf(this.state.tree, leaf.id, (l) => ({ ...l, tabs: [l.tabs.find((tab) => tab.id === id)!], activeTab: id }));
-		const dirty = this.state.dirty[id] ? { [id]: true } : {};
-		this.commit({ tree, dirty });
+		if (!leaf) return true;
+		const ids = leaf.tabs.filter((tab) => tab.id !== id).map((tab) => tab.id);
+		if (!ids.some((target) => this.editorClose.isDirty(target))) { for (const target of ids) this.closeTabNow(target); return true; }
+		if (!await this.editorClose.protect(() => ids, "close")) return false;
+		for (const target of ids) this.closeTabNow(target);
+		return true;
+	}
+
+	async closeAll(): Promise<boolean> {
+		const ids = this.state.tabs.map((tab) => tab.id);
+		if (!ids.some((id) => this.editorClose.isDirty(id))) { for (const id of ids) this.closeTabNow(id); return true; }
+		if (!await this.editorClose.protect(() => ids, "close")) return false;
+		for (const id of ids) this.closeTabNow(id);
+		return true;
 	}
 
 	// -- 拖拽分屏（dsh-better-sidebar 的 moveTab 语义） -----------------------
@@ -407,6 +442,10 @@ export class SidebarStore {
 	 * 50/50，tab 落在新 leaf。来源 leaf 因此变空时自动折叠。
 	 */
 	moveTab(tabId: string, targetLeafId: string, zone: DropZone): void {
+		this.protectMutation(`move:${tabId}`, () => [tabId], () => this.moveTabNow(tabId, targetLeafId, zone));
+	}
+
+	private moveTabNow(tabId: string, targetLeafId: string, zone: DropZone): void {
 		const srcLeaf = findLeafWithTab(this.state.tree, tabId);
 		const dstLeaf = findLeaf(this.state.tree, targetLeafId);
 		if (!srcLeaf || !dstLeaf) return;
@@ -470,6 +509,10 @@ export class SidebarStore {
 
 	/** 路径重命名后同步已开的文件 tab（id/title/path）与展开目录。 */
 	remapPath(oldPath: string, newPath: string): void {
+		this.protectMutation(`rename:${oldPath}`, () => this.state.tabs.filter((tab) => tab.path === oldPath || tab.path?.startsWith(`${oldPath}/`)).map((tab) => tab.id), () => this.remapPathNow(oldPath, newPath));
+	}
+
+	private remapPathNow(oldPath: string, newPath: string): void {
 		const mapOne = (path: string): string =>
 			path === oldPath || path.startsWith(`${oldPath}/`) ? newPath + path.slice(oldPath.length) : path;
 		const remapLeaf = (node: SplitNode): SplitNode => {
@@ -493,6 +536,10 @@ export class SidebarStore {
 
 	/** 移除已删路径的文件 tab 与展开目录（空 leaf 折叠）。 */
 	dropPath(path: string): void {
+		this.protectMutation(`drop:${path}`, () => this.state.tabs.filter((tab) => tab.path === path || tab.path?.startsWith(`${path}/`)).map((tab) => tab.id), () => this.dropPathNow(path));
+	}
+
+	private dropPathNow(path: string): void {
 		const affected = (target: string): boolean => target === path || target.startsWith(`${path}/`);
 		const stripLeaf = (node: SplitNode): SplitNode => {
 			if (node.kind === "leaf") {
@@ -509,6 +556,14 @@ export class SidebarStore {
 		const activePane = findLeaf(tree, this.state.activePane) ? this.state.activePane : firstLeaf(tree).id;
 		const expanded = this.state.expanded.filter((dir) => !affected(dir));
 		this.commit({ tree, activePane, dirty, expanded });
+	}
+
+	private protectMutation(key: string, ids: () => string[], mutate: () => void): void {
+		if (this.closing.has(key)) return;
+		if (!ids().some((id) => this.editorClose.isDirty(id))) { mutate(); return; }
+		const pending = this.editorClose.protect(ids, "close", true).then((allowed) => { if (allowed) mutate(); return allowed; });
+		this.closing.set(key, pending);
+		void pending.finally(() => { if (this.closing.get(key) === pending) this.closing.delete(key); });
 	}
 
 	// -- fs_changed 总线 -----------------------------------------------------

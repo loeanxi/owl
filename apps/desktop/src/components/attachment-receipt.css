@@ -1,0 +1,14 @@
+.owl-attachment-receipt { max-width: 100%; text-align: left; }
+.owl-attachment-receipt > button { display: flex; gap: 8px; align-items: center; max-width: 100%; cursor: pointer; }
+.owl-attachment-state { flex: 0 0 auto; color: var(--color-owl-muted); font-size: 10px; }
+[data-read-status="failed"] .owl-attachment-state, .owl-attachment-error { color: var(--color-owl-danger); }
+[data-read-status="reading"] .owl-attachment-state { color: var(--color-owl-accent); }
+.owl-attachment-receipt-detail { margin-top: 6px; padding: 9px 11px; border: 1px solid var(--color-owl-border); border-radius: 8px; background: var(--color-owl-panel); color: var(--color-owl-muted); font-size: 11px; overflow-wrap: anywhere; }
+.owl-attachment-receipt-detail p { margin: 3px 0; }
+.owl-attachment-path { font-family: var(--font-mono); }
+.owl-attachment-receipt-detail ul { list-style: none; padding: 0; max-height: 260px; overflow: auto; }
+.owl-attachment-receipt-detail li { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--color-owl-border); }
+.owl-attachment-receipt-detail button { margin-top: 5px; padding: 3px 6px; border: 1px solid var(--color-owl-border); border-radius: 5px; color: var(--color-owl-text); }
+.owl-attachment-receipt button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-attachment-receipt button:disabled { opacity: .45; cursor: default; }
+.owl-tool-row[data-attachment-target="true"] { outline: 1px solid var(--color-owl-accent); outline-offset: 4px; border-radius: 5px; }

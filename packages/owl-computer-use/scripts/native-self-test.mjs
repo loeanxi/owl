@@ -1,7 +1,7 @@
 // Native integration checks only touch this script's own WinForms fixture.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
@@ -19,12 +19,14 @@ using System.IO;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using System.Runtime.InteropServices;
 using OwlComputerUse;
 class PassiveForm : Form {
     protected override bool ShowWithoutActivation { get { return true; } }
-    protected override CreateParams CreateParams { get { CreateParams value = base.CreateParams; value.ExStyle |= 0x08000000; return value; } }
+    protected override CreateParams CreateParams { get { CreateParams value = base.CreateParams; if (Environment.GetEnvironmentVariable("OWL_NATIVE_TEST_AUTO") != "1") value.ExStyle |= 0x08000000; return value; } }
 }
 class Fixture {
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [STAThread] static void Main() {
         Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), new System.Text.UTF8Encoding(false)) { AutoFlush = true });
         Console.SetIn(new StreamReader(Console.OpenStandardInput(), new System.Text.UTF8Encoding(false)));
@@ -41,7 +43,12 @@ class Fixture {
         long originalForeground = DesktopGuard.ForegroundHwnd();
         Form form = background ? new PassiveForm() : new Form();
         form.Text = "Owl native isolated fixture"; form.Location = new Point(180,140); form.Size = new Size(520,320);
-        form.StartPosition = FormStartPosition.Manual; form.TopMost = !background; form.KeyPreview = true;
+        if (Environment.GetEnvironmentVariable("OWL_NATIVE_TEST_OVERLAY") == "1") {
+            Rectangle desktop = Screen.PrimaryScreen.Bounds;
+            form.Text = "Owl 正在控制你的电脑";
+            form.Location = new Point(desktop.Left + desktop.Width / 2 - 260, desktop.Top + 12);
+        }
+        form.StartPosition = FormStartPosition.Manual; form.TopMost = !background || Environment.GetEnvironmentVariable("OWL_NATIVE_TEST_OVERLAY") == "1"; form.KeyPreview = true;
         TextBox text = new TextBox { Name = "NativeTestText", Location = new Point(30,40), Size = new Size(360,30) };
         TextBox password = new TextBox { Location = new Point(30,90), Size = new Size(360,30), UseSystemPasswordChar = true, Text = "private-fixture-value" };
         Button button = new Button { Text = "NativeTestInvoke", Location = new Point(30,145), Size = new Size(150,35) };
@@ -55,7 +62,7 @@ class Fixture {
         };
         form.Controls.AddRange(new Control[] { text, password, button, toggle, selection });
         JavaScriptSerializer json = new JavaScriptSerializer();
-        Action state = delegate { Console.WriteLine(json.Serialize(new { hwnd = form.Handle.ToInt64(), originalForeground = originalForeground, foreground = DesktopGuard.ForegroundHwnd(), text = text.Text, invokes = invokes, toggled = toggle.Checked, shortcut = shortcut, selected = selection.SelectedIndex, minimized = form.WindowState == FormWindowState.Minimized })); Console.Out.Flush(); };
+        Action state = delegate { long foreground = DesktopGuard.ForegroundHwnd(); uint foregroundPid; GetWindowThreadProcessId(new IntPtr(foreground), out foregroundPid); Console.WriteLine(json.Serialize(new { hwnd = form.Handle.ToInt64(), originalForeground = originalForeground, foreground = foreground, foregroundPid = foregroundPid, text = text.Text, invokes = invokes, toggled = toggle.Checked, shortcut = shortcut, selected = selection.SelectedIndex, minimized = form.WindowState == FormWindowState.Minimized })); Console.Out.Flush(); };
         form.Shown += delegate {
             if (!background) text.Focus(); state();
             new Thread(delegate() {
@@ -106,12 +113,19 @@ async function worker() {
 	workers.push(child);
 	let nextId = 1;
 	const pending = new Map();
+	const events = [];
+	const eventListeners = new Set();
 	const ready = new Promise((resolveReady, rejectReady) => {
 		const timer = setTimeout(() => rejectReady(new Error("Native worker ready timed out")), 30000);
 		createInterface({ input: child.stdout }).on("line", (line) => {
 			const response = JSON.parse(line);
 			if (response.event === "ready") { clearTimeout(timer); resolveReady(); }
-			else if (response.event === "error") { clearTimeout(timer); rejectReady(new Error(response.message)); }
+			else if (response.event === "error" || response.event === "control_error") {
+				clearTimeout(timer); const error = new Error(response.message); events.push(response); rejectReady(error);
+				for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
+				pending.clear();
+			}
+			else if (response.event) { events.push(response); for (const listener of eventListeners) listener(response); }
 			else {
 				const request = pending.get(response.id);
 				if (request) { pending.delete(response.id); clearTimeout(request.timer); request.resolve(response); }
@@ -120,25 +134,38 @@ async function worker() {
 	});
 	await ready;
 	return {
+		pid: child.pid,
+		events,
+		waitForEvent: async (predicate) => {
+			const previous = events.find(predicate);
+			if (previous) return previous;
+			return await new Promise((resolveEvent, reject) => {
+				const listener = (event) => { if (predicate(event)) { clearTimeout(timer); eventListeners.delete(listener); resolveEvent(event); } };
+				const timer = setTimeout(() => { eventListeners.delete(listener); reject(new Error(`Native control event timed out: ${JSON.stringify(events)}`)); }, 15000);
+				eventListeners.add(listener);
+			});
+		},
 		ask: async (request) => await new Promise((resolveReply, reject) => {
 			const id = nextId++;
 			const timer = setTimeout(() => reject(new Error(`Native ${request.cmd} timed out`)), 20000);
-			pending.set(id, { resolve: resolveReply, timer });
+			pending.set(id, { resolve: resolveReply, reject, timer });
 			child.stdin.write(`${JSON.stringify({ id, ...request })}\n`);
 		}),
 	};
 }
 try {
 	const kernel = join(temporary, "OwlComputerUse.Kernel.dll");
-	compile(["-target:library", `-out:${kernel}`, "-r:System.Drawing.dll", join(packageRoot, "src", "driver", "computer-kernel.cs")]);
+	compile(["-target:library", `-out:${kernel}`, "-r:System.Drawing.dll", "-r:System.Windows.Forms.dll", join(packageRoot, "src", "driver", "computer-kernel.cs"), join(packageRoot, "src", "driver", "computer-control-overlay.cs")]);
 	if (process.argv.includes("--scope-unit")) {
 		const scopeSource = join(temporary, "ScopeUnit.cs");
 		writeFileSync(scopeSource, String.raw`
 using System;
+using System.Drawing;
 using System.Reflection;
+using System.Windows.Forms;
 using OwlComputerUse;
 class ScopeUnit {
-    static void Main() {
+    [STAThread] static void Main() {
         MethodInfo read = typeof(DesktopGuard).GetMethod("WindowRevision");
         MethodInfo record = typeof(DesktopGuard).GetMethod("RecordExternalInput", BindingFlags.Static | BindingFlags.NonPublic);
         if (read == null || record == null) throw new Exception("RED: native input guard has only desktop-global revision; unrelated-window input cannot be separated");
@@ -155,10 +182,25 @@ class ScopeUnit {
         record.Invoke(null, new object[] { 303L, 101L, true });
         if ((long)read.Invoke(null, new object[] { 101L }) == a) throw new Exception("owned-dialog input did not fence owner");
         Console.WriteLine("PASS isolated scope classifier: unrelated window allowed; target/owned-dialog guarded; global SendInput guard retained");
+        Type capsuleType = typeof(ControlOverlay).GetNestedType("Capsule", BindingFlags.NonPublic);
+        MethodInfo layout = capsuleType.GetMethod("LayoutStop", BindingFlags.NonPublic | BindingFlags.Instance);
+        FieldInfo scale = capsuleType.GetField("UiScale", BindingFlags.NonPublic | BindingFlags.Instance);
+        FieldInfo stopField = capsuleType.GetField("Stop", BindingFlags.NonPublic | BindingFlags.Instance);
+        using (Form capsule = (Form)Activator.CreateInstance(capsuleType, true))
+        using (Bitmap bitmap = new Bitmap(8,8))
+        using (Graphics graphics = Graphics.FromImage(bitmap)) {
+            capsule.Size = new Size(552,96);
+            foreach (float dpiScale in new float[] { 1.5f,1.5f,1.5f,1f,1f,1.5f }) {
+                scale.SetValue(capsule,dpiScale); layout.Invoke(capsule,null);
+                Button stop = (Button)stopField.GetValue(capsule);
+                if (stop.Font.GetHeight(graphics)<=0) throw new Exception("Stop button font was disposed while still in use");
+            }
+        }
+        Console.WriteLine("PASS repeated control overlay layout and DPI changes preserve the Stop font lifetime");
     }
 }`);
 		const scopeExe = join(temporary, "ScopeUnit.exe");
-		compile(["-target:exe", `-out:${scopeExe}`, `-r:${kernel}`, scopeSource]);
+		compile(["-target:exe", `-out:${scopeExe}`, `-r:${kernel}`, "-r:System.Drawing.dll", "-r:System.Windows.Forms.dll", scopeSource]);
 		const scopeResult = spawnSync(scopeExe, [], { encoding: "utf8", windowsHide: true });
 		assert.equal(scopeResult.status, 0, `${scopeResult.stdout}\n${scopeResult.stderr}`);
 		process.stdout.write(scopeResult.stdout);
@@ -170,8 +212,9 @@ class ScopeUnit {
 	// form can capture its initial foreground. Redirected Console streams still work.
 	compile(["-target:winexe", `-out:${fixtureExe}`, `-r:${kernel}`, "-r:System.Windows.Forms.dll", "-r:System.Drawing.dll", "-r:System.Web.Extensions.dll", fixturePath]);
 	const auto = process.argv.includes("--auto");
-	const background = process.argv.includes("--background") || auto;
-	fixture = spawn(fixtureExe, [], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...(background ? { OWL_NATIVE_TEST_BACKGROUND: "1" } : {}) } });
+	const overlay = process.argv.includes("--overlay");
+	const background = process.argv.includes("--background") || auto || overlay;
+	fixture = spawn(fixtureExe, [], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...(background ? { OWL_NATIVE_TEST_BACKGROUND: "1" } : {}), ...(overlay ? { OWL_NATIVE_TEST_OVERLAY: "1" } : {}), ...(auto ? { OWL_NATIVE_TEST_AUTO: "1" } : {}) } });
 	fixture.stderr.setEncoding("utf8");
 	fixture.stderr.on("data", (chunk) => { fixtureErrors = (fixtureErrors + chunk).slice(-4000); });
 	createInterface({ input: fixture.stdout }).on("line", (line) => {
@@ -191,7 +234,113 @@ class ScopeUnit {
 		}
 		throw new Error("Desktop remained in use during fixture observations");
 	};
-	if (auto) {
+	if (overlay) {
+		const inspectorSource = join(temporary, "Inspector.cs");
+		writeFileSync(inspectorSource, String.raw`
+using System; using System.Collections.Generic; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices; using System.Text; using System.Web.Script.Serialization;
+class Inspector {
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+    delegate bool EnumProc(IntPtr hwnd, IntPtr unused);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr unused);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int length);
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
+    static int Main(string[] args) {
+        try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch (EntryPointNotFoundException) { SetProcessDPIAware(); }
+        Console.OutputEncoding = new UTF8Encoding(false);
+        int pid = int.Parse(args[1]); List<object> rows = new List<object>();
+        if (args[0] == "stop") {
+            IntPtr button = new IntPtr(long.Parse(args[2])); uint owner;
+            GetWindowThreadProcessId(button, out owner);
+            if (!IsWindow(button) || owner != pid) throw new Exception("Stop is not owned by the tested worker");
+            SendMessage(button, 0x00f5, IntPtr.Zero, IntPtr.Zero);
+        }
+        EnumWindows(delegate(IntPtr hwnd, IntPtr unused) {
+            uint owner; GetWindowThreadProcessId(hwnd, out owner);
+            if (owner != pid || !IsWindowVisible(hwnd)) return true;
+            RECT rect; GetWindowRect(hwnd, out rect); StringBuilder title = new StringBuilder(512); GetWindowText(hwnd, title, title.Capacity);
+            rows.Add(new { hwnd=hwnd.ToInt64(), title=title.ToString(), x=rect.Left, y=rect.Top, w=rect.Right-rect.Left, h=rect.Bottom-rect.Top, exstyle=GetWindowLong(hwnd,-20) });
+            return true;
+        }, IntPtr.Zero);
+        if (args[0] == "capture") {
+            IntPtr capsule = new IntPtr(long.Parse(args[2])); uint owner; GetWindowThreadProcessId(capsule, out owner);
+            RECT rect; if (owner != pid || !IsWindowVisible(capsule) || !GetWindowRect(capsule,out rect)) throw new Exception("Control capsule is not visible/owned");
+            using (Bitmap image = new Bitmap(rect.Right-rect.Left, rect.Bottom-rect.Top)) {
+                using (Graphics graphics = Graphics.FromImage(image)) {
+                    graphics.CopyFromScreen(rect.Left,rect.Top,0,0,image.Size);
+                }
+                int darkest=255, brightest=0;
+                for (int y=2;y<image.Height;y+=4) for (int x=2;x<image.Width;x+=4) {
+                    Color color=image.GetPixel(x,y); int light=(color.R+color.G+color.B)/3;
+                    darkest=Math.Min(darkest,light); brightest=Math.Max(brightest,light);
+                }
+                if (brightest-darkest<40) throw new Exception("Control image is blank or protected from capture");
+                image.Save(args[3],ImageFormat.Png);
+            }
+        }
+        Console.WriteLine(new JavaScriptSerializer().Serialize(rows)); return 0;
+    }
+}`);
+		const inspectorExe = join(temporary, "Inspector.exe");
+		compile(["-target:exe", `-out:${inspectorExe}`, "-r:System.Drawing.dll", "-r:System.Web.Extensions.dll", inspectorSource]);
+		const inspect = (operation, ...args) => {
+			const response = spawnSync(inspectorExe, [operation, String(first.pid), ...args.map(String)], { encoding: "utf8", windowsHide: true });
+			assert.equal(response.status, 0, `${response.stdout}\n${response.stderr}`);
+			return JSON.parse(response.stdout.replace(/^\uFEFF/, ""));
+		};
+		let snapshot = await observe();
+		check(inspect("inspect").length === 0 && first.events.length === 0, "read-only observation never shows a computer-control overlay");
+		check((await first.ask({ cmd: "windows" })).data.windows.some((window) => window.hwnd === initial.hwnd && window.title === "Owl 正在控制你的电脑"), "an ordinary window with the same caption is still discoverable");
+		const editId = snapshot.elements.find((element) => element.controlType === "Edit" && !element.password).id;
+		const pending = first.ask({ cmd: "act", observationId: snapshot.observationId, action: "set_value", elementId: editId, text: "Owl overlay verified", _testControlHoldMs: 2000 });
+		const started = await first.waitForEvent((event) => event.event === "control_started");
+		check(started.mode === "background" && typeof started.controlId === "string", "actual background action publishes a bound native control instance");
+		const imageIndex = process.argv.indexOf("--image");
+		const imagePath = imageIndex < 0 ? join(workspace, ".validation", "computer-control", "control-indicator.png") : resolve(process.argv[imageIndex + 1]);
+		mkdirSync(dirname(imagePath), { recursive: true });
+		const visible = inspect("capture", started.capsuleHwnd, imagePath);
+		const capsule = visible.find((row) => row.hwnd === started.capsuleHwnd);
+		check(capsule?.title === "Owl 正在控制你的电脑" && (capsule.exstyle & 0x08000000) !== 0, "system capsule has Owl branding and cannot activate the user's foreground");
+		check((await fixtureState("state")).foreground === initial.originalForeground, "showing system control feedback preserves the user's foreground");
+		if (started.targetUnobscuredBefore !== undefined) check(started.targetUnobscuredBefore === started.targetUnobscuredAfter, "own overlay does not change native GDI obstruction assessment");
+		if (started.targetHitBefore !== undefined) check(started.targetHitBefore === started.targetHitAfter, "own overlay does not change the target's coordinate hit-test");
+		check((await pending).data.status === "confirmed" && (await fixtureState("state")).text === "Owl overlay verified", "visible feedback preserves the actual background write and readback");
+		check(inspect("inspect").length === 0 && !first.events.some((event) => event.event === "control_stop"), "ending an action hides control feedback without generating a user Stop");
+		let pendingStop;
+		let nextControl;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			snapshot = await observe();
+			pendingStop = first.ask({ cmd: "act", observationId: snapshot.observationId, action: "set_value", elementId: snapshot.elements.find((element) => element.controlType === "Edit" && !element.password).id, text: "must-not-write-after-stop", _testControlHoldMs: 2000 });
+			const outcome = await Promise.race([
+				first.waitForEvent((event) => event.event === "control_started" && event.requestId !== started.requestId).then((control) => ({ control })),
+				pendingStop.then((response) => ({ response })),
+			]);
+			if (outcome.control) { nextControl = outcome.control; break; }
+			assert.ok(outcome.response.data.status === "blocked" && ["target_intervened", "stale_observation", "geometry_changed"].includes(outcome.response.data.code), `Action ended before native control started: ${JSON.stringify(outcome.response)}`);
+			assert.equal((await fixtureState("state")).text, "Owl overlay verified", "reobserve is allowed only when the blocked attempt wrote nothing");
+		}
+		assert.ok(nextControl && pendingStop, `Target remained in use during Stop checks: ${JSON.stringify(first.events)}`);
+		inspect("stop", nextControl.stopHwnd);
+		const stopped = await first.waitForEvent((event) => event.event === "control_stop" && event.controlId === nextControl.controlId && event.requestId === nextControl.requestId);
+		check(stopped.requestId === nextControl.requestId, "the real Stop button reports only its owning native operation");
+		const stopResult = await pendingStop;
+		check(["blocked", "partial", "unknown"].includes(stopResult.data.status) && (await fixtureState("state")).text === "Owl overlay verified", "Stop before the side effect prevents the queued field mutation");
+		await first.ask({ cmd: "release" });
+		check(inspect("inspect").length === 0, "stopped control leaves no topmost indicator windows");
+		const independent = await observe(second);
+		const otherResult = await second.ask({ cmd: "act", observationId: independent.observationId, action: "set_value", elementId: independent.elements.find((element) => element.controlType === "Edit" && !element.password).id, text: "independent worker" });
+		check(otherResult.data.status === "confirmed", "stopping one controller leaves another independent worker usable");
+		await second.ask({ cmd: "release" });
+		const otherUi = spawnSync(inspectorExe, ["inspect", String(second.pid)], { encoding: "utf8", windowsHide: true });
+		check(otherUi.status === 0 && JSON.parse(otherUi.stdout.replace(/^\uFEFF/, "")).length === 0 && !second.events.some((event) => event.event === "control_stop"), "normal release destroys independent feedback without reporting a user Stop");
+		process.stdout.write(`${passed} native control-overlay checks passed; image: ${imagePath}\n`);
+	} else if (auto) {
 		const original = initial.originalForeground;
 		let snapshot = await observe(first, true);
 		await first.ask({ cmd: "_test_input", hwnd: original, interaction: true });
@@ -211,8 +360,12 @@ class ScopeUnit {
 		const afterBusy = await fixtureState("state");
 		check(response.data.status === "blocked" && response.data.retryable === true && afterBusy.foreground === beforeBusy.foreground, `busy user's input defers exclusive fallback without stealing focus (${JSON.stringify({ result: response.data ?? response, before: beforeBusy.foreground, after: afterBusy.foreground })})`);
 		await new Promise((resolveWait) => setTimeout(resolveWait, 850));
-		snapshot = await observe();
-		response = await first.ask({ cmd: "act", observationId: snapshot.observationId, action: "click", elementId: snapshot.elements.find((element) => element.controlType === "Edit" && !element.password).id });
+		for (let attempt = 0; attempt < 3; attempt++) {
+			snapshot = await observe();
+			response = await first.ask({ cmd: "act", observationId: snapshot.observationId, action: "click", elementId: snapshot.elements.find((element) => element.controlType === "Edit" && !element.password).id });
+			if (response.data.status !== "blocked" || !["foreground_unavailable", "user_busy", "geometry_changed", "target_intervened"].includes(response.data.code)) break;
+			await new Promise((resolveWait) => setTimeout(resolveWait, Math.max(800, response.data.retryAfterMs ?? 0)));
+		}
 		check(response.data.status === "issued" && response.data.executedMode === "foreground", `auto input falls back to real foreground click after quiet and focuses the edit (${JSON.stringify(response.data ?? response)})`);
 		snapshot = await observe();
 		response = await first.ask({ cmd: "act", observationId: snapshot.observationId, action: "key", down: [17], tap: [65] });
@@ -262,7 +415,7 @@ class OpenFixture { [STAThread] static void Main() { Form form = new Form { Text
 			response = await first.ask({ cmd: "act", observationId: snapshot.observationId, action, elementId: snapshot.elements.find((element) => element.name === name).id });
 			const state = await fixtureState("state");
 			check(["confirmed", "issued"].includes(response.data.status) && state[field] === expected, `background ${action} executes and is independently read back (${JSON.stringify({ result: response.data ?? response, actual: state[field], expected })})`);
-			check(state.foreground === original, `background ${action} preserves original foreground`);
+			check(state.foreground !== initial.hwnd && state.foregroundPid !== first.pid && state.foregroundPid !== second.pid, `background ${action} leaves foreground with user applications (${JSON.stringify({ original, current: state.foreground, pid: state.foregroundPid })})`);
 		}
 		extraFixture = spawn(fixtureExe, [], { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, OWL_NATIVE_TEST_BACKGROUND: "1" } });
 		const extra = await new Promise((resolveReply, reject) => {

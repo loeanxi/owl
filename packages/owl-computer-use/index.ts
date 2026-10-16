@@ -16,13 +16,16 @@
  * @module owl-computer-use
  */
 import { type ExtensionAPI, subscribeDesktopControlInterruption } from "@owl/owl-coding-agent";
+import { randomUUID } from "node:crypto";
 import { ComputerDriverSession } from "./src/driver/session.ts";
 import { ComputerUseRuntime } from "./src/plugin/runtime.ts";
 import { type ComputerUseSettings } from "./src/plugin/tools.ts";
 import { createComputerTools } from "./src/plugin/tools-v2.ts";
 
 const TASK_GUIDELINES = [
-	"执行当前桌面任务时，先 computer_observe 用 windowQuery 或 windowId 定位目标并加载 computer_act；多个匹配时选择窗口，避免一直观察用户正在使用的无关前台。默认 inputMode:auto，由工具按控件能力优先后台 UIA，必要时选择前台键鼠，无需用户逐步选择模式。用户明确要求只用后台、只操作已有窗口或遇输入就停止时，遵守该限制。",
+	"执行当前桌面任务时，先 computer_observe 用 windowQuery 或 windowId 定位目标并加载 computer_act。窗口列表已有目标（包括最小化窗口）就直接选择它；无关前台发生 read_conflict 时不要继续反复观察 {}。目标应用已有文档时，可以在该应用新建自己的空白标签页并核对空白，不能修改已有文档，也不必反复 open_app。",
+	"默认 inputMode:auto，由工具在动作前验证具体 backend 能否不激活窗口，再选择后台或受保护的前台操作。UIA pattern 存在不代表该提供方能安全后台执行；不要自行强制 background 来绕过 user_busy。显式后台遇 background_backend_unavailable 表示尚未执行，应重新观察并使用 auto，或遵守用户只用后台的限制说明未完成。用户明确要求只操作已有窗口或遇输入就停止时，遵守该限制。",
+	"type 默认保留现有内容并插入，需要前台。已确认是本任务自有空白输入区，或任务明确允许整体替换时，优先用 set_value 一次写入完整目标文字，也可用 type replace:true；换行直接包含在文本中，不必拆成前台按键。type 遇 user_busy 时先重新观察，检查已验证的后台整体替换是否仍满足原任务，再决定切换；用户要求追加或已有文档含其他内容时，不能静默改为整体替换。",
 	"任务明确需要某应用且窗口不存在时，可用 computer_act 的 open_app 与 app 参数打开正常应用，再枚举并核对新窗口；不要要求用户代开能自行打开的应用。open_app 不是 shell 命令入口；不得因目标缺失而向当前无关前台窗口输入。",
 	"read_conflict 或 retryable 表示当前快照/动作需重新观察，不代表整个任务失败。按 nextAction 处理：用户忙时先做可验证的后台步骤，需前台则等待短暂空闲后重新观察；目标、模式或前置条件变化后再重试，不原样循环无效动作。",
 	"用户明确停止、Escape、宿主取消或会话结束必须立即停止并 computer_release；这类停止不能自动恢复。普通输入冲突可重观察恢复，但用户明确要求输入后等待新指令时必须等待。连续无法取得可用控制条件时说明尚未完成和所需条件，不把等待误报为成功。",
@@ -43,9 +46,22 @@ export default function (pi: ExtensionAPI): void {
 	}
 	if (settings.enabled === false) return;
 
-	const session = new ComputerDriverSession();
-	const runtime = new ComputerUseRuntime(session, settings);
 	let lifecycleEpoch = 0;
+	let activeRun: { ownerId: string; abort: () => void } | undefined;
+	const session = new ComputerDriverSession(undefined, {
+		onControlStop(event) {
+			const run = activeRun;
+			if (!run || event.ownerId !== run.ownerId) return;
+			const stopEpoch = ++lifecycleEpoch;
+			activeRun = undefined;
+			// Invalidate synchronously before closing input or aborting the owning agent.
+			runtime.invalidateOwner("user_stopped");
+			session.setControlOwner(undefined);
+			session.close();
+			if (lifecycleEpoch === stopEpoch && activeRun === undefined) run.abort();
+		},
+	});
+	const runtime = new ComputerUseRuntime(session, settings);
 	for (const tool of createComputerTools(runtime)) {
 		pi.registerTool({ ...tool, promptGuidelines: [...TASK_GUIDELINES, ...(tool.promptGuidelines ?? [])] });
 	}
@@ -57,12 +73,21 @@ export default function (pi: ExtensionAPI): void {
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		lifecycleEpoch++;
+		const run = { ownerId: randomUUID(), abort: () => ctx.abort() };
+		activeRun = run;
+		session.setControlOwner(run.ownerId);
 		runtime.beginRun(ctx.sessionManager.getSessionId());
 	});
 	const release = async () => {
 		const cleanupEpoch = ++lifecycleEpoch;
+		activeRun = undefined;
+		session.setControlOwner(undefined);
 		try {
 			await runtime.release();
+		} catch (error) {
+			// A replacement run deliberately closes the old native worker. Its
+			// rejected cleanup belongs to that old epoch and must not fail the new run.
+			if (lifecycleEpoch === cleanupEpoch) throw error;
 		} finally {
 			// A new agent_start may run while native cleanup is awaiting its response.
 			// That old cleanup must not terminate the new run's worker or observations.

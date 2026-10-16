@@ -27,6 +27,8 @@ namespace OwlComputerUse
         private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, string text, uint flags, uint timeout, out IntPtr result);
         [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
         private static extern IntPtr SendMessageTimeoutNative(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+        [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr SendMessageTimeoutText(IntPtr hwnd, uint message, IntPtr wParam, StringBuilder text, uint flags, uint timeout, out IntPtr result);
         [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
 
         [STAThread]
@@ -58,11 +60,13 @@ namespace OwlComputerUse
                     return 0;
                 }
                 uint pid;
+                string processName;
                 GetWindowThreadProcessId(new IntPtr(hwnd), out pid);
                 using (Process process = Process.GetProcessById((int)pid))
                 {
                     if (pid != Convert.ToUInt32(request["pid"]) || process.StartTime.ToUniversalTime().Ticks != Convert.ToInt64(request["started"]))
                     { Write(Result("blocked", "target_replaced")); return 0; }
+                    processName = process.ProcessName;
                 }
                 RECT bounds;
                 Dictionary<string, object> expectedWindow = (Dictionary<string, object>)request["windowRect"];
@@ -89,6 +93,13 @@ namespace OwlComputerUse
                 { Write(Result("blocked", "element_identity_changed")); return 0; }
                 object pattern = null;
                 string action = Convert.ToString(request["action"]);
+                bool planning = action == "plan";
+                if (planning)
+                {
+                    action = request.ContainsKey("requestedAction") ? Convert.ToString(request["requestedAction"]) : "";
+                    if (!new string[] { "invoke", "set_value", "select", "toggle", "scroll" }.Contains(action))
+                    { Write(Result("blocked", "unsupported_action")); return 0; }
+                }
                 AutomationPattern required = action == "invoke" ? InvokePattern.Pattern : action == "set_value" ? ValuePattern.Pattern
                     : action == "select" ? SelectionItemPattern.Pattern : action == "toggle" ? TogglePattern.Pattern : action == "scroll" ? ScrollPattern.Pattern : null;
                 if (required != null && !target.TryGetCurrentPattern(required, out pattern))
@@ -98,7 +109,20 @@ namespace OwlComputerUse
                 IntPtr nativeControl = IntPtr.Zero, notificationParent = IntPtr.Zero;
                 int notificationId = 0;
                 int nativeSelection = -1;
-                if (action == "set_value") nativeControl = NativeChild(target, hwnd, pid, ControlType.Edit, "Edit", "WindowsForms10.EDIT.");
+                bool notepadRichEdit = false;
+                if (action == "set_value")
+                {
+                    nativeControl = NativeChild(target, hwnd, pid, ControlType.Edit, "Edit", "WindowsForms10.EDIT.");
+                    if (nativeControl == IntPtr.Zero)
+                    {
+                        IntPtr candidate = NativeChild(target, hwnd, pid, ControlType.Document, "RichEditD2DPT", null);
+                        if (candidate != IntPtr.Zero && CanUseNotepadRichEdit(processName, WindowClass(new IntPtr(hwnd)),
+                            target.Current.ControlType.ProgrammaticName.Replace("ControlType.", ""), WindowClass(candidate),
+                            !((ValuePattern)pattern).Current.IsReadOnly && (GetWindowLong(candidate, -16) & 0x0800) == 0,
+                            target.Current.IsPassword || (GetWindowLong(candidate, -16) & 0x0020) != 0))
+                        { nativeControl = candidate; notepadRichEdit = true; }
+                    }
+                }
                 else if (action == "invoke" || action == "toggle")
                 {
                     nativeControl = action == "invoke" ? NativeChild(target, hwnd, pid, ControlType.Button, "Button", "WindowsForms10.BUTTON.")
@@ -145,6 +169,28 @@ namespace OwlComputerUse
                         }
                     }
                 }
+                string backend = SelectBackend(action, nativeControl != IntPtr.Zero, nativeSelection, notepadRichEdit);
+                if (!planning && request.ContainsKey("expectedBackend")
+                    && !BackendMatchesExpected(Convert.ToString(request["expectedBackend"]), backend))
+                {
+                    Write(new { status = "blocked", code = "backend_changed", backend = backend, retryable = true,
+                        nextAction = "computer_observe and plan again; the planned backend changed before any action was sent" });
+                    return 0;
+                }
+                bool backgroundSafe = BackendBackgroundSafe(backend);
+                if (planning)
+                {
+                    Write(new { status = "confirmed", code = "action_plan", requestedAction = action,
+                        backend = backend, backgroundSafe = backgroundSafe, requiresExclusive = !backgroundSafe });
+                    return 0;
+                }
+                if (!Convert.ToBoolean(request["exclusive"]) && required != null && !backgroundSafe)
+                {
+                    Write(new { status = "blocked", code = "background_backend_unavailable", backend = backend,
+                        requiresExclusive = true, retryable = true,
+                        nextAction = "computer_observe, then use inputMode auto or foreground when the user is idle; no provider action was sent" });
+                    return 0;
+                }
                 ToggleState beforeToggle = action == "toggle" ? ((TogglePattern)pattern).Current.ToggleState : ToggleState.Off;
                 // All provider queries and native receiver selection precede this last
                 // parent-hook handshake. The setter/notification follows the decision.
@@ -178,6 +224,11 @@ namespace OwlComputerUse
                     ValuePattern value = (ValuePattern)pattern;
                     string text = Convert.ToString(request["text"]);
                     invoked = true;
+                    if (notepadRichEdit)
+                    {
+                        Write(ReplaceNotepadRichEdit(nativeControl, value, text));
+                        return 0;
+                    }
                     if (nativeControl != IntPtr.Zero)
                     {
                         // Select this backend before any setter runs. The standard Win32
@@ -188,7 +239,7 @@ namespace OwlComputerUse
                         { Write(Result("unknown", "value_outcome_unknown")); return 0; }
                     }
                     else value.SetValue(text);
-                    Write(Result(value.Current.Value == text ? "confirmed" : "unknown", "value_readback"));
+                    Write(Result(TextValuesEqual(value.Current.Value, text) ? "confirmed" : "unknown", "value_readback"));
                 }
                 else if (action == "select" && pattern != null)
                 {
@@ -268,7 +319,83 @@ namespace OwlComputerUse
             StringBuilder name = new StringBuilder(256);
             GetClassName(control, name, name.Capacity);
             string className = name.ToString();
-            return className.Equals(nativeName, StringComparison.OrdinalIgnoreCase) || className.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase) ? control : IntPtr.Zero;
+            return className.Equals(nativeName, StringComparison.OrdinalIgnoreCase)
+                || (!String.IsNullOrEmpty(managedPrefix) && className.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase)) ? control : IntPtr.Zero;
+        }
+
+        private static string WindowClass(IntPtr hwnd)
+        {
+            StringBuilder name = new StringBuilder(256);
+            return GetClassName(hwnd, name, name.Capacity) > 0 ? name.ToString() : "";
+        }
+
+        private static bool CanUseNotepadRichEdit(string process, string rootClass, string controlType, string childClass, bool writable, bool password)
+        {
+            return writable && !password && process.Equals("Notepad", StringComparison.OrdinalIgnoreCase)
+                && rootClass.Equals("Notepad", StringComparison.OrdinalIgnoreCase) && controlType == "Document"
+                && childClass.Equals("RichEditD2DPT", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string SelectBackend(string action, bool nativeControl, int nativeSelection, bool notepadRichEdit)
+        {
+            if (action == "set_value" && nativeControl) return notepadRichEdit ? "notepad_richedit_message" : "win32_edit_message";
+            if (action == "invoke" && nativeControl) return "win32_button_notify";
+            if (action == "toggle" && nativeControl) return "win32_checkbox_message";
+            if (action == "select" && nativeSelection >= 0) return "win32_listbox_message";
+            return "uia_provider";
+        }
+
+        private static bool BackendBackgroundSafe(string backend)
+        {
+            // Owned-tab probes verified the strict Notepad receiver's nonactivation,
+            // native/UIA text, application dirty state and tab-switch persistence.
+            return backend == "win32_edit_message" || backend == "win32_button_notify"
+                || backend == "win32_checkbox_message" || backend == "win32_listbox_message"
+                || backend == "notepad_richedit_message";
+        }
+
+        private static bool BackendMatchesExpected(string expected, string actual)
+        {
+            return String.Equals(expected, actual, StringComparison.Ordinal);
+        }
+
+        private static bool TextValuesEqual(string expected, string actual)
+        {
+            return (expected ?? "").Replace("\r\n", "\n").Replace("\r", "\n")
+                == (actual ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+        }
+
+        private static bool ReadNativeText(IntPtr control, out string text)
+        {
+            text = null;
+            IntPtr length;
+            if (SendMessageTimeoutNative(control, 0x000e, IntPtr.Zero, IntPtr.Zero, 0x0002 | 0x0020, 2000, out length) == IntPtr.Zero
+                || length.ToInt64() < 0 || length.ToInt64() > 1048576) return false;
+            StringBuilder buffer = new StringBuilder((int)length.ToInt64() + 1);
+            IntPtr copied;
+            if (SendMessageTimeoutText(control, 0x000d, new IntPtr(buffer.Capacity), buffer, 0x0002 | 0x0020, 2000, out copied) == IntPtr.Zero
+                || copied.ToInt64() < 0 || copied.ToInt64() >= buffer.Capacity) return false;
+            text = buffer.ToString();
+            return true;
+        }
+
+        private static object ReplaceNotepadRichEdit(IntPtr control, ValuePattern value, string text)
+        {
+            // This method is shared by production set_value and an independently guarded
+            // owned-document probe through that same helper request. It never focuses,
+            // changes the event mask or fabricates a parent notification.
+            IntPtr processed;
+            if (SendMessageTimeoutNative(control, 0x00b1, IntPtr.Zero, new IntPtr(-1), 0x0002 | 0x0020, 2000, out processed) == IntPtr.Zero)
+                return Result("unknown", "selection_outcome_unknown");
+            // Selecting is already a side effect. A second handshake fences real user
+            // input before replacement; interruption must never select another executor.
+            Write(new { @event = "guard_ready" });
+            if (Console.ReadLine() != "continue") return Result("partial", "selection_interrupted");
+            if (SendMessageTimeout(control, 0x00c2, new IntPtr(1), text, 0x0002 | 0x0020, 2000, out processed) == IntPtr.Zero)
+                return Result("unknown", "value_outcome_unknown");
+            string nativeText;
+            if (!ReadNativeText(control, out nativeText)) return Result("unknown", "value_native_readback_unknown");
+            return Result(TextValuesEqual(text, nativeText) && TextValuesEqual(text, value.Current.Value) ? "confirmed" : "unknown", "value_readback");
         }
 
         private static bool PhysicalWindowRect(IntPtr hwnd, out RECT rect)

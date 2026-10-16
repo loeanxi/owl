@@ -1,9 +1,9 @@
-.owl-sidebar .owl-session-search-panel {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-panel {
 	min-width: 0;
 	padding-bottom: 16px;
 }
 
-.owl-sidebar .owl-session-search-filters {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-filters {
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
@@ -11,7 +11,7 @@
 	padding: 2px 3px 14px;
 }
 
-.owl-sidebar .owl-session-search-scope {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-scope {
 	display: flex;
 	width: 100%;
 	gap: 3px;
@@ -20,7 +20,7 @@
 	background: var(--owl-ui-panel, var(--color-owl-sidebar-surface));
 }
 
-.owl-sidebar .owl-session-search-scope button {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-scope button {
 	flex: 1 1 0;
 	min-width: 0;
 	min-height: 30px;
@@ -30,17 +30,17 @@
 	font-size: 12px;
 }
 
-.owl-sidebar .owl-session-search-scope button[aria-pressed="true"] {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-scope button[aria-pressed="true"] {
 	background: var(--owl-navigation-selection, var(--color-owl-sidebar-hover));
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-session-search-scope button:disabled {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-scope button:disabled {
 	opacity: 0.45;
 	cursor: default;
 }
 
-.owl-sidebar .owl-session-search-archive {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-archive {
 	display: flex;
 	align-items: center;
 	gap: 7px;
@@ -50,11 +50,11 @@
 	cursor: pointer;
 }
 
-.owl-sidebar .owl-session-search-archive input {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-archive input {
 	accent-color: var(--color-owl-accent);
 }
 
-.owl-sidebar .owl-session-search-heading {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-heading {
 	display: flex;
 	justify-content: space-between;
 	gap: 8px;
@@ -64,17 +64,17 @@
 	font-weight: 500;
 }
 
-.owl-sidebar .owl-session-search-panel section + section {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-panel section + section {
 	margin-top: 20px;
 }
 
-.owl-sidebar .owl-session-search-results {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-results {
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
-.owl-sidebar .owl-session-search-hit {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-hit {
 	display: flex;
 	width: 100%;
 	min-width: 0;
@@ -87,26 +87,26 @@
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-session-search-hit:hover,
-.owl-sidebar .owl-session-search-more:hover,
-.owl-sidebar .owl-session-search-error button:hover {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-hit:hover,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-more:hover,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-error button:hover {
 	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
 }
 
-.owl-sidebar .owl-session-search-title,
-.owl-sidebar .owl-session-search-project {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-title,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-project {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.owl-sidebar .owl-session-search-title {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-title {
 	font-size: 12px;
 	font-weight: 500;
 	line-height: 1.4;
 }
 
-.owl-sidebar .owl-session-search-meta {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-meta {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
@@ -116,27 +116,27 @@
 	line-height: 1.5;
 }
 
-.owl-sidebar .owl-session-search-meta time {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-meta time {
 	margin-left: auto;
 }
 
-.owl-sidebar .owl-session-search-source {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-source {
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-session-search-archived {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-archived {
 	padding: 0 4px;
 	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
 	border-radius: 3px;
 }
 
-.owl-sidebar .owl-session-search-project {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-project {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 	font-size: 10px;
 	line-height: 1.5;
 }
 
-.owl-sidebar .owl-session-search-excerpt {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-excerpt {
 	display: -webkit-box;
 	overflow: hidden;
 	-webkit-box-orient: vertical;
@@ -148,34 +148,34 @@
 	white-space: pre-wrap;
 }
 
-.owl-sidebar .owl-session-search-excerpt mark {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-excerpt mark {
 	border-radius: 2px;
 	background: color-mix(in srgb, var(--color-owl-accent) 24%, transparent);
 	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
 }
 
-.owl-sidebar .owl-session-search-role {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-role {
 	font-size: 11px;
 }
 
-.owl-sidebar .owl-session-search-status,
-.owl-sidebar .owl-session-search-error,
-.owl-sidebar .owl-session-search-limit {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-status,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-error,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-limit {
 	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
 	font-size: 12px;
 	line-height: 1.65;
 	overflow-wrap: anywhere;
 }
 
-.owl-sidebar .owl-session-search-status p,
-.owl-sidebar .owl-session-search-error,
-.owl-sidebar .owl-session-search-limit {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-status p,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-error,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-limit {
 	margin: 0;
 	padding: 7px 6px;
 }
 
-.owl-sidebar .owl-session-search-error button,
-.owl-sidebar .owl-session-search-more {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-error button,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-more {
 	min-height: 32px;
 	margin-top: 6px;
 	padding: 5px 9px;
@@ -185,8 +185,8 @@
 	font-size: 12px;
 }
 
-.owl-sidebar .owl-session-search-panel button:focus-visible,
-.owl-sidebar .owl-session-search-archive input:focus-visible {
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-panel button:focus-visible,
+:is(.owl-sidebar, .owl-session-search-dialog) .owl-session-search-archive input:focus-visible {
 	outline: 2px solid var(--color-owl-accent);
 	outline-offset: 2px;
 }

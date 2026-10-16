@@ -176,21 +176,46 @@ function benignExitStatus(command: string, exitCode: number, output: string): st
 	return kind === "diff" ? DIFF_STATUS : GREP_NO_MATCH_STATUS;
 }
 
-/** 只读 git 查询；允许 git -C / --git-dir 这类选项出现在子命令前，commit、push 等写操作对不上子命令名。 */
+/** Legacy matcher retained for stderr-silenced probes; do not broaden inference without diagnostics. */
 const READ_ONLY_GIT = /\bgit\b(?:\s+-[^\s;|&]+)*\s+(?:status|log|rev-parse|diff|show|ls-files|branch|remote)\b/;
+
+/** Known query verbs and understood global options, used only with an explicit Git diagnostic. */
+const DIAGNOSED_READ_ONLY_GIT =
+	/^git(?:\s+(?:-C(?:\s+\S+|\S+)|--(?:git-dir|work-tree)(?:=\S+|\s+\S+)|--(?:no-pager|no-optional-locks)))*\s+(?:status|log|rev-parse|diff|show|ls-files)(?:\s|$)/;
 
 /** 自身不会以 128 退出的探路段。 */
 const PATH_PROBE_COMMAND = /^(?:cd|ls|echo|pwd|printf)$/;
 
 /**
- * 只读 git 查询报「不是仓库」是探路答案。commit/push 等写操作的 128 仍是失败。
- * `git log 2>/dev/null` 会把报错压掉：最后一条语句以带 `2>/dev/null` 的只读 git 收尾、
- * 前面只有 cd/ls/echo 这类探路段或只读 git 时，128 只能来自 git 拒绝该目录，同样是答案。
+ * Explicit diagnostics permit known query options, including -C paths, while rejecting mixed writes.
+ * Stderr-silenced probes keep the legacy matcher; new path forms do not broaden that inference.
  */
 function gitNotRepositoryStatus(command: string, exitCode: number, output: string): string | undefined {
 	if (exitCode !== 128) return undefined;
 	if (/not a git repository/i.test(output)) {
-		if (!READ_ONLY_GIT.test(command)) return undefined;
+		if (statusStatement(command) === undefined) return undefined;
+		const fatalLines = output.match(/^fatal:[^\r\n]*$/gim);
+		if (!fatalLines?.length || !fatalLines.every((line) => /^fatal:[ \t]+not a git repository\b/i.test(line)))
+			return undefined;
+		// Inspect output-file options before masking quoted arguments, including "--output=...".
+		if (/(?:^|\s)["']?--output(?:=|["']?(?=\s|$))/.test(command)) return undefined;
+		const masked = withoutQuotedText(command.trim());
+		// Output-file redirects are not read-only; merging stderr or discarding to null is safe.
+		const cleaned = masked.replace(/\d*>&\d+|\d*>\s*\/dev\/null/g, " ");
+		if (/[<>]/.test(cleaned)) return undefined;
+		const pieces = cleaned
+			.split(/\n|;|&&|\|\||\|/)
+			.map((piece) => piece.trim())
+			.filter(Boolean);
+		let hasQuery = false;
+		for (const piece of pieces) {
+			if (DIAGNOSED_READ_ONLY_GIT.test(piece) && !/\s--output(?:=|\s|$)/.test(piece)) {
+				hasQuery = true;
+				continue;
+			}
+			if (!PATH_PROBE_COMMAND.test(commandName(piece)) && !/^(?:head|tail)(?:\s|$)/.test(piece)) return undefined;
+		}
+		if (!hasQuery) return undefined;
 		return "Command exited with code 128 (not a git repository — an answer, not a shell failure). Don't retry the same git command in this directory; cd to the repo root or inspect the path.";
 	}
 	const statement = withoutQuotedText(command.trim())
@@ -262,8 +287,10 @@ export const bashToolSystemPromptContribution = {
 		"You can inspect PI_* environment variables for current model and session details.",
 		"Each bash call starts a new shell in the session working directory; a `cd` does not carry over to the next call. Use paths relative to the working directory or absolute paths, and prefix `cd <dir> &&` only when the command must run inside that directory (e.g. a package's npm or test scripts).",
 		"Verify with the narrowest check that covers your change: run the test files for the code you touched, not a whole package or the full suite, unless the user asks for it. Do not rerun an identical command expecting a different result; change something first.",
+		"For Python projects, prefer the declared project interpreter or a verified .venv interpreter. Check optional module availability with that interpreter and importlib.util.find_spec, for example `python -c \"import importlib.util; print('pytest available' if importlib.util.find_spec('pytest') is not None else 'pytest missing')\"`; a missing optional module should print missing and exit 0. Do not run an unconfirmed module with `python -m pytest --version` merely to check availability. Report missing dependencies and handle them only as authorized by the user; do not automatically install global dependencies or suppress actual execution failures.",
 		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. diff/cmp exit 1 when the inputs differ, and `cmd | head` can end with 141 (SIGPIPE) once head has enough lines; both are answers. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers too — read the output instead of retrying the same command.",
 		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
+		"On Windows, avoid nesting JavaScript source inside PowerShell command strings. PowerShell does not use backslash to escape double quotes: place JavaScript in a .cjs/.mjs file and invoke it with separate arguments. Prefer powershell -File over stacking Bash, PowerShell and JavaScript quoting. Before running a generated multi-process or window probe, syntax-check its PowerShell file with Parser.ParseFile without executing it and its JavaScript file with node --check.",
 		"Java on Windows: JDK 8 defaults to the GBK code page, so compile with `javac -encoding UTF-8 -J-Dfile.encoding=UTF-8`, run with `java -Dfile.encoding=UTF-8`, and give javap/jar `-J-Dfile.encoding=UTF-8` too; otherwise UTF-8 sources with Chinese fail to compile and diagnostics come back garbled. A throwaway main() that creates a thread pool or other non-daemon threads must end with System.exit(0), or the JVM never exits and the call hangs.",
 		"Ask the build tool where its files are instead of searching the disk: for a Maven project's jars run `mvn dependency:build-classpath -Dmdep.outputFile=<file>` (settings.xml can move the local repository away from ~/.m2). Never run find over a whole drive or home directory. If `mvn -o` fails on a missing artifact or plugin, rerun once without -o.",
 		"Bash runs with `set -o pipefail`: a failing producer in a pipeline (`cmd | head`) makes the whole command fail even if head exits 0. Prefer that over relying on PIPESTATUS.",

@@ -26,6 +26,9 @@ import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
 import { startPointerDrag, type PointerDragHandlers } from "./pointer-drag.ts";
 import { CONVERSATION_MIN_HEIGHT, CONVERSATION_MIN_WIDTH, fitPaneSize, WORKBENCH_MIN_HEIGHT, WORKBENCH_MIN_WIDTH, workbenchDock } from "./pane-sizing.ts";
 import { usePaneContainer } from "./use-pane-container.ts";
+import { WorkbenchTools } from "./WorkbenchTools.tsx";
+import { EditorCloseDialog } from "./EditorCloseDialog.tsx";
+import { EditorDraftRecovery } from "./EditorDraftRecovery.tsx";
 import "./workbench-design.css";
 import "./responsive-panes.css";
 
@@ -42,6 +45,8 @@ export interface WorkbenchProps {
 	client: BridgeClient;
 	/** 项目目录（App 显式跟踪的工作区）。 */
 	cwd: string;
+	profile?: string;
+	connected?: boolean;
 	/** App 持有的 store（与开始页快捷入口共用同一实例）。 */
 	store: SidebarStore;
 	open: boolean;
@@ -78,14 +83,13 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "tools", developerLayout = false, onToChat }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", developerLayout = false, onToChat }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
 	const state = useSidebarState(store);
 	const terminalOnly = role === "terminal";
 	const activeTab = state.tabs.find((tab) => tab.id === state.activeId);
-	const activeDefinition = activeTab === undefined ? undefined : registry.byKind.get(activeTab.kind);
 	// 侧边卡片配置（设置页「侧边卡片」）：工具行/空态卡片的可见性与文件预览回退
 	const cfg = useSidebarConfig();
 	// 本实例可装的 tab kind：底栏只装终端，侧栏装其余工具（终端归底栏专管）。
@@ -317,6 +321,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 			api,
 			store,
 			cwd,
+			profile,
 			client,
 			tab: state.tabs.find((tab) => tab.id === tabId)!,
 			onOpenFile: openFile,
@@ -324,7 +329,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 			onGitRefresh: refreshGit,
 			...(onToChat !== undefined ? { onToChat } : {}),
 		}),
-		[api, store, cwd, client, state.tabs, openFile, gitStatus, refreshGit, onToChat],
+		[api, store, cwd, profile, client, state.tabs, openFile, gitStatus, refreshGit, onToChat],
 	);
 
 	// -- 拖拽调宽 / 调高（工作台外壳；每次手势持有独立尺寸，结束时持久化） ----
@@ -523,6 +528,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 			data-responsive-dock={compact ? "bottom" : undefined}
 			style={effectiveDock === "right" ? { width: displayWidth } : { height: displayHeight }}
 		>
+			<EditorCloseDialog store={store} />
 			{/* 拖拽条：右停靠在左缘调宽，底停靠在顶缘调高 */}
 			{effectiveDock === "right" ? (
 				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="vertical" data-workbench-size-handle="right" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 left-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
@@ -532,9 +538,9 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 
 			{/* 工作台标题、工具入口与固定停靠操作 */}
 			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
-				<div className="owl-workbench-heading" title={activeTab?.title ?? (terminalOnly ? t("start.terminal") : t("wb.workbench"))}>
-					{activeDefinition?.icon(14) ?? (terminalOnly ? <IconTerminal size={14} /> : <IconPanelRight size={14} />)}
-					<span>{terminalOnly ? activeTab?.title ?? t("start.terminal") : developerLayout ? t("app.developerTrigger") : activeTab?.title ?? t("wb.workbench")}</span>
+				<div className="owl-workbench-heading" title={terminalOnly ? t("start.terminal") : t("wb.workbench")}>
+					{terminalOnly ? <IconTerminal size={14} /> : <IconPanelRight size={14} />}
+					<span>{terminalOnly ? t("start.terminal") : t("wb.workbench")}</span>
 				</div>
 				{terminalOnly ? (
 					/* 终端底栏：唯一入口是「新建终端」（多实例，可拖拽分屏） */
@@ -544,23 +550,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 						</button>
 					</div>
 				) : (
-					<div className="owl-workbench-shortcuts" aria-label={t("wb.toolsAria")}>
-						{QUICK_ACTIONS.filter((action) => !action.disabled && kindAllowed(action.kind)).map((action) => {
-							const active = activeTab?.kind === action.kind;
-							return (
-								<button
-									key={action.kind}
-									type="button"
-									title={action.label}
-									aria-label={action.label}
-									className={`owl-workbench-icon-button ${active ? "is-active" : ""}`}
-									onClick={() => openQuickAction(store, action.kind)}
-								>
-									{action.icon(15)}
-								</button>
-							);
-						})}
-					</div>
+					<WorkbenchTools store={store} activeKind={activeTab?.kind} width={effectiveDock === "right" ? displayWidth : containerSize?.width ?? width} kindAllowed={kindAllowed} />
 				)}
 				<div className="owl-workbench-dock-actions">
 					<button type="button" title={terminalOnly ? t("wb.closeTerminal") : t("wb.closeWorkbench")} aria-label={terminalOnly ? t("wb.closeTerminal") : t("wb.closeWorkbench")} className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
@@ -569,6 +559,7 @@ export function Workbench({ client, cwd, store, open, onSetOpen, dock, role = "t
 				</div>
 			</div>
 
+			{!terminalOnly && <EditorDraftRecovery client={client} cwd={cwd} profile={profile} connected={connected} store={store} enabled={kindAllowed("editor") && !cfg.disabledViewers.includes("editor")} onOpen={() => onSetOpen(true)} />}
 			{/* 内容：split tree（空 leaf 显示入口卡片） */}
 			<div className="flex min-h-0 flex-1 flex-col">{renderNode(state.tree, { flex: "1 1 0%" })}</div>
 

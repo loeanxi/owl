@@ -1,6 +1,7 @@
 import { getUiLanguage, useT } from "../i18n/index.ts";
 const zh = {
-	pin: "置顶", unpin: "取消置顶", edit: "编辑", section: "分区", defaultSection: "项目", newSection: "新建分区",
+	showMoreSessions: "再显示 {n} 条", collapseSessions: "收起",
+	edit: "编辑", section: "分区", defaultSection: "项目", newSection: "新建分区",
 	reveal: "在资源管理器中打开", markAllRead: "全部标为已读", archiveChats: "归档聊天", removeProject: "移除项目",
 	organize: "整理侧边栏", projects: "分项目显示", merged: "合并显示", sort: "聊天排序方式", recent: "最近活动", name: "名称", oldest: "最早创建",
 	standalone: "未关联项目",
@@ -10,7 +11,8 @@ const zh = {
 	removeTitle: "移除项目", removeHint: "从侧栏移除此项目，文件夹和聊天记录会保留。", working: "处理中…", archiveResult: "已归档 {done} 个聊天，{failed} 个失败，保留 {running} 个运行中的聊天。", allRead: "该项目的聊天已全部标为已读。",
 } as const;
 const en: Record<keyof typeof zh, string> = {
-	pin: "Pin", unpin: "Unpin", edit: "Edit", section: "Section", defaultSection: "Projects", newSection: "New section",
+	showMoreSessions: "Show {n} more", collapseSessions: "Show less",
+	edit: "Edit", section: "Section", defaultSection: "Projects", newSection: "New section",
 	reveal: "Open in File Explorer", markAllRead: "Mark all as read", archiveChats: "Archive chats", removeProject: "Remove project",
 	organize: "Organize sidebar", projects: "Group by project", merged: "Combined view", sort: "Chat sort order", recent: "Recent activity", name: "Name", oldest: "Oldest created",
 	standalone: "No project",

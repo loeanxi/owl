@@ -18,6 +18,10 @@ $ErrorActionPreference = 'Stop'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-JsonLine([string]$line) {
+	if ('OwlComputerUse.NativeProtocol' -as [type]) {
+		[OwlComputerUse.NativeProtocol]::WriteJsonLine($line)
+		return
+	}
 	$bytes = $Utf8NoBom.GetBytes($line + [Environment]::NewLine)
 	$stdout = [Console]::OpenStandardOutput()
 	$stdout.Write($bytes, 0, $bytes.Length)
@@ -68,6 +72,9 @@ namespace OwlComputerUse.Win32
 
     public static class WindowTools
     {
+        public static Func<long, bool> IgnoreWindow;
+        public static Func<int, int, long> HitTestWindow;
+        public static string LastFocusDiagnostics = "";
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int left; public int top; public int right; public int bottom; }
 
@@ -83,13 +90,16 @@ namespace OwlComputerUse.Win32
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, IntPtr processIdOut);
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
-        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool SetForegroundWindow(IntPtr hwnd);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool BringWindowToTop(IntPtr hwnd);
+        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetActiveWindow(IntPtr hwnd);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
         [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT point);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
-        [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool AttachThreadInput(uint from, uint to, bool attach);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [DllImport("kernel32.dll")] private static extern void SetLastError(uint error);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int x; public int y; }
@@ -107,7 +117,7 @@ namespace OwlComputerUse.Win32
             POINT point = new POINT();
             point.x = x;
             point.y = y;
-            IntPtr hwnd = WindowFromPoint(point);
+            IntPtr hwnd = HitTestWindow == null ? WindowFromPoint(point) : new IntPtr(HitTestWindow(x, y));
             if (hwnd == IntPtr.Zero) return Describe(IntPtr.Zero);
             IntPtr root = GetAncestor(hwnd, 2); // GA_ROOT：点在子控件上时归到顶层窗口
             return Describe(root == IntPtr.Zero ? hwnd : root);
@@ -151,6 +161,7 @@ namespace OwlComputerUse.Win32
             s_foreground = GetForegroundWindow();
             EnumWindows(delegate(IntPtr hwnd, IntPtr lparam)
             {
+                if (IgnoreWindow != null && IgnoreWindow(hwnd.ToInt64())) return true;
                 if (!IsWindowVisible(hwnd)) return true;
                 if (IsIconic(hwnd))
                 {
@@ -205,6 +216,11 @@ namespace OwlComputerUse.Win32
         public static bool Focus(long hwnd)
         {
             IntPtr target = new IntPtr(hwnd);
+            StringBuilder diagnostics = new StringBuilder();
+            uint targetPid;
+            uint targetThread = GetWindowThreadProcessId(target, out targetPid);
+            diagnostics.Append("target=").Append(hwnd).Append(" targetPid=").Append(targetPid).Append(" targetThread=").Append(targetThread);
+            LastFocusDiagnostics = diagnostics.ToString();
             if (IsIconic(target)) ShowWindow(target, SW_RESTORE);
             // 验证式聚焦：前台锁容易被调用方（如全屏应用、通知中心）立刻抢回，
             // SetForegroundWindow 的返回值不可信 —— 每次 attempt 后以
@@ -214,21 +230,60 @@ namespace OwlComputerUse.Win32
                 IntPtr foreground = GetForegroundWindow();
                 if (foreground == target) return true;
 
-                uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+                uint foregroundPid;
+                uint foregroundThread = GetWindowThreadProcessId(foreground, out foregroundPid);
                 uint currentThread = GetCurrentThreadId();
                 bool attached = false;
+                int attachError = 0;
                 if (foregroundThread != 0 && foregroundThread != currentThread)
+                {
+                    SetLastError(0);
                     attached = AttachThreadInput(currentThread, foregroundThread, true);
+                    attachError = Marshal.GetLastWin32Error();
+                }
+                bool requested = false;
+                int foregroundError = 0;
+                bool targetAttached = false, brought = false;
+                int targetAttachError = 0, bringError = 0, activeError = 0;
+                IntPtr activePrevious = IntPtr.Zero;
                 try
                 {
-                    SetForegroundWindow(target);
+                    if (targetThread != 0 && targetThread != currentThread && (!attached || targetThread != foregroundThread))
+                    {
+                        SetLastError(0);
+                        targetAttached = AttachThreadInput(currentThread, targetThread, true);
+                        targetAttachError = Marshal.GetLastWin32Error();
+                    }
+                    if (GetForegroundWindow() != target)
+                    {
+                        SetLastError(0); brought = BringWindowToTop(target); bringError = Marshal.GetLastWin32Error();
+                    }
+                    if (GetForegroundWindow() != target)
+                    {
+                        SetLastError(0); activePrevious = SetActiveWindow(target); activeError = Marshal.GetLastWin32Error();
+                    }
+                    if (GetForegroundWindow() != target)
+                    {
+                        SetLastError(0); requested = SetForegroundWindow(target); foregroundError = Marshal.GetLastWin32Error();
+                    }
                 }
                 finally
                 {
+                    if (targetAttached) AttachThreadInput(currentThread, targetThread, false);
                     if (attached) AttachThreadInput(currentThread, foregroundThread, false);
                 }
                 System.Threading.Thread.Sleep(90);
-                if (GetForegroundWindow() == target) return true;
+                IntPtr actual = GetForegroundWindow();
+                uint actualPid; GetWindowThreadProcessId(actual, out actualPid);
+                diagnostics.Append("; attempt=").Append(attempt + 1).Append(" currentThread=").Append(currentThread)
+                    .Append(" before=").Append(foreground.ToInt64()).Append(" beforePid=").Append(foregroundPid)
+                    .Append(" beforeThread=").Append(foregroundThread).Append(" attached=").Append(attached)
+                    .Append(" attachError=").Append(attachError).Append(" targetAttached=").Append(targetAttached)
+                    .Append(" targetAttachError=").Append(targetAttachError).Append(" brought=").Append(brought).Append(" bringError=").Append(bringError)
+                    .Append(" activePrevious=").Append(activePrevious.ToInt64()).Append(" activeError=").Append(activeError).Append(" setForeground=").Append(requested)
+                    .Append(" foregroundError=").Append(foregroundError).Append(" after=").Append(actual.ToInt64()).Append(" afterPid=").Append(actualPid);
+                LastFocusDiagnostics = diagnostics.ToString();
+                if (actual == target) return true;
 
                 // Do not send an untagged ALT into a different foreground application.
             }
@@ -244,7 +299,15 @@ Add-Type -TypeDefinition $user32 -Language CSharp
 # ---------------------------------------------------------------------------
 function Get-KernelAssembly {
 	$csPath = Join-Path $PSScriptRoot 'computer-kernel.cs'
-	$csBytes = [IO.File]::ReadAllBytes($csPath)
+	$overlayPath = Join-Path $PSScriptRoot 'computer-control-overlay.cs'
+	$sourceBytes = New-Object IO.MemoryStream
+	try {
+		foreach ($name in @('computer-kernel.cs', 'computer-control-overlay.cs', 'computer-uia.cs')) {
+			$bytes = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot $name))
+			$sourceBytes.Write($bytes, 0, $bytes.Length)
+		}
+		$csBytes = $sourceBytes.ToArray()
+	} finally { $sourceBytes.Dispose() }
 	$sha = [System.Security.Cryptography.SHA256]::Create()
 	try {
 		$hash = ([System.BitConverter]::ToString($sha.ComputeHash($csBytes))).Replace('-', '').Substring(0, 16).ToLower()
@@ -264,7 +327,7 @@ function Get-KernelAssembly {
 	if (-not $csc) { throw 'csc.exe (net48) not found' }
 
 	New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-	$stdout = & $csc -nologo -target:library ('-out:' + $dllPath) '-r:System.Drawing.dll' $csPath 2>&1
+	$stdout = & $csc -nologo -target:library ('-out:' + $dllPath) '-r:System.Drawing.dll' '-r:System.Windows.Forms.dll' $csPath $overlayPath 2>&1
 	if (-not (Test-Path $dllPath)) {
 		$detail = ($stdout | Out-String)
 		throw ('computer-use kernel compile failed: ' + $detail.Substring(0, [Math]::Min(600, $detail.Length)))
@@ -277,6 +340,9 @@ function Get-KernelAssembly {
 # ---------------------------------------------------------------------------
 try {
 	[Reflection.Assembly]::Load([byte[]](Get-KernelAssembly)) | Out-Null
+	$overlayType = [OwlComputerUse.ControlOverlay]
+	[OwlComputerUse.Win32.WindowTools]::IgnoreWindow = [Delegate]::CreateDelegate([Func[long,bool]], $overlayType.GetMethod('RecognizesWindow'))
+	[OwlComputerUse.Win32.WindowTools]::HitTestWindow = [Delegate]::CreateDelegate([Func[int,int,long]], $overlayType.GetMethod('WindowAtPoint'))
 	[OwlComputerUse.Kernel]::Initialize()
 	[OwlComputerUse.DesktopGuard]::Start()
 	Write-JsonLine '{"event":"ready"}'
@@ -352,15 +418,17 @@ function Get-UiaExecutable {
 }
 
 function Invoke-Uia($request) {
-	if ($request.action -eq 'observe') {
+	$readOnly = $request.action -in @('observe', 'plan')
+	if ($readOnly) {
 		$result = [OwlComputerUse.DesktopGuard]::RunChild((Get-UiaExecutable), ($request | ConvertTo-Json -Depth 12 -Compress), 8000)
 	} else {
 		$result = [OwlComputerUse.DesktopGuard]::RunChild((Get-UiaExecutable), ($request | ConvertTo-Json -Depth 12 -Compress), 8000,
-			[long]$request.hwnd, [long]$request.windowRevision, [long]$request.globalRevision, [bool]$request.exclusive)
+			[long]$request.hwnd, [long]$request.windowRevision, [long]$request.globalRevision, [bool]$request.exclusive,
+			[bool]$request.showControl, [long]$request.controlRequestId, [string]$request.controlMode, [int]$request.testHoldMs)
 	}
-	if ($result.TimedOut) { return @{ status = 'unknown'; code = 'uia_timeout'; message = 'UIA provider timed out; no fallback was executed.' } }
+	if ($result.TimedOut) { return @{ status = $(if ($request.action -eq 'plan') { 'blocked' } else { 'unknown' }); code = $(if ($request.action -eq 'plan') { 'uia_plan_timeout' } else { 'uia_timeout' }); message = 'UIA helper timed out; no fallback was executed.' } }
 	if ($result.ExitCode -ne 0 -or -not $result.Output.Trim()) {
-		return @{ status = $(if ($request.action -eq 'observe' -or $request.action -eq 'validate') { 'blocked' } else { 'unknown' }); code = 'uia_unavailable'; message = 'UIA helper could not return a result; no fallback was executed.' }
+		return @{ status = $(if ($readOnly -or $request.action -eq 'validate') { 'blocked' } else { 'unknown' }); code = 'uia_unavailable'; message = 'UIA helper could not return a result; no fallback was executed.' }
 	}
 	return $result.Output | ConvertFrom-Json
 }
@@ -395,6 +463,7 @@ function Import-CaptureKernel([string]$source) {
 }
 
 function Get-WindowIdentity([long]$hwnd) {
+	if ([OwlComputerUse.ControlOverlay]::RecognizesWindow($hwnd)) { throw 'control_overlay_is_not_an_application_target' }
 	if (-not [OwlComputerUse.DesktopGuard]::Exists($hwnd)) { throw 'target_gone' }
 	$row = [OwlComputerUse.Win32.WindowTools]::Describe([IntPtr]$hwnd)
 	$process = [Diagnostics.Process]::GetProcessById($row.Pid)
@@ -497,7 +566,63 @@ function New-ActBlock([string]$code, [string]$message, [string]$next = 'computer
 	return $result
 }
 
-function Invoke-AppOpen($request, [string]$mode) {
+function Get-ControlHold($request) {
+	$hold = 0
+	if ($env:OWL_COMPUTER_USE_NATIVE_TEST -eq '1') {
+		[void][int]::TryParse([string]$request._testControlHoldMs, [ref]$hold)
+	}
+	return [Math]::Max(0, [Math]::Min(2000, $hold))
+}
+
+function Start-Control($request, [string]$mode, [long]$hwnd) {
+	$began = [OwlComputerUse.ControlOverlay]::Begin($mode, $hwnd, [long]$request.id)
+	if ($began) { [OwlComputerUse.DesktopGuard]::HoldForControlTest((Get-ControlHold $request)) }
+	return -not [OwlComputerUse.DesktopGuard]::StopRequested
+}
+
+function Wait-ForegroundIdle($observation, [string]$mode, [bool]$bindTarget = $true) {
+	$clock = [Diagnostics.Stopwatch]::StartNew()
+	# The default native request budget is 20 seconds. Planning and this wait
+	# share eight seconds, leaving time for focus, the HUD and the UIA child.
+	$waitBudget = 8000
+	if ($script:ActionClock) { $waitBudget = [Math]::Max(0, 8000 - [long]$script:ActionClock.ElapsedMilliseconds) }
+	while ($true) {
+		$script:Execution.idleWaitMs = [long]$clock.ElapsedMilliseconds
+		if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false; message = 'Desktop control was explicitly stopped while waiting for idle.' } }
+		if (-not [OwlComputerUse.DesktopGuard]::Monitoring) { return New-ActBlock 'input_monitor_unavailable' 'Desktop input monitoring is unavailable; no foreground control was acquired.' 'restart the driver and reobserve' }
+		if (([DateTime]::UtcNow - $observation.created).TotalSeconds -gt 120) { return New-ActBlock 'observation_expired' 'The observation expired while waiting for idle; reobserve.' }
+		if ($mode -eq 'foreground' -and [OwlComputerUse.DesktopGuard]::UserRevision -ne $observation.revision) {
+			$result = New-ActBlock 'user_intervened' 'The desktop received input after this foreground observation; refresh it before acting.'
+			$result.requiresExclusive = $true; return $result
+		}
+		if ($bindTarget) {
+			$hwnd = $observation.identity.hwnd
+			if ([OwlComputerUse.DesktopGuard]::WindowRevision($hwnd) -ne $observation.targetRevision) { return New-ActBlock 'target_intervened' 'The target received input while waiting for idle; reobserve.' }
+			try { $current = Get-WindowIdentity $hwnd }
+			catch { return New-ActBlock 'target_gone' 'The target closed while waiting for idle; reobserve.' }
+			if ($current.pid -ne $observation.identity.pid -or $current.started -ne $observation.identity.started) { return New-ActBlock 'target_replaced' 'The target process identity changed while waiting for idle; reobserve.' }
+			if (($current.rect -join ',') -ne ($observation.identity.rect -join ',')) { return New-ActBlock 'geometry_changed' 'The target moved or resized while waiting for idle; reobserve.' }
+		}
+		$revision = [OwlComputerUse.DesktopGuard]::UserRevision
+		$quiet = [OwlComputerUse.DesktopGuard]::QuietForMs
+		$script:Execution.idleQuietForMs = $quiet
+		if ($quiet -ge 750) {
+			if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $revision -or ($mode -eq 'foreground' -and $revision -ne $observation.revision)) { return New-ActBlock 'input_conflict' 'Input changed while desktop idle was checked; no foreground control was acquired.' 'wait, then reobserve' 750 }
+			if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false } }
+			if ($bindTarget -and [OwlComputerUse.DesktopGuard]::WindowRevision($hwnd) -ne $observation.targetRevision) { return New-ActBlock 'target_intervened' 'The target received input while idle was checked; reobserve.' }
+			$script:Execution.idleWaitMs = [long]$clock.ElapsedMilliseconds
+			$script:Execution.idleGrantedAtMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+			return @{ status = 'confirmed'; code = 'foreground_idle'; revision = $revision }
+		}
+		$remaining = $waitBudget - [long]$clock.ElapsedMilliseconds
+		if ($mode -ne 'auto' -or $remaining -le 0) {
+			return New-ActBlock 'user_busy' 'No desktop idle interval was available within the bounded wait; no foreground action was sent.' 'wait, then reobserve' ([Math]::Max(1, 750 - $quiet))
+		}
+		Start-Sleep -Milliseconds ([int][Math]::Min(50, $remaining))
+	}
+}
+
+function Invoke-AppOpen($request, [string]$mode, $observation) {
 	if ($mode -eq 'background') { return New-ActBlock 'exclusive_required' 'Opening an app may change the desktop foreground; use auto or foreground.' 'computer_act with inputMode auto' }
 	$app = [string]$request.app
 	if (-not $app -or $app -match '[\r\n;&|<>"\u0060]' -or $app -ne $app.Trim()) {
@@ -527,10 +652,13 @@ function Invoke-AppOpen($request, [string]$mode) {
 		}
 		$expectedProcess = [IO.Path]::GetFileNameWithoutExtension($executable)
 	}
-	$quiet = [OwlComputerUse.DesktopGuard]::QuietForMs
-	if ($quiet -lt 750) { return New-ActBlock 'user_busy' 'The user is still interacting with the desktop; the app was not opened.' 'wait, then reobserve and open_app once' (750 - $quiet) }
+	# Launch has no target window yet; discovery may refer to the user's app.
+	$idle = Wait-ForegroundIdle $observation $mode $false
+	if ($idle.status -ne 'confirmed') { return $idle }
+	$inputRevision = $idle.revision
 	if (-not [OwlComputerUse.DesktopGuard]::Acquire()) { return New-ActBlock 'desktop_busy' 'Another Owl worker is performing a foreground action.' 'wait, then reobserve' 750 }
 	if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false; message = 'Desktop input was explicitly stopped with Escape.' } }
+	if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $inputRevision) { return New-ActBlock 'input_conflict' 'The user resumed input before app launch; the app was not opened.' 'wait, then reobserve' 750 }
 	$script:Execution.executedMode = 'foreground'; $script:Execution.executedAction = 'open_app'
 	$script:Execution.fallbackReason = 'application_launch'
 	$before = @([OwlComputerUse.Win32.WindowTools]::ListWindows() | ForEach-Object { $_.Hwnd })
@@ -538,6 +666,8 @@ function Invoke-AppOpen($request, [string]$mode) {
 	try {
 		$start = New-Object Diagnostics.ProcessStartInfo
 		$start.FileName = $executable; $start.Arguments = $arguments; $start.UseShellExecute = $true
+		if (-not (Start-Control $request 'foreground' 0)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
+		if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $inputRevision) { return New-ActBlock 'input_conflict' 'The user resumed input while launch status was shown; the app was not opened.' 'wait, then reobserve' 750 }
 		$launched = [Diagnostics.Process]::Start($start)
 		$pidValue = 0
 		if ($launched) { $pidValue = $launched.Id }
@@ -567,7 +697,7 @@ function Invoke-ActCore($request, [string]$mode) {
 	if (-not $observation -or $request.observationId -ne $observation.id) { return New-ActBlock 'stale_observation' 'Reobserve the target before acting.' }
 	if (([DateTime]::UtcNow - $observation.created).TotalSeconds -gt 120) { return New-ActBlock 'observation_expired' 'The observation expired; obtain current window evidence.' }
 	if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false; message = 'Desktop input was explicitly stopped with Escape.' } }
-	if ($action -eq 'open_app') { return Invoke-AppOpen $request $mode }
+	if ($action -eq 'open_app') { return Invoke-AppOpen $request $mode $observation }
 	if (-not $observation.identity) { return New-ActBlock 'target_unavailable' 'No target window is bound. Select a current window or explicitly open the requested app.' 'computer_observe or authorized open_app' }
 	if (-not [OwlComputerUse.DesktopGuard]::Monitoring) { return New-ActBlock 'input_monitor_unavailable' 'Desktop input monitoring could not start.' 'restart the driver and reobserve' }
 	$hwnd = $observation.identity.hwnd
@@ -598,23 +728,59 @@ function Invoke-ActCore($request, [string]$mode) {
 		$result = New-ActBlock 'exclusive_required' 'No equivalent background UIA pattern is exposed for this action.' 'use inputMode auto or foreground with fresh observation'
 		$result.requiresExclusive = $true; return $result
 	}
-	$exclusive = $mode -eq 'foreground' -or -not $backgroundAction
-	$executedAction = $(if ($exclusive) { $action } else { $backgroundAction })
-	$script:Execution.executedMode = $(if ($exclusive) { 'foreground' } else { 'background' })
-	$script:Execution.executedAction = $executedAction
-	if ($exclusive -and $mode -eq 'auto') { $script:Execution.fallbackReason = 'no_equivalent_background_pattern' }
 	if (-not [OwlComputerUse.DesktopGuard]::AcquireWindow($hwnd)) { return New-ActBlock 'target_busy' 'Another Owl worker owns this application window or its dialogs.' 'wait, then reobserve' 750 }
 	$inputRevision = [OwlComputerUse.DesktopGuard]::UserRevision
-	if ($exclusive) {
-		if ($mode -eq 'foreground' -and $inputRevision -ne $observation.revision) {
-			$result = New-ActBlock 'user_intervened' 'The desktop received input after this foreground observation; refresh it before acting.'
+	$useUia = $backgroundAction -and ($mode -ne 'foreground' -or $action -in @('invoke', 'set_value', 'select', 'toggle'))
+	$uiaRequest = @{ hwnd = $hwnd; pid = $identity.pid; started = $identity.started; element = $element;
+		windowRevision = $observation.targetRevision; globalRevision = $inputRevision; exclusive = $false;
+		showControl = $false; controlRequestId = [long]$request.id; controlMode = ''; testHoldMs = (Get-ControlHold $request);
+		windowRect = @{ x = $identity.rect[0]; y = $identity.rect[1]; width = $identity.rect[2]; height = $identity.rect[3] };
+		text = [string]$request.text; delta = [int]$request.delta; horizontal = [bool]$request.horizontal }
+	$backgroundSafe = $false
+	if ($useUia) {
+		if (-not $element) { return New-ActBlock 'element_required' 'This UIA action requires an observed elementId.' }
+		$uiaRequest.action = 'plan'; $uiaRequest.requestedAction = $backgroundAction
+		try { $plan = Invoke-Uia $uiaRequest }
+		catch { return New-ActBlock 'uia_plan_unavailable' 'The action backend could not be inspected; no action was sent.' }
+		if ($plan.status -ne 'confirmed') { return $plan }
+		if ($plan.code -ne 'action_plan' -or $plan.requestedAction -ne $backgroundAction -or $plan.backgroundSafe -isnot [bool] -or $plan.backend -isnot [string] -or [string]::IsNullOrWhiteSpace($plan.backend)) {
+			return New-ActBlock 'uia_plan_unavailable' 'The helper returned no valid action backend; no action was sent.'
+		}
+		$backgroundSafe = $plan.backgroundSafe
+		$uiaRequest.expectedBackend = $plan.backend
+		if ($mode -eq 'background' -and -not $backgroundSafe) {
+			$result = New-ActBlock 'background_backend_unavailable' 'This control has no verified nonactivating backend for the requested action.' 'use inputMode auto or foreground with fresh observation'
 			$result.requiresExclusive = $true; return $result
 		}
-		$quiet = [OwlComputerUse.DesktopGuard]::QuietForMs
-		if ($quiet -lt 750) { return New-ActBlock 'user_busy' 'Real input needs a brief desktop idle interval; no keyboard or mouse action was sent.' 'wait, then reobserve' (750 - $quiet) }
+	}
+	# Pattern availability alone does not establish that a provider stays in the
+	# background. Choose one executor before any semantic operation is invoked.
+	$exclusive = $mode -eq 'foreground' -or -not $useUia -or -not $backgroundSafe
+	$executedAction = $(if ($useUia) { $backgroundAction } else { $action })
+	$script:Execution.executedMode = $(if ($exclusive) { 'foreground' } else { 'background' })
+	$script:Execution.executedAction = $executedAction
+	if ($exclusive -and $mode -eq 'auto') {
+		$script:Execution.fallbackReason = $(if ($useUia) { 'background_backend_requires_foreground' } else { 'no_equivalent_background_pattern' })
+	}
+	if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false } }
+	if ([OwlComputerUse.DesktopGuard]::WindowRevision($hwnd) -ne $observation.targetRevision) { return New-ActBlock 'target_intervened' 'The target received input while its backend was inspected; reobserve before acting.' }
+	try { $plannedIdentity = Get-WindowIdentity $hwnd }
+	catch { return New-ActBlock 'target_gone' 'The target closed while its backend was inspected; reobserve.' }
+	if ($plannedIdentity.pid -ne $identity.pid -or $plannedIdentity.started -ne $identity.started -or ($plannedIdentity.rect -join ',') -ne ($identity.rect -join ',')) {
+		return New-ActBlock 'geometry_changed' 'Target identity or geometry changed while its backend was inspected; reobserve.'
+	}
+	if ($exclusive) {
+		$idle = Wait-ForegroundIdle $observation $mode
+		if ($idle.status -ne 'confirmed') { return $idle }
+		$inputRevision = $idle.revision
+		$uiaRequest.globalRevision = $inputRevision
 		if (-not [OwlComputerUse.DesktopGuard]::Acquire()) { return New-ActBlock 'desktop_busy' 'Another Owl worker is performing a foreground action.' 'wait, then reobserve' 750 }
+		if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false } }
+		if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $inputRevision) { return New-ActBlock 'input_conflict' 'The user resumed input before foreground focus; no action was sent.' 'wait, then reobserve' 750 }
 		if ($action -notin @('focus', 'restore') -and [OwlComputerUse.DesktopGuard]::ForegroundHwnd() -ne $hwnd) {
-			if (-not [OwlComputerUse.Win32.WindowTools]::Focus($hwnd)) { return New-ActBlock 'foreground_unavailable' 'The target could not be brought to the foreground; no input was sent.' }
+			if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
+			if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $inputRevision) { return New-ActBlock 'input_conflict' 'The user resumed input while control status was shown; no focus change was requested.' 'wait, then reobserve' 750 }
+			if (-not [OwlComputerUse.Win32.WindowTools]::Focus($hwnd)) { return New-ActBlock 'foreground_unavailable' ('The target could not be brought to the foreground; no input was sent. ' + [OwlComputerUse.Win32.WindowTools]::LastFocusDiagnostics) }
 		}
 		if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false } }
 		if ([OwlComputerUse.DesktopGuard]::UserRevision -ne $inputRevision) { return New-ActBlock 'input_conflict' 'The user resumed input while foreground focus was being acquired; no action was sent.' 'wait, then reobserve' 750 }
@@ -623,11 +789,8 @@ function Invoke-ActCore($request, [string]$mode) {
 			return New-ActBlock 'geometry_changed' 'Restoring/focusing changed target geometry; reobserve before using its controls or coordinates.'
 		}
 	} else { [OwlComputerUse.DesktopGuard]::ReleaseDesktop() }
-	$uiaRequest = @{ hwnd = $hwnd; pid = $identity.pid; started = $identity.started; element = $element;
-		windowRevision = $observation.targetRevision; globalRevision = $inputRevision; exclusive = $exclusive;
-		windowRect = @{ x = $identity.rect[0]; y = $identity.rect[1]; width = $identity.rect[2]; height = $identity.rect[3] };
-		text = [string]$request.text; delta = [int]$request.delta; horizontal = [bool]$request.horizontal }
-	if ($executedAction -in @('invoke', 'set_value', 'select', 'toggle') -or (-not $exclusive -and $executedAction -eq 'scroll')) {
+	$uiaRequest.exclusive = $exclusive; $uiaRequest.showControl = $true; $uiaRequest.controlMode = $script:Execution.executedMode
+	if ($useUia) {
 		if (-not $element) { return New-ActBlock 'element_required' 'This UIA action requires an observed elementId.' }
 		$uiaRequest.action = $executedAction
 		$foreground = [OwlComputerUse.DesktopGuard]::ForegroundHwnd()
@@ -658,18 +821,22 @@ function Invoke-ActCore($request, [string]$mode) {
 		return $result
 	}
 	if ($element) {
+		$uiaRequest.showControl = $false
 		$uiaRequest.action = 'validate'; $valid = Invoke-Uia $uiaRequest
 		if ($valid.status -ne 'confirmed') { return $valid }
+		$uiaRequest.showControl = $true
 	}
 	$issued = $false
 	try {
 		switch ($action) {
 			'focus' {
+				if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
 				$issued = $true; $ok = [OwlComputerUse.Win32.WindowTools]::Focus($hwnd)
 				if ($ok) { return @{ status = 'confirmed'; code = 'foreground_verified' } }
-				return @{ status = 'unknown'; code = 'foreground_not_verified'; retryable = $false }
+				return @{ status = 'unknown'; code = 'foreground_not_verified'; retryable = $false; message = [OwlComputerUse.Win32.WindowTools]::LastFocusDiagnostics }
 			}
 			'restore' {
+				if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
 				$issued = $true; [OwlComputerUse.Win32.WindowTools]::Restore($hwnd) | Out-Null
 				Start-Sleep -Milliseconds 80
 				if ([OwlComputerUse.DesktopGuard]::Visible($hwnd)) { return @{ status = 'confirmed'; code = 'restored_verified' } }
@@ -685,8 +852,13 @@ function Invoke-ActCore($request, [string]$mode) {
 					$y = $shot.originY + [int][Math]::Floor([double]$request.y * $shot.screenHeight / $shot.imageHeight)
 				}
 				if (-not [OwlComputerUse.Kernel]::InputStillSafe($hwnd, $inputRevision)) { return New-ActBlock 'input_conflict' 'Foreground or user input changed before mouse injection; no click/scroll was sent.' }
+				[OwlComputerUse.ControlOverlay]::AvoidPoint($x, $y)
 				$hit = [OwlComputerUse.Win32.WindowTools]::InfoAt($x, $y)
 				if ($hit.Hwnd -ne $hwnd) { return New-ActBlock 'target_obscured' 'The intended point is obscured by another window.' }
+				if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
+				[OwlComputerUse.ControlOverlay]::AvoidPoint($x, $y)
+				$hit = [OwlComputerUse.Win32.WindowTools]::InfoAt($x, $y)
+				if ($hit.Hwnd -ne $hwnd -or -not [OwlComputerUse.Kernel]::InputStillSafe($hwnd, $inputRevision)) { return New-ActBlock 'input_conflict' 'The target changed while showing control status; no mouse input was sent.' }
 				[OwlComputerUse.Kernel]::MoveMouse($x, $y)
 				if (-not [OwlComputerUse.Kernel]::InputStillSafe($hwnd, $inputRevision)) { return New-ActBlock 'input_conflict' 'User input changed during pointer positioning; no click/scroll was sent.' }
 				$issued = $true
@@ -702,6 +874,7 @@ function Invoke-ActCore($request, [string]$mode) {
 					$uiaRequest.action = 'focus_element'; $focused = Invoke-Uia $uiaRequest
 					if ($focused.status -ne 'confirmed') { return $focused }
 				}
+				if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
 				if ($request.replace -eq $true) {
 					$issued = $true
 					if (-not [OwlComputerUse.Kernel]::KeyComboGuarded([int[]]@(0x11), [int[]]@(0x41), $hwnd, $inputRevision)) {
@@ -725,6 +898,7 @@ function Invoke-ActCore($request, [string]$mode) {
 				foreach ($key in $request.tap) { $tap += [int]$key }
 				if (($down -contains 0x5b -or $down -contains 0x5c) -and $tap -contains 0x4c) { return @{ status = 'blocked'; code = 'blocked_key_combo' } }
 				if ($down -contains 0x11 -and $down -contains 0x12 -and $tap -contains 0x2e) { return @{ status = 'blocked'; code = 'blocked_key_combo' } }
+				if (-not (Start-Control $request 'foreground' $hwnd)) { return @{ status = 'blocked'; code = 'user_stopped'; retryable = $false } }
 				$issued = $true
 				$complete = [OwlComputerUse.Kernel]::KeyComboGuarded([int[]]$down, [int[]]$tap, $hwnd, $inputRevision)
 				if ($complete) { return @{ status = 'issued'; code = 'key_input_issued' } }
@@ -741,6 +915,7 @@ function Invoke-Act($request) {
 	$mode = 'auto'
 	if ($request.inputMode) { $mode = [string]$request.inputMode }
 	$script:Execution = @{ requestedMode = $mode }
+	$script:ActionClock = [Diagnostics.Stopwatch]::StartNew()
 	try {
 		if ($mode -notin @('auto', 'background', 'foreground')) { return New-ActBlock 'invalid_input_mode' 'inputMode must be auto, background, or foreground.' }
 		$result = Invoke-ActCore $request $mode
@@ -755,6 +930,8 @@ function Invoke-Act($request) {
 	} finally {
 		[OwlComputerUse.Kernel]::ReleaseHeldKeys()
 		[OwlComputerUse.DesktopGuard]::ReleaseDesktop()
+		[OwlComputerUse.ControlOverlay]::End()
+		$script:ActionClock = $null
 	}
 }
 
@@ -790,6 +967,7 @@ try { while ($true) {
 			'release' {
 				$script:Observation = $null
 				[OwlComputerUse.DesktopGuard]::Release()
+				[OwlComputerUse.ControlOverlay]::Shutdown()
 				$data = @{ released = $true; status = 'confirmed' }
 			}
 			'screenshot' {

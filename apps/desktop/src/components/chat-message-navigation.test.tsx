@@ -192,6 +192,47 @@ describe("message search navigation", () => {
 });
 
 describe("reading position ownership", () => {
+	it("keeps an asynchronously growing home page at the top without a latest button, then follows the first real message", async () => {
+		await render({ sessionId: undefined, entries: [] });
+		const surface = scrollSurface();
+		expect(surface.scrollTop).toBe(0);
+		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		expect(surface.scrollTop).toBe(0);
+		await render({ recentSessions: [{ id: "recent", title: "最近任务" }] });
+		Object.defineProperty(surface, "scrollHeight", { configurable: true, value: 3000 });
+		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		expect(surface.scrollTop).toBe(0);
+		surface.scrollTop = 80;
+		await act(async () => surface.dispatchEvent(new Event("scroll")));
+		expect(container.querySelector(".owl-chat-latest")).toBeNull();
+		expect(surface.dataset.owlSearchNavigation).toBe("start");
+		await render({ entries: [user("first-question", "开始检查项目")] });
+		expect(surface.scrollTop).toBe(surface.scrollHeight);
+		expect(surface.hasAttribute("data-owl-search-navigation")).toBe(false);
+	});
+
+	it("opens the latest turn's delivery from a completion request and does not repeat on later updates", async () => {
+		const answer: ChatEntry = { ...assistant("answer", "已交付"), tools: [{ id: "write-result", name: "write", args: JSON.stringify({ path: "result.md" }), summary: "生成结果", status: "ok", output: { text: "written", totalLines: 1 } }] };
+		await render({ entries: [user("latest-question", "生成结果"), answer], onOpenFile: () => {}, deliveryRequest: 10 });
+		const surface = scrollSurface();
+		container.querySelector<HTMLElement>(".owl-delivery-summary")!.getBoundingClientRect = () => ({ top: 520 } as DOMRect);
+		await flushFrames();
+		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 504, behavior: "instant" });
+		expect(surface.dataset.owlSearchNavigation).toBe("delivery-10");
+		await render({ entries: [user("latest-question", "生成结果"), { ...answer, text: "结果仍保留" }] });
+		await flushFrames();
+		expect(surface.scrollTo).toHaveBeenCalledOnce();
+	});
+
+	it("waits for task settlement before following a completion request", async () => {
+		await render({ entries: [user("latest-question", "检查结果"), assistant("answer", "仍在处理")], activity: "working", deliveryRequest: 11 });
+		const surface = scrollSurface();
+		await flushFrames();
+		expect(surface.scrollTo).not.toHaveBeenCalled();
+		await render({ activity: "idle" });
+		await flushFrames();
+		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 2000, behavior: "instant" });
+	});
 	it("does not snap loaded history to the bottom while workspace restoration is pending", async () => {
 		await render({ entries: [user("question", "run"), assistant("answer", "history")] });
 		const surface = scrollSurface();

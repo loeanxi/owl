@@ -3,6 +3,7 @@ import { constants } from "fs";
 import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { type Static, Type } from "typebox";
 import { splitBom } from "../../utils/text.ts";
+import { recordDiffApprovalMutationBefore } from "../diff-approval/registry.ts";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 import {
 	applyEditsToNormalizedContent,
@@ -265,6 +266,15 @@ export function createEditToolDefinition(
 				throwIfAborted();
 
 				const finalContent = bom + restoreMixedLineEndings(content, newContent);
+				if (!options?.operations) {
+					recordDiffApprovalMutationBefore(
+						_toolCallId,
+						absolutePath,
+						finalContent,
+						rawContent,
+						ctx?.sessionManager?.getSessionId?.(),
+					);
+				}
 				await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 

@@ -1,0 +1,64 @@
+.owl-answer-reading { min-width: 0; max-width: 100%; }
+
+.owl-answer-reading .owl-answer-code {
+	min-width: 0;
+	max-width: 100%;
+	margin: 1.1em 0;
+	overflow: hidden;
+	border: 1px solid var(--owl-reading-border);
+	border-radius: 8px;
+	background: var(--owl-reading-panel);
+}
+
+.owl-answer-code-toolbar,
+.owl-answer-table-toolbar {
+	display: flex;
+	min-width: 0;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 12px;
+	padding: 7px 12px;
+	color: var(--owl-reading-muted);
+	font-family: var(--font-sans);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.owl-answer-code-toolbar { border-bottom: 1px solid var(--owl-reading-border); }
+.owl-answer-code-language { min-width: 0; overflow-wrap: anywhere; }
+.owl-answer-code-actions { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-left: auto; }
+.owl-answer-reading [data-answer-action] { min-height: 28px; padding: 3px 7px; border-radius: 5px; color: var(--owl-reading-text); }
+.owl-answer-reading [data-answer-action]:hover { background: color-mix(in srgb, var(--owl-reading-text) 8%, transparent); }
+.owl-answer-reading [data-answer-action][aria-busy="true"] { cursor: progress; color: var(--owl-reading-muted); }
+.owl-answer-reading [data-answer-action]:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
+.owl-answer-reading [data-answer-action][hidden],
+.owl-answer-reading [data-answer-table-hint][hidden],
+.owl-answer-reading .owl-answer-table-toolbar[hidden] { display: none; }
+.owl-answer-reading [data-answer-copy-status] { min-width: 0; overflow-wrap: anywhere; }
+.owl-answer-reading [data-answer-copy-status][data-copy-state="error"] { color: var(--owl-ui-danger, var(--color-owl-danger)); }
+
+.owl-answer-reading .owl-answer-code pre {
+	max-width: 100%;
+	max-height: 360px;
+	margin: 0;
+	overflow: auto;
+	overscroll-behavior-x: contain;
+	border: 0;
+	border-radius: 0;
+	padding: 14px 16px;
+	white-space: pre;
+	overflow-wrap: normal;
+	word-break: normal;
+}
+.owl-answer-reading .owl-answer-code pre code { white-space: pre; overflow-wrap: normal; word-break: normal; }
+.owl-answer-reading .owl-answer-code pre:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
+.owl-answer-reading .owl-answer-code[data-answer-expanded="true"] pre { max-height: none; }
+
+.owl-answer-reading .owl-answer-table { min-width: 0; max-width: 100%; margin: 1.1em 0; }
+.owl-answer-table-toolbar { justify-content: space-between; padding-right: 0; padding-left: 0; }
+.owl-answer-reading .owl-answer-table-scroll { min-width: 0; max-width: 100%; max-height: 440px; overflow: auto; overscroll-behavior-x: contain; border-bottom: 1px solid var(--owl-reading-border); }
+.owl-answer-reading .owl-answer-table[data-answer-expanded="true"] .owl-answer-table-scroll { max-height: none; }
+.owl-answer-reading .owl-answer-table-scroll:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
+.owl-answer-reading .owl-answer-table-scroll table { display: table; width: max-content; min-width: 100%; max-width: none; overflow: visible; margin: 0; }
+.owl-answer-reading .owl-answer-table-scroll th { position: sticky; top: 0; z-index: 1; background: var(--owl-reading-panel); }
+.owl-answer-reading :is(pre, .owl-answer-table-scroll) { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--owl-reading-text) 30%, transparent) transparent; }

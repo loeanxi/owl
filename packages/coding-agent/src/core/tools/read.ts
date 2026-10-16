@@ -21,6 +21,8 @@ export const readToolSystemPromptContribution = {
 	guidelines: [
 		"Use read to examine files instead of cat or sed.",
 		"When the user supplies an exact file path, read it directly. List or search directories only when the path is unknown or that read fails.",
+		"A known path must come from the user or an actual tool result. Copy that path exactly, including every directory segment; do not reconstruct it from a basename or shorten a path returned by search.",
+		"If a path still needs discovery, wait for the directory listing or file search result before reading it. Discovery and the read that depends on it are sequential; only independent, already known paths may be read in parallel.",
 		"Read independent known files, such as source and its test, together in one tool-call batch or with codemode Promise.all; avoid a separate model round trip for each file.",
 	],
 } as const;

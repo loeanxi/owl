@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { mkdir as fsMkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { type Static, Type } from "typebox";
+import { recordDiffApprovalMutationBefore } from "../diff-approval/registry.ts";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
 import { assertFullFileRead } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
@@ -17,7 +18,8 @@ export const writeToolSystemPromptContribution = {
 	snippet: "Create or overwrite files",
 	guidelines: [
 		"Use write only for new files or complete rewrites.",
-		"Overwriting an existing file requires having seen the whole current file: a full read or `cat` of it, or your own complete write; your own later edits keep either current, and earlier turns count while the file is unchanged on disk. Prefer edit for small changes to an existing file. New files can be written directly.",
+		"For a .ps1 script intended for Windows PowerShell 5.1, UTF-8 without a BOM can be decoded using the Windows ANSI code page. If its content contains non-ASCII text, start content with the actual U+FEFF character (JSON escape \\uFEFF) so write emits a UTF-8 BOM, or keep a temporary script ASCII-only. Validate the generated file with PowerShell Parser.ParseFile before executing it; parsing does not execute the script.",
+		"Overwriting an existing file requires having seen the whole current file: a full read or `cat` of it, or your own successful complete write tool call; your own later edits keep either current, and earlier turns count while the file is unchanged on disk. A shell redirection or heredoc does not count as a write tool call: read the whole resulting file before overwriting it with write. Prefer edit for small changes to an existing file. New files can be written directly.",
 	],
 } as const;
 
@@ -59,7 +61,7 @@ export function createWriteToolDefinition(
 		name: "write",
 		label: "write",
 		description:
-			"Write content to a file. Creates the file if it doesn't exist. Overwriting requires having seen the whole current content (a full read or cat, or your own write, kept current by your own edits; earlier turns count while the file is unchanged). Automatically creates parent directories.",
+			"Write content to a file. Creates the file if it doesn't exist. Overwriting requires having seen the whole current content (a full read or cat, or your own successful complete write tool call, kept current by your own edits; earlier turns count while the file is unchanged). Shell redirects and heredocs do not supply this evidence. Automatically creates parent directories.",
 		promptSnippet: writeToolSystemPromptContribution.snippet,
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		parameters: writeSchema,
@@ -100,6 +102,15 @@ export function createWriteToolDefinition(
 				throwIfAborted();
 
 				// Write the file contents.
+				if (!options?.operations) {
+					recordDiffApprovalMutationBefore(
+						_toolCallId,
+						absolutePath,
+						content,
+						undefined,
+						ctx?.sessionManager?.getSessionId?.(),
+					);
+				}
 				await ops.writeFile(absolutePath, content);
 				throwIfAborted();
 

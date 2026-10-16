@@ -806,6 +806,102 @@ html:is([data-owl-theme="light"]:not([data-owl-wallpaper="on"][data-owl-glass-th
 	color: var(--color-owl-accent);
 }
 
+/* Codex 主题卡片：占预设网格一格，点开的菜单向上弹（预设组 overflow: hidden，向下会被下方两行裁掉）。 */
+.owl-settings-page .owl-codex-theme-slot,
+.owl-settings-page .owl-codex-theme-slot > .relative,
+.owl-settings-page .owl-codex-theme-card {
+	width: 100%;
+	height: 100%;
+}
+
+.owl-settings-page .owl-codex-theme-card {
+	display: block;
+}
+
+.owl-settings-page .owl-codex-theme-card-label {
+	display: flex;
+	min-width: 0;
+	align-items: baseline;
+	gap: 8px;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-codex-theme-current {
+	overflow: hidden;
+	color: var(--settings-muted);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Codex 主题菜单：圆形 Aa 徽标（主题底色 + 强调色字）、名称、单档提示与选中勾。 */
+.owl-settings-page .owl-codex-theme-option {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	color: var(--color-owl-text);
+	font-size: 13px;
+	text-align: left;
+}
+
+.owl-settings-page .owl-codex-theme-panel {
+	width: 260px;
+	max-height: min(420px, 60vh);
+	overflow-y: auto;
+	padding: 4px;
+}
+
+.owl-settings-page .owl-codex-theme-group {
+	margin: 4px 0 2px;
+	padding: 6px 8px 4px;
+	border-top: 1px solid var(--settings-border);
+	color: var(--color-owl-faint);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-codex-theme-option {
+	padding: 5px 8px 5px 5px;
+	border-radius: 8px;
+}
+
+.owl-settings-page .owl-codex-theme-option:hover,
+.owl-settings-page .owl-codex-theme-option.is-active {
+	background: var(--color-owl-hover);
+}
+
+.owl-settings-page .owl-codex-theme-badge {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border: 1px solid color-mix(in srgb, var(--color-owl-text) 14%, transparent);
+	border-radius: 999px;
+	background: var(--cx-bg, var(--color-owl-panel));
+	color: var(--cx-fg, var(--color-owl-muted));
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+}
+
+.owl-settings-page .owl-codex-theme-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-settings-page .owl-codex-theme-only {
+	color: var(--color-owl-faint);
+	font-size: 11px;
+}
+
+.owl-settings-page .owl-codex-theme-check {
+	color: var(--color-owl-accent);
+}
 /* 强调色：预置色板圆形色块 + 自定义拾色 + 当前 hex。 */
 .owl-settings-page .owl-settings-swatches {
 	display: flex;

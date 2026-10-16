@@ -63,6 +63,9 @@ describe("desktop agent instructions", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("分不清闲聊还是指代就按指代处理");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("不用生成内容冒充检索结果");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("先落盘再承诺");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("只有当前已声明 tool_search 时");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("不能自行转成 Bash 查实现、读取自身日志或编写替代脚本");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("专项能力尚未声明时，先用 tool_search");
 	});
 
 	it("discovers updated project append instructions on reload without duplicating defaults", async () => {

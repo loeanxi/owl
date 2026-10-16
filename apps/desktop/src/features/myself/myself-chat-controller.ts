@@ -19,6 +19,7 @@ import type {
 	RewindImpactResult,
 	ServerEventMessage,
 	SessionRunningResult,
+	SessionQueueItem,
 	SessionSnapshotPayload,
 	SessionStatsResult,
 } from "../../bridge/protocol.ts";
@@ -362,8 +363,8 @@ export class MyselfChatController {
 			type?: string;
 			message?: unknown;
 			entry?: { id?: string; message?: unknown };
-			steering?: string[];
-			followUp?: string[];
+			steering?: SessionQueueItem[];
+			followUp?: SessionQueueItem[];
 			approvalMode?: ApprovalMode;
 		};
 		const type = event.type;
@@ -377,8 +378,8 @@ export class MyselfChatController {
 			patch.agentPresetLocked = true;
 		if (type === "queue_update")
 			patch.queue = {
-				steering: (event.steering ?? []).map((text) => turnContextOf(text)?.text ?? text),
-				followUp: (event.followUp ?? []).map((text) => turnContextOf(text)?.text ?? text),
+				steering: (event.steering ?? []).map((item) => turnContextOf(item.text)?.text ?? item.text),
+				followUp: (event.followUp ?? []).map((item) => turnContextOf(item.text)?.text ?? item.text),
 			};
 		if (type === "approval_mode_changed" && event.approvalMode) patch.approvalMode = event.approvalMode;
 		if (type === "agent_start" || type === "agent_settled") {
@@ -587,8 +588,8 @@ export class MyselfChatController {
 			...(stats.queue
 				? {
 						queue: {
-							steering: stats.queue.steering.map((text) => turnContextOf(text)?.text ?? text),
-							followUp: stats.queue.followUp.map((text) => turnContextOf(text)?.text ?? text),
+							steering: stats.queue.steering.map((item) => turnContextOf(item.text)?.text ?? item.text),
+							followUp: stats.queue.followUp.map((item) => turnContextOf(item.text)?.text ?? item.text),
 						},
 					}
 				: {}),

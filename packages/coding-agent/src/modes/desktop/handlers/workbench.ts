@@ -21,6 +21,7 @@ import type {
 	DiffApprovalClearResult,
 	DiffApprovalDiffResult,
 	DiffApprovalListResult,
+	DiffApprovalPreviewResult,
 	DiffApprovalResolveResult,
 	ResearchPromptSettings,
 	ResearchPromptsResult,
@@ -77,19 +78,26 @@ export async function handleResearchPromptsRequest(
 /** DiffApproval 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
 export type DiffApprovalRequest = Extract<
 	DesktopClientRequest,
-	{ type: "diffApproval.list" | "diffApproval.diff" | "diffApproval.resolve" | "diffApproval.clear" }
+	{
+		type:
+			| "diffApproval.list"
+			| "diffApproval.diff"
+			| "diffApproval.preview"
+			| "diffApproval.resolve"
+			| "diffApproval.clear";
+	}
 >;
 
 export async function handleDiffApprovalRequest(
 	ws: WebSocket,
 	request: DiffApprovalRequest,
-	ctx: WorkbenchHandlerContext,
+	ctx: Pick<WorkbenchHandlerContext, "reply" | "defaultAgentDir">,
 ): Promise<void> {
 	switch (request.type) {
 		case "diffApproval.list": {
 			try {
 				const store = getWorkspaceDiffApprovalStore(ctx.defaultAgentDir(), request.cwd);
-				const files = store.list(request.cwd);
+				const files = store.list(request.cwd, request.scope);
 				ctx.reply(ws, request.id, { ok: true, result: { files } satisfies DiffApprovalListResult });
 			} catch (error) {
 				ctx.reply(ws, request.id, {
@@ -112,10 +120,24 @@ export async function handleDiffApprovalRequest(
 			}
 			return;
 		}
+		case "diffApproval.preview": {
+			try {
+				const store = getWorkspaceDiffApprovalStore(ctx.defaultAgentDir(), request.cwd);
+				const result: DiffApprovalPreviewResult = store.preview(request.entryIds, request.mode);
+				ctx.reply(ws, request.id, { ok: true, result });
+			} catch (error) {
+				ctx.reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
+			}
+			return;
+		}
 		case "diffApproval.resolve": {
 			try {
 				const store = getWorkspaceDiffApprovalStore(ctx.defaultAgentDir(), request.cwd);
-				const result: DiffApprovalResolveResult = store.resolve(request.entryIds, request.action);
+				const result: DiffApprovalResolveResult = await store.resolve(
+					request.entryIds,
+					request.action,
+					request.previewToken,
+				);
 				ctx.reply(ws, request.id, { ok: true, result });
 			} catch (error) {
 				ctx.reply(ws, request.id, {
@@ -195,7 +217,7 @@ export type DialogRequest = Extract<DesktopClientRequest, { type: "permission.re
 export async function handleDialogRequest(
 	ws: WebSocket,
 	request: DialogRequest,
-	ctx: WorkbenchHandlerContext,
+	ctx: Pick<WorkbenchHandlerContext, "reply" | "pendingPermissions">,
 ): Promise<void> {
 	switch (request.type) {
 		case "permission.response": {

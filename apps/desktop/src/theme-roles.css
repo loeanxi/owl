@@ -1,13 +1,4 @@
-/* Shared semantic colors; surfaces and accent still come from the selected Owl preset. */
-@theme static {
-	--color-owl-on-accent: #111111;
-	--color-owl-on-accent-hover: #111111;
-	--color-owl-danger: #f08b8b;
-	--color-owl-warning: #e3ba65;
-	--color-owl-success: #7fc79f;
-	--color-owl-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
-}
-
+/* Shared semantic colors: dark defaults live in index.css's @theme (Tailwind only compiles @theme there). */
 :root {
 	--owl-ui-danger: var(--color-owl-danger);
 	--owl-ui-warning: var(--color-owl-warning);

@@ -392,6 +392,143 @@ describe("ComputerDriverSession", () => {
 		await expect(session.act({ observationId: observation.observationId, action: "focus" })).rejects.toThrow(/stale/);
 		expect(session.screenshotMeta).toBeUndefined();
 	});
+
+	it("native Stop rejects issued and queued input after synchronously notifying the owner", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const order: string[] = [];
+		const onControlStop = vi.fn(() => order.push("stop-owner"));
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-stop", audit), { idleTimeoutMs: 0, onControlStop });
+		session.setControlOwner("run-a");
+		const observation = await session.observe();
+		const active = session.act({ observationId: observation.observationId, action: "type", text: "hang" });
+		const activeFailure = expect(
+			active.catch((error: unknown) => {
+				order.push("action-rejected");
+				throw error;
+			}),
+		).rejects.toThrow(/stopped|unknown/);
+		const queued = expect(session.cursor()).rejects.toThrow(/stopped|unknown/);
+		await Promise.all([activeFailure, queued]);
+		expect(order[0]).toBe("stop-owner");
+		expect(onControlStop).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ ownerId: "run-a", controlId: "control-2", requestId: 2, workerGeneration: 1 }),
+		);
+		expect(audit.workers[0].killed).toBe(true);
+		expect(audit.requests.filter((request) => request.cmd === "act")).toHaveLength(1);
+		expect(audit.requests.some((request) => request.cmd === "cursor")).toBe(false);
+	});
+
+	it("accepts native Stop between requests from the last authorized control instance", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const onControlStop = vi.fn();
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-stop", audit), { idleTimeoutMs: 0, onControlStop });
+		session.setControlOwner("run-a");
+		const observation = await session.observe();
+		await expect(session.act({ observationId: observation.observationId, action: "focus" })).resolves.toMatchObject({
+			status: "issued",
+		});
+		await vi.waitFor(() => expect(onControlStop).toHaveBeenCalledOnce());
+		expect(audit.workers[0].killed).toBe(true);
+		expect(audit.workers).toHaveLength(1);
+	});
+
+	it("observations cannot authorize a control stop", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const onControlStop = vi.fn();
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-observe", audit), { idleTimeoutMs: 0, onControlStop });
+		await session.observe();
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		expect(onControlStop).not.toHaveBeenCalled();
+		expect(audit.workers[0].killed).toBe(false);
+	});
+
+	it("rejects mismatched control/request identity and clears authorization on host-run change", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const onControlStop = vi.fn();
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-start", audit), { idleTimeoutMs: 0, onControlStop });
+		session.setControlOwner("run-a");
+		const observation = await session.observe();
+		await session.act({ observationId: observation.observationId, action: "focus" });
+		const worker = audit.workers[0];
+		for (const payload of [
+			{ event: "control_stop", controlId: "forged", requestId: 2 },
+			{ event: "control_stop", controlId: "control-2", requestId: 99 },
+			{ event: "control_started", controlId: "forged", requestId: 2 },
+		])
+			worker.stdout.emit("data", JSON.stringify(payload) + "\n");
+		session.setControlOwner("run-b");
+		worker.stdout.emit(
+			"data",
+			JSON.stringify({ event: "control_stop", controlId: "control-2", requestId: 2 }) + "\n",
+		);
+		expect(onControlStop).not.toHaveBeenCalled();
+		expect(worker.killed).toBe(true);
+		expect(await session.cursor()).toEqual({ x: 111, y: 222 });
+		expect(audit.workers).toHaveLength(2);
+		expect(audit.workers[1].killed).toBe(false);
+	});
+
+	it("ignores native Stop from a replaced worker even after a new control starts", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const onControlStop = vi.fn();
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-start", audit), { idleTimeoutMs: 0, onControlStop });
+		session.setControlOwner("run-a");
+		const first = await session.observe();
+		await session.act({ observationId: first.observationId, action: "focus" });
+		const old = audit.workers[0];
+		session.close();
+		session.setControlOwner("run-b");
+		const second = await session.observe();
+		await session.act({ observationId: second.observationId, action: "focus" });
+		old.stdout.emit("data", JSON.stringify({ event: "control_stop", controlId: "control-2", requestId: 2 }) + "\n");
+		expect(onControlStop).not.toHaveBeenCalled();
+		expect(audit.workers[1].killed).toBe(false);
+	});
+
+	it("release retires the native control authorization without starting another worker", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		const onControlStop = vi.fn();
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-start", audit), { idleTimeoutMs: 0, onControlStop });
+		session.setControlOwner("run-a");
+		const observation = await session.observe();
+		await session.act({ observationId: observation.observationId, action: "focus" });
+		await session.release();
+		audit.workers[0].stdout.emit(
+			"data",
+			JSON.stringify({ event: "control_stop", controlId: "control-2", requestId: 2 }) + "\n",
+		);
+		expect(onControlStop).not.toHaveBeenCalled();
+		expect(audit.workers).toHaveLength(1);
+		expect(audit.workers[0].killed).toBe(false);
+	});
+
+	it("old Stop callback cleanup cannot kill a replacement worker created synchronously", async () => {
+		const audit: DriverAudit = { workers: [], requests: [] };
+		let replacement: Promise<{ x: number; y: number }> | undefined;
+		session.close();
+		session = new ComputerDriverSession(fakeFactory("control-start", audit), {
+			idleTimeoutMs: 0,
+			onControlStop() {
+				session.close();
+				replacement = session.cursor();
+			},
+		});
+		const observation = await session.observe();
+		await session.act({ observationId: observation.observationId, action: "focus" });
+		audit.workers[0].stdout.emit(
+			"data",
+			JSON.stringify({ event: "control_stop", controlId: "control-2", requestId: 2 }) + "\n",
+		);
+		expect(await replacement).toEqual({ x: 111, y: 222 });
+		expect(audit.workers).toHaveLength(2);
+		expect(audit.workers[1].killed).toBe(false);
+	});
 });
 
 describe("parseKeyCombo", () => {

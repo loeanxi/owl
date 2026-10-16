@@ -1,0 +1,1559 @@
+/*
+ * Codex 桌面版主题（OpenAI.Codex 26.1007.9446.0）移植，由脚本生成，勿手改。
+ * 每个主题先按 Codex 的规则从其 VS Code 配色里取 surface / ink / accent 三色，
+ * 再用 Codex 的 contrast 混色公式铺出侧栏、面板、悬停、描边与文字层级。
+ * 选择器带 data-owl-theme，优先级高于通用浅色块，与 index.css 的层叠顺序无关。
+ */
+/* ChatGPT（深浅两档） */
+html[data-owl-preset="cx-codex"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #111111;
+	--owl-preset-accent: #0169cc;
+	--owl-preset-accent-hover: #2780d4;
+	--color-owl-bg: #111111;
+	--color-owl-sidebar: #0e0e0e;
+	--color-owl-rail: #0b0b0b;
+	--color-owl-panel: #212121;
+	--color-owl-bubble: #1d1d1d;
+	--color-owl-hover: #2b2b2b;
+	--color-owl-border: #2c2c2c;
+	--color-owl-text: #fcfcfc;
+	--color-owl-muted: #b8b8b8;
+	--color-owl-faint: #828282;
+	--color-owl-sidebar-bg: #0e0e0e;
+	--color-owl-sidebar-surface: #1f1f1f;
+	--color-owl-sidebar-hover: #292929;
+	--color-owl-sidebar-selected: #313131;
+	--color-owl-sidebar-border: #292929;
+	--color-owl-sidebar-text: #fcfcfc;
+	--color-owl-sidebar-muted: #b7b7b7;
+	--color-owl-sidebar-faint: #808080;
+}
+html[data-owl-preset="cx-codex"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #111111);
+	--owl-ui-panel: #212121;
+	--owl-ui-sidebar: #0e0e0e;
+	--owl-ui-border: #2c2c2c;
+	--owl-ui-text: var(--owl-ui-text-override, #fcfcfc);
+	--owl-ui-muted: #b8b8b8;
+	--owl-ui-hover: #2b2b2b;
+	--owl-ui-menu-hover: #414141;
+}
+html[data-owl-preset="cx-codex"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #0169cc;
+	--owl-preset-accent-hover: #015cb4;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f5f5f5;
+	--color-owl-rail: #ededed;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f3f3f3;
+	--color-owl-hover: #e7e7e7;
+	--color-owl-border: #e5e5e5;
+	--color-owl-text: #0d0d0d;
+	--color-owl-muted: #575757;
+	--color-owl-faint: #878787;
+	--color-owl-sidebar-bg: #f5f5f5;
+	--color-owl-sidebar-surface: #fbfbfb;
+	--color-owl-sidebar-hover: #dedede;
+	--color-owl-sidebar-selected: #c8c8c8;
+	--color-owl-sidebar-border: #dcdcdc;
+	--color-owl-sidebar-text: #0d0d0d;
+	--color-owl-sidebar-muted: #545454;
+	--color-owl-sidebar-faint: #828282;
+}
+html[data-owl-preset="cx-codex"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f5f5f5;
+	--owl-ui-border: #e5e5e5;
+	--owl-ui-text: var(--owl-ui-text-override, #0d0d0d);
+	--owl-ui-muted: #575757;
+	--owl-ui-hover: #e7e7e7;
+	--owl-ui-menu-hover: #d0d0d0;
+}
+
+/* Absolutely（深浅两档） */
+html[data-owl-preset="cx-absolutely"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #2d2d2b;
+	--owl-preset-accent: #cc7d5e;
+	--owl-preset-accent-hover: #d49176;
+	--color-owl-bg: #2d2d2b;
+	--color-owl-sidebar: #262624;
+	--color-owl-rail: #1f1f1e;
+	--color-owl-panel: #3b3b39;
+	--color-owl-bubble: #373735;
+	--color-owl-hover: #444442;
+	--color-owl-border: #444442;
+	--color-owl-text: #f9f9f7;
+	--color-owl-muted: #bebebc;
+	--color-owl-faint: #8f8f8d;
+	--color-owl-sidebar-bg: #262624;
+	--color-owl-sidebar-surface: #353533;
+	--color-owl-sidebar-hover: #3e3e3c;
+	--color-owl-sidebar-selected: #454543;
+	--color-owl-sidebar-border: #3e3e3c;
+	--color-owl-sidebar-text: #f9f9f7;
+	--color-owl-sidebar-muted: #bcbcba;
+	--color-owl-sidebar-faint: #8b8b89;
+}
+html[data-owl-preset="cx-absolutely"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #2d2d2b);
+	--owl-ui-panel: #3b3b39;
+	--owl-ui-sidebar: #262624;
+	--owl-ui-border: #444442;
+	--owl-ui-text: var(--owl-ui-text-override, #f9f9f7);
+	--owl-ui-muted: #bebebc;
+	--owl-ui-hover: #444442;
+	--owl-ui-menu-hover: #575755;
+}
+html[data-owl-preset="cx-absolutely"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #f9f9f7;
+	--owl-preset-accent: #cc7d5e;
+	--owl-preset-accent-hover: #b46e53;
+	--color-owl-bg: #f9f9f7;
+	--color-owl-sidebar: #f1f1ef;
+	--color-owl-rail: #eaeae8;
+	--color-owl-panel: #fafaf8;
+	--color-owl-bubble: #efefed;
+	--color-owl-hover: #e5e5e3;
+	--color-owl-border: #e3e3e1;
+	--color-owl-text: #2d2d2b;
+	--color-owl-muted: #6b6b69;
+	--color-owl-faint: #949492;
+	--color-owl-sidebar-bg: #f1f1ef;
+	--color-owl-sidebar-surface: #f9f9f9;
+	--color-owl-sidebar-hover: #dededc;
+	--color-owl-sidebar-selected: #cbcbc9;
+	--color-owl-sidebar-border: #dcdcda;
+	--color-owl-sidebar-text: #2d2d2b;
+	--color-owl-sidebar-muted: #696967;
+	--color-owl-sidebar-faint: #90908e;
+}
+html[data-owl-preset="cx-absolutely"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #f9f9f7);
+	--owl-ui-panel: #fafaf8;
+	--owl-ui-sidebar: #f1f1ef;
+	--owl-ui-border: #e3e3e1;
+	--owl-ui-text: var(--owl-ui-text-override, #2d2d2b);
+	--owl-ui-muted: #6b6b69;
+	--owl-ui-hover: #e5e5e3;
+	--owl-ui-menu-hover: #d2d2d0;
+}
+
+/* Ayu（仅深色，锁定深色档） */
+html[data-owl-preset="cx-ayu"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #10141c;
+	--owl-preset-accent: #e6b450;
+	--owl-preset-accent-hover: #eabf6a;
+	--color-owl-bg: #10141c;
+	--color-owl-sidebar: #0d1118;
+	--color-owl-rail: #0b0e14;
+	--color-owl-panel: #1c2027;
+	--color-owl-bubble: #191c24;
+	--color-owl-hover: #24272d;
+	--color-owl-border: #24272e;
+	--color-owl-text: #bfbdb6;
+	--color-owl-muted: #8c8c89;
+	--color-owl-faint: #646566;
+	--color-owl-sidebar-bg: #0d1118;
+	--color-owl-sidebar-surface: #191d23;
+	--color-owl-sidebar-hover: #21242a;
+	--color-owl-sidebar-selected: #272a2f;
+	--color-owl-sidebar-border: #21252a;
+	--color-owl-sidebar-text: #bfbdb6;
+	--color-owl-sidebar-muted: #8b8b88;
+	--color-owl-sidebar-faint: #626464;
+}
+html[data-owl-preset="cx-ayu"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #10141c);
+	--owl-ui-panel: #1c2027;
+	--owl-ui-sidebar: #0d1118;
+	--owl-ui-border: #24272e;
+	--owl-ui-text: var(--owl-ui-text-override, #bfbdb6);
+	--owl-ui-muted: #8c8c89;
+	--owl-ui-hover: #24272d;
+	--owl-ui-menu-hover: #34373c;
+}
+
+/* Catppuccin（深浅两档） */
+html[data-owl-preset="cx-catppuccin"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #1e1e2e;
+	--owl-preset-accent: #cba6f7;
+	--owl-preset-accent-hover: #d3b3f8;
+	--color-owl-bg: #1e1e2e;
+	--color-owl-sidebar: #191927;
+	--color-owl-rail: #151520;
+	--color-owl-panel: #2a2b3c;
+	--color-owl-bubble: #272738;
+	--color-owl-hover: #323344;
+	--color-owl-border: #323345;
+	--color-owl-text: #cdd6f4;
+	--color-owl-muted: #9aa1bb;
+	--color-owl-faint: #72768d;
+	--color-owl-sidebar-bg: #191927;
+	--color-owl-sidebar-surface: #262635;
+	--color-owl-sidebar-hover: #2d2e3e;
+	--color-owl-sidebar-selected: #343545;
+	--color-owl-sidebar-border: #2e2f3e;
+	--color-owl-sidebar-text: #cdd6f4;
+	--color-owl-sidebar-muted: #999fb9;
+	--color-owl-sidebar-faint: #6f7489;
+}
+html[data-owl-preset="cx-catppuccin"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1e1e2e);
+	--owl-ui-panel: #2a2b3c;
+	--owl-ui-sidebar: #191927;
+	--owl-ui-border: #323345;
+	--owl-ui-text: var(--owl-ui-text-override, #cdd6f4);
+	--owl-ui-muted: #9aa1bb;
+	--owl-ui-hover: #323344;
+	--owl-ui-menu-hover: #424457;
+}
+html[data-owl-preset="cx-catppuccin"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #eff1f5;
+	--owl-preset-accent: #8839ef;
+	--owl-preset-accent-hover: #7832d2;
+	--color-owl-bg: #eff1f5;
+	--color-owl-sidebar: #e8ebef;
+	--color-owl-rail: #e3e6ea;
+	--color-owl-panel: #f1f3f6;
+	--color-owl-bubble: #e7e9ee;
+	--color-owl-hover: #dfe1e7;
+	--color-owl-border: #dde0e6;
+	--color-owl-text: #4c4f69;
+	--color-owl-muted: #7e8094;
+	--color-owl-faint: #9ea1b0;
+	--color-owl-sidebar-bg: #e8ebef;
+	--color-owl-sidebar-surface: #f6f7f9;
+	--color-owl-sidebar-hover: #d9dce2;
+	--color-owl-sidebar-selected: #c9ccd5;
+	--color-owl-sidebar-border: #d7dae1;
+	--color-owl-sidebar-text: #4c4f69;
+	--color-owl-sidebar-muted: #7c7f92;
+	--color-owl-sidebar-faint: #9b9ead;
+}
+html[data-owl-preset="cx-catppuccin"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #eff1f5);
+	--owl-ui-panel: #f1f3f6;
+	--owl-ui-sidebar: #e8ebef;
+	--owl-ui-border: #dde0e6;
+	--owl-ui-text: var(--owl-ui-text-override, #4c4f69);
+	--owl-ui-muted: #7e8094;
+	--owl-ui-hover: #dfe1e7;
+	--owl-ui-menu-hover: #d1d3da;
+}
+
+/* Dracula（仅深色，锁定深色档） */
+html[data-owl-preset="cx-dracula"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #282a36;
+	--owl-preset-accent: #ff79c6;
+	--owl-preset-accent-hover: #ff8dcf;
+	--color-owl-bg: #282a36;
+	--color-owl-sidebar: #22232d;
+	--color-owl-rail: #1c1d25;
+	--color-owl-panel: #373843;
+	--color-owl-bubble: #32343f;
+	--color-owl-hover: #3f414b;
+	--color-owl-border: #40414b;
+	--color-owl-text: #f8f8f2;
+	--color-owl-muted: #bcbcbb;
+	--color-owl-faint: #8c8d90;
+	--color-owl-sidebar-bg: #22232d;
+	--color-owl-sidebar-surface: #31323b;
+	--color-owl-sidebar-hover: #3a3b43;
+	--color-owl-sidebar-selected: #42434a;
+	--color-owl-sidebar-border: #3a3b43;
+	--color-owl-sidebar-text: #f8f8f2;
+	--color-owl-sidebar-muted: #babab9;
+	--color-owl-sidebar-faint: #89898c;
+}
+html[data-owl-preset="cx-dracula"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #282a36);
+	--owl-ui-panel: #373843;
+	--owl-ui-sidebar: #22232d;
+	--owl-ui-border: #40414b;
+	--owl-ui-text: var(--owl-ui-text-override, #f8f8f2);
+	--owl-ui-muted: #bcbcbb;
+	--owl-ui-hover: #3f414b;
+	--owl-ui-menu-hover: #54545d;
+}
+
+/* Everforest（深浅两档） */
+html[data-owl-preset="cx-everforest"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #2d353b;
+	--owl-preset-accent: #a7c080;
+	--owl-preset-accent-hover: #b4c993;
+	--color-owl-bg: #2d353b;
+	--color-owl-sidebar: #262d32;
+	--color-owl-rail: #1f2529;
+	--color-owl-panel: #393f43;
+	--color-owl-bubble: #353c41;
+	--color-owl-hover: #404547;
+	--color-owl-border: #404648;
+	--color-owl-text: #d3c6aa;
+	--color-owl-muted: #a39c8a;
+	--color-owl-faint: #7d7b70;
+	--color-owl-sidebar-bg: #262d32;
+	--color-owl-sidebar-surface: #32383a;
+	--color-owl-sidebar-hover: #393e3f;
+	--color-owl-sidebar-selected: #404444;
+	--color-owl-sidebar-border: #3a3e40;
+	--color-owl-sidebar-text: #d3c6aa;
+	--color-owl-sidebar-muted: #a19a87;
+	--color-owl-sidebar-faint: #79766c;
+}
+html[data-owl-preset="cx-everforest"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #2d353b);
+	--owl-ui-panel: #393f43;
+	--owl-ui-sidebar: #262d32;
+	--owl-ui-border: #404648;
+	--owl-ui-text: var(--owl-ui-text-override, #d3c6aa);
+	--owl-ui-muted: #a39c8a;
+	--owl-ui-hover: #404547;
+	--owl-ui-menu-hover: #505352;
+}
+html[data-owl-preset="cx-everforest"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fdf6e3;
+	--owl-preset-accent: #93b259;
+	--owl-preset-accent-hover: #819d4e;
+	--color-owl-bg: #fdf6e3;
+	--color-owl-sidebar: #f7f0de;
+	--color-owl-rail: #f2ebda;
+	--color-owl-panel: #fdf7e6;
+	--color-owl-bubble: #f5efdd;
+	--color-owl-hover: #ede8d8;
+	--color-owl-border: #ece7d7;
+	--color-owl-text: #5c6a72;
+	--color-owl-muted: #8d9594;
+	--color-owl-faint: #adb1ab;
+	--color-owl-sidebar-bg: #f7f0de;
+	--color-owl-sidebar-surface: #fcf9f2;
+	--color-owl-sidebar-hover: #e8e3d3;
+	--color-owl-sidebar-selected: #d9d6c9;
+	--color-owl-sidebar-border: #e6e2d2;
+	--color-owl-sidebar-text: #5c6a72;
+	--color-owl-sidebar-muted: #8b9393;
+	--color-owl-sidebar-faint: #aaaea9;
+}
+html[data-owl-preset="cx-everforest"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fdf6e3);
+	--owl-ui-panel: #fdf7e6;
+	--owl-ui-sidebar: #f7f0de;
+	--owl-ui-border: #ece7d7;
+	--owl-ui-text: var(--owl-ui-text-override, #5c6a72);
+	--owl-ui-muted: #8d9594;
+	--owl-ui-hover: #ede8d8;
+	--owl-ui-menu-hover: #dddbcf;
+}
+
+/* GitHub（深浅两档） */
+html[data-owl-preset="cx-github"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #0d1117;
+	--owl-preset-accent: #1f6feb;
+	--owl-preset-accent-hover: #4185ee;
+	--color-owl-bg: #0d1117;
+	--color-owl-sidebar: #0b0e13;
+	--color-owl-rail: #090b10;
+	--color-owl-panel: #1c2026;
+	--color-owl-bubble: #181c22;
+	--color-owl-hover: #252a30;
+	--color-owl-border: #262a30;
+	--color-owl-text: #e6edf3;
+	--color-owl-muted: #a7adb3;
+	--color-owl-faint: #757b81;
+	--color-owl-sidebar-bg: #0b0e13;
+	--color-owl-sidebar-surface: #1a1e23;
+	--color-owl-sidebar-hover: #24272c;
+	--color-owl-sidebar-selected: #2b2f34;
+	--color-owl-sidebar-border: #24272d;
+	--color-owl-sidebar-text: #e6edf3;
+	--color-owl-sidebar-muted: #a6acb2;
+	--color-owl-sidebar-faint: #74797f;
+}
+html[data-owl-preset="cx-github"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #0d1117);
+	--owl-ui-panel: #1c2026;
+	--owl-ui-sidebar: #0b0e13;
+	--owl-ui-border: #262a30;
+	--owl-ui-text: var(--owl-ui-text-override, #e6edf3);
+	--owl-ui-muted: #a7adb3;
+	--owl-ui-hover: #252a30;
+	--owl-ui-menu-hover: #3a3e44;
+}
+html[data-owl-preset="cx-github"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #0969da;
+	--owl-preset-accent-hover: #085cc0;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f6f6f6;
+	--color-owl-rail: #eeefef;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f4f4f4;
+	--color-owl-hover: #e9e9ea;
+	--color-owl-border: #e7e7e8;
+	--color-owl-text: #1f2328;
+	--color-owl-muted: #63666a;
+	--color-owl-faint: #909295;
+	--color-owl-sidebar-bg: #f6f6f6;
+	--color-owl-sidebar-surface: #fbfbfb;
+	--color-owl-sidebar-hover: #e1e1e2;
+	--color-owl-sidebar-selected: #cccdce;
+	--color-owl-sidebar-border: #dfdfe0;
+	--color-owl-sidebar-text: #1f2328;
+	--color-owl-sidebar-muted: #616367;
+	--color-owl-sidebar-faint: #8c8e90;
+}
+html[data-owl-preset="cx-github"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f6f6f6;
+	--owl-ui-border: #e7e7e8;
+	--owl-ui-text: var(--owl-ui-text-override, #1f2328);
+	--owl-ui-muted: #63666a;
+	--owl-ui-hover: #e9e9ea;
+	--owl-ui-menu-hover: #d3d4d5;
+}
+
+/* Gruvbox（深浅两档） */
+html[data-owl-preset="cx-gruvbox"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #282828;
+	--owl-preset-accent: #458588;
+	--owl-preset-accent-hover: #61979a;
+	--color-owl-bg: #282828;
+	--color-owl-sidebar: #222222;
+	--color-owl-rail: #1c1c1c;
+	--color-owl-panel: #363532;
+	--color-owl-bubble: #32312f;
+	--color-owl-hover: #3e3c37;
+	--color-owl-border: #3e3c38;
+	--color-owl-text: #ebdbb2;
+	--color-owl-muted: #b2a78a;
+	--color-owl-faint: #867e6a;
+	--color-owl-sidebar-bg: #222222;
+	--color-owl-sidebar-surface: #302f2c;
+	--color-owl-sidebar-hover: #393732;
+	--color-owl-sidebar-selected: #403d37;
+	--color-owl-sidebar-border: #393732;
+	--color-owl-sidebar-text: #ebdbb2;
+	--color-owl-sidebar-muted: #b1a588;
+	--color-owl-sidebar-faint: #827b67;
+}
+html[data-owl-preset="cx-gruvbox"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #282828);
+	--owl-ui-panel: #363532;
+	--owl-ui-sidebar: #222222;
+	--owl-ui-border: #3e3c38;
+	--owl-ui-text: var(--owl-ui-text-override, #ebdbb2);
+	--owl-ui-muted: #b2a78a;
+	--owl-ui-hover: #3e3c37;
+	--owl-ui-menu-hover: #514e45;
+}
+html[data-owl-preset="cx-gruvbox"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fbf1c7;
+	--owl-preset-accent: #458588;
+	--owl-preset-accent-hover: #3d7578;
+	--color-owl-bg: #fbf1c7;
+	--color-owl-sidebar: #f3eac1;
+	--color-owl-rail: #ede4bc;
+	--color-owl-panel: #fbf3cd;
+	--color-owl-bubble: #f1e8c0;
+	--color-owl-hover: #e8dfb9;
+	--color-owl-border: #e6ddb7;
+	--color-owl-text: #3c3836;
+	--color-owl-muted: #767062;
+	--color-owl-faint: #9c957f;
+	--color-owl-sidebar-bg: #f3eac1;
+	--color-owl-sidebar-surface: #faf7e6;
+	--color-owl-sidebar-hover: #e1d9b3;
+	--color-owl-sidebar-selected: #cfc7a6;
+	--color-owl-sidebar-border: #dfd7b2;
+	--color-owl-sidebar-text: #3c3836;
+	--color-owl-sidebar-muted: #746e60;
+	--color-owl-sidebar-faint: #98927c;
+}
+html[data-owl-preset="cx-gruvbox"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fbf1c7);
+	--owl-ui-panel: #fbf3cd;
+	--owl-ui-sidebar: #f3eac1;
+	--owl-ui-border: #e6ddb7;
+	--owl-ui-text: var(--owl-ui-text-override, #3c3836);
+	--owl-ui-muted: #767062;
+	--owl-ui-hover: #e8dfb9;
+	--owl-ui-menu-hover: #d6ceaf;
+}
+
+/* Linear（深浅两档） */
+html[data-owl-preset="cx-linear"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #0f0f11;
+	--owl-preset-accent: #606acc;
+	--owl-preset-accent-hover: #7880d4;
+	--color-owl-bg: #0f0f11;
+	--color-owl-sidebar: #0d0d0e;
+	--color-owl-rail: #0b0b0b;
+	--color-owl-panel: #1e1e20;
+	--color-owl-bubble: #1a1a1c;
+	--color-owl-hover: #272729;
+	--color-owl-border: #272729;
+	--color-owl-text: #e3e4e6;
+	--color-owl-muted: #a6a6a8;
+	--color-owl-faint: #757577;
+	--color-owl-sidebar-bg: #0d0d0e;
+	--color-owl-sidebar-surface: #1c1c1d;
+	--color-owl-sidebar-hover: #252526;
+	--color-owl-sidebar-selected: #2d2d2e;
+	--color-owl-sidebar-border: #252627;
+	--color-owl-sidebar-text: #e3e4e6;
+	--color-owl-sidebar-muted: #a5a6a7;
+	--color-owl-sidebar-faint: #747476;
+}
+html[data-owl-preset="cx-linear"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #0f0f11);
+	--owl-ui-panel: #1e1e20;
+	--owl-ui-sidebar: #0d0d0e;
+	--owl-ui-border: #272729;
+	--owl-ui-text: var(--owl-ui-text-override, #e3e4e6);
+	--owl-ui-muted: #a6a6a8;
+	--owl-ui-hover: #272729;
+	--owl-ui-menu-hover: #3b3b3d;
+}
+html[data-owl-preset="cx-linear"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fcfcfd;
+	--owl-preset-accent: #5e6ad2;
+	--owl-preset-accent-hover: #535db9;
+	--color-owl-bg: #fcfcfd;
+	--color-owl-sidebar: #f3f3f4;
+	--color-owl-rail: #ebebec;
+	--color-owl-panel: #fcfcfd;
+	--color-owl-bubble: #f1f1f2;
+	--color-owl-hover: #e6e6e7;
+	--color-owl-border: #e4e4e5;
+	--color-owl-text: #1b1b1b;
+	--color-owl-muted: #606060;
+	--color-owl-faint: #8d8d8d;
+	--color-owl-sidebar-bg: #f3f3f4;
+	--color-owl-sidebar-surface: #fafafb;
+	--color-owl-sidebar-hover: #dededf;
+	--color-owl-sidebar-selected: #c9c9c9;
+	--color-owl-sidebar-border: #dcdcdd;
+	--color-owl-sidebar-text: #1b1b1b;
+	--color-owl-sidebar-muted: #5d5d5d;
+	--color-owl-sidebar-faint: #888889;
+}
+html[data-owl-preset="cx-linear"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fcfcfd);
+	--owl-ui-panel: #fcfcfd;
+	--owl-ui-sidebar: #f3f3f4;
+	--owl-ui-border: #e4e4e5;
+	--owl-ui-text: var(--owl-ui-text-override, #1b1b1b);
+	--owl-ui-muted: #606060;
+	--owl-ui-hover: #e6e6e7;
+	--owl-ui-menu-hover: #d0d0d1;
+}
+
+/* Lobster（仅深色，锁定深色档） */
+html[data-owl-preset="cx-lobster"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #111827;
+	--owl-preset-accent: #ff5c5c;
+	--owl-preset-accent-hover: #ff7474;
+	--color-owl-bg: #111827;
+	--color-owl-sidebar: #0e1421;
+	--color-owl-rail: #0b101b;
+	--color-owl-panel: #202634;
+	--color-owl-bubble: #1c2231;
+	--color-owl-hover: #292f3d;
+	--color-owl-border: #292f3d;
+	--color-owl-text: #e4e4e7;
+	--color-owl-muted: #a7a9af;
+	--color-owl-faint: #767a83;
+	--color-owl-sidebar-bg: #0e1421;
+	--color-owl-sidebar-surface: #1d232f;
+	--color-owl-sidebar-hover: #262b37;
+	--color-owl-sidebar-selected: #2e333e;
+	--color-owl-sidebar-border: #262c38;
+	--color-owl-sidebar-text: #e4e4e7;
+	--color-owl-sidebar-muted: #a6a8ae;
+	--color-owl-sidebar-faint: #757880;
+}
+html[data-owl-preset="cx-lobster"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #111827);
+	--owl-ui-panel: #202634;
+	--owl-ui-sidebar: #0e1421;
+	--owl-ui-border: #292f3d;
+	--owl-ui-text: var(--owl-ui-text-override, #e4e4e7);
+	--owl-ui-muted: #a7a9af;
+	--owl-ui-hover: #292f3d;
+	--owl-ui-menu-hover: #3d424e;
+}
+
+/* Material（仅深色，锁定深色档） */
+html[data-owl-preset="cx-material"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #212121;
+	--owl-preset-accent: #80cbc4;
+	--owl-preset-accent-hover: #93d3cd;
+	--color-owl-bg: #212121;
+	--color-owl-sidebar: #1c1c1c;
+	--color-owl-rail: #171717;
+	--color-owl-panel: #2f3131;
+	--color-owl-bubble: #2b2c2c;
+	--color-owl-hover: #383a3a;
+	--color-owl-border: #383a3a;
+	--color-owl-text: #eeffff;
+	--color-owl-muted: #b3bfbf;
+	--color-owl-faint: #838c8c;
+	--color-owl-sidebar-bg: #1c1c1c;
+	--color-owl-sidebar-surface: #2b2c2c;
+	--color-owl-sidebar-hover: #343535;
+	--color-owl-sidebar-selected: #3b3e3e;
+	--color-owl-sidebar-border: #343636;
+	--color-owl-sidebar-text: #eeffff;
+	--color-owl-sidebar-muted: #b1bdbd;
+	--color-owl-sidebar-faint: #818989;
+}
+html[data-owl-preset="cx-material"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #212121);
+	--owl-ui-panel: #2f3131;
+	--owl-ui-sidebar: #1c1c1c;
+	--owl-ui-border: #383a3a;
+	--owl-ui-text: var(--owl-ui-text-override, #eeffff);
+	--owl-ui-muted: #b3bfbf;
+	--owl-ui-hover: #383a3a;
+	--owl-ui-menu-hover: #4b4f4f;
+}
+
+/* Matrix（仅深色，锁定深色档） */
+html[data-owl-preset="cx-matrix"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #040805;
+	--owl-preset-accent: #1eff5a;
+	--owl-preset-accent-hover: #40ff73;
+	--color-owl-bg: #040805;
+	--color-owl-sidebar: #030704;
+	--color-owl-rail: #020603;
+	--color-owl-panel: #111913;
+	--color-owl-bubble: #0d140f;
+	--color-owl-hover: #18241b;
+	--color-owl-border: #19241b;
+	--color-owl-text: #b8ffca;
+	--color-owl-muted: #84b791;
+	--color-owl-faint: #5a7f64;
+	--color-owl-sidebar-bg: #030704;
+	--color-owl-sidebar-surface: #101812;
+	--color-owl-sidebar-hover: #17231a;
+	--color-owl-sidebar-selected: #1e2c21;
+	--color-owl-sidebar-border: #18231b;
+	--color-owl-sidebar-text: #b8ffca;
+	--color-owl-sidebar-muted: #84b791;
+	--color-owl-sidebar-faint: #5a7e63;
+}
+html[data-owl-preset="cx-matrix"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #040805);
+	--owl-ui-panel: #111913;
+	--owl-ui-sidebar: #030704;
+	--owl-ui-border: #19241b;
+	--owl-ui-text: var(--owl-ui-text-override, #b8ffca);
+	--owl-ui-muted: #84b791;
+	--owl-ui-hover: #18241b;
+	--owl-ui-menu-hover: #2a3b2e;
+}
+
+/* Monokai（仅深色，锁定深色档） */
+html[data-owl-preset="cx-monokai"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #272822;
+	--owl-preset-accent: #99947c;
+	--owl-preset-accent-hover: #a8a490;
+	--color-owl-bg: #272822;
+	--color-owl-sidebar: #21221d;
+	--color-owl-rail: #1b1c18;
+	--color-owl-panel: #363731;
+	--color-owl-bubble: #31322c;
+	--color-owl-hover: #3e3f39;
+	--color-owl-border: #3f403a;
+	--color-owl-text: #f8f8f2;
+	--color-owl-muted: #bbbcb6;
+	--color-owl-faint: #8b8c86;
+	--color-owl-sidebar-bg: #21221d;
+	--color-owl-sidebar-surface: #30312c;
+	--color-owl-sidebar-hover: #393a35;
+	--color-owl-sidebar-selected: #41423d;
+	--color-owl-sidebar-border: #3a3a35;
+	--color-owl-sidebar-text: #f8f8f2;
+	--color-owl-sidebar-muted: #babab4;
+	--color-owl-sidebar-faint: #888983;
+}
+html[data-owl-preset="cx-monokai"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #272822);
+	--owl-ui-panel: #363731;
+	--owl-ui-sidebar: #21221d;
+	--owl-ui-border: #3f403a;
+	--owl-ui-text: var(--owl-ui-text-override, #f8f8f2);
+	--owl-ui-muted: #bbbcb6;
+	--owl-ui-hover: #3e3f39;
+	--owl-ui-menu-hover: #53544e;
+}
+
+/* Night Owl（仅深色，锁定深色档） */
+html[data-owl-preset="cx-night-owl"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #011627;
+	--owl-preset-accent: #44596b;
+	--owl-preset-accent-hover: #607281;
+	--color-owl-bg: #011627;
+	--color-owl-sidebar: #011221;
+	--color-owl-rail: #010f1b;
+	--color-owl-panel: #102435;
+	--color-owl-bubble: #0c2031;
+	--color-owl-hover: #192c3d;
+	--color-owl-border: #192d3d;
+	--color-owl-text: #d6deeb;
+	--color-owl-muted: #98a4b2;
+	--color-owl-faint: #677685;
+	--color-owl-sidebar-bg: #011221;
+	--color-owl-sidebar-surface: #10202f;
+	--color-owl-sidebar-hover: #192938;
+	--color-owl-sidebar-selected: #21303f;
+	--color-owl-sidebar-border: #192938;
+	--color-owl-sidebar-text: #d6deeb;
+	--color-owl-sidebar-muted: #98a3b0;
+	--color-owl-sidebar-faint: #677482;
+}
+html[data-owl-preset="cx-night-owl"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #011627);
+	--owl-ui-panel: #102435;
+	--owl-ui-sidebar: #011221;
+	--owl-ui-border: #192d3d;
+	--owl-ui-text: var(--owl-ui-text-override, #d6deeb);
+	--owl-ui-muted: #98a4b2;
+	--owl-ui-hover: #192c3d;
+	--owl-ui-menu-hover: #2d4050;
+}
+
+/* Nord（仅深色，锁定深色档） */
+html[data-owl-preset="cx-nord"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #2e3440;
+	--owl-preset-accent: #88c0d0;
+	--owl-preset-accent-hover: #9ac9d7;
+	--color-owl-bg: #2e3440;
+	--color-owl-sidebar: #272c36;
+	--color-owl-rail: #20242c;
+	--color-owl-panel: #3a404c;
+	--color-owl-bubble: #373d48;
+	--color-owl-hover: #414753;
+	--color-owl-border: #414753;
+	--color-owl-text: #d8dee9;
+	--color-owl-muted: #a7adb8;
+	--color-owl-faint: #808691;
+	--color-owl-sidebar-bg: #272c36;
+	--color-owl-sidebar-surface: #333843;
+	--color-owl-sidebar-hover: #3b404a;
+	--color-owl-sidebar-selected: #414650;
+	--color-owl-sidebar-border: #3b404a;
+	--color-owl-sidebar-text: #d8dee9;
+	--color-owl-sidebar-muted: #a5aab5;
+	--color-owl-sidebar-faint: #7c818c;
+}
+html[data-owl-preset="cx-nord"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #2e3440);
+	--owl-ui-panel: #3a404c;
+	--owl-ui-sidebar: #272c36;
+	--owl-ui-border: #414753;
+	--owl-ui-text: var(--owl-ui-text-override, #d8dee9);
+	--owl-ui-muted: #a7adb8;
+	--owl-ui-hover: #414753;
+	--owl-ui-menu-hover: #515763;
+}
+
+/* Notion（深浅两档） */
+html[data-owl-preset="cx-notion"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #191919;
+	--owl-preset-accent: #3183d8;
+	--owl-preset-accent-hover: #5096de;
+	--color-owl-bg: #191919;
+	--color-owl-sidebar: #151515;
+	--color-owl-rail: #111111;
+	--color-owl-panel: #262626;
+	--color-owl-bubble: #232323;
+	--color-owl-hover: #2f2f2e;
+	--color-owl-border: #2f2f2f;
+	--color-owl-text: #d9d9d8;
+	--color-owl-muted: #a1a1a1;
+	--color-owl-faint: #757575;
+	--color-owl-sidebar-bg: #151515;
+	--color-owl-sidebar-surface: #232323;
+	--color-owl-sidebar-hover: #2b2b2b;
+	--color-owl-sidebar-selected: #323232;
+	--color-owl-sidebar-border: #2b2b2b;
+	--color-owl-sidebar-text: #d9d9d8;
+	--color-owl-sidebar-muted: #a0a09f;
+	--color-owl-sidebar-faint: #737373;
+}
+html[data-owl-preset="cx-notion"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #191919);
+	--owl-ui-panel: #262626;
+	--owl-ui-sidebar: #151515;
+	--owl-ui-border: #2f2f2f;
+	--owl-ui-text: var(--owl-ui-text-override, #d9d9d8);
+	--owl-ui-muted: #a1a1a1;
+	--owl-ui-hover: #2f2f2e;
+	--owl-ui-menu-hover: #404040;
+}
+html[data-owl-preset="cx-notion"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #3183d8;
+	--owl-preset-accent-hover: #2b73be;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f7f7f7;
+	--color-owl-rail: #f0f0f0;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f5f5f5;
+	--color-owl-hover: #ebebeb;
+	--color-owl-border: #e9e9e9;
+	--color-owl-text: #37352f;
+	--color-owl-muted: #74736e;
+	--color-owl-faint: #9c9b98;
+	--color-owl-sidebar-bg: #f7f7f7;
+	--color-owl-sidebar-surface: #fcfcfc;
+	--color-owl-sidebar-hover: #e4e4e3;
+	--color-owl-sidebar-selected: #d1d1d0;
+	--color-owl-sidebar-border: #e2e2e1;
+	--color-owl-sidebar-text: #37352f;
+	--color-owl-sidebar-muted: #72706c;
+	--color-owl-sidebar-faint: #989794;
+}
+html[data-owl-preset="cx-notion"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f7f7f7;
+	--owl-ui-border: #e9e9e9;
+	--owl-ui-text: var(--owl-ui-text-override, #37352f);
+	--owl-ui-muted: #74736e;
+	--owl-ui-hover: #ebebeb;
+	--owl-ui-menu-hover: #d8d7d6;
+}
+
+/* OG（仅深色，锁定深色档） */
+html[data-owl-preset="cx-og"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #343541;
+	--owl-preset-accent: #10a37f;
+	--owl-preset-accent-hover: #34b192;
+	--color-owl-bg: #343541;
+	--color-owl-sidebar: #2c2d37;
+	--color-owl-rail: #24252d;
+	--color-owl-panel: #3f404c;
+	--color-owl-bubble: #3c3d49;
+	--color-owl-hover: #464752;
+	--color-owl-border: #464753;
+	--color-owl-text: #d1d5db;
+	--color-owl-muted: #a3a7ae;
+	--color-owl-faint: #7f828b;
+	--color-owl-sidebar-bg: #2c2d37;
+	--color-owl-sidebar-surface: #383942;
+	--color-owl-sidebar-hover: #3e4049;
+	--color-owl-sidebar-selected: #44464f;
+	--color-owl-sidebar-border: #3f404a;
+	--color-owl-sidebar-text: #d1d5db;
+	--color-owl-sidebar-muted: #a1a4ab;
+	--color-owl-sidebar-faint: #7b7e86;
+}
+html[data-owl-preset="cx-og"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #343541);
+	--owl-ui-panel: #3f404c;
+	--owl-ui-sidebar: #2c2d37;
+	--owl-ui-border: #464753;
+	--owl-ui-text: var(--owl-ui-text-override, #d1d5db);
+	--owl-ui-muted: #a3a7ae;
+	--owl-ui-hover: #464752;
+	--owl-ui-menu-hover: #555661;
+}
+
+/* One（深浅两档） */
+html[data-owl-preset="cx-one"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #282c34;
+	--owl-preset-accent: #4d78cc;
+	--owl-preset-accent-hover: #688cd4;
+	--color-owl-bg: #282c34;
+	--color-owl-sidebar: #22252c;
+	--color-owl-rail: #1c1e24;
+	--color-owl-panel: #31353e;
+	--color-owl-bubble: #2f333b;
+	--color-owl-hover: #373b44;
+	--color-owl-border: #373b44;
+	--color-owl-text: #abb2bf;
+	--color-owl-muted: #858b97;
+	--color-owl-faint: #676c77;
+	--color-owl-sidebar-bg: #22252c;
+	--color-owl-sidebar-surface: #2c2f36;
+	--color-owl-sidebar-hover: #31353c;
+	--color-owl-sidebar-selected: #363a42;
+	--color-owl-sidebar-border: #32353d;
+	--color-owl-sidebar-text: #abb2bf;
+	--color-owl-sidebar-muted: #838994;
+	--color-owl-sidebar-faint: #646973;
+}
+html[data-owl-preset="cx-one"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #282c34);
+	--owl-ui-panel: #31353e;
+	--owl-ui-sidebar: #22252c;
+	--owl-ui-border: #373b44;
+	--owl-ui-text: var(--owl-ui-text-override, #abb2bf);
+	--owl-ui-muted: #858b97;
+	--owl-ui-hover: #373b44;
+	--owl-ui-menu-hover: #434851;
+}
+html[data-owl-preset="cx-one"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fafafa;
+	--owl-preset-accent: #526fff;
+	--owl-preset-accent-hover: #4862e0;
+	--color-owl-bg: #fafafa;
+	--color-owl-sidebar: #f2f2f3;
+	--color-owl-rail: #ebeced;
+	--color-owl-panel: #fbfbfb;
+	--color-owl-bubble: #f0f0f1;
+	--color-owl-hover: #e7e7e8;
+	--color-owl-border: #e5e5e6;
+	--color-owl-text: #383a42;
+	--color-owl-muted: #73757a;
+	--color-owl-faint: #9a9b9f;
+	--color-owl-sidebar-bg: #f2f2f3;
+	--color-owl-sidebar-surface: #fafafa;
+	--color-owl-sidebar-hover: #e0e0e2;
+	--color-owl-sidebar-selected: #ceced0;
+	--color-owl-sidebar-border: #dedee0;
+	--color-owl-sidebar-text: #383a42;
+	--color-owl-sidebar-muted: #717278;
+	--color-owl-sidebar-faint: #96979b;
+}
+html[data-owl-preset="cx-one"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fafafa);
+	--owl-ui-panel: #fbfbfb;
+	--owl-ui-sidebar: #f2f2f3;
+	--owl-ui-border: #e5e5e6;
+	--owl-ui-text: var(--owl-ui-text-override, #383a42);
+	--owl-ui-muted: #73757a;
+	--owl-ui-hover: #e7e7e8;
+	--owl-ui-menu-hover: #d5d5d7;
+}
+
+/* Oscurange（仅深色，锁定深色档） */
+html[data-owl-preset="cx-oscurange"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #0b0b0f;
+	--owl-preset-accent: #f9b98c;
+	--owl-preset-accent-hover: #fac49d;
+	--color-owl-bg: #0b0b0f;
+	--color-owl-sidebar: #09090d;
+	--color-owl-rail: #07070b;
+	--color-owl-panel: #1a1a1e;
+	--color-owl-bubble: #16161a;
+	--color-owl-hover: #242427;
+	--color-owl-border: #242428;
+	--color-owl-text: #e6e6e6;
+	--color-owl-muted: #a6a6a8;
+	--color-owl-faint: #747476;
+	--color-owl-sidebar-bg: #09090d;
+	--color-owl-sidebar-surface: #18181c;
+	--color-owl-sidebar-hover: #222225;
+	--color-owl-sidebar-selected: #2a2a2d;
+	--color-owl-sidebar-border: #222226;
+	--color-owl-sidebar-text: #e6e6e6;
+	--color-owl-sidebar-muted: #a6a6a7;
+	--color-owl-sidebar-faint: #737375;
+}
+html[data-owl-preset="cx-oscurange"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #0b0b0f);
+	--owl-ui-panel: #1a1a1e;
+	--owl-ui-sidebar: #09090d;
+	--owl-ui-border: #242428;
+	--owl-ui-text: var(--owl-ui-text-override, #e6e6e6);
+	--owl-ui-muted: #a6a6a8;
+	--owl-ui-hover: #242427;
+	--owl-ui-menu-hover: #38383c;
+}
+
+/* Proof（仅浅色，锁定浅色档） */
+html[data-owl-preset="cx-proof"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #f5f3ed;
+	--owl-preset-accent: #3d755d;
+	--owl-preset-accent-hover: #366752;
+	--color-owl-bg: #f5f3ed;
+	--color-owl-sidebar: #edebe5;
+	--color-owl-rail: #e6e4df;
+	--color-owl-panel: #f6f4ef;
+	--color-owl-bubble: #ebe9e3;
+	--color-owl-hover: #e2e0da;
+	--color-owl-border: #e0ded8;
+	--color-owl-text: #2f312d;
+	--color-owl-muted: #6b6c68;
+	--color-owl-faint: #93938e;
+	--color-owl-sidebar-bg: #edebe5;
+	--color-owl-sidebar-surface: #f8f7f5;
+	--color-owl-sidebar-hover: #dad9d3;
+	--color-owl-sidebar-selected: #c8c7c1;
+	--color-owl-sidebar-border: #d8d7d1;
+	--color-owl-sidebar-text: #2f312d;
+	--color-owl-sidebar-muted: #696a65;
+	--color-owl-sidebar-faint: #8f8f8a;
+}
+html[data-owl-preset="cx-proof"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #f5f3ed);
+	--owl-ui-panel: #f6f4ef;
+	--owl-ui-sidebar: #edebe5;
+	--owl-ui-border: #e0ded8;
+	--owl-ui-text: var(--owl-ui-text-override, #2f312d);
+	--owl-ui-muted: #6b6c68;
+	--owl-ui-hover: #e2e0da;
+	--owl-ui-menu-hover: #cfcec9;
+}
+
+/* Raycast（深浅两档） */
+html[data-owl-preset="cx-raycast"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #101010;
+	--owl-preset-accent: #ff6363;
+	--owl-preset-accent-hover: #ff7a7a;
+	--color-owl-bg: #101010;
+	--color-owl-sidebar: #0d0d0d;
+	--color-owl-rail: #0b0b0b;
+	--color-owl-panel: #212121;
+	--color-owl-bubble: #1c1c1c;
+	--color-owl-hover: #2b2b2b;
+	--color-owl-border: #2b2b2b;
+	--color-owl-text: #fefefe;
+	--color-owl-muted: #b9b9b9;
+	--color-owl-faint: #828282;
+	--color-owl-sidebar-bg: #0d0d0d;
+	--color-owl-sidebar-surface: #1e1e1e;
+	--color-owl-sidebar-hover: #282828;
+	--color-owl-sidebar-selected: #313131;
+	--color-owl-sidebar-border: #282828;
+	--color-owl-sidebar-text: #fefefe;
+	--color-owl-sidebar-muted: #b8b8b8;
+	--color-owl-sidebar-faint: #818181;
+}
+html[data-owl-preset="cx-raycast"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #101010);
+	--owl-ui-panel: #212121;
+	--owl-ui-sidebar: #0d0d0d;
+	--owl-ui-border: #2b2b2b;
+	--owl-ui-text: var(--owl-ui-text-override, #fefefe);
+	--owl-ui-muted: #b9b9b9;
+	--owl-ui-hover: #2b2b2b;
+	--owl-ui-menu-hover: #424242;
+}
+html[data-owl-preset="cx-raycast"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #ff6363;
+	--owl-preset-accent-hover: #e05757;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f5f5f5;
+	--color-owl-rail: #ededed;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f2f2f2;
+	--color-owl-hover: #e6e6e6;
+	--color-owl-border: #e4e4e4;
+	--color-owl-text: #030303;
+	--color-owl-muted: #505050;
+	--color-owl-faint: #828282;
+	--color-owl-sidebar-bg: #f5f5f5;
+	--color-owl-sidebar-surface: #fbfbfb;
+	--color-owl-sidebar-hover: #dddddd;
+	--color-owl-sidebar-selected: #c6c6c6;
+	--color-owl-sidebar-border: #dbdbdb;
+	--color-owl-sidebar-text: #030303;
+	--color-owl-sidebar-muted: #4d4d4d;
+	--color-owl-sidebar-faint: #7d7d7d;
+}
+html[data-owl-preset="cx-raycast"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f5f5f5;
+	--owl-ui-border: #e4e4e4;
+	--owl-ui-text: var(--owl-ui-text-override, #030303);
+	--owl-ui-muted: #505050;
+	--owl-ui-hover: #e6e6e6;
+	--owl-ui-menu-hover: #cecece;
+}
+
+/* Rose Pine（深浅两档） */
+html[data-owl-preset="cx-rose-pine"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #232136;
+	--owl-preset-accent: #ea9a97;
+	--owl-preset-accent-hover: #eda9a7;
+	--color-owl-bg: #232136;
+	--color-owl-sidebar: #1d1c2d;
+	--color-owl-rail: #181725;
+	--color-owl-panel: #302e43;
+	--color-owl-bubble: #2c2a40;
+	--color-owl-hover: #38364b;
+	--color-owl-border: #39374c;
+	--color-owl-text: #e0def4;
+	--color-owl-muted: #a9a7bd;
+	--color-owl-faint: #7e7c91;
+	--color-owl-sidebar-bg: #1d1c2d;
+	--color-owl-sidebar-surface: #2b2a3b;
+	--color-owl-sidebar-hover: #333243;
+	--color-owl-sidebar-selected: #3a394a;
+	--color-owl-sidebar-border: #333244;
+	--color-owl-sidebar-text: #e0def4;
+	--color-owl-sidebar-muted: #a7a6ba;
+	--color-owl-sidebar-faint: #7b798d;
+}
+html[data-owl-preset="cx-rose-pine"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #232136);
+	--owl-ui-panel: #302e43;
+	--owl-ui-sidebar: #1d1c2d;
+	--owl-ui-border: #39374c;
+	--owl-ui-text: var(--owl-ui-text-override, #e0def4);
+	--owl-ui-muted: #a9a7bd;
+	--owl-ui-hover: #38364b;
+	--owl-ui-menu-hover: #4a485d;
+}
+html[data-owl-preset="cx-rose-pine"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #faf4ed;
+	--owl-preset-accent: #d7827e;
+	--owl-preset-accent-hover: #bd726f;
+	--color-owl-bg: #faf4ed;
+	--color-owl-sidebar: #f3eee8;
+	--color-owl-rail: #eee9e4;
+	--color-owl-panel: #fbf5ef;
+	--color-owl-bubble: #f2ece7;
+	--color-owl-hover: #eae4e2;
+	--color-owl-border: #e8e3e0;
+	--color-owl-text: #575279;
+	--color-owl-muted: #89839c;
+	--color-owl-faint: #a9a4b4;
+	--color-owl-sidebar-bg: #f3eee8;
+	--color-owl-sidebar-surface: #faf8f6;
+	--color-owl-sidebar-hover: #e4dfdd;
+	--color-owl-sidebar-selected: #d4cfd2;
+	--color-owl-sidebar-border: #e2dddc;
+	--color-owl-sidebar-text: #575279;
+	--color-owl-sidebar-muted: #87829b;
+	--color-owl-sidebar-faint: #a6a1b1;
+}
+html[data-owl-preset="cx-rose-pine"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #faf4ed);
+	--owl-ui-panel: #fbf5ef;
+	--owl-ui-sidebar: #f3eee8;
+	--owl-ui-border: #e8e3e0;
+	--owl-ui-text: var(--owl-ui-text-override, #575279);
+	--owl-ui-muted: #89839c;
+	--owl-ui-hover: #eae4e2;
+	--owl-ui-menu-hover: #dbd5d8;
+}
+
+/* Sentry（仅深色，锁定深色档） */
+html[data-owl-preset="cx-sentry"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #2d2935;
+	--owl-preset-accent: #7055f6;
+	--owl-preset-accent-hover: #856ff7;
+	--color-owl-bg: #2d2935;
+	--color-owl-sidebar: #26222d;
+	--color-owl-rail: #1f1c25;
+	--color-owl-panel: #3a3643;
+	--color-owl-bubble: #36323f;
+	--color-owl-hover: #423d4b;
+	--color-owl-border: #423e4b;
+	--color-owl-text: #e6dff9;
+	--color-owl-muted: #b0aac0;
+	--color-owl-faint: #868093;
+	--color-owl-sidebar-bg: #26222d;
+	--color-owl-sidebar-surface: #332f3b;
+	--color-owl-sidebar-hover: #3c3744;
+	--color-owl-sidebar-selected: #423e4b;
+	--color-owl-sidebar-border: #3c3844;
+	--color-owl-sidebar-text: #e6dff9;
+	--color-owl-sidebar-muted: #aea8be;
+	--color-owl-sidebar-faint: #827d8f;
+}
+html[data-owl-preset="cx-sentry"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #2d2935);
+	--owl-ui-panel: #3a3643;
+	--owl-ui-sidebar: #26222d;
+	--owl-ui-border: #423e4b;
+	--owl-ui-text: var(--owl-ui-text-override, #e6dff9);
+	--owl-ui-muted: #b0aac0;
+	--owl-ui-hover: #423d4b;
+	--owl-ui-menu-hover: #534f5e;
+}
+
+/* Solarized（深浅两档） */
+html[data-owl-preset="cx-solarized"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #002b36;
+	--owl-preset-accent: #d30102;
+	--owl-preset-accent-hover: #da2728;
+	--color-owl-bg: #002b36;
+	--color-owl-sidebar: #00242d;
+	--color-owl-rail: #001e25;
+	--color-owl-panel: #09323d;
+	--color-owl-bubble: #07303b;
+	--color-owl-hover: #0f3741;
+	--color-owl-border: #0f3741;
+	--color-owl-text: #839496;
+	--color-owl-muted: #5d767a;
+	--color-owl-faint: #3f5d64;
+	--color-owl-sidebar-bg: #00242d;
+	--color-owl-sidebar-surface: #092c34;
+	--color-owl-sidebar-hover: #0f3139;
+	--color-owl-sidebar-selected: #13353d;
+	--color-owl-sidebar-border: #0f3139;
+	--color-owl-sidebar-text: #839496;
+	--color-owl-sidebar-muted: #5d7478;
+	--color-owl-sidebar-faint: #3f5a5f;
+}
+html[data-owl-preset="cx-solarized"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #002b36);
+	--owl-ui-panel: #09323d;
+	--owl-ui-sidebar: #00242d;
+	--owl-ui-border: #0f3741;
+	--owl-ui-text: var(--owl-ui-text-override, #839496);
+	--owl-ui-muted: #5d767a;
+	--owl-ui-hover: #0f3741;
+	--owl-ui-menu-hover: #1b414a;
+}
+html[data-owl-preset="cx-solarized"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fdf6e3;
+	--owl-preset-accent: #b58900;
+	--owl-preset-accent-hover: #9f7900;
+	--color-owl-bg: #fdf6e3;
+	--color-owl-sidebar: #f7f1df;
+	--color-owl-rail: #f2eddc;
+	--color-owl-panel: #fdf7e6;
+	--color-owl-bubble: #f5f0de;
+	--color-owl-hover: #eeeada;
+	--color-owl-border: #ede9d9;
+	--color-owl-text: #657b83;
+	--color-owl-muted: #93a1a0;
+	--color-owl-faint: #b2b9b3;
+	--color-owl-sidebar-bg: #f7f1df;
+	--color-owl-sidebar-surface: #fcf9f2;
+	--color-owl-sidebar-hover: #e9e5d6;
+	--color-owl-sidebar-selected: #dadacd;
+	--color-owl-sidebar-border: #e7e4d5;
+	--color-owl-sidebar-text: #657b83;
+	--color-owl-sidebar-muted: #929f9f;
+	--color-owl-sidebar-faint: #afb7b1;
+}
+html[data-owl-preset="cx-solarized"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fdf6e3);
+	--owl-ui-panel: #fdf7e6;
+	--owl-ui-sidebar: #f7f1df;
+	--owl-ui-border: #ede9d9;
+	--owl-ui-text: var(--owl-ui-text-override, #657b83);
+	--owl-ui-muted: #93a1a0;
+	--owl-ui-hover: #eeeada;
+	--owl-ui-menu-hover: #dfdfd3;
+}
+
+/* Temple（仅深色，锁定深色档） */
+html[data-owl-preset="cx-temple"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #02120c;
+	--owl-preset-accent: #e4f222;
+	--owl-preset-accent-hover: #e8f443;
+	--color-owl-bg: #02120c;
+	--color-owl-sidebar: #020f0a;
+	--color-owl-rail: #020c08;
+	--color-owl-panel: #10211a;
+	--color-owl-bubble: #0c1d16;
+	--color-owl-hover: #182a23;
+	--color-owl-border: #182a23;
+	--color-owl-text: #c7e6da;
+	--color-owl-muted: #8ea99e;
+	--color-owl-faint: #61786f;
+	--color-owl-sidebar-bg: #020f0a;
+	--color-owl-sidebar-surface: #101e19;
+	--color-owl-sidebar-hover: #182721;
+	--color-owl-sidebar-selected: #1f2f29;
+	--color-owl-sidebar-border: #182822;
+	--color-owl-sidebar-text: #c7e6da;
+	--color-owl-sidebar-muted: #8ea89e;
+	--color-owl-sidebar-faint: #61766e;
+}
+html[data-owl-preset="cx-temple"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #02120c);
+	--owl-ui-panel: #10211a;
+	--owl-ui-sidebar: #020f0a;
+	--owl-ui-border: #182a23;
+	--owl-ui-text: var(--owl-ui-text-override, #c7e6da);
+	--owl-ui-muted: #8ea99e;
+	--owl-ui-hover: #182a23;
+	--owl-ui-menu-hover: #2b3e36;
+}
+
+/* Tokyo Night（仅深色，锁定深色档） */
+html[data-owl-preset="cx-tokyo-night"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #1a1b26;
+	--owl-preset-accent: #3d59a1;
+	--owl-preset-accent-hover: #5a72af;
+	--color-owl-bg: #1a1b26;
+	--color-owl-sidebar: #161720;
+	--color-owl-rail: #12131a;
+	--color-owl-panel: #242632;
+	--color-owl-bubble: #21232f;
+	--color-owl-hover: #2a2c3a;
+	--color-owl-border: #2a2c3a;
+	--color-owl-text: #a9b1d6;
+	--color-owl-muted: #8086a3;
+	--color-owl-faint: #5f637a;
+	--color-owl-sidebar-bg: #161720;
+	--color-owl-sidebar-surface: #20222d;
+	--color-owl-sidebar-hover: #262834;
+	--color-owl-sidebar-selected: #2c2e3b;
+	--color-owl-sidebar-border: #272935;
+	--color-owl-sidebar-text: #a9b1d6;
+	--color-owl-sidebar-muted: #7e84a1;
+	--color-owl-sidebar-faint: #5d6177;
+}
+html[data-owl-preset="cx-tokyo-night"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1a1b26);
+	--owl-ui-panel: #242632;
+	--owl-ui-sidebar: #161720;
+	--owl-ui-border: #2a2c3a;
+	--owl-ui-text: var(--owl-ui-text-override, #a9b1d6);
+	--owl-ui-muted: #8086a3;
+	--owl-ui-hover: #2a2c3a;
+	--owl-ui-menu-hover: #383b4a;
+}
+
+/* Vercel（深浅两档） */
+html[data-owl-preset="cx-vercel"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #000000;
+	--owl-preset-accent: #006efe;
+	--owl-preset-accent-hover: #2684fe;
+	--color-owl-bg: #000000;
+	--color-owl-sidebar: #000000;
+	--color-owl-rail: #000000;
+	--color-owl-panel: #0e0e0e;
+	--color-owl-bubble: #0c0c0c;
+	--color-owl-hover: #171717;
+	--color-owl-border: #191919;
+	--color-owl-text: #ededed;
+	--color-owl-muted: #a3a3a3;
+	--color-owl-faint: #6d6d6d;
+	--color-owl-sidebar-bg: #000000;
+	--color-owl-sidebar-surface: #0e0e0e;
+	--color-owl-sidebar-hover: #171717;
+	--color-owl-sidebar-selected: #1f1f1f;
+	--color-owl-sidebar-border: #191919;
+	--color-owl-sidebar-text: #ededed;
+	--color-owl-sidebar-muted: #a3a3a3;
+	--color-owl-sidebar-faint: #6d6d6d;
+}
+html[data-owl-preset="cx-vercel"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #000000);
+	--owl-ui-panel: #0e0e0e;
+	--owl-ui-sidebar: #000000;
+	--owl-ui-border: #191919;
+	--owl-ui-text: var(--owl-ui-text-override, #ededed);
+	--owl-ui-muted: #a3a3a3;
+	--owl-ui-hover: #171717;
+	--owl-ui-menu-hover: #2b2b2b;
+}
+html[data-owl-preset="cx-vercel"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #006aff;
+	--owl-preset-accent-hover: #005de0;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f7f7f7;
+	--color-owl-rail: #efefef;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f3f3f3;
+	--color-owl-hover: #e9e9e9;
+	--color-owl-border: #e7e7e7;
+	--color-owl-text: #171717;
+	--color-owl-muted: #606060;
+	--color-owl-faint: #8f8f8f;
+	--color-owl-sidebar-bg: #f7f7f7;
+	--color-owl-sidebar-surface: #fcfcfc;
+	--color-owl-sidebar-hover: #e2e2e2;
+	--color-owl-sidebar-selected: #cdcdcd;
+	--color-owl-sidebar-border: #e0e0e0;
+	--color-owl-sidebar-text: #171717;
+	--color-owl-sidebar-muted: #5e5e5e;
+	--color-owl-sidebar-faint: #8b8b8b;
+}
+html[data-owl-preset="cx-vercel"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f7f7f7;
+	--owl-ui-border: #e7e7e7;
+	--owl-ui-text: var(--owl-ui-text-override, #171717);
+	--owl-ui-muted: #606060;
+	--owl-ui-hover: #e9e9e9;
+	--owl-ui-menu-hover: #d4d4d4;
+}
+
+/* VS Code Plus（深浅两档） */
+html[data-owl-preset="cx-vscode-plus"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #1e1e1e;
+	--owl-preset-accent: #007acc;
+	--owl-preset-accent-hover: #268ed4;
+	--color-owl-bg: #1e1e1e;
+	--color-owl-sidebar: #191919;
+	--color-owl-rail: #151515;
+	--color-owl-panel: #2b2b2b;
+	--color-owl-bubble: #272727;
+	--color-owl-hover: #323232;
+	--color-owl-border: #333333;
+	--color-owl-text: #d4d4d4;
+	--color-owl-muted: #9f9f9f;
+	--color-owl-faint: #757575;
+	--color-owl-sidebar-bg: #191919;
+	--color-owl-sidebar-surface: #262626;
+	--color-owl-sidebar-hover: #2e2e2e;
+	--color-owl-sidebar-selected: #353535;
+	--color-owl-sidebar-border: #2e2e2e;
+	--color-owl-sidebar-text: #d4d4d4;
+	--color-owl-sidebar-muted: #9e9e9e;
+	--color-owl-sidebar-faint: #737373;
+}
+html[data-owl-preset="cx-vscode-plus"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1e1e1e);
+	--owl-ui-panel: #2b2b2b;
+	--owl-ui-sidebar: #191919;
+	--owl-ui-border: #333333;
+	--owl-ui-text: var(--owl-ui-text-override, #d4d4d4);
+	--owl-ui-muted: #9f9f9f;
+	--owl-ui-hover: #323232;
+	--owl-ui-menu-hover: #444444;
+}
+html[data-owl-preset="cx-vscode-plus"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #007acc;
+	--owl-preset-accent-hover: #006bb4;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f5f5f5;
+	--color-owl-rail: #ececec;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f2f2f2;
+	--color-owl-hover: #e6e6e6;
+	--color-owl-border: #e3e3e3;
+	--color-owl-text: #000000;
+	--color-owl-muted: #4e4e4e;
+	--color-owl-faint: #818181;
+	--color-owl-sidebar-bg: #f5f5f5;
+	--color-owl-sidebar-surface: #fbfbfb;
+	--color-owl-sidebar-hover: #dddddd;
+	--color-owl-sidebar-selected: #c5c5c5;
+	--color-owl-sidebar-border: #dbdbdb;
+	--color-owl-sidebar-text: #000000;
+	--color-owl-sidebar-muted: #4b4b4b;
+	--color-owl-sidebar-faint: #7c7c7c;
+}
+html[data-owl-preset="cx-vscode-plus"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f5f5f5;
+	--owl-ui-border: #e3e3e3;
+	--owl-ui-text: var(--owl-ui-text-override, #000000);
+	--owl-ui-muted: #4e4e4e;
+	--owl-ui-hover: #e6e6e6;
+	--owl-ui-menu-hover: #cdcdcd;
+}
+
+/* Xcode（深浅两档） */
+html[data-owl-preset="cx-xcode"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #1f1f24;
+	--owl-preset-accent: #5482ff;
+	--owl-preset-accent-hover: #6e95ff;
+	--color-owl-bg: #1f1f24;
+	--color-owl-sidebar: #1a1a1e;
+	--color-owl-rail: #151519;
+	--color-owl-panel: #2f2f33;
+	--color-owl-bubble: #2a2a2f;
+	--color-owl-hover: #38383d;
+	--color-owl-border: #39393d;
+	--color-owl-text: #ffffff;
+	--color-owl-muted: #bebebf;
+	--color-owl-faint: #8b8b8d;
+	--color-owl-sidebar-bg: #1a1a1e;
+	--color-owl-sidebar-surface: #2a2a2e;
+	--color-owl-sidebar-hover: #343437;
+	--color-owl-sidebar-selected: #3c3c3f;
+	--color-owl-sidebar-border: #343438;
+	--color-owl-sidebar-text: #ffffff;
+	--color-owl-sidebar-muted: #bdbdbe;
+	--color-owl-sidebar-faint: #88888a;
+}
+html[data-owl-preset="cx-xcode"][data-owl-theme="dark"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #1f1f24);
+	--owl-ui-panel: #2f2f33;
+	--owl-ui-sidebar: #1a1a1e;
+	--owl-ui-border: #39393d;
+	--owl-ui-text: var(--owl-ui-text-override, #ffffff);
+	--owl-ui-muted: #bebebf;
+	--owl-ui-hover: #38383d;
+	--owl-ui-menu-hover: #4e4e51;
+}
+html[data-owl-preset="cx-xcode"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #ffffff;
+	--owl-preset-accent: #0e0eff;
+	--owl-preset-accent-hover: #0c0ce0;
+	--color-owl-bg: #ffffff;
+	--color-owl-sidebar: #f5f5f5;
+	--color-owl-rail: #ececec;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f2f2f2;
+	--color-owl-hover: #e6e6e6;
+	--color-owl-border: #e3e3e3;
+	--color-owl-text: #000000;
+	--color-owl-muted: #4e4e4e;
+	--color-owl-faint: #818181;
+	--color-owl-sidebar-bg: #f5f5f5;
+	--color-owl-sidebar-surface: #fbfbfb;
+	--color-owl-sidebar-hover: #dddddd;
+	--color-owl-sidebar-selected: #c5c5c5;
+	--color-owl-sidebar-border: #dbdbdb;
+	--color-owl-sidebar-text: #000000;
+	--color-owl-sidebar-muted: #4b4b4b;
+	--color-owl-sidebar-faint: #7c7c7c;
+}
+html[data-owl-preset="cx-xcode"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #ffffff);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f5f5f5;
+	--owl-ui-border: #e3e3e3;
+	--owl-ui-text: var(--owl-ui-text-override, #000000);
+	--owl-ui-muted: #4e4e4e;
+	--owl-ui-hover: #e6e6e6;
+	--owl-ui-menu-hover: #cdcdcd;
+}

@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerEventMessage } from "../bridge/protocol.ts";
 import { applyEvent, type ChatEntry, type ToolCard } from "../hooks/transcript.ts";
@@ -31,12 +32,39 @@ function assistant(tools: ToolCard[], extra: Partial<Extract<ChatEntry, { kind: 
 
 function render(entries: ChatEntry[], activity: "idle" | "working" | "waiting" = "working") {
 	const html = renderToStaticMarkup(createElement(ChatStream, { entries, activity }));
-	const labels = [...html.matchAll(/class="owl-tool-summary owl-work-process-summary"[^>]*>.*?<span class="min-w-0 flex-1 truncate">([^<]+)<\/span>/gs)].map(match => match[1]!);
+	const { document } = parseHTML(html);
+	const labels = [...document.querySelectorAll(".owl-work-process-summary")].map((summary) => {
+		const primary = summary.querySelector(".owl-work-primary");
+		const metadata = summary.querySelector(".owl-work-metadata")?.textContent ?? "";
+		const elapsed = metadata.match(/^\d+(?:h(?: \d+m)?|m(?: \d+s)?|s)/)?.[0];
+		return elapsed ? `${primary?.getAttribute("role") === "status" ? "正在工作" : "工作了"} ${elapsed}` : `${primary?.textContent ?? ""} ${metadata}`;
+	});
 	return { html, labels, live: labels.filter(label => label.startsWith("正在工作")) };
 }
 
 describe("chat work segment status", () => {
-	it.each(["working", "waiting"] as const)("keeps prose between tool segments and gives only the tail a live timer while %s", (activity) => {
+	it("keeps the current action visible while usage metrics stay in expandable details", () => {
+		const entries: ChatEntry[] = [
+			{ kind: "user", text: "test", timestamp: 1000 },
+			assistant([], {
+				usage: { input: 100, output: 40, cacheRead: 60, cacheWrite: 0 },
+				stream: { firstAt: 1000, lastAt: 3000, estTokens: 40 },
+			}),
+		];
+		const { document } = parseHTML(render(entries).html);
+		const status = document.querySelector('.owl-response-label[role="status"]');
+		const details = document.querySelector("details.owl-response-details");
+		expect(status?.textContent).toBe("正在生成回答");
+		expect(status?.closest("details")).toBeNull();
+		expect(details?.hasAttribute("open")).toBe(false);
+		expect(details?.querySelector("summary")?.getAttribute("aria-label")).toBe("本轮累计 200 tok（含缓存） · 1 次调用");
+		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("输出 40 / 总 200 tokens");
+		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("~20 tok/s");
+		expect(details?.querySelector(".owl-response-usage")?.textContent).toContain("未缓存输入 100 · 输出 40 · 缓存读 60 · 缓存写 0");
+		expect(parseHTML(render(entries, "waiting").html).document.querySelector(".owl-response-label")?.textContent).toBe("等待你的确认或回答");
+	});
+
+	it.each(["working", "waiting"] as const)("keeps one process while only its current segment owns the live timer during %s", (activity) => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "running")], {
@@ -44,13 +72,10 @@ describe("chat work segment status", () => {
 				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "重新观察当前窗口" }, { kind: "tool", toolId: "second" }],
 			}),
 		];
-		const { html, labels, live } = render(entries, activity);
-		expect(labels).toHaveLength(2);
+		const { labels, live } = render(entries, activity);
+		expect(labels).toHaveLength(1);
 		expect(live).toHaveLength(1);
-		expect(labels[0]).toBe("工作了 5s");
-		expect(live[0]).toBe("正在工作 24s");
-		expect(html.indexOf(labels[0]!)).toBeLessThan(html.indexOf("重新观察当前窗口"));
-		expect(html.indexOf("重新观察当前窗口")).toBeLessThan(html.indexOf(live[0]!));
+		expect(live[0]).toBe("正在工作 29s");
 	});
 
 	it("does not revive a sealed segment even when its tool has a stale running status", () => {
@@ -62,7 +87,9 @@ describe("chat work segment status", () => {
 			}),
 		];
 		expect(render(entries).live).toHaveLength(1);
-		expect(render(entries).labels[0]).toBe("工作了 5s");
+		expect(render(entries).labels).toEqual(["正在工作 29s"]);
+		vi.setSystemTime(45_000);
+		expect(render(entries).labels).toEqual(["正在工作 44s"]);
 	});
 
 	it("keeps a paused segment fixed and starts continuation timing after the pause", () => {
@@ -72,9 +99,9 @@ describe("chat work segment status", () => {
 			assistant([tool("resumed", "running")], { timestamp: 20_000 }),
 		];
 		const first = render(entries);
-		expect(first.labels).toEqual(["工作了 6s", "正在工作 10s"]);
+		expect(first.labels).toEqual(["正在工作 16s"]);
 		vi.setSystemTime(45_000);
-		expect(render(entries).labels).toEqual(["工作了 6s", "正在工作 25s"]);
+		expect(render(entries).labels).toEqual(["正在工作 31s"]);
 	});
 
 	it("does not manufacture a live row for an idle queued message", () => {
@@ -106,7 +133,7 @@ describe("chat work segment status", () => {
 		expect(render(entries, "idle").labels).toEqual(["工作了 9s"]);
 	});
 
-	it("times each completed segment on its own instead of from the turn start", () => {
+	it("adds sealed segment durations without changing their separate timing origins", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "ok", 9000)], {
@@ -114,7 +141,7 @@ describe("chat work segment status", () => {
 				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
 			}),
 		];
-		expect(render(entries, "idle").labels).toEqual(["工作了 5s", "工作了 3s"]);
+		expect(render(entries, "idle").labels).toEqual(["工作了 8s"]);
 	});
 
 	it("uses the real continuation run boundary even without a new user or an aborted message", () => {
@@ -130,6 +157,6 @@ describe("chat work segment status", () => {
 		entries = applyEvent(entries, { type: "event", sessionId: "test", event: {
 			type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "继续处理" },
 		} } as ServerEventMessage);
-		expect(render(entries).labels).toEqual(["工作了 4s", "正在工作 10s"]);
+		expect(render(entries).labels).toEqual(["正在工作 14s"]);
 	});
 });

@@ -480,8 +480,8 @@ function searchAndLoad(
 
 /**
  * Activate tools whose metadata matches `text` before the model is asked to discover them.
- * Both a capability and an action outside that capability word are required. Greetings,
- * unrecognized text, and actions nested inside a capability word load nothing.
+ * Explicit requests for registered tool names take priority over inferred capability/action
+ * pairs. Negative and source-only mentions do not request activation.
  */
 export function preloadToolsForUserText(
 	tools: NonNullable<ToolSearchToolOptions["tools"]>,
@@ -490,23 +490,71 @@ export function preloadToolsForUserText(
 	messages: readonly AgentMessage[] = [],
 ): ToolSearchToolDetails | undefined {
 	const active = new Set(tools.getActiveTools());
+	const registered = tools
+		.getAllTools()
+		.filter((tool) => isSearchable(tool.exposure) && tool.name !== TOOL_SEARCH_TOOL_NAME);
+	const requested = new Set<string>();
+	const forbidden = new Set<string>();
+	const discussed = new Set<string>();
+	for (const clause of text.split(
+		/[；;。\n]|[,，](?=\s*(?:改用|使用|调用|調用|加载|載入|启用|啟用|\b(?:use|call|load|invoke|activate)\b))|然后|然後|接着|接著|随后|隨後|再(?=实际|實際|使用|用)|\band then\b|\bthen\b/i,
+	)) {
+		const sourceOnly =
+			/(?:只读|只讀|仅|僅|只)\s*(?:分析|解释|解釋|说明|說明|审查|審查)|(?:分析|解释|解釋|说明|說明|查看|阅读|閱讀|审查|審查).*(?:源码|源碼|代码|代碼|实现|實現|提示词|提示詞)|\b(?:explain|inspect|review|discuss|read)\b.*\b(?:source|code|implementation|prompt)\b/i.test(
+				clause,
+			);
+		if (sourceOnly) {
+			for (const tool of mentionedTools(clause, registered)) discussed.add(tool.name);
+			continue;
+		}
+		const negative =
+			/不要|别|別|勿|无需|無需|不必|不(?:用|使用|调用|調用|执行|執行|运行|運行|启用|啟用|加载|載入)|\b(?:do not|don't|never|without|cannot|can't)\b/i.exec(
+				clause,
+			);
+		if (negative) {
+			for (const tool of mentionedTools(clause.slice(negative.index), registered)) forbidden.add(tool.name);
+		}
+		const positive = negative ? clause.slice(0, negative.index) : clause;
+		const invocation =
+			/加载|載入|使用|调用|調用|执行|執行|运行|運行|启用|啟用|用|\b(?:load|use|call|invoke|activate|run|execute)\b/i.exec(
+				positive,
+			);
+		for (const tool of mentionedTools(invocation ? positive.slice(invocation.index) : positive, registered)) {
+			if (invocation || positive.trim().toLowerCase() === tool.name.toLowerCase()) requested.add(tool.name);
+		}
+	}
+	const eligible = registered.filter(
+		(tool) => !forbidden.has(tool.name) && (!discussed.has(tool.name) || requested.has(tool.name)),
+	);
+	const named: ToolIntentStep[] = [...requested]
+		.filter((name) => !forbidden.has(name))
+		.map((name) => ({ capability: "tool", action: "inspect", target: name, query: name }));
 	const coreCodeActions: Readonly<Record<string, string>> = {
 		read: "read",
 		edit: "edit",
 		create: "write",
 		search: "grep",
 	};
-	const steps = derivePreloadSteps(text)
+	const inferred = derivePreloadSteps(text)
 		.filter((step) => step.capability !== "unknown" && step.action !== "unknown")
 		.filter(
 			(step) =>
 				step.capability !== "code" ||
 				/\b(?:mcp|lsp)\b/i.test((step.query ?? "").replaceAll("_", " ")) ||
 				!active.has(coreCodeActions[step.action] ?? ""),
-		)
-		.slice(0, 4);
+		);
+	const steps = [...named, ...inferred].slice(0, 4);
 	if (steps.length === 0) return undefined;
-	return searchAndLoad(tools, { steps }, Math.min(Math.max(1, limit), MAX_TOOL_SEARCH_LIMIT), messages);
+	return searchAndLoad(
+		{
+			getAllTools: () => eligible,
+			getActiveTools: () => tools.getActiveTools(),
+			setActiveTools: (names) => tools.setActiveTools(names),
+		},
+		{ steps },
+		Math.min(Math.max(1, limit), MAX_TOOL_SEARCH_LIMIT),
+		messages,
+	);
 }
 
 /** Base guidance; prepareLoadout adds a bounded directory of available capabilities. */

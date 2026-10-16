@@ -2,7 +2,7 @@ import type { BridgeClient } from "../../bridge/client.ts";
 import { isResearchDiagnosis, RESEARCH_DIAGNOSIS_ENTRY } from "../../../../../packages/coding-agent/src/core/research/diagnosis.ts";
 import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
-import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
+import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionQueueActionResult, SessionQueueSnapshot, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
 import { continueTask } from "../../hooks/task-recovery.ts";
 import { normPath, samePath } from "../../utils/paths.ts";
@@ -24,7 +24,7 @@ export type ResearchSessionState = ResearchPreferences & {
 	task?: ResearchTaskRecord;
 	running: boolean;
 	paused: boolean;
-	queue: { steering: string[]; followUp: string[] };
+	queue: SessionQueueSnapshot;
 	busy: boolean;
 	ready: boolean;
 	connected: boolean;
@@ -115,6 +115,10 @@ export class ResearchSessionController {
 	}
 
 	getSnapshot = (): ResearchSessionState => this.state;
+	getQueueOwnerRevision(): number { return this.epoch; }
+	isQueueOwnerCurrent(revision: number, sessionId: string | undefined): boolean {
+		return this.isCurrent(revision) && this.state.sessionId === sessionId;
+	}
 	subscribe = (listener: () => void): (() => void) => {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
@@ -186,7 +190,7 @@ export class ResearchSessionController {
 		const task = researchTaskFromEvent(message.event, this.state.sessionId);
 		if (task) patch.task = newerResearchTask(this.state.task, task);
 		if (type === "queue_update") {
-			const queue = message.event as { steering?: string[]; followUp?: string[] };
+			const queue = message.event as Partial<SessionQueueSnapshot>;
 			patch.queue = { steering: [...(queue.steering ?? [])], followUp: [...(queue.followUp ?? [])] };
 		}
 		if (type === "agent_start" || type === "agent_settled") {
@@ -242,14 +246,19 @@ export class ResearchSessionController {
 			let results = publishedResults(snapshot.messages);
 			let diagnosis = isResearchDiagnosis(snapshot.researchDiagnosis, saved) ? snapshot.researchDiagnosis : undefined;
 			let task = isResearchTaskRecord(snapshot.researchTask, saved) ? snapshot.researchTask : undefined;
+			let queue = snapshot.queue ?? { steering: [], followUp: [] };
 			for (const message of eventsAfterSnapshot(snapshot, this.replayEvents)) {
+				if ((message.event as { type?: string }).type === "queue_update") {
+					const update = message.event as Partial<SessionQueueSnapshot>;
+					queue = { steering: update.steering ?? [], followUp: update.followUp ?? [] };
+				}
 				entries = applyEvent(entries, message);
 				results = mergeResearchResults(results, researchResultsFromEvent(message.event));
 				diagnosis = (message.event as { type?: string })?.type === "agent_start" ? undefined : researchDiagnosisFromEvent(message.event, saved) ?? diagnosis;
 				const updatedTask = researchTaskFromEvent(message.event, saved);
 				if (updatedTask) task = newerResearchTask(task, updatedTask);
 			}
-			this.update({ entries, results, diagnosis, task, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
+			this.update({ entries, results, diagnosis, task, queue, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
 			this.persistPreferences();
 			await this.reconcileRunning(epoch);
 			await this.refreshStats();
@@ -391,14 +400,18 @@ export class ResearchSessionController {
 		}
 	}
 
-	async changeQueue(lane: "steering" | "followUp", index: number, promote = false): Promise<void> {
+	applyQueue(queue: SessionQueueSnapshot, sessionId = this.state.sessionId): void {
+		if (sessionId && sessionId === this.state.sessionId) this.update({ queue });
+	}
+
+	async changeQueue(lane: "steering" | "followUp", messageId: string, promote = false): Promise<void> {
 		const sessionId = this.state.sessionId;
 		if (!sessionId || !this.state.connected) return;
 		const epoch = this.epoch;
 		try {
-			const response = await this.client.request(promote ? { type: "session.queue.promote", sessionId, index } : { type: "session.queue.remove", sessionId, lane, index });
+			const response = await this.client.request<SessionQueueActionResult>(promote ? { type: "session.queue.promote", sessionId, messageId } : { type: "session.queue.remove", sessionId, lane, messageId });
+			if (this.isCurrent(epoch, sessionId) && response.result?.queue) this.applyQueue(response.result.queue, sessionId);
 			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
-			if (this.isCurrent(epoch, sessionId)) await this.refreshStats();
 		} catch (error) {
 			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error) });
 		}

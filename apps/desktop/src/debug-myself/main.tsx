@@ -368,10 +368,22 @@ const mockClient = {
 			case "fs.read": {
 				const content = files.get(payload.path);
 				const result: FsReadResult | undefined =
-					content === undefined ? undefined : { kind: "text", content, truncated: false, size: content.length };
+					content === undefined ? undefined : { kind: "text", content, truncated: false, size: content.length, editable: true, revision: `debug-only:${payload.path}:${content}` };
 				response = result
 					? { ok: true, result }
 					: { ok: false, error: `ENOENT: no such file or directory, open '${payload.path}'` };
+				break;
+			}
+			case "editor.file.save": {
+				const current = files.get(payload.path);
+				const revision = current === undefined ? null : `debug-only:${payload.path}:${current}`;
+				if (payload.expectedRevision !== revision) {
+					response = { ok: true, result: { status: "conflict", reason: "Debug fixture changed" } };
+					break;
+				}
+				files.set(payload.path, payload.content);
+				writes.push({ actor: "ui", path: payload.path, content: payload.content });
+				response = { ok: true, result: { status: "saved", path: payload.path, size: payload.content.length, revision: `debug-only:${payload.path}:${payload.content}` } };
 				break;
 			}
 			case "fs.write":

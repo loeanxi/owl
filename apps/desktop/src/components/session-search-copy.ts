@@ -1,6 +1,11 @@
 import { getUiLanguage, useT } from "../i18n/index.ts";
 
 const zh = {
+	title: "搜索",
+	placeholder: "搜索聊天内容或项目",
+	clear: "清空搜索",
+	close: "关闭搜索",
+	start: "输入关键词，搜索聊天内容、会话或项目。",
 	filters: "搜索范围",
 	allProjects: "全部项目",
 	currentProject: "当前项目",
@@ -23,6 +28,11 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
+	title: "Search",
+	placeholder: "Search chats or projects",
+	clear: "Clear search",
+	close: "Close search",
+	start: "Enter a keyword to find messages, chats, or projects.",
 	filters: "Search scope",
 	allProjects: "All projects",
 	currentProject: "Current project",

@@ -79,6 +79,7 @@ import { MEMORY_WRITE_GUIDANCE } from "../../core/memory/write-policy.ts";
 import { ModelRegistry } from "../../core/model-registry.ts";
 import { NewsService, type NewsServiceOptions } from "../../core/news/service.ts";
 import type { NewsRequest } from "../../core/news/types.ts";
+import { completePromptSuggestion, PromptSuggestionService } from "../../core/prompt-suggestion.ts";
 import { loadPromptTemplates } from "../../core/prompt-templates.ts";
 import {
 	cancelAllPendingQuestions,
@@ -137,11 +138,15 @@ import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
 import { DesktopEventFanout } from "./event-fanout.ts";
+import { ExecutionAnomalyStore } from "./execution-anomalies.ts";
+import { captureExecutionAnomalyEvent, captureExecutionAnomalyMessages } from "./execution-anomaly-capture.ts";
+import { createExecutionAnomalyExtension, EXECUTION_ANOMALY_REPORT_TOOL } from "./execution-anomaly-extension.ts";
 import { type AccountHandlerContext, handleAccountRequest } from "./handlers/account.ts";
 import { type AuthHandlerContext, createAuthLoginState, handleAuthRequest } from "./handlers/auth.ts";
 import { type BrowserHandlerContext, handleIabRequest } from "./handlers/browser.ts";
 import { handleMirrorRequest, type MirrorHandlerContext } from "./handlers/mirror.ts";
 import { handleModelsRequest, type ModelsHandlerContext } from "./handlers/models.ts";
+import { handlePromptSuggestionRequest } from "./handlers/prompt-suggestion.ts";
 import { handleTermRequest, type TerminalHandlerContext } from "./handlers/terminal.ts";
 import {
 	handleDialogRequest,
@@ -176,18 +181,20 @@ import type {
 	RewindImpactFile,
 	RewindImpactResult,
 	RewindTargetsResult,
+	SessionQueueSnapshot,
 	SessionRecoveryState,
 	SessionSnapshotPayload,
 	SlashCommandEntry,
 } from "./protocol.ts";
 import {
 	DesktopRunRecovery,
-	desktopQueuedMessages,
+	desktopQueueInput,
 	prepareInterruptedRun,
 	RESTART_RESUME_MESSAGE,
 } from "./run-recovery.ts";
 import { ScheduleService } from "./schedule-service.ts";
 import { DesktopSessionSearch } from "./session-search.ts";
+import { SessionSettingsQueue } from "./session-settings-queue.ts";
 import { SidebarError } from "./sidebar-fs.ts";
 import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
 import type { DirectoryWatchers } from "./sidebar-watch.ts";
@@ -202,6 +209,11 @@ import {
 	updateSkill,
 } from "./skills-center.ts";
 import { getDesktopSubagent, listDesktopSubagents } from "./subagents.ts";
+import {
+	desktopComputerCapabilityError,
+	desktopPresetNeedsReplacement,
+	desktopPresetToolAllowlist,
+} from "./task-capabilities.ts";
 import { TerminalManager } from "./terminals.ts";
 import { isTrustedDesktopOrigin, resolveUiRoot, serveUi } from "./ui-static.ts";
 
@@ -326,9 +338,37 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			subagentDetails: Map<string, unknown>;
 		}
 	>();
+	const promptSuggestions = new PromptSuggestionService({
+		getSource: (sessionId) => {
+			const mounted = sessions.get(sessionId);
+			if (!mounted || closing) return undefined;
+			const session = mounted.runtime.session;
+			return {
+				owner: mounted.runtime,
+				model: session.model,
+				entries: session.sessionManager.getBranch(),
+				idle: session.isIdle,
+				pendingMessageCount: session.pendingMessageCount,
+				complete: (model, context, requestOptions) =>
+					completePromptSuggestion(mounted.runtime.services.modelRuntime, model, context, requestOptions),
+				recordUsage: (message) => {
+					const usage = message.usage;
+					if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite <= 0) return;
+					const entry = session.sessionManager.appendUsage(
+						"prompt_suggestion",
+						message.provider,
+						message.responseModel ?? message.model,
+						usage,
+					);
+					broadcast({ type: "event", sessionId, event: { type: "entry_appended", entry } });
+				},
+			};
+		},
+	});
 	/** Requests for a session wait until its preset runtime has finished being replaced. */
 	const presetTransitions = new Map<string, Promise<void>>();
 	const sessionMounts = new Map<string, Promise<void>>();
+	const sessionSettings = new SessionSettingsQueue();
 	const runRecovery = new DesktopRunRecovery(options.agentDir ?? getAgentDir(), onDiagnostic);
 	const recoveryStates = new Map<string, SessionRecoveryState>();
 	let recoveryReady: Promise<void> = Promise.resolve();
@@ -342,9 +382,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	}
 	function saveSessionQueue(session: AgentSession, discardedIds: readonly string[] = []): void {
 		checkpoint(() => runRecovery.captureQueue(session.sessionManager, session.agent, discardedIds));
-		const queue = runRecovery.queue(session.sessionId);
-		if (queue && !closing)
-			broadcast({ type: "event", sessionId: session.sessionId, event: { type: "queue_update", ...queue } });
+		const currentQueue = runRecovery.queue(session.sessionId, session.agent);
+		if (currentQueue && !closing)
+			broadcast({ type: "event", sessionId: session.sessionId, event: { type: "queue_update", ...currentQueue } });
 	}
 	const clients = new Set<WebSocket>();
 	const clientOrigins = new WeakMap<WebSocket, string | undefined>();
@@ -539,12 +579,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	/** 卸载已挂载的会话运行时：停掉进行中的回复、退订事件并移出运行时表。 */
 	async function unmountSessionRuntime(sessionId: string): Promise<void> {
-		if (!closing) checkpoint(() => runRecovery.finish(sessionId));
 		const mounted = sessions.get(sessionId);
+		if (!closing) checkpoint(() => runRecovery.finish(sessionId, mounted?.runtime.session));
 		pendingPermissions.cancelSession(sessionId);
 		cancelPendingQuestionsForSession(sessionId);
 		disposeSessionRewindTracker(sessionId);
 		if (mounted) {
+			// Do not dispose/remount a shared session manager while an older model change can still append to it.
+			await sessionSettings.retire(mounted.runtime.session);
 			try {
 				await mounted.runtime.session.abort();
 			} catch {
@@ -592,6 +634,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function broadcast(message: DesktopServerMessage): void {
 		eventFanout.broadcast(message);
 	}
+	const executionAnomalies = new ExecutionAnomalyStore(defaultAgentDir(), {
+		onChange: () => broadcast({ type: "execution.anomalies.changed" }),
+	});
 
 	/** 同时到达的 session.list 共享同一次扫描；目录不同则分开。 */
 	const sessionListInflight = new Map<string, Promise<SessionInfo[]>>();
@@ -687,6 +732,19 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function reportAcceptedRunError(session: AgentSession, error: unknown): void {
 		const finalError = error instanceof Error ? error.message : String(error);
 		onDiagnostic(finalError);
+		checkpoint(() =>
+			executionAnomalies.record({
+				sessionId: session.sessionId,
+				sessionName: session.sessionManager.getSessionName(),
+				sessionFile: session.sessionManager.getSessionFile(),
+				cwd: session.sessionManager.getCwd(),
+				provider: session.model?.provider,
+				model: session.model?.id,
+				kind: "model_error",
+				summary: finalError,
+				details: finalError,
+			}),
+		);
 		broadcast({
 			type: "event",
 			sessionId: session.sessionId,
@@ -694,7 +752,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		});
 		// A failure before agent_start has no natural settled event to release the UI's optimistic running state.
 		if (session.isIdle) {
-			checkpoint(() => runRecovery.finish(session.sessionId));
+			checkpoint(() => runRecovery.finish(session.sessionId, session));
 			broadcast({ type: "event", sessionId: session.sessionId, event: { type: "agent_settled", aborted: false } });
 		}
 	}
@@ -816,6 +874,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		return async (runtimeOptions) => {
 			const sessionId = runtimeOptions.sessionManager.getSessionId();
 			const researchMode = getResearchMode(runtimeOptions.sessionManager);
+			const presetTools = desktopPresetToolAllowlist(preset, Boolean(researchMode));
 			const services = await createAgentSessionServices({
 				cwd: runtimeOptions.cwd,
 				agentDir,
@@ -852,9 +911,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 							),
 						}
 					: {}),
-				...(preset.runtime === "pi"
-					? { tools: applyPresetToolModifiers(["read", "bash", "edit", "write"], preset.tools) }
-					: {}),
+				...(presetTools ? { tools: [...presetTools, EXECUTION_ANOMALY_REPORT_TOOL] } : {}),
 				customTools:
 					preset.runtime === "pi"
 						? [createPiBashTool(runtimeOptions.cwd, services.settingsManager) as ToolDefinition]
@@ -880,6 +937,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function buildMailFactory(
 		agentDir: string,
 		context: MailAgentContext,
+		extensionFactories: InlineExtension[],
 		modelSpec?: { provider?: string; model?: string; thinkingLevel?: string },
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
@@ -891,6 +949,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				cwd: runtimeOptions.cwd,
 				agentDir,
 				resourceLoaderOptions: {
+					extensionFactories,
 					noExtensions: true,
 					noSkills: true,
 					noPromptTemplates: true,
@@ -916,7 +975,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			const session = await createAgentSessionFromServices({
 				services,
 				sessionManager: runtimeOptions.sessionManager,
-				tools: customTools.map((tool) => tool.name),
+				tools: [...customTools.map((tool) => tool.name), EXECUTION_ANOMALY_REPORT_TOOL],
 				customTools,
 				...(model ? { model } : {}),
 				...(modelSpec?.thinkingLevel ? { thinkingLevel: modelSpec.thinkingLevel as ThinkingLevel } : {}),
@@ -966,6 +1025,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			...(recoveryStates.has(sessionId) ? { recovery: recoveryStates.get(sessionId) } : {}),
 			...(running ? { runStartMessageIndex: runStartMessageIndex ?? messages.length } : {}),
 			messageEntryIds,
+			queue: runRecovery.queue(sessionId, mounted?.runtime.session.agent) ?? { steering: [], followUp: [] },
 			thinkingLevel: projection.thinkingLevel,
 			header: sessionManager.getHeader(),
 			name: sessionManager.getSessionName(),
@@ -1130,10 +1190,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				tokens: stats.tokens,
 				cost: stats.cost,
 			},
-			queue: runRecovery.queue(session.sessionId) ?? {
-				steering: [...session.getSteeringMessages()],
-				followUp: [...session.getFollowUpMessages()],
-			},
+			queue: runRecovery.queue(session.sessionId, session.agent) ?? { steering: [], followUp: [] },
 		};
 	}
 
@@ -1225,7 +1282,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				pi.on("tool_call", async (event) => {
 					const mode = approvalModeHolder.current;
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
-					if (event.toolName === "ask_user_question") return {};
+					if (event.toolName === "ask_user_question" || event.toolName === EXECUTION_ANOMALY_REPORT_TOOL)
+						return {};
 					// Computer observation and own-session cleanup do not need an input approval.
 					if (event.toolName.startsWith("computer_") && isReadOnlyDesktopTool(event.toolName, event.input))
 						return {};
@@ -1300,9 +1358,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			? undefined
 			: resolvePresetAppendPrompt(presetHolder.current, { agentDir: args.agentDir });
 		if (presetAppendPrompt) owlAddenda.push(presetAppendPrompt);
+		const anomalyMetadata = () => ({
+			sessionId: sessionManager.getSessionId(),
+			sessionName: sessionManager.getSessionName(),
+			sessionFile: sessionManager.getSessionFile(),
+			cwd: sessionManager.getCwd(),
+			provider: sessions.get(sessionIdHolder.current)?.runtime.session.model?.provider ?? args.provider,
+			model: sessions.get(sessionIdHolder.current)?.runtime.session.model?.id ?? args.model,
+		});
+		const executionAnomalyExtension = createExecutionAnomalyExtension({
+			store: executionAnomalies,
+			getSessionId: () => sessionIdHolder.current,
+			getSessionMetadata: anomalyMetadata,
+			onDiagnostic,
+		});
 		const runtime = await createAgentSessionRuntime(
 			mailContext
-				? buildMailFactory(args.agentDir, mailContext, {
+				? buildMailFactory(args.agentDir, mailContext, [executionAnomalyExtension], {
 						provider: args.provider,
 						model: args.model,
 						thinkingLevel: args.thinkingLevel,
@@ -1311,8 +1383,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						args.agentDir,
 						{ provider: args.provider, model: args.model, thinkingLevel: args.thinkingLevel },
 						presetHolder.current.runtime === "pi"
-							? [permissionExtension]
-							: [...builtInExtensions, permissionExtension, owlMemoryExtension],
+							? [permissionExtension, executionAnomalyExtension]
+							: [...builtInExtensions, permissionExtension, owlMemoryExtension, executionAnomalyExtension],
 						owlAddenda,
 						presetHolder.current,
 					),
@@ -1320,6 +1392,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		);
 		const sessionId = runtime.session.sessionManager.getSessionId();
 		sessionIdHolder.current = sessionId;
+		// Passive input restoration never starts a run; only durable running intent below may auto-resume.
+		runRecovery.restoreQueue(runtime.session.sessionManager, runtime.session.agent);
+		runRecovery.captureQueue(runtime.session.sessionManager, runtime.session.agent);
 		// 应用预设工具集（裸名替换/＋-增删；未注册的名字由会话注册表过滤）。
 		// 邮箱会话有专属组合，不套预设。
 		if (!mailContext && presetHolder.current.tools?.length) {
@@ -1330,11 +1405,34 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		if (researchMode) {
 			runtime.session.setActiveToolsByName(researchToolLoadout(runtime.session.getActiveToolNames()));
 		}
+		runtime.session.setActiveToolsByName([...runtime.session.getActiveToolNames(), EXECUTION_ANOMALY_REPORT_TOOL]);
+		checkpoint(() =>
+			captureExecutionAnomalyMessages(
+				executionAnomalies,
+				anomalyMetadata(),
+				sessionManager.buildSessionProjection().messages,
+			),
+		);
 		const runStart: { priorEntryIds?: Set<string> } = {};
 		const subagentDetails = new Map<string, unknown>();
 		const unsubscribe = runtime.session.subscribe((event) => {
-			// AgentSession's text mirror excludes raw queues restored after a restart; publish the durable projection.
-			if (event.type === "queue_update") return;
+			checkpoint(() => captureExecutionAnomalyEvent(executionAnomalies, anomalyMetadata(), event));
+			if (
+				event.type === "agent_start" ||
+				event.type === "compaction_start" ||
+				event.type === "queue_update" ||
+				(event.type === "entry_appended" &&
+					(event.entry.type === "model_change" ||
+						event.entry.type === "compaction" ||
+						(event.entry.type === "message" && event.entry.message.role === "user")))
+			) {
+				promptSuggestions.invalidateSession(sessionId);
+			}
+			// Snapshot the authoritative Agent queues, including restored raw input; do not broadcast the text mirror.
+			if (event.type === "queue_update") {
+				saveSessionQueue(runtime.session);
+				return;
+			}
 			if (event.type === "agent_start") {
 				// Include all raw IDs: compaction may retain old entries absent from today's projection.
 				runStart.priorEntryIds = new Set(runtime.session.sessionManager.getEntries().map((entry) => entry.id));
@@ -1342,7 +1440,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			}
 			if (event.type === "agent_settled") {
 				runStart.priorEntryIds = undefined;
-				checkpoint(() => runRecovery.finish(sessionId));
+				checkpoint(() => runRecovery.finish(sessionId, runtime.session));
 				const recovery = recoveryStates.get(sessionId);
 				if (recovery?.status === "resuming" && !closing) {
 					const lastAssistant = runtime.session.messages.findLast((message) => message.role === "assistant");
@@ -1512,6 +1610,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const mounted = sessions.get(run.sessionId);
 				if (!mounted) throw new Error("会话运行时未挂载");
 				for (const queued of run.pendingMessages ?? []) {
+					if (mounted.runtime.session.getQueuedMessage(queued.message.owlQueueId)) continue;
 					if (queued.lane === "steering") mounted.runtime.session.agent.steer(queued.message);
 					else mounted.runtime.session.agent.followUp(queued.message);
 				}
@@ -1540,6 +1639,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				| "session.prompt"
 				| "session.queue.remove"
 				| "session.queue.promote"
+				| "session.queue.get"
+				| "session.queue.take"
+				| "session.queue.returned.list"
+				| "session.queue.returned.get"
+				| "session.queue.returned.remove"
 				| "owl-ui.action"
 				| "session.continue"
 				| "session.abort"
@@ -1565,6 +1669,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				const session = sessions.get(request.sessionId);
 				if (!session) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				const capabilityError = desktopComputerCapabilityError(
+					request.message,
+					session.preset.current.name,
+					session.runtime.session
+						.getAllTools()
+						.filter((tool) => tool.exposure !== "hidden")
+						.map((tool) => tool.name),
+				);
+				if (capabilityError) {
+					reply(ws, request.id, { ok: false, error: capabilityError });
 					return;
 				}
 				if (request.researchMode !== undefined) {
@@ -1598,29 +1714,133 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.queue.remove": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
-					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					reply(ws, request.id, {
+						ok: false,
+						error: `Unknown session: ${request.sessionId}`,
+						result: { queue: runRecovery.queue(request.sessionId) ?? { steering: [], followUp: [] } },
+					});
 					return;
 				}
-				saveSessionQueue(session.runtime.session);
-				const queued = desktopQueuedMessages(session.runtime.session.agent)[request.lane][request.index];
-				const removed = session.runtime.session.removeQueuedMessage(request.lane, request.index);
-				const discardedId =
-					queued && "owlQueueId" in queued && typeof queued.owlQueueId === "string"
-						? queued.owlQueueId
-						: undefined;
-				saveSessionQueue(session.runtime.session, removed && discardedId ? [discardedId] : []);
-				reply(ws, request.id, removed ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
+				const target = session.runtime.session;
+				try {
+					const queued = target.getQueuedMessage(request.messageId);
+					if (!queued || queued.lane !== request.lane)
+						throw new Error("这条输入已开始处理、移到其他队列或已不在了");
+					runRecovery.removeQueuedInput(request.sessionId, request.messageId);
+					if (!target.removeQueuedMessage(request.lane, request.messageId))
+						throw new Error("这条输入已开始处理，未移除其他输入");
+					saveSessionQueue(target, [request.messageId]);
+					reply(ws, request.id, {
+						ok: true,
+						result: { queue: runRecovery.queue(request.sessionId, target.agent) },
+					});
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+						result: { queue: runRecovery.queue(request.sessionId, target.agent) },
+					});
+				}
 				return;
 			}
 			case "session.queue.promote": {
 				const session = sessions.get(request.sessionId);
 				if (!session) {
-					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					reply(ws, request.id, {
+						ok: false,
+						error: `Unknown session: ${request.sessionId}`,
+						result: { queue: runRecovery.queue(request.sessionId) ?? { steering: [], followUp: [] } },
+					});
 					return;
 				}
-				const promoted = session.runtime.session.promoteQueuedFollowUp(request.index);
-				saveSessionQueue(session.runtime.session);
-				reply(ws, request.id, promoted ? { ok: true } : { ok: false, error: "这条排队消息已经不在了" });
+				const target = session.runtime.session;
+				try {
+					const queued = target.getQueuedMessage(request.messageId);
+					if (queued?.lane !== "followUp") throw new Error("这条输入已开始处理、已调整到当前轮或已不在了");
+					runRecovery.captureQueue(target.sessionManager, target.agent);
+					runRecovery.promoteQueuedInput(request.sessionId, request.messageId);
+					if (!target.promoteQueuedFollowUp(request.messageId))
+						throw new Error("这条输入已开始处理，未调整其他输入");
+					saveSessionQueue(target);
+					reply(ws, request.id, {
+						ok: true,
+						result: { queue: runRecovery.queue(request.sessionId, target.agent) },
+					});
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+						result: { queue: runRecovery.queue(request.sessionId, target.agent) },
+					});
+				}
+				return;
+			}
+			case "session.queue.get": {
+				const target = sessions.get(request.sessionId)?.runtime.session;
+				const queue = runRecovery.queue(request.sessionId, target?.agent) ?? { steering: [], followUp: [] };
+				const actual = target?.getQueuedMessage(request.messageId);
+				const input = actual
+					? desktopQueueInput(actual.message, "queued")
+					: runRecovery.queuedInput(request.sessionId, request.messageId);
+				reply(
+					ws,
+					request.id,
+					input
+						? { ok: true, result: { input, queue } }
+						: { ok: false, error: "这条输入已送达或已不在队列", result: { queue } },
+				);
+				return;
+			}
+			case "session.queue.take": {
+				const target = sessions.get(request.sessionId)?.runtime.session;
+				const queue = (): SessionQueueSnapshot =>
+					runRecovery.queue(request.sessionId, target?.agent) ?? { steering: [], followUp: [] };
+				try {
+					const previous = runRecovery.returnedInput(request.operationId);
+					if (
+						previous &&
+						(previous.sourceSessionId !== request.sessionId || previous.input.messageId !== request.messageId)
+					)
+						throw new Error("取回操作标识已用于另一条输入");
+					if (!previous && !target)
+						throw new Error("会话未挂载，请先打开该会话；已取回材料仍可在已取回输入中查看");
+					const receipt =
+						previous ??
+						runRecovery.takeQueuedInput(
+							target!.sessionManager,
+							target!.agent,
+							request.messageId,
+							request.operationId,
+						);
+					const pending = target?.getQueuedMessage(request.messageId);
+					if (pending) target!.removeQueuedMessage(pending.lane, request.messageId);
+					if (target) saveSessionQueue(target, [request.messageId]);
+					reply(ws, request.id, { ok: true, result: { receipt, queue: queue() } });
+				} catch (error) {
+					reply(ws, request.id, {
+						ok: false,
+						error: error instanceof Error ? error.message : String(error),
+						result: { queue: queue() },
+					});
+				}
+				return;
+			}
+			case "session.queue.returned.list": {
+				reply(ws, request.id, { ok: true, result: { receipts: runRecovery.returnedInputs(request.sessionId) } });
+				return;
+			}
+			case "session.queue.returned.get": {
+				const receipt = runRecovery.returnedInput(request.receiptId);
+				reply(
+					ws,
+					request.id,
+					receipt ? { ok: true, result: { receipt } } : { ok: false, error: "这份已取回输入不存在或已移除" },
+				);
+				return;
+			}
+			case "session.queue.returned.remove": {
+				runRecovery.removeReturnedInput(request.receiptId);
+				reply(ws, request.id, { ok: true, result: { receipts: runRecovery.returnedInputs() } });
 				return;
 			}
 			case "owl-ui.action": {
@@ -1663,8 +1883,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				return;
 			}
 			case "session.abort": {
-				checkpoint(() => runRecovery.finish(request.sessionId));
 				const session = sessions.get(request.sessionId);
+				checkpoint(() => runRecovery.finish(request.sessionId, session?.runtime.session));
 				if (!session) {
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
@@ -1701,6 +1921,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				try {
 					unlinkSync(found);
+					runRecovery.deletePendingQueue(request.sessionId);
 					// 归档记录里可能有它：一并清掉，避免设置页出现幽灵条目
 					const agentDir = defaultAgentDir();
 					const meta = readArchiveMeta(agentDir);
@@ -1789,21 +2010,27 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
 					return;
 				}
+				const target = session.runtime.session;
+				const isCurrent = () =>
+					!closing &&
+					!sessionSettings.isRetired(target) &&
+					sessions.get(request.sessionId)?.runtime.session === target;
 				try {
-					const model = session.runtime.services.modelRuntime.getModel(request.provider, request.model);
-					if (!model) {
-						reply(ws, request.id, {
-							ok: false,
-							error: `Model not found: ${request.provider}/${request.model}`,
-						});
-						return;
-					}
-					await session.runtime.session.setModel(model);
-					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+					const result = await sessionSettings.run(target, async () => {
+						if (!isCurrent()) throw new Error("会话运行时已变化，模型设置未执行");
+						const model = session.runtime.services.modelRuntime.getModel(request.provider, request.model);
+						if (!model) throw new Error(`Model not found: ${request.provider}/${request.model}`);
+						await target.setModel(model);
+						if (!isCurrent()) throw new Error("会话运行时已卸载，不能确认模型设置");
+						return sessionStateSnapshot(target);
+					});
+					reply(ws, request.id, { ok: true, result });
 				} catch (error) {
 					reply(ws, request.id, {
 						ok: false,
 						error: error instanceof Error ? error.message : String(error),
+						// Extension errors may happen after state changed. Report the actual host state without rollback.
+						...(isCurrent() ? { result: sessionStateSnapshot(target) } : {}),
 					});
 				}
 				return;
@@ -1819,13 +2046,23 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					reply(ws, request.id, { ok: false, error: `未知思考强度: ${request.level}` });
 					return;
 				}
+				const target = session.runtime.session;
+				const isCurrent = () =>
+					!closing &&
+					!sessionSettings.isRetired(target) &&
+					sessions.get(request.sessionId)?.runtime.session === target;
 				try {
-					session.runtime.session.setThinkingLevel(level);
-					reply(ws, request.id, { ok: true, result: sessionStateSnapshot(session.runtime.session) });
+					const result = await sessionSettings.run(target, () => {
+						if (!isCurrent()) throw new Error("会话运行时已变化，思考强度设置未执行");
+						target.setThinkingLevel(level);
+						return sessionStateSnapshot(target);
+					});
+					reply(ws, request.id, { ok: true, result });
 				} catch (error) {
 					reply(ws, request.id, {
 						ok: false,
 						error: error instanceof Error ? error.message : String(error),
+						...(isCurrent() ? { result: sessionStateSnapshot(target) } : {}),
 					});
 				}
 				return;
@@ -1883,10 +2120,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					return;
 				}
 				setSessionPresetEntry(sessionManager, preset.id);
-				// Research preset changes rebuild prompts and the combined loadout; Pi transitions also replace resources.
+				// Research loadouts and immutable SDK allowlists require a fresh runtime across preset boundaries.
 				if (
 					!getMailAgentContext(sessionManager) &&
-					(getResearchMode(sessionManager) || preset.runtime === "pi" || session.preset.current.runtime === "pi")
+					(getResearchMode(sessionManager) || desktopPresetNeedsReplacement(session.preset.current, preset))
 				) {
 					const model = session.runtime.session.model;
 					const thinkingLevel = session.runtime.session.thinkingLevel;
@@ -1915,9 +2152,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				}
 				session.preset.current = preset;
 				if (!getMailAgentContext(sessionManager) && preset.tools?.length) {
-					session.runtime.session.setActiveToolsByName(
-						applyPresetToolModifiers(session.runtime.session.getActiveToolNames(), preset.tools),
-					);
+					session.runtime.session.setActiveToolsByName([
+						...applyPresetToolModifiers(session.runtime.session.getActiveToolNames(), preset.tools),
+						EXECUTION_ANOMALY_REPORT_TOOL,
+					]);
 				}
 				reply(ws, request.id, { ok: true, result: { agentPreset: preset.id, preset } });
 				return;
@@ -2335,6 +2573,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		{
 			type:
 				| "settings.get"
+				| "execution.anomalies.list"
+				| "execution.anomalies.process"
+				| "execution.anomalies.restore"
 				| "memory.list"
 				| "memory.delete"
 				| "memory.clear"
@@ -2351,6 +2592,35 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 
 	async function handleSettingsRequest(ws: WebSocket, request: SettingsRequest): Promise<void> {
 		switch (request.type) {
+			case "execution.anomalies.list": {
+				if (request.status !== undefined && request.status !== "pending" && request.status !== "reported")
+					throw new Error("执行异常日志状态无效");
+				if (request.query !== undefined && typeof request.query !== "string")
+					throw new Error("执行异常搜索内容无效");
+				if (
+					request.processing !== undefined &&
+					!["active", "optimized", "dismissed", "all"].includes(request.processing)
+				)
+					throw new Error("执行异常处理筛选无效");
+				reply(ws, request.id, { ok: true, result: executionAnomalies.list(request) });
+				return;
+			}
+			case "execution.anomalies.process": {
+				reply(ws, request.id, {
+					ok: true,
+					result: executionAnomalies.process({
+						id: request.anomalyId,
+						kind: request.kind,
+						note: request.note,
+						verification: request.verification,
+					}),
+				});
+				return;
+			}
+			case "execution.anomalies.restore": {
+				reply(ws, request.id, { ok: true, result: executionAnomalies.restore(request.anomalyId) });
+				return;
+			}
 			case "settings.get": {
 				const agentDir = defaultAgentDir();
 				const settingsManager: SettingsManager = await import("../../core/settings-manager.ts").then((m) =>
@@ -2874,6 +3144,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		mirrorSubscriptions,
 	};
 	const workspaceContext: WorkspaceHandlerContext = {
+		defaultAgentDir,
 		reply,
 		onDiagnostic,
 		broadcast,
@@ -2902,11 +3173,34 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const accountContext: AccountHandlerContext = { reply, defaultAgentDir };
 
 	async function handleRequest(ws: WebSocket, request: DesktopClientRequest): Promise<void> {
+		// Cancellation must not wait behind a preset transition that is replacing its source runtime.
+		if (request.type === "session.promptSuggestion.cancel") {
+			await handlePromptSuggestionRequest(ws, request, { service: promptSuggestions, reply });
+			return;
+		}
 		if ("sessionId" in request && typeof request.sessionId === "string") {
+			if (
+				[
+					"session.prompt",
+					"session.setModel",
+					"session.setPreset",
+					"session.abort",
+					"session.continue",
+					"session.delete",
+					"session.resume",
+					"session.compact",
+					"rewind.execute",
+				].includes(request.type)
+			) {
+				promptSuggestions.invalidateSession(request.sessionId);
+			}
 			const transition = presetTransitions.get(request.sessionId);
 			if (transition) await transition;
 		}
 		switch (request.type) {
+			case "session.promptSuggestion":
+				await handlePromptSuggestionRequest(ws, request, { service: promptSuggestions, reply });
+				return;
 			case "subagent.list":
 			case "subagent.get": {
 				const mounted = sessions.get(request.sessionId);
@@ -2943,6 +3237,11 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "session.prompt":
 			case "session.queue.remove":
 			case "session.queue.promote":
+			case "session.queue.get":
+			case "session.queue.take":
+			case "session.queue.returned.list":
+			case "session.queue.returned.get":
+			case "session.queue.returned.remove":
 			case "owl-ui.action":
 			case "session.continue":
 			case "session.abort":
@@ -2989,6 +3288,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 插件侧捕获也经同一注册表实例写，broadcast 由注册表的 onChanged 触发。
 			case "diffApproval.list":
 			case "diffApproval.diff":
+			case "diffApproval.preview":
 			case "diffApproval.resolve":
 			case "diffApproval.clear":
 				await handleDiffApprovalRequest(ws, request, workbenchContext);
@@ -3046,6 +3346,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				await handleAccountRequest(ws, request, accountContext);
 				return;
 			case "settings.get":
+			case "execution.anomalies.list":
+			case "execution.anomalies.process":
+			case "execution.anomalies.restore":
 			case "memory.list":
 			case "memory.delete":
 			case "memory.clear":
@@ -3084,8 +3387,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "viewer.list":
 			case "viewer.open":
 			case "fs.read":
+			case "fs.stat":
 			case "fs.readBin":
 			case "fs.write":
+			case "editor.file.save":
+			case "editor.draft.get":
+			case "editor.draft.put":
+			case "editor.draft.remove":
+			case "editor.draft.list":
 			case "fs.mkdir":
 			case "fs.rename":
 			case "fs.remove":
@@ -3241,6 +3550,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			});
 		});
 		ws.on("close", () => {
+			promptSuggestions.disconnect(ws);
 			clients.delete(ws);
 			eventFanout.disconnect(ws);
 			for (const controller of viewerRequests.get(ws) ?? []) controller.abort();
@@ -3285,6 +3595,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		port: actualPort,
 		async close() {
 			closing = true;
+			promptSuggestions.close();
 			runRecovery.preserveForRestart();
 			unsubscribeViewers();
 			closingEvaluation = true;

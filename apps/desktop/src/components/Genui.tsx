@@ -15,6 +15,7 @@ import type { ToolCard } from "../hooks/transcript.ts";
 import { ErrorBoundary, GenuiActionContext, GenuiBlock, renderGenuiFence, resolveGenuiSpec, setLocale, toolStateKey, type GenuiActionHandler, type GenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
 import { getUiLanguage } from "../i18n/index.ts";
 import type { BridgeClient } from "../bridge/client.ts";
+import { MarkdownAnswer } from "./MarkdownAnswer.tsx";
 
 /** Genui 会话上下文：动作回传 + 持久化身份。 */
 type GenuiSessionValue = {
@@ -142,14 +143,14 @@ export function GenuiAnswerCard({ text, identity, settled, renderMarkdown }: {
 }): React.JSX.Element {
 	const segments = useMemo(() => splitGenuiSegments(text), [text]);
 	if (segments.length === 1 && segments[0]!.kind === "md") {
-		return <div className="owl-answer" dangerouslySetInnerHTML={{ __html: renderMarkdown(segments[0]!.text) }} />;
+		return <MarkdownAnswer html={renderMarkdown(segments[0]!.text)} />;
 	}
 	return (
 		<div className="owl-genui-root">
 			{segments.map((segment, index) =>
 				segment.kind === "md" ? (
 					segment.text.trim() === "" ? null : (
-						<div key={index} className="owl-answer" dangerouslySetInnerHTML={{ __html: renderMarkdown(segment.text) }} />
+						<MarkdownAnswer key={index} html={renderMarkdown(segment.text)} />
 					)
 				) : (
 					<GenuiAnswerSegment key={index} raw={segment.raw} ordinal={segment.ordinal} identity={identity} settled={settled} />

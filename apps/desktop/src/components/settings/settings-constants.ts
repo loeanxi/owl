@@ -41,6 +41,7 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 	{ id: "", labelKey: "settings.appearance.presetGraphite", preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" } },
 	{ id: "owl-green", labelKey: "settings.appearance.presetOwlGreen", preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" } },
 	{ id: "codex", labelKey: "settings.appearance.presetCodex", preview: { bg: "#f7f6f3", rail: "#e7e6e3", line: "#d9d7d2", panel: "#ffffff" } },
+	{ id: "claude", labelKey: "settings.appearance.presetClaude", preview: { bg: "#f5f4f1", rail: "#eceae4", line: "#d8d5cd", panel: "#ffffff" } },
 	{
 		id: "liquid-glass",
 		labelKey: "settings.appearance.presetLiquidGlass",
@@ -69,7 +70,7 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 	{ id: "monokai", labelKey: "settings.appearance.presetMonokai", preview: { bg: "#272822", rail: "#191a17", line: "#414339", panel: "#34352f" } },
 	{ id: "monokai-dimmed", labelKey: "settings.appearance.presetMonokaiDimmed", preview: { bg: "#1e1e1e", rail: "#353535", line: "#404040", panel: "#272727" } },
 	{ id: "solarized", labelKey: "settings.appearance.presetSolarized", preview: { bg: "#002b36", rail: "#001b23", line: "#0f4a58", panel: "#073642" } },
-	{ id: "abyss", labelKey: "settings.appearance.presetAbyss", preview: { bg: "#000c18", rail: "#03061a", line: "#2b2b4a", panel: "#10192c" } },
+	{ id: "abyss", labelKey: "settings.appearance.presetAbyss", preview: { bg: "#0e1726", rail: "#060b15", line: "#293b55", panel: "#182538" } },
 	{ id: "tomorrow-night-blue", labelKey: "settings.appearance.presetTomorrowNightBlue", preview: { bg: "#002451", rail: "#001733", line: "#2a4373", panel: "#003064" } },
 	{ id: "kimbie-dark", labelKey: "settings.appearance.presetKimbieDark", preview: { bg: "#221a0f", rail: "#17110a", line: "#51412c", panel: "#362712" } },
 	{ id: "red", labelKey: "settings.appearance.presetRed", preview: { bg: "#390000", rail: "#2a0000", line: "#6b1a1a", panel: "#480000" } },

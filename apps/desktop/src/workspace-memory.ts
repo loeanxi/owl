@@ -3,7 +3,7 @@ import type { ConversationView } from "./components/ConversationHeader.tsx";
 import { matchesSessionScope } from "./components/sidebar-scope.ts";
 import { DEFAULT_WORKSPACE_DIR, normPath } from "./utils/paths.ts";
 
-export type WorkspaceSettingsSection = "general" | "accounts" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "diagnostics" | "changelog" | "about";
+export type WorkspaceSettingsSection = "general" | "accounts" | "models" | "plugins" | "skills" | "presets" | "sidebar" | "prompts" | "memory" | "image" | "appearance" | "notifications" | "usage" | "archived" | "json" | "diagnostics" | "execution-anomalies" | "changelog" | "about";
 
 export interface WorkspaceScrollPosition {
 	top: number;
@@ -40,7 +40,7 @@ type WorkspaceStorage = Pick<Storage, "getItem" | "setItem">;
 type WorkspaceSessionRow = { id?: string; cwd?: string; scope?: unknown; archivedAt?: unknown };
 
 const RAILS: readonly RailView[] = ["manager", "chat", "automation", "map", "news", "mail", "evaluation", "media", "projects", "research", "guide", "myself", "expert", "career", "bagu", "market", "account"];
-const SETTINGS_SECTIONS: readonly WorkspaceSettingsSection[] = ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "notifications", "usage", "archived", "json", "diagnostics", "changelog", "about"];
+const SETTINGS_SECTIONS: readonly WorkspaceSettingsSection[] = ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "notifications", "usage", "archived", "json", "diagnostics", "execution-anomalies", "changelog", "about"];
 const MAX_SCROLL_PLACES = 80;
 const MAX_STORED_BYTES = 128_000;
 

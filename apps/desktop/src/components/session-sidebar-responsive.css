@@ -1,8 +1,8 @@
 /* Pane widths are fitted to the workspace in SessionSidebar without replacing saved preferences. */
 .owl-desktop-shell .owl-workspace-frame > .owl-sidebar {
 	min-width: 0;
-	padding-right: clamp(12px, 1.2vw, 16px);
-	padding-left: clamp(12px, 1.2vw, 16px);
+	padding-right: 12px;
+	padding-left: 12px;
 }
 
 .owl-desktop-shell .owl-workspace-frame > .owl-sidebar[hidden] {
@@ -10,36 +10,205 @@
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-header {
-	height: 64px;
-	flex-basis: 64px;
+	height: 44px;
+	flex-basis: 44px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-brand {
+	font-size: 16px;
+	font-weight: 600;
 	letter-spacing: -0.03em;
 }
 
-.owl-desktop-shell .owl-sidebar .owl-sidebar-shortcuts {
-	padding-bottom: 16px;
+.owl-desktop-shell .owl-sidebar .owl-sidebar-local-badge {
+	padding: 1px 4px;
+	font-size: 8px;
 }
 
+.owl-desktop-shell .owl-sidebar .owl-sidebar-shortcuts {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-bottom: 8px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-trigger,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat {
+	display: flex;
+	width: 100%;
+	height: 28px;
+	align-items: center;
+	gap: 8px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+	font-size: 13px;
+	font-weight: 400;
+	text-align: left;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-search-trigger:hover {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+/* 分区、项目与会话通过留白和缩进区分层级，保留现有字体与选中样式。 */
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section + .owl-sidebar-section {
-	margin-top: 18px;
+	margin-top: 8px;
+	padding-top: 0;
+	border-top: 0;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section:has(> .owl-sidebar-section-content) + .owl-sidebar-section {
+	margin-top: 16px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-header {
+	height: 28px;
+	padding: 0 6px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-section-content {
+	gap: 4px;
+	padding-top: 8px;
 }
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-section-label {
 	overflow: hidden;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-/* Relative times remain in each row's full tooltip while the title gets the narrow column. */
-.owl-desktop-shell .owl-sidebar--compact .owl-sidebar-row-time {
+/* One quiet line per conversation, with the title taking priority over metadata. */
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row {
+	height: 34px;
+	padding-inline: 8px;
+	border-radius: 7px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row.is-active::before {
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row-actions {
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-main,
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row .owl-sidebar-row-main {
+	padding-right: 0;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row:is(:hover, :focus-within, .is-open) .owl-sidebar-row-main {
+	padding-right: 24px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row:is(:hover, :focus-within, .is-open) .owl-sidebar-row-main {
+	padding-right: 48px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-row:not(:hover, :focus-within, .is-open) .owl-sidebar-action--persistent {
+		opacity: 0;
+		pointer-events: none;
+	}
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-session-dot {
+	order: 1;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row {
+	height: 34px;
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row .owl-sidebar-row-label {
+	font-weight: 500;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-group + .owl-sidebar-project-group {
+	margin-top: 6px;
+}
+
+/* 子会话保留轻量缩进，展开后不绘制树形连接线。 */
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 4px 0 8px 12px;
+	padding-left: 4px;
+	border-left: 0;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions .owl-sidebar-row {
+	height: 32px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row-label {
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions .owl-sidebar-row-label {
+	font-size: 12.5px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-row-time {
 	display: none;
 }
 
+.owl-sidebar-date-group + .owl-sidebar-date-group {
+	margin-top: 16px;
+}
+
+.owl-sidebar-date-label {
+	margin: 6px 10px 8px;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.5;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-list-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 14px;
+	padding: 2px 8px 4px;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-list-controls button {
+	min-height: 28px;
+	border: 0;
+	border-radius: 5px;
+	padding: 2px 0;
+	background: transparent;
+	color: var(--owl-ui-muted, var(--color-owl-sidebar-muted));
+	font: inherit;
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-list-controls button:hover {
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+}
+
+.owl-desktop-shell .owl-sidebar .owl-sidebar-list-controls button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}
+
 .owl-desktop-shell .owl-sidebar--compact .owl-sidebar-project-sessions {
-	margin-left: 6px;
-	padding-left: 6px;
+	margin-left: 10px;
+	padding-left: 4px;
 }
 
 .owl-desktop-shell .owl-workspace-frame > .owl-sidebar--drawer {
@@ -95,6 +264,41 @@
 
 .owl-desktop-shell .owl-sidebar .owl-sidebar-resizer[hidden] {
 	display: none;
+}
+
+/* Keep the compact desktop rhythm without shrinking touch interaction targets. */
+@media (pointer: coarse) {
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-list-controls button {
+		min-height: 44px;
+	}
+
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-row,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-project-sessions .owl-sidebar-row,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-search-trigger,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-new-chat,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-section-header,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-section-toggle {
+		height: 44px;
+	}
+
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-action,
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-project-toggle {
+		min-width: 24px;
+		height: 44px;
+	}
+
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-row .owl-sidebar-action {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-session-row .owl-sidebar-row-main {
+		padding-right: 24px;
+	}
+
+	.owl-desktop-shell .owl-sidebar .owl-sidebar-project-row .owl-sidebar-row-main {
+		padding-right: 52px;
+	}
 }
 
 .owl-desktop-shell .owl-workspace-frame:has(> .owl-sidebar-drawer-trigger) .owl-main-frame > .owl-chat-header,

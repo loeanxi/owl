@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
-import { applyPermissionQueueEvent, approvalModeFromEvent, PermissionResponseTracker } from "./bridge/permission-state.ts";
+import { confirmEditorAccountProfile, listenForUnprotectedEditorUnload, registerEditorExitGuard } from "./sidebar/editor-exit-guard.ts";
+import type { SessionQueueSnapshot } from "./bridge/protocol.ts";
+import { applyPermissionQueueEvent, approvalModeFromEvent } from "./bridge/permission-state.ts";
+import { PendingResponses, PendingResponsesContext } from "./bridge/pending-responses.ts";
+import { describeToolInput } from "./hooks/summarize.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
 import { useSubagents } from "./hooks/use-subagents.ts";
+import { useStartRecentSessions } from "./hooks/use-start-recent-sessions.ts";
 import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
 import { settledRunStatus } from "./hooks/agent-settlement.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
@@ -47,6 +52,7 @@ import { Composer, type ComposerDraftRequest, type ComposerImage } from "./compo
 import { TaskRecoveryNotice } from "./components/TaskRecoveryNotice.tsx";
 import { continueTask, taskRecovery } from "./hooks/task-recovery.ts";
 import { messageInputOf } from "./hooks/message-input.ts";
+import { useModelSelection } from "./hooks/use-model-selection.ts";
 import { useSessionOwlPose } from "./components/OwlMascot.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
@@ -148,6 +154,10 @@ function rowTime(row: SessionRowLite): string {
 	return String(row.modified ?? row.created ?? "");
 }
 
+function promptQueueKey(profile: string | undefined, sessionId: string): string {
+	return JSON.stringify([profile, sessionId]);
+}
+
 export default function App(): React.JSX.Element {
 	const t = useT();
 	const projectSidebarRevision = useProjectSidebarRevision();
@@ -210,11 +220,15 @@ export default function App(): React.JSX.Element {
 	const [marketMounted, setMarketMounted] = useState(railView === "market");
 	// owl agent 数据目录（settings.get 带出）：我的助理的兜底数据根。
 	const [agentDir, setAgentDir] = useState<string>();
+	const [profileReady, setProfileReady] = useState(false);
 	const agentDirRef = useRef(agentDir);
 	agentDirRef.current = agentDir;
+	useEffect(() => { if (profileReady && agentDir) confirmEditorAccountProfile(agentDir); }, [profileReady, agentDir]);
 	const [searchTarget, setSearchTarget] = useState<MessageSearchTarget>();
 	const [searchHistory, setSearchHistory] = useState<{ sessionId: string; result: SessionSearchMessageResult }>();
 	const searchSequence = useRef(0);
+	const [deliveryTarget, setDeliveryTarget] = useState<{ sessionId: string; requestId: number }>();
+	const deliverySequence = useRef(0);
 	const [projectRestoring, setProjectRestoring] = useState<{ scope: "chat" | "research"; path: string; token: number }>();
 	const [projectNotice, setProjectNotice] = useState<string>();
 	const [sidebarMinimized, setSidebarMinimized] = useState(
@@ -240,7 +254,7 @@ export default function App(): React.JSX.Element {
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
 	const [pendingPrompts, setPendingPrompts] = useState<ReadonlySet<string>>(() => new Set<string>());
-	const [promptQueues, setPromptQueues] = useState<Record<string, { steering: string[]; followUp: string[] }>>({});
+	const [promptQueues, setPromptQueues] = useState<Record<string, SessionQueueSnapshot>>({});
 	/** agent run 活跃的会话 id（含切走后的后台会话与旁路会话）：侧边栏运行状态点依据。 */
 	const [runningSessions, setRunningSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [runningReady, setRunningReady] = useState(false);
@@ -306,33 +320,32 @@ export default function App(): React.JSX.Element {
 	}, [visibleSubagent, activeSubagent?.id]);
 	const running = Boolean(sessionId && (runningSessions.has(sessionId) || pendingPrompts.has(sessionId)));
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
-	const permission = permissions.find((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ?? permissions[0];
+	const [permissionDetailId, setPermissionDetailId] = useState<string>();
+	const [deferredPermissions, setDeferredPermissions] = useState<ReadonlySet<string>>(new Set());
+	const foregroundPermissionSession = showSettings ? undefined : railView === "research" ? researchSessionId : railView === "chat" ? sessionId : undefined;
+	const permission = permissions.find((request) => request.requestId === permissionDetailId) ?? permissions.find((request) => request.sessionId === foregroundPermissionSession && !deferredPermissions.has(request.requestId));
 	/** agent 提问队列：按到达顺序在所属会话的输入框上方显示。 */
 	const [questions, setQuestions] = useState<QuestionRequest[]>([]);
 	const activeQuestion = questions.find((question) => question.sessionId === sessionId);
 	// 应答审批/提问用的实时镜像：Toast 监听器等一次性注册的闭包拿不到新 state
 	const permissionsRef = useRef(permissions);
 	permissionsRef.current = permissions;
-	const permissionResponses = useRef(new PermissionResponseTracker());
+	const pendingResponses = useMemo(() => new PendingResponses(), [agentDir]);
+	const pendingResponsesRef = useRef(pendingResponses);
+	pendingResponsesRef.current = pendingResponses;
+	useEffect(() => { pendingResponses.activate(); return () => pendingResponses.invalidate(); }, [pendingResponses]);
 	const questionsRef = useRef(questions);
 	questionsRef.current = questions;
-	// 审批/提问应答统一走这里：先乐观出队；失败（断线窗口、桥重启中）把请求放回
-	// 队列——否则 agent 永远停在等待应答，而 UI 上已经没有任何可点的东西
-	const answerAndRestore = <T extends { requestId: string }>(
+	// Only successful acknowledgements or authoritative terminal events retire a request.
+	const answerAndRestore = <T extends { requestId: string; sessionId: string }>(
 		requestId: string,
 		listRef: { current: T[] },
 		setList: (update: (current: T[]) => T[]) => void,
-		respond: () => Promise<unknown>,
-		trackPermission = false,
+		respond: () => Promise<{ ok: boolean; error?: string }>,
 	): void => {
 		const entry = listRef.current.find((item) => item.requestId === requestId);
-		const permissionEntry = trackPermission ? permissionsRef.current.find((item) => item.requestId === requestId) : undefined;
-		const attempt = permissionEntry ? permissionResponses.current.begin(permissionEntry) : undefined;
-		setList((current) => current.filter((item) => item.requestId !== requestId));
-		respond().catch(() => {
-			if (attempt && !permissionResponses.current.canRestore(attempt)) return;
-			setList((current) => (entry !== undefined && !current.some((item) => item.requestId === requestId) ? [...current, entry] : current));
-		}).finally(() => { if (attempt) permissionResponses.current.finish(attempt); });
+		if (!entry) return;
+		void pendingResponsesRef.current.submit({ requestId, sessionId: entry.sessionId, respond, confirmed: () => setList((current) => current.filter((item) => item.requestId !== requestId)) });
 	};
 	/** 会话回退（owl-rewind）：待确认的目标用户消息，弹 RewindDialog */
 	const [rewindTarget, setRewindTarget] = useState<{ entryId: string; text: string } | undefined>(undefined);
@@ -480,6 +493,11 @@ export default function App(): React.JSX.Element {
 		return store;
 	}, [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 	const terminalStore = useMemo(() => new SidebarStore(workspaceDir, "owl.terminal.state"), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	useEffect(() => {
+		const unregister = registerEditorExitGuard({ prepare: () => workbenchStore.prepareToLeave(), needsWarning: () => workbenchStore.hasUnprotectedEdits() });
+		const stopUnloadGuard = listenForUnprotectedEditorUnload(window);
+		return () => { unregister(); stopUnloadGuard(); };
+	}, [workbenchStore]);
 	const artifacts = useMemo(() => collectArtifacts(entries, workspaceDir, { scope: "turn", includeCode: true }), [entries, workspaceDir]);
 	const [fileOpenError, setFileOpenError] = useState<string>();
 	useEffect(() => setFileOpenError(undefined), [sessionId, workspaceDir]);
@@ -535,40 +553,58 @@ export default function App(): React.JSX.Element {
 		document.addEventListener("click", onClick);
 		return () => document.removeEventListener("click", onClick);
 	}, []);
-	const openTaskFile = (path: string): void => {
-		const relative = workspaceArtifactPath(path, workspaceRef.current);
-		if (!relative) return;
+	const openTaskFile = (path: string): Promise<void> => {
+		const cwd = workspaceRef.current;
+		const origin = sessionIdRef.current;
+		const relative = workspaceArtifactPath(path, cwd);
+		if (!relative) {
+			const failed = Promise.reject<void>(new Error(t("app.fileOpenFailed")));
+			void failed.catch((error: Error) => setFileOpenError(error.message));
+			return failed;
+		}
 		setFileOpenError(undefined);
 		// 工作区 HTML 优先内置浏览器：真实加载（相对资源可解析），document 预览的
 		// srcDoc iframe 做不到；「浏览器」卡片停用时维持原 document 预览。
 		if (/\.html?$/i.test(relative) && isTabKindEnabled("browser", getSidebarConfig())) {
-			openInBrowserTab(fileUrlOf(workspaceRef.current, relative), relative.split("/").pop() ?? relative);
-			return;
+			openInBrowserTab(fileUrlOf(cwd, relative), relative.split("/").pop() ?? relative);
+			return Promise.resolve();
 		}
 		const kind = viewerKindForPath(relative, getSidebarConfig());
 		if (kind === undefined) {
-			void client.request({ type: "open.external", action: "url", target: fileUrlOf(workspaceRef.current, relative) })
-				.then((result) => { if (!result.ok) setFileOpenError(result.error ?? t("app.fileOpenFailed")); })
-				.catch((error: unknown) => setFileOpenError(error instanceof Error ? error.message : String(error)));
-			return;
+			const opening = client.request({ type: "open.external", action: "url", target: fileUrlOf(cwd, relative) })
+				.then((result) => { if (!result.ok) throw new Error(result.error ?? t("app.fileOpenFailed")); });
+			// Awaiting artifact controls observe the same rejection; legacy click/broadcast
+			// callers still receive global feedback without an unhandled rejection.
+			void opening.catch((error: unknown) => {
+				if (origin === sessionIdRef.current && samePath(cwd, workspaceRef.current)) setFileOpenError(error instanceof Error ? error.message : String(error));
+			});
+			return opening;
 		}
 		workbenchStore.openFileTab(kind, relative, relative.split("/").pop() ?? relative);
 		setDeveloperLayoutPersisted(false);
 		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
+		return Promise.resolve();
 	};
 	// 工具侧栏绑定主会话项目：研究项目不同时，研究产物交给系统默认程序打开。
-	const openResearchFile = (path: string): void => {
+	const openResearchFile = (path: string): Promise<void> => {
 		const cwd = researchWorkspaceRef.current;
+		const origin = researchSessionIdRef.current;
 		if (samePath(cwd, workspaceRef.current)) {
-			openTaskFile(path);
-			return;
+			return openTaskFile(path);
 		}
 		const relative = workspaceArtifactPath(path, cwd);
-		if (!relative) return;
+		if (!relative) {
+			const failed = Promise.reject<void>(new Error(t("app.fileOpenFailed")));
+			void failed.catch((error: Error) => setFileOpenError(error.message));
+			return failed;
+		}
 		setFileOpenError(undefined);
-		void client.request({ type: "open.external", action: "url", target: fileUrlOf(cwd, relative) })
-			.then((result) => { if (!result.ok) setFileOpenError(result.error ?? t("app.fileOpenFailed")); })
-			.catch((error: unknown) => setFileOpenError(error instanceof Error ? error.message : String(error)));
+		const opening = client.request({ type: "open.external", action: "url", target: fileUrlOf(cwd, relative) })
+			.then((result) => { if (!result.ok) throw new Error(result.error ?? t("app.fileOpenFailed")); });
+		void opening.catch((error: unknown) => {
+			if (origin === researchSessionIdRef.current && samePath(cwd, researchWorkspaceRef.current)) setFileOpenError(error instanceof Error ? error.message : String(error));
+		});
+		return opening;
 	};
 
 	// 面板开合的 ref 镜像：快捷键与卡片回调里免 stale closure。
@@ -645,6 +681,32 @@ export default function App(): React.JSX.Element {
 	// 序号对不上的过期响应直接丢弃，否则旧会话（连同 workspace、localStorage）
 	// 会被后到的响应画回屏幕
 	const sessionViewSeq = useRef(0);
+	const workspaceLeaveSequence = useRef(0);
+	const workbenchStoreRef = useRef(workbenchStore);
+	workbenchStoreRef.current = workbenchStore;
+	const prepareWorkspaceChange = async (path: string): Promise<boolean> => {
+		const sequence = ++workspaceLeaveSequence.current;
+		if (path === workspaceRef.current) return true;
+		const source = workbenchStoreRef.current;
+		const profile = agentDirRef.current;
+		const allowed = await source.prepareToLeave();
+		return allowed && sequence === workspaceLeaveSequence.current && source === workbenchStoreRef.current && profile === agentDirRef.current;
+	};
+	const confirmedModel = sessionId && sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue;
+	const modelScopeRevision = sessionViewSeq.current;
+	const researchQueueRevision = researchActionSequence.current;
+	const modelSelection = useModelSelection({
+		client, sessionId, profile: agentDir, cwd: workspaceDir, connected, running, viewRevision: modelScopeRevision,
+		isCurrent: () => sessionIdRef.current === sessionId && agentDirRef.current === agentDir && workspaceRef.current === workspaceDir && sessionViewSeq.current === modelScopeRevision,
+		model: confirmedModel, stats: sessionInfo,
+		onStart: () => { recoveryModelRevision.current++; },
+		onApplied: (model, stats) => {
+			recoveryModelRevision.current++;
+			setModelValue(model);
+			try { localStorage.setItem(MODEL_KEY, model); } catch { /* The host-confirmed selection remains usable without local storage. */ }
+			if (stats) { setSessionInfo(stats); setThinkingLevel(stats.thinkingLevel); }
+		},
+	});
 	/** 主转录事件按帧合并：同一帧多个 text_delta 只触发一次 setEntries。 */
 	const transcriptBatchRef = useRef(
 		createFrameBatcher<{ message: ServerEventMessage; seq: number }>((items) => {
@@ -817,10 +879,12 @@ export default function App(): React.JSX.Element {
 	useEffect(() => {
 		// A replaced bridge client must report its own connection before mailbox queries resume.
 		setConnected(false);
+		setProfileReady(false);
 		client.connect();
 		const offStatus = client.onStatus((up) => {
 			setConnected(up);
 			if (!up) {
+				setProfileReady(false);
 				setRunningReady(false);
 				submitInFlight.current = false;
 				setSubmitting(false);
@@ -833,8 +897,19 @@ export default function App(): React.JSX.Element {
 			const settlement = eventType === "agent_settled"
 				? settledRunStatus(message.event as { aborted?: unknown }, outcomeRef.current.get(message.sessionId))
 				: undefined;
-			if (eventType === "permission_resolved" || eventType === "approval_mode_changed" || eventType === "agent_settled") permissionResponses.current.observe(message, permissionsRef.current);
+			if (eventType === "permission_resolved" || eventType === "question_resolved") {
+				const requestId = (message.event as { requestId?: string }).requestId;
+				if (requestId) pendingResponsesRef.current.retire(requestId);
+				if (eventType === "question_resolved") {
+					setQuestions((current) => current.filter((request) => request.sessionId !== message.sessionId || request.requestId !== requestId));
+					return;
+				}
+			}
+			if (eventType === "agent_settled") pendingResponsesRef.current.retireSession(message.sessionId, [...permissionsRef.current, ...questionsRef.current].filter((request) => request.sessionId === message.sessionId).map((request) => request.requestId));
 			if (eventType === "permission_resolved" || eventType === "approval_mode_changed") {
+				if (eventType === "approval_mode_changed" && ["auto", "plan"].includes(String((message.event as { approvalMode?: string }).approvalMode))) {
+					for (const request of permissionsRef.current) if (request.sessionId === message.sessionId) pendingResponsesRef.current.retire(request.requestId);
+				}
 				setPermissions((current) => applyPermissionQueueEvent(current, message));
 				const mode = approvalModeFromEvent(message);
 				if (mode && message.sessionId === sessionIdRef.current) setObservedApprovalMode({ sessionId: message.sessionId, mode });
@@ -846,10 +921,10 @@ export default function App(): React.JSX.Element {
 			// _hasConversation 门控），此刻 refreshKey（sessionId）早已稳定不再变化，
 			// 只靠 agent_settled 刷新的话，长任务运行期间侧栏一直看不到这个新对话。
 			if (eventType === "queue_update") {
-				const queued = message.event as { steering?: string[]; followUp?: string[] };
+				const queued = message.event as Partial<SessionQueueSnapshot>;
 				setPromptQueues((current) => ({
 					...current,
-					[message.sessionId]: { steering: [...(queued.steering ?? [])], followUp: [...(queued.followUp ?? [])] },
+					[promptQueueKey(agentDirRef.current, message.sessionId)]: { steering: [...(queued.steering ?? [])], followUp: [...(queued.followUp ?? [])] },
 				}));
 			}
 			if (eventType === "entry_appended" && (message.event as { entry?: { message?: { role?: string } } }).entry?.message?.role === "user") {
@@ -966,7 +1041,7 @@ export default function App(): React.JSX.Element {
 		void listen<{ kind?: string; requestId?: string; approved?: boolean }>("owl-toast-action", (event) => {
 			const payload = event.payload;
 			if (payload?.kind !== "decision" || typeof payload.requestId !== "string" || typeof payload.approved !== "boolean") return;
-			answerAndRestore(payload.requestId, permissionsRef, setPermissions, () => client.respondPermission(payload.requestId!, payload.approved!), true);
+			answerAndRestore(payload.requestId, permissionsRef, setPermissions, () => client.respondPermission(payload.requestId!, payload.approved!));
 		}).then((off) => {
 			if (disposed) off();
 			else unlisten = off;
@@ -1119,7 +1194,14 @@ export default function App(): React.JSX.Element {
 			.request<{ agentDir: string; settings: unknown }>({ type: "settings.get" })
 			.then(async (response) => {
 				if (cancelled || !response.ok) return;
-				if (response.result?.agentDir) setAgentDir(response.result.agentDir);
+				if (response.result?.agentDir?.trim()) {
+					if (agentDirRef.current && !samePath(agentDirRef.current, response.result.agentDir)) {
+						pendingResponsesRef.current.invalidate();
+						setPermissions([]); setQuestions([]); setPermissionDetailId(undefined); setDeferredPermissions(new Set());
+					}
+					setAgentDir(response.result.agentDir);
+					setProfileReady(true);
+				}
 				const settings = response.result?.settings as Record<string, unknown> | undefined;
 				if (isThemePreference(settings?.theme)) setThemePreference(settings.theme);
 				const appearance = parseOwlAppearance(settings?.owlAppearance);
@@ -1144,10 +1226,12 @@ export default function App(): React.JSX.Element {
 			.finally(() => { if (!cancelled) completeStartupAppearance(); });
 		// 工作目录必须存在，否则 session.create 会失败（默认目录首启、或本地记录的目录被删）。
 		// project.create 即 mkdir -p：目录已有时是幂等空操作，顺带把路径规范化后回填显示。
+		const startingWorkspace = workspaceRef.current;
+		const startingLeaveSequence = workspaceLeaveSequence.current;
 		void client
-			.request<{ path: string }>({ type: "project.create", path: workspaceRef.current })
-			.then((response) => {
-				if (response.ok && response.result?.path) setWorkspaceDir(response.result.path);
+			.request<{ path: string }>({ type: "project.create", path: startingWorkspace })
+			.then(async (response) => {
+				if (!cancelled && startingWorkspace === workspaceRef.current && startingLeaveSequence === workspaceLeaveSequence.current && response.ok && response.result?.path && await prepareWorkspaceChange(response.result.path)) setWorkspaceDir(response.result.path);
 			})
 			.catch(() => {});
 		if (!samePath(researchWorkspaceRef.current, workspaceRef.current)) {
@@ -1227,13 +1311,14 @@ export default function App(): React.JSX.Element {
 		const target = id ?? sessionIdRef.current;
 		if (!target) return;
 		const modelRevision = recoveryModelRevision.current;
+		const queueProfile = agentDirRef.current;
 		try {
 			const response = await client.request<SessionStatsResult>({ type: "session.stats", sessionId: target });
 			// 落地时会话可能已切走：过期统计画进当前会话就是用量环/模型名串话
-			if (response.ok && target === sessionIdRef.current && modelRevision === recoveryModelRevision.current) {
+			if (response.ok && target === sessionIdRef.current && modelRevision === recoveryModelRevision.current && !modelSelection.isPending()) {
 				setSessionInfo(response.result ?? undefined);
 				if (response.result?.queue) {
-					setPromptQueues((current) => ({ ...current, [target]: response.result!.queue! }));
+					setPromptQueues((current) => ({ ...current, [promptQueueKey(queueProfile, target)]: response.result!.queue! }));
 				}
 			}
 		} catch {
@@ -1398,7 +1483,8 @@ export default function App(): React.JSX.Element {
 
 	// 换工作目录 = 从新会话开始；会话历史按项目分目录存（Owl-history\<编码cwd>），
 	// 不随切换丢失，随时可从侧边栏切回。首个 prompt 时才在目标目录下创建会话。
-	const resetToWorkspace = (path: string): void => {
+	const resetToWorkspace = async (path: string): Promise<boolean> => {
+		if (!await prepareWorkspaceChange(path)) return false;
 		setProjectRestoring(undefined);
 		setSearchHistory(undefined);
 		sessionViewSeq.current += 1;
@@ -1414,6 +1500,7 @@ export default function App(): React.JSX.Element {
 		setSessionBranched(false);
 		setSessionName(undefined);
 		setSessionPreset(undefined);
+		return true;
 	};
 
 	// 切换项目：绑定目录（chip 显示）并从新会话开始。
@@ -1423,12 +1510,11 @@ export default function App(): React.JSX.Element {
 
 	// 叉掉目录（输入框 chip 上的 ✕）：不选目录对话，会话默认进 DEFAULT_WORKSPACE_DIR。
 	// 当前会话已经在默认目录时原地继续，不打断；否则换到默认目录并从新会话开始。
-	const clearWorkspaceSelection = (): void => {
+	const clearWorkspaceSelection = async (): Promise<void> => {
 		if (!workspaceSelected) return;
+		if (!samePath(workspaceRef.current, DEFAULT_WORKSPACE_DIR) && !await resetToWorkspace(DEFAULT_WORKSPACE_DIR)) return;
 		setWorkspaceSelected(false);
 		localStorage.setItem(WORKSPACE_SELECTED_KEY, "0");
-		if (samePath(workspaceRef.current, DEFAULT_WORKSPACE_DIR)) return;
-		resetToWorkspace(DEFAULT_WORKSPACE_DIR);
 	};
 
 	// 研究工作台换目录：只动研究侧（研究页按目录重建会话控制器），主会话原地不动。
@@ -1451,7 +1537,7 @@ export default function App(): React.JSX.Element {
 	};
 
 	/** Project names resume work; the adjacent compose action always opens a fresh conversation. */
-	const newChatInProject = (path: string, scope: "chat" | "research"): void => {
+	const newChatInProject = async (path: string, scope: "chat" | "research"): Promise<void> => {
 		setProjectRestoring(undefined);
 		setProjectNotice(undefined);
 		if (scope === "research") {
@@ -1461,7 +1547,7 @@ export default function App(): React.JSX.Element {
 			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
 			setResearchNewConversationRequest((current) => current + 1);
 		} else {
-			resetToWorkspace(path);
+			if (!await resetToWorkspace(path)) return;
 			setWorkspaceSelected(true);
 			localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
 		}
@@ -1478,7 +1564,7 @@ export default function App(): React.JSX.Element {
 			setResearchWorkspaceSelected(true);
 			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
 		} else {
-			resetToWorkspace(path);
+			if (!await resetToWorkspace(path)) return;
 			setWorkspaceSelected(true);
 			localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
 		}
@@ -1537,12 +1623,14 @@ export default function App(): React.JSX.Element {
 		setProjectNotice(undefined);
 		setSubagentSelection(undefined);
 		const requestSeq = ++sessionViewSeq.current;
+		const queueProfile = agentDirRef.current;
 		const response = await client.request<{
 			sessionId: string;
 			cwd: string;
 			messages: Record<string, unknown>[];
 			messageEntryIds?: (string | undefined)[];
 			running?: boolean;
+			queue?: SessionQueueSnapshot;
 			run?: DesktopRunTiming;
 			runStartMessageIndex?: number;
 			researchMode?: ResearchMode;
@@ -1587,11 +1675,14 @@ export default function App(): React.JSX.Element {
 			setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
 			return;
 		}
+		if (!await prepareWorkspaceChange(cwd)) return;
+		if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
 		if (!options?.preserveRail && !options?.silent && railViewRef.current === "research") setRailView("chat");
 		setWorkspaceDir(cwd);
 		localStorage.setItem(WORKSPACE_KEY, cwd);
 		setSessionId(resumedId);
 		sessionIdRef.current = resumedId;
+		if (response.result.queue) setPromptQueues((current) => ({ ...current, [promptQueueKey(queueProfile, resumedId)]: response.result!.queue! }));
 		transcriptBatchRef.current.clear();
 		setEntries(rebuild(messages, messageEntryIds, {
 			running: response.result.running ?? runningSessionsRef.current.has(resumedId),
@@ -1697,6 +1788,7 @@ export default function App(): React.JSX.Element {
 			const snapshot = resolveWorkspaceMemory(saved, response.result);
 			const requestedView = new URLSearchParams(window.location.search).get("view") || /^#news\/(item|story|daily|weekly|monthly)\/[^/]+$/.test(window.location.hash.replace(/^#\//, "#"));
 			const view = requestedView ? railViewRef.current : snapshot.rail;
+			if (!await prepareWorkspaceChange(snapshot.workspace) || !canApply()) return;
 			const researchKey = researchSessionKey(snapshot.researchWorkspace);
 			if (snapshot.researchSession) localStorage.setItem(researchKey, snapshot.researchSession);
 			else localStorage.removeItem(researchKey);
@@ -1789,26 +1881,8 @@ export default function App(): React.JSX.Element {
 		};
 	}, [connected, client, workspaceDir, sessionId]);
 
-	// 输入栏的模型/思考切换：未建会话时只记选择（localStorage + 状态），
-	// 已有会话则即时下发到运行中的 session（setModel 自带思考级别自适应）。
-	const handleModelChange = (value: string): void => {
-		setModelValue(value);
-		localStorage.setItem(MODEL_KEY, value);
-		const current = sessionIdRef.current;
-		if (!current) return;
-		const spec = (() => {
-			const slash = value.indexOf("/");
-			return slash > 0 ? { provider: value.slice(0, slash), model: value.slice(slash + 1) } : undefined;
-		})();
-		if (!spec) return;
-		void client
-			.request<SessionStatsResult>({ type: "session.setModel", sessionId: current, ...spec })
-			.then((response) => {
-				// 落地时会话可能已切走，过期统计不画
-				if (response.ok && response.result && current === sessionIdRef.current) setSessionInfo(response.result);
-			})
-			.catch(() => {});
-	};
+	// Host confirmation owns the current selection; new threads only stage a preference.
+	const handleModelChange = modelSelection.select;
 
 	const handleThinkingChange = (level: string): void => {
 		setThinkingLevel(level);
@@ -2167,6 +2241,13 @@ export default function App(): React.JSX.Element {
 	const waitingForUser = Boolean(sessionId && (permissions.some((request) => request.sessionId === sessionId) || questions.some((question) => question.sessionId === sessionId)));
 	const chatActivity: ChatActivity = running || submitting ? !connected ? "disconnected" : waitingForUser ? "waiting" : "working" : "idle";
 	const owlPose = useSessionOwlPose(chatActivity, entries);
+	const startRecentSessions = useStartRecentSessions(client, {
+		active: railView === "chat" && !showSettings && !visibleSubagent && conversationView === "chat" && entries.length === 0 && !searchTarget && chatActivity === "idle",
+		connected,
+		profile: profileReady ? agentDir : undefined,
+		cwd: workspaceDir,
+		revision: sidebarRev,
+	});
 
 	const openSettings = (tab: SettingsInitialTab): void => {
 		setSettingsInitialTab(tab);
@@ -2188,6 +2269,7 @@ export default function App(): React.JSX.Element {
 	});
 	const navigationSeq = useRef(0);
 	const restorePlace = async (place: AppPlace, seq: number): Promise<void> => {
+		if (!await prepareWorkspaceChange(place.workspace) || seq !== navigationSeq.current) return;
 		// 作废还在飞的会话恢复，避免旧响应盖住这次回退。
 		sessionViewSeq.current += 1;
 		if (place.rail === "mail") setMailMounted(true);
@@ -2327,6 +2409,7 @@ export default function App(): React.JSX.Element {
 	};
 	const islandIds = activityOrder.filter((id) => runningSessions.has(id));
 	for (const id of runningSessions) if (!islandIds.includes(id)) islandIds.push(id);
+	for (const request of [...permissions, ...questions]) if (!islandIds.includes(request.sessionId)) islandIds.push(request.sessionId);
 	const islandRunning = islandIds.map((id) => {
 		const needsPermission = permissions.some((request) => request.sessionId === id);
 		const asked = questions.find((request) => request.sessionId === id);
@@ -2344,6 +2427,7 @@ export default function App(): React.JSX.Element {
 	});
 
 	return (
+		<PendingResponsesContext.Provider value={pendingResponses}>
 		<div className="owl-desktop-shell font-sans text-owl-text">
 			<WallpaperLayer settings={wallpaper} />
 			{/* 媒体桥全局覆盖层（顶部歌词条 + 深背景）：各自有开关，默认都不渲染。 */}
@@ -2425,8 +2509,9 @@ export default function App(): React.JSX.Element {
 						jumpToFace={islandJumpRef}
 						permissionFor={(id) => {
 							const request = permissions.find((item) => item.sessionId === id);
-							return request ? { requestId: request.requestId } : undefined;
+							return request ? { requestId: request.requestId, toolName: request.toolName, description: describeToolInput(request.toolName, request.input), contextLabel: titleForRef.current(id), workspace: listedCwdsRef.current.get(id) ?? (id === sessionId ? workspaceDir : id === researchSessionId ? researchWorkspaceDir : undefined) } : undefined;
 						}}
+						onOpenPermission={(requestId) => setPermissionDetailId(requestId)}
 						choicesFor={(id) => {
 							const request = questions.find((item) => item.sessionId === id);
 							if (!request) return undefined;
@@ -2438,13 +2523,13 @@ export default function App(): React.JSX.Element {
 							return labels.length > 0 ? { requestId: request.requestId, labels } : undefined;
 						}}
 						onPermission={(requestId, approved) => {
-							answerAndRestore(requestId, permissionsRef, setPermissions, () => client.respondPermission(requestId, approved), true);
+							answerAndRestore(requestId, permissionsRef, setPermissions, () => client.respondPermission(requestId, approved));
 						}}
 						onChoose={(requestId, label) => {
 							answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, [{ index: 0, selectedLabels: [label] }], false));
 						}}
 						onReply={replyToSession}
-						onOpen={(id) => void openIslandSession(id)}
+						onOpen={(id) => { void openIslandSession(id).then(() => { if (!runningSessionsRef.current.has(id)) setDeliveryTarget({ sessionId: id, requestId: ++deliverySequence.current }); }); }}
 					/>
 				)}
 			/>
@@ -2652,6 +2737,9 @@ export default function App(): React.JSX.Element {
 						{researchMounted && <div style={{ display: railView === "research" && !showSettings && !visibleSubagent ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
 							<ResearchPage
 								profile={agentDir}
+								queueProfile={profileReady ? agentDir : undefined}
+								queueIsCurrent={() => agentDirRef.current === agentDir && researchWorkspaceRef.current === researchWorkspaceDir && researchActionSequence.current === researchQueueRevision}
+								deliveryRequest={deliveryTarget?.sessionId === researchSessionId ? deliveryTarget?.requestId : undefined}
 								searchTarget={searchTarget}
 								searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === researchSessionId ? searchHistory.result : undefined}
 								restorePending={projectRestoring?.scope === "research"}
@@ -2667,7 +2755,7 @@ export default function App(): React.JSX.Element {
 								}}
 								resumeRequest={researchResumeRequest} newConversationRequest={researchNewConversationRequest}
 								conversationView={researchConversationView} onTitleChange={setResearchConversationTitle}
-								questions={questions} onQuestionDone={(requestId) => setQuestions((current) => current.filter((request) => request.requestId !== requestId))}
+								questions={questions} onQuestionAnswer={(requestId, answers, cancelled) => answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled))}
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
 								onOpenFile={openResearchFile} onOpenReview={openWorkbenchReview}
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
@@ -2684,7 +2772,7 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
@@ -2715,23 +2803,20 @@ export default function App(): React.JSX.Element {
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
 								onSend={sendPrompt}
-								queued={sessionId ? promptQueues[sessionId] : undefined}
-								onRemoveQueued={(lane, index) => {
-									const target = sessionIdRef.current;
-									if (!target) return;
-									void client.request({ type: "session.queue.remove", sessionId: target, lane, index });
-								}}
-								onPromoteQueued={(index) => {
-									const target = sessionIdRef.current;
-									if (!target) return;
-									void client.request({ type: "session.queue.promote", sessionId: target, index });
-								}}
+								queued={profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined}
+								queueSessionId={sessionId}
+								queueProfile={profileReady ? agentDir : undefined}
+								queueOwnerRevision={sessionViewSeq.current}
+								queueIsCurrent={() => sessionIdRef.current === sessionId && agentDirRef.current === agentDir && workspaceRef.current === workspaceDir && sessionViewSeq.current === modelScopeRevision}
+								onQueueChange={(queue) => { if (sessionId && sessionId === sessionIdRef.current && agentDir === agentDirRef.current) setPromptQueues((current) => ({ ...current, [promptQueueKey(agentDir, sessionId)]: queue })); }}
 								onAbort={() => void abort()}
 								onPause={pauseSession}
 								onResume={() => void resumePaused()}
 							providers={chatProviders}
-							model={modelValue}
+							model={confirmedModel}
 							onModel={handleModelChange}
+							modelSelection={modelSelection.feedback}
+							onRetryModelSelection={modelSelection.retry}
 							thinkingLevel={thinkingLevel}
 							onThinkingLevel={handleThinkingChange}
 								approvalMode={currentApprovalMode}
@@ -2760,6 +2845,8 @@ export default function App(): React.JSX.Element {
 						<Workbench
 							client={client}
 							cwd={workspaceDir}
+							profile={agentDir}
+							connected={connected && profileReady}
 							store={terminalStore}
 							open={terminalOpen}
 							onSetOpen={setTerminalOpenPersisted}
@@ -2773,6 +2860,8 @@ export default function App(): React.JSX.Element {
 						<Workbench
 							client={client}
 							cwd={workspaceDir}
+							profile={agentDir}
+							connected={connected && profileReady}
 							store={workbenchStore}
 							open={sidebarOpen}
 							onSetOpen={setSidebarOpenPersisted}
@@ -2797,7 +2886,9 @@ export default function App(): React.JSX.Element {
 						setWallpaper(next);
 						applyOwlWallpaper(next);
 					}}
-					onWorkspaceDir={(dir) => {
+					onWorkspaceDir={async (dir) => {
+						if (!await prepareWorkspaceChange(dir)) return;
+						workspaceRef.current = dir;
 						setWorkspaceDir(dir);
 						localStorage.setItem(WORKSPACE_KEY, dir);
 						setWorkspaceSelected(true);
@@ -2830,9 +2921,11 @@ export default function App(): React.JSX.Element {
 			{permission && (
 				<PermissionDialog
 					request={permission}
-					contextLabel={permission.sessionId === researchSessionId ? researchTitle : permission.sessionId === sessionId ? sessionTitle : permission.sessionId.slice(0, 8)}
+					contextLabel={titleForRef.current(permission.sessionId)}
+					workspace={listedCwdsRef.current.get(permission.sessionId) ?? (permission.sessionId === sessionId ? workspaceDir : permission.sessionId === researchSessionId ? researchWorkspaceDir : undefined)}
+					onLater={() => { setDeferredPermissions((current) => new Set(current).add(permission.requestId)); setPermissionDetailId(undefined); }}
 					onDecide={(approved) => {
-						answerAndRestore(permission.requestId, permissionsRef, setPermissions, () => client.respondPermission(permission.requestId, approved), true);
+						answerAndRestore(permission.requestId, permissionsRef, setPermissions, () => client.respondPermission(permission.requestId, approved));
 					}}
 				/>
 			)}
@@ -2863,5 +2956,6 @@ export default function App(): React.JSX.Element {
 			{findOpen && <FindBar onClose={() => setFindOpen(false)} />}
 			{helpSection && <ShortcutsDialog section={helpSection} onClose={() => setHelpSection(undefined)} />}
 		</div>
+		</PendingResponsesContext.Provider>
 	);
 }

@@ -1,0 +1,34 @@
+.owl-model-selection {
+	margin: 0 4px 8px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--color-owl-muted);
+	overflow-wrap: anywhere;
+}
+
+.owl-model-selection > div {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+}
+
+.owl-model-selection p {
+	margin: 3px 0 0;
+}
+
+.owl-model-selection.is-error > div {
+	color: var(--color-owl-danger);
+}
+
+.owl-model-selection button {
+	padding: 2px 0;
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.owl-model-selection button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import type { SessionSearchMessageResult } from "../../bridge/protocol.ts";
+import type { QuestionAnswerPayload, SessionSearchMessageResult } from "../../bridge/protocol.ts";
+import { PendingResponses, PendingResponsesContext, usePendingResponses } from "../../bridge/pending-responses.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, FsSearchHit, ProviderModelsMessage, QuestionRequest, ResearchResult, SlashCommandEntry } from "../../bridge/protocol.ts";
 import { ChatStream, type ChatActivity, type MessageSearchTarget } from "../../components/ChatStream.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
@@ -33,6 +34,9 @@ export type ResearchPageProps = {
 	connected: boolean;
 	cwd: string;
 	profile?: string;
+	queueProfile?: string;
+	queueIsCurrent?: () => boolean;
+	deliveryRequest?: number;
 	searchTarget?: MessageSearchTarget;
 	searchHistoryMessage?: SessionSearchMessageResult;
 	restorePending?: boolean;
@@ -51,6 +55,7 @@ export type ResearchPageProps = {
 	question?: QuestionRequest;
 	questions?: readonly QuestionRequest[];
 	onQuestionDone?: (requestId: string) => void;
+	onQuestionAnswer?: (requestId: string, answers: QuestionAnswerPayload[], cancelled: boolean) => void;
 	waiting?: boolean;
 	resumeRequest?: { id: string; revision: number };
 	newConversationRequest?: number;
@@ -116,6 +121,10 @@ function ResultPanel({ result, sourcesOpen, onSources, onClose, onDraft, onOpenS
 
 export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const { client, active, connected, cwd, onOpenSubagent } = props;
+	const { controller: sharedResponses } = usePendingResponses();
+	const localResponses = useMemo(() => new PendingResponses(), [props.profile, client]);
+	useEffect(() => { localResponses.activate(); return () => localResponses.invalidate(); }, [localResponses]);
+	const responseController = sharedResponses ?? localResponses;
 	const text = useResearchText();
 	const t = useT();
 	const disabledPresets = Object.fromEntries((props.agentPresets ?? []).filter((preset) => preset.runtime === "pi" || preset.id === "pi").map((preset) => [preset.id, text("piPresetUnavailable")]));
@@ -123,6 +132,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const defaultPreset = homePreset === "pi" || Object.hasOwn(disabledPresets, homePreset) ? "standard" : homePreset;
 	const controller = useMemo(() => new ResearchSessionController(client, localStorage, cwd, { model: props.defaultModel, thinkingLevel: props.defaultThinkingLevel, approvalMode: props.defaultApprovalMode, agentPreset: defaultPreset }), [client, cwd]);
 	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+	const queueOwnerRevision = controller.getQueueOwnerRevision();
 	const promptController = useMemo(() => new ResearchPromptController(client), [client]);
 	const promptState = useSyncExternalStore(promptController.subscribe, promptController.getSnapshot);
 	const stagedPreset = state.agentPreset ?? defaultPreset;
@@ -201,19 +211,19 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 	const error = localError ?? state.error;
 	const recovery = !state.running && !state.failedPrompt ? taskRecovery(state.entries, state.retryStatus) : undefined;
 
-	return <section className="research-page" aria-label={text("title")}>
+	return <PendingResponsesContext.Provider value={responseController}><section className="research-page" aria-label={text("title")}>
 		<div className="research-prompt-toolbar"><span>{promptState.ready ? promptState.saved?.enabled && activePrompt ? text("promptEnabled", { name: activePrompt.name }) : text("promptDefault") : ""}</span><button ref={promptButton} type="button" aria-expanded={promptsOpen} onClick={() => { setSelectedResultId(undefined); setPromptsOpen((open) => !open); }}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12" /><circle cx="7" cy="5" r="2" fill="var(--color-owl-bg)" /><circle cx="13" cy="10" r="2" fill="var(--color-owl-bg)" /><circle cx="8" cy="15" r="2" fill="var(--color-owl-bg)" /></svg>{text("promptManage")}</button></div>
 		<div className="research-content">
 			<div className="research-conversation">
-				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream key={state.sessionId ?? cwd} sessionId={state.sessionId} profile={props.profile} searchHistoryMessage={props.searchHistoryMessage && !state.entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === props.searchHistoryMessage!.entryId) ? props.searchHistoryMessage : undefined} searchTarget={props.searchTarget?.sessionId === state.sessionId ? props.searchTarget : undefined} entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
+				{props.conversationView === "trajectory" ? <TrajectoryView entries={state.entries} active={active} /> : props.conversationView === "context" ? <ContextView key={`research-context:${state.sessionId ?? cwd}`} client={client} cwd={cwd} sessionId={state.sessionId} requireSession active={active && connected} /> : state.entries.length ? <GenuiSessionProvider client={client} sessionId={state.sessionId}><ChatStream key={state.sessionId ?? cwd} sessionId={state.sessionId} profile={props.profile} deliveryRequest={props.deliveryRequest} searchHistoryMessage={props.searchHistoryMessage && !state.entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === props.searchHistoryMessage!.entryId) ? props.searchHistoryMessage : undefined} searchTarget={props.searchTarget?.sessionId === state.sessionId ? props.searchTarget : undefined} entries={state.entries} activity={activity} client={client} cwd={cwd} onOpenFile={props.onOpenFile} onOpenReview={props.onOpenReview} onOpenAutomation={props.onOpenAutomation} onOpenSubagent={onOpenSubagent} renderTurnArtifacts={(entries) => { const results = researchResultsForTurn(entries); return results.length ? <ResultCards results={results} text={text} onOpen={openResult} onDraft={fillDraft} /> : null; }} /></GenuiSessionProvider> : <div className="research-welcome"><img src="/owl.svg" alt="" /><h2>{text("emptyTitle")}</h2><p>{text("emptyHint")}<br />{text("emptyDetail")}</p></div>}
 				{(!connected || !state.ready || error) && <div className="research-notice" role={error ? "alert" : "status"}>{error ? <><span>{error}</span>{connected && !state.ready && <button type="button" disabled={state.busy} onClick={() => void controller.attach()}>{text("retry")}</button>}{connected && state.failedPrompt && <button type="button" disabled={state.busy || !state.ready} onClick={() => { const failed = state.failedPrompt; if (failed) void controller.send(failed.text, failed.images, failed.attachedPaths, failed.delivery); }}>{text("retrySend")}</button>}</> : !connected ? text("disconnected") : text("restoring")}</div>}
 				<RetryPin status={state.retryStatus?.phase === "retrying" ? state.retryStatus : null} onDismiss={() => controller.dismissRetry()} />
 				<TaskRecoveryNotice recovery={recovery} providers={props.providers} model={state.model} disabled={!connected || !state.ready || state.busy} onContinue={(model) => controller.continue(model)} onOpenSettings={props.onOpenSettings} />
 				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
 				<ResearchTaskNotice task={state.task} sessionId={state.sessionId} running={state.running} />
 				<div className="owl-conversation-pins"><TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />{props.subagentControl}</div>
-				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { client.respondQuestion(requestId, answers, cancelled); props.onQuestionDone?.(requestId); }}>
-					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} paused={state.paused} queued={state.queue} onPause={() => void controller.pause()} onResume={() => void controller.continue()} onRemoveQueued={(lane, index) => void controller.changeQueue(lane, index)} onPromoteQueued={(index) => void controller.changeQueue("followUp", index, true)} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
+				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { if (props.onQuestionAnswer) props.onQuestionAnswer(requestId, answers, cancelled); else { const request = pendingQuestions.find((item) => item.requestId === requestId); if (request) void responseController.submit({ requestId, sessionId: request.sessionId, respond: () => client.respondQuestion(requestId, answers, cancelled), confirmed: () => props.onQuestionDone?.(requestId) }); } }}>
+					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} paused={state.paused} queued={state.queue} queueSessionId={state.sessionId} queueProfile={props.queueProfile} queueOwnerRevision={queueOwnerRevision} queueIsCurrent={() => controller.isQueueOwnerCurrent(queueOwnerRevision, state.sessionId) && (props.queueIsCurrent?.() ?? true)} onQueueChange={(queue) => controller.applyQueue(queue, state.sessionId)} onPause={() => void controller.pause()} onResume={() => void controller.continue()} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)}
 						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}
 						onSend={send} onAbort={() => void controller.abort()} providers={props.providers} model={state.model} onModel={(value) => void controller.setModel(value)} thinkingLevel={state.thinkingLevel} onThinkingLevel={(value) => void controller.setThinkingLevel(value)} approvalMode={state.approvalMode} onApprovalMode={(mode) => void controller.setApprovalMode(mode)} sessionInfo={state.stats} workspaceDir={cwd} projects={props.projects ?? [cwd]} workspaceSelected={props.workspaceSelected} onSwitchProject={props.onSwitchProject ?? (() => undefined)} onClearProject={props.onClearProject} commands={commands}
 						searchFiles={(searchCwd, query) => client.request<FsSearchHit[]>({ type: "fs.search", cwd: searchCwd, query }).then((r) => (r.ok ? r.result ?? [] : []))} draftRequest={draftRequest} owlPose={owlPose} />
@@ -221,5 +231,5 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 			</div>
 			{promptsOpen ? <ResearchPromptSettings controller={promptController} running={state.running} onClose={() => { setPromptsOpen(false); promptButton.current?.focus(); }} /> : visibleResult && <ResultPanel result={visibleResult} sourcesOpen={sourcesOpen} onSources={setSourcesOpen} onClose={() => setSelectedResultId(undefined)} onDraft={fillDraft} onOpenSource={openSource} text={text} />}
 		</div>
-	</section>;
+	</section></PendingResponsesContext.Provider>;
 }

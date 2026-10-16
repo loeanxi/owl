@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type {
 	AgentPresetDefinition,
 	DiscoveredModel,
+	ExecutionAnomalyRecord,
 	ImageConfigGetResult,
 	MemoryListResult,
 	ModelsDiscoverResult,
@@ -29,7 +30,7 @@ import { getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, use
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconActivity, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconActivity, IconAlert, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import {
 	isModelMarkedInUse,
@@ -49,6 +50,11 @@ import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import { AccountsSection } from "./settings/AccountsSection.tsx";
 import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
 import { ChangelogSection, useChangelogCopy } from "./settings/ChangelogSection.tsx";
+import { ExecutionAnomaliesSection } from "./settings/ExecutionAnomaliesSection.tsx";
+import { useExecutionAnomaliesCopy } from "./settings/execution-anomalies-copy.ts";
+import { AppearanceNavigation } from "./settings/AppearanceNavigation.tsx";
+import { CodexThemePicker } from "./settings/CodexThemePicker.tsx";
+import { appearanceReadingFieldDescription, useAppearanceNavigationText } from "./settings/appearance-navigation-copy.ts";
 import { DiagnosticsSection } from "../features/life-monitor/DiagnosticsSection.tsx";
 import { lifeShell } from "../features/life-monitor/life-copy.ts";
 import type { LifeProbe } from "../features/life-monitor/use-life-probe.ts";
@@ -57,7 +63,7 @@ import "./settings-redesign.css";
 
 type SettingsSection = WorkspaceSettingsSection;
 
-export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "diagnostics" | "about";
+export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "diagnostics" | "execution-anomalies" | "about";
 
 /** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
@@ -72,6 +78,7 @@ export function SettingsPage({
 	wallpaper,
 	onWallpaperChange,
 	onAskAgentCreatePreset,
+	onOpenAnomalySession,
 	lifeProbe,
 }: {
 	client: BridgeClient;
@@ -89,11 +96,19 @@ export function SettingsPage({
 	onWallpaperChange: (next: OwlWallpaperSettings) => void;
 	/** 「让 Agent 帮我创建预设模式」：切到创造模式开新会话并填入引导草稿（App 实现）。 */
 	onAskAgentCreatePreset?: () => void;
+	onOpenAnomalySession?: (record: ExecutionAnomalyRecord) => void;
 	/** 「诊断」分区：App 持有探测（标题栏的异常提醒也用它）。 */
 	lifeProbe: LifeProbe;
 }): React.JSX.Element {
 	const t = useT();
 	const changelogCopy = useChangelogCopy();
+	const executionAnomaliesCopy = useExecutionAnomaliesCopy();
+	const appearanceCopy = useAppearanceNavigationText();
+	const appearanceId = useId();
+	const appearanceSections = (["interface", "reading", "theme", "wallpaper"] as const).map((key) => ({
+		id: `${appearanceId}-${key}`,
+		label: appearanceCopy(key),
+	}));
 	useProjectSidebarRevision();
 	const [section, setSection] = useState<SettingsSection>(restoreSection ?? initialTab);
 	const selectSection = (next: SettingsSection): void => {
@@ -1336,6 +1351,7 @@ export function SettingsPage({
 						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
 						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => selectSection("usage")} />
 						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => selectSection("archived")} />
+						<NavItem icon={<IconAlert />} label={executionAnomaliesCopy.nav} active={section === "execution-anomalies"} onClick={() => selectSection("execution-anomalies")} />
 						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => selectSection("json")} />
 						<NavItem
 							icon={
@@ -2765,9 +2781,11 @@ export function SettingsPage({
 						{section === "appearance" && (
 							<>
 								<SectionHeader title={t("settings.appearance.title")} desc={t("settings.appearance.desc")} />
+								<AppearanceNavigation sections={appearanceSections} />
 
+								<section id={`${appearanceId}-interface`} className="owl-appearance-section" data-appearance-section="interface" tabIndex={-1} aria-labelledby={`${appearanceId}-interface-heading`}>
 								{/* 视觉风格：模式 / 强调色 / 背景 / 前景（模仿 ChatGPT 桌面端外观设置）。 */}
-								<h3 className="owl-settings-group-title">{t("settings.appearance.visualStyle")}</h3>
+								<h3 id={`${appearanceId}-interface-heading`} className="owl-settings-group-title">{t("settings.appearance.visualStyle")}</h3>
 								<div className="owl-settings-group">
 									<SettingRow title={t("settings.appearance.mode")} desc={t("settings.appearance.themeDesc")}>
 										<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.mode")}>
@@ -2859,9 +2877,91 @@ export function SettingsPage({
 									</SettingRow>
 								</div>
 								<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
+								</section>
 
+								<section id={`${appearanceId}-reading`} className="owl-appearance-section" data-appearance-section="reading" tabIndex={-1} aria-labelledby={`${appearanceId}-reading-heading`}>
+								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
+								<h3 id={`${appearanceId}-reading-heading`} className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>
+								<p className="owl-settings-row-description">{appearanceCopy("readingDescription")}</p>
+								<div className="owl-settings-group">
+									{CHAT_READING_FIELDS.map((field) => (
+										<SettingRow
+											key={field.key}
+											title={t(field.titleKey)}
+											desc={appearanceReadingFieldDescription(field.key)}
+											control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
+										>
+											<input
+												type="range"
+												aria-label={t(field.titleKey)}
+												className="w-full accent-owl-accent disabled:opacity-40"
+												min={field.min}
+												max={field.max}
+												step={field.step}
+												value={chatAppearance[field.key]}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(event) => {
+													const value = event.currentTarget.valueAsNumber;
+													setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
+												}}
+											/>
+										</SettingRow>
+									))}
+									<SettingRow
+										title={t("settings.general.toolRecords")}
+										desc={t("settings.general.toolRecordsDesc")}
+										control={
+											<select
+												aria-label={t("settings.general.toolRecords")}
+												className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+												value={chatAppearance.toolRecords}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(event) => setChatAppearance((current) => ({
+													...current,
+													toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
+												}))}
+											>
+												<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
+												<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
+											</select>
+										}
+									/>
+									<SettingRow
+										title={t("settings.general.motion")}
+										desc={t("settings.general.motionDesc")}
+										control={
+											<Switch
+												title={t("settings.general.motion")}
+												checked={chatAppearance.motion}
+												disabled={busy || !chatAppearanceLoaded}
+												onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
+											/>
+										}
+									/>
+									<div className="owl-settings-group-actions">
+										<button
+											type="button"
+											className={btn}
+											disabled={busy || !chatAppearanceLoaded}
+											onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
+										>
+											{t("settings.general.resetDefaults")}
+										</button>
+										<button
+											type="button"
+											className={btnAccent}
+											disabled={busy || !chatAppearanceLoaded}
+											onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
+										>
+											{t("settings.general.saveReading")}
+										</button>
+									</div>
+								</div>
+								</section>
+
+								<section id={`${appearanceId}-theme`} className="owl-appearance-section" data-appearance-section="theme" tabIndex={-1} aria-labelledby={`${appearanceId}-theme-heading`}>
 								{/* 主题预设：整套深色配色；切换时清掉自定义背景/前景，让预设完整生效。 */}
-								<h3 className="owl-settings-group-title">{t("settings.appearance.themePresets")}</h3>
+								<h3 id={`${appearanceId}-theme-heading`} className="owl-settings-group-title">{t("settings.appearance.themePresets")}</h3>
 								<div className="owl-settings-group">
 									<SettingRow title={t("settings.appearance.themePresets")} desc={t("settings.appearance.themePresetsDesc")}>
 										<div className="owl-settings-preset-grid" role="radiogroup" aria-label={t("settings.appearance.themePresets")}>
@@ -2902,6 +3002,17 @@ export function SettingsPage({
 													</button>
 												);
 											})}
+											<CodexThemePicker
+												preset={owlAppearance.preset}
+												mode={resolvedTheme}
+												disabled={busy || !owlAppearanceLoaded}
+												onSelect={(id) => saveAppearanceColors({
+													...owlAppearance,
+													preset: id,
+													dark: { background: "", foreground: "" },
+													light: { background: "", foreground: "" },
+												})}
+											/>
 											</div>
 										</SettingRow>
 										{isGlassPreset(owlAppearance.preset) && (
@@ -2941,9 +3052,11 @@ export function SettingsPage({
 											</div>
 										</SettingRow>
 									</div>
+								</section>
 
+								<section id={`${appearanceId}-wallpaper`} className="owl-appearance-section" data-appearance-section="wallpaper" tabIndex={-1} aria-labelledby={`${appearanceId}-wallpaper-heading`}>
 									{/* 动态壁纸（Wallpaper Engine 适配）：video/web 直渲、scene 用预览图降级。 */}
-									<h3 className="owl-settings-group-title">{t("settings.appearance.wallpaperTitle")}</h3>
+									<h3 id={`${appearanceId}-wallpaper-heading`} className="owl-settings-group-title">{t("settings.appearance.wallpaperTitle")}</h3>
 									<div className="owl-settings-group">
 										<SettingRow title={t("settings.appearance.wallpaperEnable")} desc={t("settings.appearance.wallpaperEnableDesc")}>
 											<Switch
@@ -3287,83 +3400,7 @@ export function SettingsPage({
 											</button>
 										</div>
 									</div>
-
-								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
-								<h3 className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>
-								<div className="owl-settings-group">
-									{CHAT_READING_FIELDS.map((field) => (
-										<SettingRow
-											key={field.key}
-											title={t(field.titleKey)}
-											desc={t(field.descKey)}
-											control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
-										>
-											<input
-												type="range"
-												aria-label={t(field.titleKey)}
-												className="w-full accent-owl-accent disabled:opacity-40"
-												min={field.min}
-												max={field.max}
-												step={field.step}
-												value={chatAppearance[field.key]}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(event) => {
-													const value = event.currentTarget.valueAsNumber;
-													setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
-												}}
-											/>
-										</SettingRow>
-									))}
-									<SettingRow
-										title={t("settings.general.toolRecords")}
-										desc={t("settings.general.toolRecordsDesc")}
-										control={
-											<select
-												aria-label={t("settings.general.toolRecords")}
-												className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
-												value={chatAppearance.toolRecords}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(event) => setChatAppearance((current) => ({
-													...current,
-													toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
-												}))}
-											>
-												<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
-												<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
-											</select>
-										}
-									/>
-									<SettingRow
-										title={t("settings.general.motion")}
-										desc={t("settings.general.motionDesc")}
-										control={
-											<Switch
-												title={t("settings.general.motion")}
-												checked={chatAppearance.motion}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
-											/>
-										}
-									/>
-									<div className="owl-settings-group-actions">
-										<button
-											type="button"
-											className={btn}
-											disabled={busy || !chatAppearanceLoaded}
-											onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
-										>
-											{t("settings.general.resetDefaults")}
-										</button>
-										<button
-											type="button"
-											className={btnAccent}
-											disabled={busy || !chatAppearanceLoaded}
-											onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
-										>
-											{t("settings.general.saveReading")}
-										</button>
-									</div>
-								</div>
+								</section>
 							</>
 						)}
 
@@ -4345,6 +4382,7 @@ export function SettingsPage({
 
 						{section === "diagnostics" && <DiagnosticsSection probe={lifeProbe} onFix={selectSection} />}
 						{section === "changelog" && <ChangelogSection />}
+						{section === "execution-anomalies" && <ExecutionAnomaliesSection client={client} onOpenSession={onOpenAnomalySession} />}
 
 						{/* -------- 关于 -------- */}
 						{section === "about" && (

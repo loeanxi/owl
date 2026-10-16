@@ -1,4 +1,16 @@
 @import "tailwindcss";
+@import "./codex-themes.css";
+@import "./claude-preset.css";
+
+/* 共享语义色（深色默认值；浅色档与壁纸档的覆盖在 theme-roles.css）。表面与强调色仍由预设决定。 */
+@theme static {
+	--color-owl-on-accent: #111111;
+	--color-owl-on-accent-hover: #111111;
+	--color-owl-danger: #f08b8b;
+	--color-owl-warning: #e3ba65;
+	--color-owl-success: #7fc79f;
+	--color-owl-accent-soft: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}
 
 /*
  * Claude Desktop 风格的 design tokens。
@@ -354,27 +366,27 @@ html[data-owl-preset="solarized"] {
 }
 
 html[data-owl-preset="abyss"] {
-	--owl-conversation-bg: #000c18;
-	--color-owl-bg: #000c18;
-	--color-owl-sidebar: #060621;
-	--color-owl-rail: #03061a;
-	--color-owl-panel: #10192c;
-	--color-owl-bubble: #0d1a30;
-	--color-owl-hover: #0c2048;
-	--color-owl-border: #2b2b4a;
-	--color-owl-text: #c6d0e8;
-	--color-owl-muted: #8c9ccc;
-	--color-owl-faint: #6688cc;
+	--owl-conversation-bg: #0e1726;
+	--color-owl-bg: #0e1726;
+	--color-owl-sidebar: #080f1d;
+	--color-owl-rail: #060b15;
+	--color-owl-panel: #182538;
+	--color-owl-bubble: #1b2b43;
+	--color-owl-hover: #1b2b43;
+	--color-owl-border: #293b55;
+	--color-owl-text: #e0e8f5;
+	--color-owl-muted: #a2b2cc;
+	--color-owl-faint: #94a6c2;
 	--owl-preset-accent: #4a8ee0;
 	--owl-preset-accent-hover: #6aa3e8;
-	--color-owl-sidebar-bg: #060621;
-	--color-owl-sidebar-surface: #10192c;
-	--color-owl-sidebar-hover: #0c1a3c;
-	--color-owl-sidebar-selected: #08286b;
-	--color-owl-sidebar-border: #2b2b4a;
-	--color-owl-sidebar-text: #c6d0e8;
-	--color-owl-sidebar-muted: #8c9ccc;
-	--color-owl-sidebar-faint: #6f86c0;
+	--color-owl-sidebar-bg: #080f1d;
+	--color-owl-sidebar-surface: #182538;
+	--color-owl-sidebar-hover: #1b2b43;
+	--color-owl-sidebar-selected: #253a55;
+	--color-owl-sidebar-border: #293b55;
+	--color-owl-sidebar-text: #e0e8f5;
+	--color-owl-sidebar-muted: #a2b2cc;
+	--color-owl-sidebar-faint: #94a6c2;
 }
 
 html[data-owl-preset="tomorrow-night-blue"] {
@@ -1088,7 +1100,7 @@ html[data-owl-preset="quiet-light"] {
 	user-select: none;
 }
 
-/* 行首状态点：默认灰色圆环、运行中绿色呼吸、未读 accent 实心 */
+/* 会话状态点：看过的灰点、运行中绿点闪烁（带外扩光圈）、跑完未看实心绿点 */
 .owl-sidebar-session-dot {
 	width: 7px;
 	height: 7px;
@@ -1098,26 +1110,33 @@ html[data-owl-preset="quiet-light"] {
 	opacity: 0.6;
 }
 
-.owl-sidebar-session-dot.is-unread,
-.owl-sidebar-session-dot.is-running {
-	background: #22c55e;
+.owl-sidebar-session-dot.is-unread {
+	background: var(--color-owl-success);
 	opacity: 1;
 }
 
 .owl-sidebar-session-dot.is-running {
-	animation: owl-sidebar-dot-blink 1s ease-in-out infinite;
+	background: var(--color-owl-success);
+	opacity: 1;
+	animation: owl-sidebar-dot-blink 1.2s ease-in-out infinite;
 }
 
 @keyframes owl-sidebar-dot-blink {
+	0%,
+	100% {
+		opacity: 1;
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-owl-success) 60%, transparent);
+	}
 	50% {
-		opacity: 0.15;
+		opacity: 0.25;
+		box-shadow: 0 0 0 4px transparent;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.owl-sidebar-session-dot.is-running {
 		animation: none;
-		box-shadow: 0 0 0 2px rgb(34 197 94 / 0.3);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-owl-success) 35%, transparent);
 	}
 }
 
@@ -1125,7 +1144,7 @@ html[data-owl-preset="quiet-light"] {
 .owl-sidebar-row-time {
 	flex: 0 0 auto;
 	color: var(--color-owl-sidebar-faint);
-	font-size: 10px;
+	font-size: 11px;
 	font-variant-numeric: tabular-nums;
 }
 
@@ -1462,10 +1481,10 @@ button.owl-context-gauge:hover { background: var(--color-owl-hover); }
 }
 
 .owl-chat-surface {
-	--owl-reading-text: #e4e4e4;
-	--owl-reading-muted: #999;
-	--owl-reading-border: #343434;
-	--owl-reading-panel: #202020;
+	--owl-reading-text: var(--color-owl-text);
+	--owl-reading-muted: var(--color-owl-muted);
+	--owl-reading-border: var(--color-owl-border);
+	--owl-reading-panel: var(--color-owl-panel);
 	/* inline code 与项目强调色同色：跟随 --color-owl-accent 自动随主题档/自定义 accent 切换 */
 	--owl-reading-code: var(--color-owl-accent);
 	--owl-reading-link: #8bc4ed;
@@ -1479,10 +1498,6 @@ button.owl-context-gauge:hover { background: var(--color-owl-hover); }
 }
 
 html[data-owl-theme="light"] .owl-chat-surface {
-	--owl-reading-text: #35332e;
-	--owl-reading-muted: #767166;
-	--owl-reading-border: #dedacf;
-	--owl-reading-panel: #f1efe9;
 	--owl-reading-link: #286b98;
 	background: var(--owl-conversation-bg);
 }
@@ -1494,7 +1509,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-chat-empty { display: flex; flex-direction: column; align-items: center; gap: 20px; margin-top: clamp(48px, 16vh, 160px); padding: 24px 12px; text-align: center; }
 .owl-chat-empty-mark { width: 48px; height: 48px; object-fit: contain; }
 .owl-chat-empty h1 { margin: 0; font-family: var(--font-sans); font-size: clamp(22px, 2vw, 28px); font-weight: 500; line-height: 1.4; color: var(--color-owl-text); }
-.owl-chat-row { margin: 12px 0; min-width: 0; }
+.owl-chat-row { margin: 16px 0; min-width: 0; }
 /* 结论紧贴下面的工作过程，不留出一行空白。 */
 .owl-chat-row:has(+ .owl-chat-row-compact) { margin-bottom: 2px; }
 /* 结论下面的附属行：工作过程、截图、改动文件。贴着正文，不另起一块。 */
@@ -1545,7 +1560,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-editor-button.is-primary { border-color: transparent; background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 .owl-user-editor-button.is-primary:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-user-editor-button:disabled { opacity: .5; cursor: default; }
-.owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 14px); line-height: var(--owl-chat-line-height, 1.5); color: var(--owl-reading-text); overflow-wrap: anywhere; }
+.owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); color: var(--owl-reading-text); overflow-wrap: anywhere; }
 .owl-answer > :first-child { margin-top: 0; }
 .owl-answer > :last-child { margin-bottom: 0; }
 .owl-answer p { margin: 0 0 .85em; }
@@ -1563,8 +1578,112 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-answer a:hover { text-decoration: underline; }
 .owl-answer strong { font-weight: 600; }
 .owl-answer code { font-family: ui-monospace, Consolas, monospace; font-size: .87em; background: var(--owl-reading-panel); border: 1px solid var(--owl-reading-border); border-radius: 4px; padding: .08em .3em; color: var(--owl-reading-code); }
-.owl-answer pre { overflow: auto; max-height: 360px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 13px 15px; font-size: var(--owl-chat-code-font-size, 12px); line-height: 1.65; }
+.owl-answer pre { overflow: auto; max-height: 360px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 14px 16px; font-size: var(--owl-chat-code-font-size, 13px); line-height: 1.65; }
 .owl-answer pre code { font-size: inherit; color: var(--owl-reading-text); border: 0; background: none; border-radius: 0; padding: 0; }
+
+/*
+ * 代码块语法高亮（highlight.js 输出的 hljs-* 作用域）。
+ * 色板与工作台编辑器（workbench-design.css 的 --owl-code-*）同一套，两边看起来是同一个产品。
+ * 直接用具体颜色而不引用 --owl-reading-*：那些令牌定义在 .owl-chat-surface 上，
+ * 在这里 var() 会在 html 上解析成空，反而整块失色。
+ * 未识别语言没有任何 span，整块只用 --owl-reading-text。
+ */
+html {
+	--owl-syn-keyword: #bfa1d1;
+	--owl-syn-string: #a5c8ad;
+	--owl-syn-number: #d7aa78;
+	--owl-syn-comment: #969f97;
+	--owl-syn-function: #94b8dc;
+	--owl-syn-type: #dbbd80;
+	--owl-syn-muted: #969f97;
+	--owl-syn-invalid: #f08995;
+	--owl-syn-inserted: #7fc79f;
+	--owl-syn-deleted: #f08b8b;
+}
+html[data-owl-theme="light"] {
+	--owl-syn-keyword: #885ba1;
+	--owl-syn-string: #337c49;
+	--owl-syn-number: #966132;
+	--owl-syn-comment: #66726a;
+	--owl-syn-function: #356f9d;
+	--owl-syn-type: #876725;
+	--owl-syn-muted: #66726a;
+	--owl-syn-invalid: #b94250;
+	/* diff 的增/删行在浅底上要压深，深色档的亮绿亮红在白底只剩 2:1。 */
+	--owl-syn-inserted: #1f6b3a;
+	--owl-syn-deleted: #a32d2d;
+}
+/* 壁纸玻璃档按玻璃自己的明暗选色板，不看 data-owl-theme（两者的明暗可以相反）。 */
+html[data-owl-wallpaper="on"][data-owl-glass-theme="dark"] {
+	--owl-syn-keyword: #cbb0dc;
+	--owl-syn-string: #b3d3ba;
+	--owl-syn-number: #e0b485;
+	--owl-syn-comment: #a8a8a8;
+	--owl-syn-function: #a6c7e8;
+	--owl-syn-type: #e5ca92;
+	--owl-syn-muted: #a8a8a8;
+	--owl-syn-invalid: #f59aa5;
+	--owl-syn-inserted: #8fd4ab;
+	--owl-syn-deleted: #f3a0a0;
+}
+html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] {
+	--owl-syn-keyword: #7d4f96;
+	--owl-syn-string: #2c6f42;
+	--owl-syn-number: #8a5729;
+	--owl-syn-comment: #56565c;
+	--owl-syn-function: #2d628f;
+	--owl-syn-type: #7a5d1c;
+	--owl-syn-muted: #56565c;
+	--owl-syn-invalid: #b03643;
+	--owl-syn-inserted: #1f6b3a;
+	--owl-syn-deleted: #a32d2d;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst,
+.hljs-doctag,
+.hljs-meta-keyword { color: var(--owl-syn-keyword); }
+.hljs-string,
+.hljs-regexp,
+.hljs-link,
+.hljs-meta-string { color: var(--owl-syn-string); }
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet { color: var(--owl-syn-number); }
+.hljs-comment,
+.hljs-quote { color: var(--owl-syn-comment); font-style: italic; }
+.hljs-function,
+.hljs-section,
+.hljs-name { color: var(--owl-syn-function); }
+.hljs-type,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-attr,
+.hljs-attribute,
+.hljs-params,
+.hljs-title { color: var(--owl-syn-type); }
+.hljs-meta,
+.hljs-tag,
+.hljs-selector-pseudo,
+.hljs-punctuation,
+.hljs-operator,
+.hljs-code { color: var(--owl-syn-muted); }
+/* 内嵌语法（JSX 里的 <div>、Dockerfile 里的 RUN）会多包一层裸类名包装节点，
+ * 如 <span class="xml"> / <span class="bash">；它只负责分组，颜色留给内部的 hljs-* 词法。 */
+pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color: inherit; }
+/* 函数名 / 类名 / 方法名都是 .hljs-title，靠祖先是 function 还是 class 决定用哪个颜色。 */
+.hljs-function :is(.hljs-title, .hljs-title.function_) { color: var(--owl-syn-function); }
+.hljs-class .hljs-title,
+.hljs-title.class_ { color: var(--owl-syn-type); }
+.hljs-addition { color: var(--owl-syn-inserted); }
+.hljs-deletion { color: var(--owl-syn-deleted); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+.hljs-invalid { color: var(--owl-syn-invalid); }
 .owl-answer blockquote { border-left: 2px solid var(--owl-reading-border); padding-left: 1em; margin: 1em 0; color: var(--owl-reading-muted); }
 .owl-answer hr { border: 0; border-top: 1px solid var(--owl-reading-border); margin: 1.5em 0; }
 .owl-answer table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1em 0; font-size: .9em; }
@@ -1597,14 +1716,14 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-detail { margin: 6px 0 12px 22px; overflow: hidden; border: 1px solid var(--owl-reading-border); border-radius: 7px; }
 .owl-tool-group-body .owl-tool-detail { margin: 0; border: 0; border-top: 1px solid var(--owl-reading-border); border-radius: 0; }
 .owl-work-process { margin: 0; }
-.owl-work-process-summary { min-height: 22px; padding: 0; gap: 4px; font-size: 12px; color: var(--owl-reading-muted); opacity: .8; }
+.owl-work-process-summary { min-height: 28px; padding: 0; gap: 6px; font-size: 12px; color: var(--owl-reading-muted); }
 .owl-work-process-summary:hover { background: transparent; opacity: 1; }
 /* 展开后是缩进的记录，不是套在正文下面的第二块卡片。 */
 .owl-work-process-body { margin: 2px 0 0 14px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .owl-work-process-body > .owl-work-process-item + .owl-work-process-item { margin-top: 2px; }
-.owl-work-process-body .owl-answer { color: var(--owl-reading-muted); font-size: 13px; line-height: 1.5; }
-.owl-work-process-body .owl-answer p { margin: 0 0 .35em; }
-.owl-work-process-body .owl-answer > :last-child { margin-bottom: 0; }
+.owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer { color: var(--owl-reading-muted); font-size: 13px; line-height: 1.5; }
+.owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer p { margin: 0 0 .35em; }
+.owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer > :last-child { margin-bottom: 0; }
 .owl-tool-command { max-height: 360px; overflow: auto; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
 .owl-tool-output { max-height: 360px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-text); font: var(--owl-chat-code-font-size, 12px)/1.65 ui-monospace, Consolas, monospace; }
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }
@@ -1612,7 +1731,18 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }
 .owl-chat-error { color: var(--color-owl-danger); font-size: 13px; line-height: 1.7; }
 .owl-chat-paused { color: var(--owl-reading-muted); font-size: 12px; line-height: 1.7; }
-.owl-response-activity { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 18px 0 8px; color: var(--owl-reading-muted); font-size: 12px; }
+.owl-response-activity { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; margin: 18px 0 8px; color: var(--owl-reading-muted); font-size: 12px; }
+.owl-response-label { min-width: 0; color: var(--owl-reading-text); font-size: 13px; line-height: 1.6; }
+.owl-response-timing { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.owl-response-details { position: relative; flex: none; margin-left: auto; }
+.owl-response-timing + .owl-response-details { margin-left: 0; }
+.owl-response-details > summary { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; list-style: none; border-radius: 6px; cursor: pointer; }
+.owl-response-details > summary::-webkit-details-marker { display: none; }
+.owl-response-details > summary:hover, .owl-response-details[open] > summary { background: var(--owl-reading-panel); color: var(--owl-reading-text); }
+.owl-response-details > summary:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-response-metrics { position: absolute; z-index: 25; right: 0; bottom: calc(100% + 8px); display: flex; flex-wrap: wrap; gap: 6px 14px; width: min(380px, calc(100cqw - 64px)); padding: 12px 14px; border: 1px solid var(--owl-reading-border); border-radius: 10px; background: var(--owl-reading-panel); color: var(--owl-reading-muted); font-size: 12px; line-height: 1.65; font-variant-numeric: tabular-nums; }
+.owl-response-usage { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
+.owl-response-activity:is([data-state="waiting"], [data-state="disconnected"]) .owl-response-label { color: var(--color-owl-warning); font-weight: 500; }
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }
 .owl-response-activity[data-state="working"] .owl-response-mark { animation: owl-response-breathe 2s ease-in-out infinite; }
 .owl-response-activity[data-state="disconnected"] .owl-response-mark { opacity: .4; }
@@ -1642,6 +1772,31 @@ html[data-owl-theme="light"] .owl-chat-surface {
 	transform: none;
 }
 .owl-mascot-slot.is-inline .owl-mascot-fx { display: none !important; }
+.owl-mascot-slot.is-open { z-index: 30; }
+.owl-mascot-panel {
+	position: absolute;
+	right: -8px;
+	bottom: calc(100% + 6px);
+	width: 288px;
+	padding: 4px 0;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 12px;
+	background: var(--color-owl-panel);
+	box-shadow: 0 12px 32px rgb(0 0 0 / .5);
+	line-height: normal;
+	text-align: left;
+}
+.owl-mascot[data-alert] .owl-mascot-pupils { filter: hue-rotate(-105deg) saturate(1.6); }
+.owl-mascot-alert {
+	position: absolute;
+	right: -1px;
+	bottom: 2px;
+	width: 8px;
+	height: 8px;
+	border: 1.5px solid var(--color-owl-panel);
+	border-radius: 50%;
+	background: var(--color-owl-warning, #e3ba65);
+}
 .owl-mascot {
 	position: relative;
 	width: 32px;

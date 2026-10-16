@@ -1,0 +1,98 @@
+.owl-editor-close-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	display: grid;
+	place-items: center;
+	padding: 20px;
+	background: rgb(0 0 0 / .55);
+}
+
+.owl-editor-close-dialog {
+	width: min(100%, 540px);
+	max-height: 85vh;
+	overflow: auto;
+	padding: 24px;
+	border-radius: 14px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	box-shadow: 0 16px 50px rgb(0 0 0 / .3);
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.owl-editor-close-dialog h2 {
+	margin: 0 0 12px;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+.owl-editor-close-dialog ul {
+	max-height: 180px;
+	overflow: auto;
+	padding-inline-start: 20px;
+	overflow-wrap: anywhere;
+}
+
+.owl-editor-close-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 20px;
+}
+
+.owl-editor-close-actions button {
+	padding: 6px 10px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 7px;
+}
+
+.owl-editor-close-actions button:hover:not(:disabled) {
+	background: var(--color-owl-hover);
+}
+
+.owl-editor-close-dialog button:focus-visible,
+.owl-editor-draft-recovery button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}
+
+.owl-editor-close-dialog button:disabled,
+.owl-editor-draft-recovery button:disabled {
+	opacity: .5;
+	cursor: default;
+}
+
+.owl-editor-safety-muted {
+	color: var(--color-owl-muted);
+}
+
+.owl-editor-safety-error {
+	color: var(--color-owl-danger);
+	overflow-wrap: anywhere;
+}
+
+.owl-editor-draft-recovery {
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--color-owl-border);
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--color-owl-text);
+}
+
+.owl-editor-draft-recovery > div {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.owl-editor-draft-recovery > button {
+	display: block;
+	max-width: 100%;
+	padding: 4px 0;
+	color: var(--color-owl-accent);
+	text-align: start;
+	overflow-wrap: anywhere;
+}

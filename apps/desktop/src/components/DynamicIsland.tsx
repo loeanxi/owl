@@ -14,6 +14,9 @@ import {
 	type IslandSession,
 } from "./dynamic-island-model.ts";
 import { emptyIslandMemory, loadIslandMemory, mergeIslandMemory, reconcileIslandMemory, rememberIslandCompletion, saveIslandMemory, type IslandMemorySnapshot } from "./dynamic-island-memory.ts";
+import { usePendingResponses } from "../bridge/pending-responses.ts";
+import { PendingResponseNotice } from "./PendingResponseNotice.tsx";
+import { usePendingRequestCopy } from "./pending-request-copy.ts";
 
 export interface DynamicIslandProps {
 	running: readonly IslandSession[];
@@ -27,7 +30,8 @@ export interface DynamicIslandProps {
 	notice: { seq: number; id: string; outcome: IslandOutcome } | null;
 	titleOf: (sessionId: string) => string;
 	onOpen: (sessionId: string) => void;
-	permissionFor?: (sessionId: string) => { requestId: string } | undefined;
+	permissionFor?: (sessionId: string) => { requestId: string; toolName?: string; description?: string; contextLabel?: string; workspace?: string } | undefined;
+	onOpenPermission?: (requestId: string) => void;
 	choicesFor?: (sessionId: string) => { requestId: string; labels: readonly string[] } | undefined;
 	onPermission?: (requestId: string, approved: boolean) => void;
 	onChoose?: (requestId: string, label: string) => void;
@@ -49,8 +53,10 @@ export function DynamicIsland(props: DynamicIslandProps): React.JSX.Element {
 	return <DynamicIslandContent key={props.memoryScope ?? ""} {...props} seenNotice={seenNotice} pendingMemory={pendingMemory} />;
 }
 
-function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, permissionFor, choicesFor, onPermission, onChoose, onReply, memoryScope, runningReady = true, knownTitles, seenNotice, pendingMemory }: DynamicIslandProps & { seenNotice: { current: number | null }; pendingMemory: { current: IslandMemorySnapshot | null } }): React.JSX.Element {
+function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, permissionFor, onOpenPermission, choicesFor, onPermission, onChoose, onReply, memoryScope, runningReady = true, knownTitles, seenNotice, pendingMemory }: DynamicIslandProps & { seenNotice: { current: number | null }; pendingMemory: { current: IslandMemorySnapshot | null } }): React.JSX.Element {
 	const t = useT();
+	const copy = usePendingRequestCopy();
+	const { feedback } = usePendingResponses();
 	const root = useRef<HTMLDivElement>(null);
 	const [memory, setMemory] = useState(() => {
 		const saved = memoryScope ? loadIslandMemory(window.localStorage, memoryScope) ?? emptyIslandMemory() : emptyIslandMemory();
@@ -262,6 +268,8 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 		<div
 			ref={root}
 			className={`owl-island ${mode}${landing ? " is-landing" : ""}`}
+			data-waiting={face.kind === "live" && face.waiting ? true : undefined}
+			data-outcome={face.kind === "done" ? face.outcome : undefined}
 			style={{ left: layout.center, ["--owl-island-max" as string]: `${layout.max}px`, visibility: layout.ready ? "visible" : "hidden" }}
 			data-tauri-drag-region="false"
 		>
@@ -296,8 +304,10 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 					{rows.map((session) => {
 						const permission = session.waitKind === "permission" ? permissionFor?.(session.id) : undefined;
 						const choices = session.waitKind === "question" ? choicesFor?.(session.id) : undefined;
+						const responseId = permission?.requestId ?? choices?.requestId;
+						const responding = responseId ? feedback.get(responseId)?.phase === "pending" : false;
 						return (
-							<div key={session.id} className="owl-island-block">
+							<div key={session.id} className="owl-island-block" data-waiting={session.waiting || session.waitKind !== "" ? true : undefined}>
 								<button
 									type="button"
 									role="menuitem"
@@ -310,18 +320,26 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 									{clockText(session.startedAt) !== "" && <span className="owl-island-clock">{clockText(session.startedAt)}</span>}
 									{waitText(session.waitKind, session.waiting) !== "" && <span className="owl-island-wait">{waitText(session.waitKind, session.waiting)}</span>}
 								</button>
+								{permission && <div className="owl-island-permission">
+									<strong>{permission.toolName}</strong> · {permission.contextLabel ?? session.title}
+									<p>{copy.workspace}: {permission.workspace ?? copy.unknownWorkspace}</p>
+									{permission.description && <pre>{permission.description}</pre>}
+									<PendingResponseNotice requestId={permission.requestId} />
+								</div>}
+								{choices && <PendingResponseNotice requestId={choices.requestId} />}
 								{(permission || choices) && (
 									<div className="owl-island-actions">
-										{permission && <button type="button" className="owl-island-chip" onClick={() => onPermission?.(permission.requestId, false)}>{t("island.deny")}</button>}
-										{permission && <button type="button" className="owl-island-chip is-allow" onClick={() => onPermission?.(permission.requestId, true)}>{t("island.allow")}</button>}
-										{choices?.labels.map((label) => <button key={label} type="button" className="owl-island-chip" onClick={() => onChoose?.(choices.requestId, label)}>{label}</button>)}
+										{permission && onOpenPermission && <button type="button" className="owl-island-chip" onClick={() => { setExpanded(false); onOpenPermission(permission.requestId); }}>{copy.details}</button>}
+										{permission && <button type="button" disabled={responding} className="owl-island-chip" onClick={() => onPermission?.(permission.requestId, false)}>{t("island.deny")}</button>}
+										{permission && <button type="button" disabled={responding || !permission.description} title={permission.description} className="owl-island-chip is-allow" onClick={() => onPermission?.(permission.requestId, true)}>{responding ? copy.sending : copy.approve}</button>}
+										{choices?.labels.map((label) => <button key={label} type="button" disabled={responding} className="owl-island-chip" onClick={() => onChoose?.(choices.requestId, label)}>{label}</button>)}
 									</div>
 								)}
 							</div>
 						);
 					})}
 					{done.map((session) => (
-						<div key={session.id} className="owl-island-block">
+						<div key={session.id} className="owl-island-block" data-outcome={session.outcome}>
 							<div className="owl-island-row" role="none">
 								<button type="button" role="menuitem" className="owl-island-row-main" onClick={() => openSession(session.id)}>
 									<span className="owl-island-title" title={session.title}>{session.title}</span>

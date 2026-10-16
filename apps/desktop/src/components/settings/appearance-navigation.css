@@ -1,0 +1,39 @@
+.owl-settings-page .owl-settings-content[data-owl-settings-section="appearance"] > .owl-appearance-navigation {
+	position: sticky;
+	top: calc(0px - var(--owl-appearance-content-inset, 0px));
+	z-index: 5;
+	container: owl-appearance-navigation / inline-size;
+	margin-top: 0;
+	margin-bottom: 28px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--settings-border);
+	background: var(--settings-canvas);
+}
+
+.owl-appearance-navigation-links {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 4px;
+}
+
+.owl-appearance-navigation button {
+	min-width: 0;
+	min-height: 36px;
+	padding: 7px 12px;
+	border-radius: 7px;
+	color: var(--settings-muted);
+	font-size: 13px;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+
+.owl-appearance-navigation button:hover { background: var(--settings-hover); color: var(--settings-text); }
+.owl-appearance-navigation button[aria-current="location"] { background: var(--settings-accent-soft); color: var(--settings-text); font-weight: 600; }
+.owl-appearance-navigation button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+
+.owl-settings-page .owl-settings-content[data-owl-settings-section="appearance"] [data-appearance-section] { scroll-margin-top: 88px; }
+.owl-settings-page .owl-settings-content[data-owl-settings-section="appearance"] [data-appearance-section]:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 5px; }
+
+@container owl-appearance-navigation (max-width: 420px) {
+	.owl-appearance-navigation-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

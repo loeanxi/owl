@@ -1,5 +1,7 @@
+import type { BridgeClient } from "../bridge/client.ts";
 import type { ArtifactKind, FileArtifact } from "../hooks/artifacts.ts";
-import { t, useT, type TextKey } from "../i18n/index.ts";
+import { useT, type TextKey } from "../i18n/index.ts";
+import { ArtifactActions } from "./ArtifactActions.tsx";
 import { IconChevron } from "./icons.tsx";
 import "./artifacts.css";
 
@@ -20,12 +22,14 @@ const ACTION_LABEL: Record<FileArtifact["action"], TextKey> = {
 
 export interface ArtifactsProps {
 	artifacts: readonly FileArtifact[];
-	onOpenFile: (path: string) => void;
+	onOpenFile: (path: string) => void | Promise<void>;
+	client?: BridgeClient;
+	cwd?: string;
 	title?: string;
 }
 
 /** Real session outputs share the existing workbench viewers and file-opening policy. */
-export function Artifacts({ artifacts, onOpenFile, title }: ArtifactsProps): React.JSX.Element | null {
+export function Artifacts({ artifacts, onOpenFile, title, client, cwd }: ArtifactsProps): React.JSX.Element | null {
 	const t = useT();
 	const heading = title ?? t("artifacts.title");
 	if (artifacts.length === 0) return null;
@@ -37,22 +41,25 @@ export function Artifacts({ artifacts, onOpenFile, title }: ArtifactsProps): Rea
 			</header>
 			<ul className="owl-artifacts-list">
 				{artifacts.map((artifact) => (
-					<li key={artifact.path}>
-						<button
-							type="button"
-							className="owl-artifact-file"
-							aria-label={t("artifacts.openAria", { name: artifact.title })}
-							title={artifact.path}
-							onClick={() => onOpenFile(artifact.path)}
-						>
-							<span className="owl-artifact-kind" data-kind={artifact.kind}>{t(KIND_LABEL[artifact.kind])}</span>
-							<span className="owl-artifact-description">
-								<strong>{artifact.title}</strong>
-								<span>{artifact.path}</span>
-							</span>
-							<span className="owl-artifact-action">{t(ACTION_LABEL[artifact.action])}</span>
-							<IconChevron className="owl-artifact-chevron" />
-						</button>
+					<li key={artifact.path} className="owl-artifact-result">
+						<ArtifactActions path={artifact.path} title={artifact.title} client={client} cwd={cwd} onOpenFile={onOpenFile}>
+							{(open, disabled) => <button
+								type="button"
+								className="owl-artifact-file"
+								aria-label={t("artifacts.openAria", { name: artifact.title })}
+								title={artifact.path}
+								disabled={disabled}
+								onClick={open}
+							>
+								<span className="owl-artifact-kind" data-kind={artifact.kind}>{t(KIND_LABEL[artifact.kind])}</span>
+								<span className="owl-artifact-description">
+									<strong>{artifact.title}</strong>
+									<span>{artifact.path}</span>
+								</span>
+								<span className="owl-artifact-action">{t(ACTION_LABEL[artifact.action])}</span>
+								<IconChevron className="owl-artifact-chevron" />
+							</button>}
+						</ArtifactActions>
 					</li>
 				))}
 			</ul>

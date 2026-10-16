@@ -229,7 +229,7 @@ it("isolates Pi resources and preserves session settings when switching and resu
 		return value;
 	};
 	const expectPiResources = ({ session, services }: (typeof mounted)[number]): void => {
-		const tools = ["bash", "edit", "read", "write"];
+		const tools = ["bash", "edit", "execution_anomaly_report", "read", "write"];
 		expect(session.getActiveToolNames().sort()).toEqual(tools);
 		expect(
 			session
@@ -242,6 +242,7 @@ it("isolates Pi resources and preserves session settings when switching and resu
 		expect(services.resourceLoader.getPrompts().prompts).toEqual([]);
 		expect(services.resourceLoader.getExtensions().extensions.map((extension) => extension.path)).toEqual([
 			"<inline:owl-permissions>",
+			"<inline:owl-execution-anomalies>",
 		]);
 		expect(session.systemPrompt).toContain("expert coding assistant");
 		expect(session.systemPrompt).toContain("fixture_project_instructions");
@@ -264,7 +265,15 @@ it("isolates Pi resources and preserves session settings when switching and resu
 	expect(createdPi.ok, JSON.stringify(createdPi)).toBe(true);
 	const piRuntime = latestMounted();
 	expectPiResources(piRuntime);
-	piRuntime.session.setActiveToolsByName(["read", "bash", "edit", "write", "process", "fixture_external"]);
+	piRuntime.session.setActiveToolsByName([
+		"read",
+		"bash",
+		"edit",
+		"write",
+		"execution_anomaly_report",
+		"process",
+		"fixture_external",
+	]);
 	expectPiResources(piRuntime);
 	await piRuntime.session.reload();
 	expectPiResources(piRuntime);
@@ -370,4 +379,80 @@ it("isolates Pi resources and preserves session settings when switching and resu
 		agentPreset: "standard",
 		researchMode: "auto",
 	});
+
+	// A fixed ordinary preset must replace its immutable SDK allowlist in both directions.
+	const minimalCreated = await request(ws, { type: "session.create", agentPreset: "minimal" });
+	const fixedId = (minimalCreated.result as { sessionId: string }).sessionId;
+	const fixed = latestMounted();
+	expect(
+		fixed.session
+			.getAllTools()
+			.map((tool) => tool.name)
+			.sort(),
+	).toEqual(["bash", "edit", "execution_anomaly_report", "read"]);
+	expect(
+		(
+			await request(ws, {
+				type: "session.setModel",
+				sessionId: fixedId,
+				provider: "preset-fixture",
+				model: "selected",
+			})
+		).ok,
+	).toBe(true);
+	expect((await request(ws, { type: "session.setThinkingLevel", sessionId: fixedId, level: "medium" })).ok).toBe(true);
+	expect(
+		(await request(ws, { type: "session.setApprovalMode", sessionId: fixedId, approvalMode: "confirm" })).ok,
+	).toBe(true);
+	expect((await request(ws, { type: "session.setPreset", sessionId: fixedId, agentPreset: "standard" })).ok).toBe(
+		true,
+	);
+	const expanded = latestMounted();
+	expect(expanded.session).not.toBe(fixed.session);
+	expect(expanded.session.sessionId).toBe(fixedId);
+	expect(expanded.session.getAllTools().map((tool) => tool.name)).toContain("fixture_external");
+	expect(expanded.session.model).toMatchObject({ provider: "preset-fixture", id: "selected" });
+	expect(expanded.session.thinkingLevel).toBe("medium");
+	expect((await request(ws, { type: "session.setPreset", sessionId: fixedId, agentPreset: "minimal" })).ok).toBe(true);
+	const narrowed = latestMounted();
+	expect(narrowed.session).not.toBe(expanded.session);
+	narrowed.session.setActiveToolsByName([
+		"read",
+		"bash",
+		"edit",
+		"execution_anomaly_report",
+		"fixture_external",
+		"tool_search",
+	]);
+	expect(narrowed.session.getActiveToolNames().sort()).toEqual(["bash", "edit", "execution_anomaly_report", "read"]);
+	await narrowed.session.reload();
+	expect(
+		narrowed.session
+			.getAllTools()
+			.map((tool) => tool.name)
+			.sort(),
+	).toEqual(["bash", "edit", "execution_anomaly_report", "read"]);
+	narrowed.session.sessionManager.appendMessage({
+		role: "user",
+		content: "minimal fixture history",
+		timestamp: Date.now(),
+	});
+	socket.terminate();
+	socket = undefined;
+	await bridge.close();
+	bridge = await startDesktopServer(serverOptions);
+	socket = await connect(bridge.port);
+	ws = socket;
+	const fixedResumed = await request(ws, { type: "session.resume", sessionId: fixedId });
+	expect(fixedResumed).toMatchObject({
+		ok: true,
+		result: { sessionId: fixedId, agentPreset: "minimal", approvalMode: "confirm", thinkingLevel: "medium" },
+	});
+	expect(
+		latestMounted()
+			.session.getAllTools()
+			.map((tool) => tool.name)
+			.sort(),
+	).toEqual(["bash", "edit", "execution_anomaly_report", "read"]);
+	expect(latestMounted().session.model).toMatchObject({ provider: "preset-fixture", id: "selected" });
 }, 30_000);

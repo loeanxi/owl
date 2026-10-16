@@ -1,0 +1,83 @@
+/*
+ * Claude 预设（owlAppearance.preset = "claude"）：取色自逆向 Claude Desktop 设计系统
+ * （open-claude-ui 项目的 CDS 令牌，源头 /Applications/Claude.app v1.28，MIT）。
+ * 陶土橙 #d97757 + 四层微对比暖灰表面（Surface 0-3）+ alpha 半透明边框。
+ * 深浅两档齐全，不锁档。选择器两档都带 data-owl-theme，优先级高于通用深/浅色块，
+ * 与 index.css / desktop-shell.css 的层叠顺序无关。
+ * CDS 的 Surface 阶梯到 owl 令牌的映射：S0→sidebar/rail，S1→bg（聊天画布），
+ * S2/S3→panel，用户气泡用 CDS 的浅蓝底 tint（浅色 #f0f4f8，深色为 6% 白的实色近似）。
+ */
+
+/* 深色档：暖黑 S1 #151515 画布 + 近黑 S0 侧栏，边框走 CDS 的 9% 白。 */
+html[data-owl-preset="claude"][data-owl-theme="dark"] {
+	color-scheme: dark;
+	--owl-conversation-bg: #151515;
+	--owl-preset-accent: #d97757;
+	--owl-preset-accent-hover: #e08264;
+	--color-owl-bg: #151515;
+	--color-owl-sidebar: #0b0b0a;
+	--color-owl-rail: #080807;
+	--color-owl-panel: #1a1a19;
+	--color-owl-bubble: #232321;
+	--color-owl-hover: #212120;
+	--color-owl-border: hsla(0, 0%, 100%, 0.09);
+	--color-owl-sidebar-bg: #0b0b0a;
+	--color-owl-sidebar-surface: #161615;
+	--color-owl-sidebar-hover: #1c1c1b;
+	--color-owl-sidebar-selected: #232322;
+	--color-owl-sidebar-border: #242423;
+	--color-owl-sidebar-text: #f5f5f5;
+	--color-owl-sidebar-muted: #a3a3a3;
+	--color-owl-sidebar-faint: #666666;
+	--color-owl-text: #f5f5f5;
+	--color-owl-muted: #a3a3a3;
+	--color-owl-faint: #666666;
+}
+
+html[data-owl-preset="claude"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #151515);
+	--owl-ui-panel: #1a1a19;
+	--owl-ui-sidebar: #0b0b0a;
+	--owl-ui-border: #2a2a29;
+	--owl-ui-text: var(--owl-ui-text-override, #f5f5f5);
+	--owl-ui-muted: #a3a3a3;
+	--owl-ui-hover: #212120;
+	--owl-ui-menu-hover: #2a2a28;
+}
+
+/* 浅色档：米白 S1 #fcfcfb 画布 + 暖纸 S0 侧栏，边框走 CDS 的 8% 黑。 */
+html[data-owl-preset="claude"][data-owl-theme="light"] {
+	color-scheme: light;
+	--owl-conversation-bg: #fcfcfb;
+	--owl-preset-accent: #d97757;
+	--owl-preset-accent-hover: #cc5a36;
+	--color-owl-bg: #fcfcfb;
+	--color-owl-sidebar: #f5f5f3;
+	--color-owl-rail: #edece8;
+	--color-owl-panel: #ffffff;
+	--color-owl-bubble: #f0f4f8;
+	--color-owl-hover: #f0f0ee;
+	--color-owl-border: hsla(0, 0%, 8%, 0.1);
+	--color-owl-sidebar-bg: #f5f5f3;
+	--color-owl-sidebar-surface: #fcfcfb;
+	--color-owl-sidebar-hover: #ebeae7;
+	--color-owl-sidebar-selected: #e2e0db;
+	--color-owl-sidebar-border: #e4e2dd;
+	--color-owl-sidebar-text: #151515;
+	--color-owl-sidebar-muted: #525252;
+	--color-owl-sidebar-faint: #8a8a8a;
+	--color-owl-text: #151515;
+	--color-owl-muted: #525252;
+	--color-owl-faint: #8a8a8a;
+}
+
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-desktop-shell {
+	--owl-ui-canvas: var(--owl-ui-canvas-override, #fcfcfb);
+	--owl-ui-panel: #ffffff;
+	--owl-ui-sidebar: #f5f5f3;
+	--owl-ui-border: #e2e0db;
+	--owl-ui-text: var(--owl-ui-text-override, #151515);
+	--owl-ui-muted: #525252;
+	--owl-ui-hover: #f0f0ee;
+	--owl-ui-menu-hover: #e7e5e0;
+}

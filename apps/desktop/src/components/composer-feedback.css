@@ -1,0 +1,68 @@
+/* Feedback shares the composer column; notices remain plain rows rather than separate cards. */
+.owl-composer-feedback { min-width: 0; max-height: min(280px, 28dvh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.owl-composer-feedback:empty { display: none; }
+.owl-composer-feedback:not(:empty) { margin-top: 8px; padding: 0 4px; }
+.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) {
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 12px;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+.owl-composer-feedback > :is(.owl-model-selection, .owl-attachment-preflight) + :is(.owl-model-selection, .owl-attachment-preflight) { margin-top: 6px; border-top: 1px solid var(--owl-ui-border, var(--color-owl-border)); padding-top: 6px; }
+.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) .owl-composer-notice-head {
+	display: grid;
+	min-width: 0;
+	min-height: 32px;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 4px 10px;
+	color: var(--owl-ui-text, var(--color-owl-text));
+}
+.owl-composer-feedback .owl-composer-notice-summary { display: contents; }
+.owl-composer-feedback .owl-composer-notice-summary strong { grid-column: 1; grid-row: 1; min-width: 0; color: var(--owl-ui-text, var(--color-owl-text)); font-size: 12px; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
+.owl-composer-feedback .owl-composer-notice-summary span { display: -webkit-box; grid-column: 1 / -1; grid-row: 2; min-width: 0; overflow: hidden; color: var(--owl-ui-muted, var(--color-owl-muted)); line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.owl-composer-feedback .owl-model-selection.is-error .owl-composer-notice-summary strong { color: var(--color-owl-danger); }
+.owl-composer-feedback .owl-attachment-preflight[role="alert"] .owl-composer-notice-summary strong { color: var(--color-owl-warning); }
+.owl-composer-feedback .owl-composer-notice-actions { display: flex; grid-column: 2; grid-row: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; }
+.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) button {
+	display: inline-flex;
+	min-height: 32px;
+	max-width: 100%;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	padding: 4px 8px;
+	color: var(--owl-ui-text, var(--color-owl-text));
+	font-size: 12px;
+	line-height: 1.5;
+	text-decoration: none;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) button:hover:not(:disabled) { background: var(--owl-ui-hover, var(--color-owl-hover)); }
+.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) button:disabled { cursor: default; opacity: 0.5; }
+.owl-composer-feedback .owl-composer-notice-details { min-width: 0; margin: 0; }
+.owl-composer-feedback .owl-composer-notice-details > summary { min-height: 28px; padding: 4px 0; border-radius: 4px; color: var(--owl-ui-muted, var(--color-owl-muted)); font-size: 12px; line-height: 1.5; cursor: pointer; }
+.owl-composer-feedback .owl-composer-notice-details > summary:hover { color: var(--owl-ui-text, var(--color-owl-text)); }
+.owl-composer-feedback .owl-composer-notice-body { min-width: 0; padding: 4px 0 6px 14px; color: var(--owl-ui-muted, var(--color-owl-muted)); }
+.owl-composer-feedback .owl-composer-notice-body p { margin: 3px 0; color: inherit; }
+.owl-composer-feedback .owl-composer-notice-body :is(code, pre) { max-width: 100%; max-height: none; overflow: visible; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owl-composer-feedback .owl-composer-notice-body ul { margin: 4px 0; padding: 0; list-style: none; }
+.owl-composer-feedback .owl-composer-notice-body li { display: flex; min-width: 0; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 3px 8px; padding: 5px 0; }
+.owl-composer-feedback .owl-composer-notice-body li > div { min-width: 0; flex: 1 1 180px; }
+.owl-composer-feedback :is(button, summary, [tabindex]):focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+
+@media (pointer: coarse) {
+	.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) button { min-height: 44px; }
+	.owl-composer-feedback .owl-composer-notice-details > summary { min-height: 36px; }
+}

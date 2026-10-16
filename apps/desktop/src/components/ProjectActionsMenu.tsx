@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { IconArchive, IconCheck, IconChevron, IconCompose, IconFolder, IconList, IconPin, IconSliders } from "./icons.tsx";
+import { IconArchive, IconCheck, IconChevron, IconCompose, IconFolder, IconList, IconSliders } from "./icons.tsx";
 import { useProjectSidebarText } from "./project-sidebar-copy.ts";
 import type { ProjectSection } from "../project-sidebar-model.ts";
 import "./project-actions-menu.css";
@@ -81,10 +81,10 @@ function SidebarPopup({ anchor, menuId, label, onClose, entries }: BaseProps & {
 	</div>, document.body);
 }
 
-export function ProjectActionsMenu(props: BaseProps & { pinned: boolean; sections: ProjectSection[]; sectionId: string | null; onPin: () => void; onEdit: () => void; onSection: (id: string | null) => void; onNewSection: () => void; onReveal: () => void; onMarkRead: () => void; onArchive: () => void; onRemove: () => void }): React.JSX.Element {
+export function ProjectActionsMenu(props: BaseProps & { sections: ProjectSection[]; sectionId: string | null; onEdit: () => void; onSection: (id: string | null) => void; onNewSection: () => void; onReveal: () => void; onMarkRead: () => void; onArchive: () => void; onRemove: () => void }): React.JSX.Element {
 	const t = useProjectSidebarText();
 	const entries: Entry[] = [
-		{ label: t(props.pinned ? "unpin" : "pin"), icon: <IconPin />, action: props.onPin }, { label: t("edit"), icon: <IconSliders />, action: props.onEdit },
+		{ label: t("edit"), icon: <IconSliders />, action: props.onEdit },
 		{ label: t("section"), icon: <IconList />, children: [{ label: t("defaultSection"), icon: <IconFolder />, selected: props.sectionId === null, action: () => props.onSection(null) }, ...props.sections.map((section) => ({ label: section.name, selected: props.sectionId === section.id, action: () => props.onSection(section.id) })), "separator", { label: t("newSection"), action: props.onNewSection }] },
 		"separator", { label: t("reveal"), icon: <IconFolder />, action: props.onReveal }, { label: t("markAllRead"), icon: <IconCheck />, action: props.onMarkRead }, { label: t("archiveChats"), icon: <IconArchive />, action: props.onArchive },
 		"separator", { label: t("removeProject"), icon: closeIcon, danger: true, action: props.onRemove },

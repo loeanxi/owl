@@ -1,0 +1,180 @@
+.owl-session-search-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 200;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: clamp(20px, 10dvh, 88px) 20px 20px;
+	background: rgb(0 0 0 / 38%);
+}
+
+.owl-session-search-dialog {
+	--owl-ui-panel: var(--color-owl-panel);
+	--owl-ui-border: var(--color-owl-border);
+	--owl-ui-text: var(--color-owl-text);
+	--owl-ui-muted: var(--color-owl-muted);
+	--owl-ui-hover: var(--color-owl-hover);
+	display: flex;
+	width: 100%;
+	max-width: 600px;
+	max-height: 100%;
+	min-width: 0;
+	flex-direction: column;
+	overflow: hidden;
+	padding: 12px;
+	border-radius: 12px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	box-shadow: 0 16px 56px rgb(0 0 0 / 32%);
+	font: 13px/1.5 var(--font-sans);
+	outline: none;
+}
+
+.owl-session-search-dialog-heading {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 8px;
+	padding-left: 4px;
+}
+
+.owl-session-search-dialog-heading h2 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.5;
+}
+
+.owl-session-search-dialog-icon {
+	display: inline-flex;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 28px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 6px;
+	color: var(--color-owl-muted);
+}
+
+.owl-session-search-dialog-icon svg,
+.owl-session-search-dialog-search-icon {
+	width: 16px;
+	height: 16px;
+	flex: none;
+}
+
+.owl-session-search-dialog-icon:hover {
+	background: var(--color-owl-hover);
+	color: var(--color-owl-text);
+}
+
+.owl-session-search-dialog-icon:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 2px;
+}
+
+.owl-session-search-dialog-control {
+	display: flex;
+	min-height: 38px;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 6px 3px 10px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 8px;
+	background: var(--color-owl-sidebar-bg);
+	color: var(--color-owl-muted);
+}
+
+.owl-session-search-dialog-control:focus-within {
+	border-color: var(--color-owl-accent);
+}
+
+.owl-session-search-dialog .owl-session-search-dialog-input {
+	width: 100%;
+	min-width: 0;
+	height: 30px;
+	border: 0;
+	background: transparent;
+	color: var(--color-owl-text);
+	font: inherit;
+	caret-color: var(--color-owl-accent);
+	outline: none;
+}
+
+.owl-session-search-dialog-input::placeholder {
+	color: var(--color-owl-muted);
+	opacity: 1;
+}
+
+.owl-session-search-dialog-results {
+	min-height: 0;
+	max-height: 520px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	margin-top: 12px;
+	padding: 2px;
+	scrollbar-gutter: stable;
+}
+
+.owl-session-search-dialog-empty {
+	margin: 0;
+	padding: 20px 4px 24px;
+	color: var(--color-owl-muted);
+	font-size: 13px;
+	line-height: 1.65;
+	overflow-wrap: anywhere;
+}
+
+.owl-session-search-dialog .owl-session-search-panel {
+	padding-bottom: 0;
+}
+
+.owl-session-search-dialog .owl-session-search-filters {
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 16px;
+	padding-bottom: 16px;
+}
+
+.owl-session-search-dialog .owl-session-search-scope {
+	width: auto;
+	min-width: 200px;
+	background: var(--color-owl-sidebar-bg);
+}
+
+.owl-session-search-dialog .owl-session-search-title {
+	font-size: 13px;
+}
+
+@media (max-width: 480px) {
+	.owl-session-search-backdrop {
+		padding: 12px;
+	}
+
+	.owl-session-search-dialog {
+		padding: 10px;
+	}
+
+	.owl-session-search-dialog .owl-session-search-scope {
+		width: 100%;
+		min-width: 0;
+	}
+}
+
+@media (pointer: coarse) {
+	.owl-session-search-dialog-icon {
+		width: 44px;
+		height: 44px;
+		flex-basis: 44px;
+	}
+
+	.owl-session-search-dialog .owl-session-search-scope button,
+	.owl-session-search-dialog .owl-session-search-archive {
+		min-height: 44px;
+	}
+}

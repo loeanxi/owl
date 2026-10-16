@@ -18,4 +18,15 @@ describe("SessionQueueTracker", () => {
 		expect(queue.followUp).toEqual([]);
 		expect(events.at(-1)).toEqual({ steering: ["再写成表格"], followUp: [] });
 	});
+
+	it("delivers duplicate text by stable identity instead of removing the first matching neighbour", () => {
+		const queue = new SessionQueueTracker({ emit: () => {} });
+		queue.pushSteering("same instruction", "first");
+		queue.pushFollowUp("same instruction", "second");
+		queue.removeDelivered("same instruction", "second");
+		expect(queue.steering).toEqual(["same instruction"]);
+		expect(queue.followUp).toEqual([]);
+		queue.removeDelivered("same instruction");
+		expect(queue.steering).toEqual(["same instruction"]);
+	});
 });

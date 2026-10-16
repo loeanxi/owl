@@ -204,6 +204,9 @@ const ResultSchema = Type.Object({
 	executedMode: Type.Optional(Type.Union([Type.Literal("background"), Type.Literal("foreground")])),
 	executedAction: Type.Optional(Type.String()),
 	fallbackReason: Type.Optional(Type.String()),
+	idleWaitMs: Type.Optional(Type.Number()),
+	idleGrantedAtMs: Type.Optional(Type.Number()),
+	idleQuietForMs: Type.Optional(Type.Number()),
 	retryable: Type.Optional(Type.Boolean()),
 	retryAfterMs: Type.Optional(Type.Number()),
 	nextAction: Type.Optional(Type.String()),
@@ -294,6 +297,9 @@ export function createComputerTools(runtime: ComputerUseRuntime) {
 				...(result.executedMode === undefined ? {} : { executedMode: result.executedMode }),
 				...(result.executedAction === undefined ? {} : { executedAction: result.executedAction }),
 				...(result.fallbackReason === undefined ? {} : { fallbackReason: result.fallbackReason }),
+				...(result.idleWaitMs === undefined ? {} : { idleWaitMs: result.idleWaitMs }),
+				...(result.idleGrantedAtMs === undefined ? {} : { idleGrantedAtMs: result.idleGrantedAtMs }),
+				...(result.idleQuietForMs === undefined ? {} : { idleQuietForMs: result.idleQuietForMs }),
 				...(result.status === "blocked"
 					? {
 							retryable:

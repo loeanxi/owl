@@ -8,7 +8,7 @@
  * 高亮新增行、内联展示删除块，并滚动到第一个改动块（VS Code inline diff
  * 同款意图：保留"整文件上下文"，同时第一眼看到改动本身）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "../../i18n/index.ts";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
@@ -28,7 +28,12 @@ import { indentUnit, HighlightStyle, syntaxHighlighting, type LanguageSupport } 
 import { Compartment, EditorState, type Extension, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
 import { Decoration, type DecorationSet, drawSelection, EditorView, keymap, lineNumbers, WidgetType } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { samePath } from "../api.ts";
+import { fileUrlOf, samePath } from "../api.ts";
+import { EditorController } from "../editor-controller.ts";
+import { useEditorText } from "../editor-copy.ts";
+import { applyEditorTextChanges, editorDisplayText } from "../editor-text.ts";
+import { editorsTransitionLocked, subscribeEditorTransition } from "../editor-exit-guard.ts";
+import "./editor-safety.css";
 import type { TabComponentProps } from "../registry.ts";
 import { consumeEditorDiffFocus, EDITOR_DIFF_FOCUS_EVENT, peekEditorDiffFocus } from "../editor-diff-focus.ts";
 import { editorDiffMarks, type EditorDiffMarks } from "../editor-diff.ts";
@@ -129,9 +134,6 @@ function languageFor(path: string): LanguageSupport | undefined {
 	}
 }
 
-/** 自己保存的写盘也会触发 watcher 推送（sidebar-watch 防抖 150ms + 回路余量），宽限掉。 */
-const SELF_SAVE_GRACE_MS = 1500;
-
 type MarkdownMode = "edit" | "split" | "preview";
 const MARKDOWN_MODES: readonly MarkdownMode[] = ["edit", "split", "preview"];
 const MARKDOWN_MODE_KEY = "owl.editor.markdownMode";
@@ -212,18 +214,29 @@ const editorDiffField = StateField.define<DecorationSet>({
 	provide: (field) => EditorView.decorations.from(field),
 });
 
-export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabComponentProps): React.JSX.Element {
+export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }: TabComponentProps): React.JSX.Element {
 	const t = useT();
+	const copy = useEditorText();
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const viewRef = useRef<EditorView | null>(null);
-	const saveRef = useRef<(() => void) | null>(null);
-	const lastSaveAtRef = useRef(0);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | undefined>(undefined);
-	const [truncated, setTruncated] = useState(false);
-	const [stale, setStale] = useState(false);
-	const [savedAt, setSavedAt] = useState<number | undefined>(undefined);
 	const path = tab.path ?? "";
+	const controller = useMemo(() => {
+		let storage: Storage | undefined;
+		try { storage = localStorage; } catch { /* The controller reports missing local protection on edit. */ }
+		return new EditorController(api, cwd, path, profile ?? "", storage);
+	}, [api, client, cwd, path, profile]);
+	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+	const transitionLocked = useSyncExternalStore(subscribeEditorTransition, editorsTransitionLocked);
+	const loading = state.loading;
+	const stale = state.stale;
+	const truncated = state.disk?.truncated ?? false;
+	const savedAt = state.savedAt;
+	const [actionError, setActionError] = useState<string>();
+	const error = state.error ?? actionError;
+	const [newPath, setNewPath] = useState("");
+	const [removeRecovery, setRemoveRecovery] = useState<string>();
+	const activeController = useRef(controller);
+	activeController.current = controller;
 	const isMarkdown = MARKDOWN_PATH.test(path);
 	const [markdownMode, setMarkdownMode] = useState<MarkdownMode>(readMarkdownMode);
 	const [previewText, setPreviewText] = useState("");
@@ -286,6 +299,7 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 	// 挂载时消费聚焦 + 事件驱动 + 待审清单变化重校验。peek 先行：工作台里
 	// 挂载着多个 EditorTab 实例，路径匹配的才取走，避免盲吞别人的聚焦。
 	useEffect(() => {
+		marksRef.current = undefined; focusSeenRef.current = false; scrolledRef.current = false;
 		const consume = (): void => {
 			const focus = peekEditorDiffFocus();
 			if (focus === undefined || !samePath(focus, path)) return;
@@ -299,39 +313,27 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 			if (focusSeenRef.current && samePath(message.cwd, cwd)) loadDiffMarks(false);
 		});
 		return () => {
+			++diffSeqRef.current;
 			window.removeEventListener(EDITOR_DIFF_FOCUS_EVENT, consume);
 			offChanged();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [cwd, client, path, api]);
+	}, [cwd, client, path, api, profile]);
 
 	// 挂载视图 + 首次载入文档（一个 effect 保证顺序：先有视图再 dispatch）。
 	useEffect(() => {
 		const host = hostRef.current;
 		if (host === null) return;
 		let cancelled = false;
-		let initialized = false;
-		let readVersion = 0;
+		let applying = false;
 		let previewTimer: ReturnType<typeof setTimeout> | undefined;
 		setPreviewText("");
 
-		const save = (): void => {
-			const view = viewRef.current;
-			if (view === null) return;
-			void (async () => {
-				try {
-					await api.fsWrite(cwd, path, view.state.doc.toString());
-					store.setDirty(tab.id, false);
-					lastSaveAtRef.current = Date.now();
-					setStale(false);
-					setSavedAt(Date.now());
-				} catch (err) {
-					setError(err instanceof Error ? err.message : String(err));
-				}
-			})();
-		};
-		saveRef.current = save;
+		controller.activate();
+		setActionError(undefined); setNewPath("");
+		const save = (): void => { void controller.save(); };
 		const themeMode = new Compartment();
+		const editability = new Compartment();
 		let dark = resolveSurfaceTheme(document.documentElement.dataset) === "dark";
 
 		const extensions: Extension[] = [
@@ -344,9 +346,17 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 			themeMode.of(EditorView.darkTheme.of(dark)),
 			syntaxHighlighting(owlHighlight),
 			editorDiffField,
+			EditorView.contentAttributes.of({ "aria-label": path }),
+			editability.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
 			EditorView.updateListener.of((update) => {
-				if (!update.docChanged) return;
-				store.setDirty(tab.id, true);
+				if (!update.docChanged || applying) return;
+				let content = controller.getSnapshot().text;
+				for (const transaction of update.transactions) if (transaction.docChanged) {
+					const changes: Array<{ from: number; to: number; insert: string }> = [];
+					transaction.changes.iterChanges((from, to, _fromB, _toB, insert) => changes.push({ from, to, insert: insert.toString() }));
+					content = applyEditorTextChanges(content, changes);
+				}
+				controller.change(content);
 				if (!isMarkdown) return;
 				if (previewTimer !== undefined) clearTimeout(previewTimer);
 				previewTimer = setTimeout(() => {
@@ -366,86 +376,58 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 			view.dispatch({ effects: themeMode.reconfigure(EditorView.darkTheme.of(next)) });
 		});
 
-		setStale(false);
-		const load = (): void => {
-			if (cancelled || initialized || store.getState().dirty[tab.id] === true) return;
-			const version = ++readVersion;
-			setLoading(true);
-			setError(undefined);
-			docReadyRef.current = false;
-			void api
-				.fsRead(cwd, path)
-				.then((result) => {
-					if (cancelled || version !== readVersion || store.getState().dirty[tab.id] === true) return;
-					setTruncated(result.truncated);
-					view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: result.content } });
-					store.setDirty(tab.id, false);
-					initialized = true;
-					// 文档就绪：挂起中的 diff 标记此刻才能按真实行数构建（可能顺带
-					// 完成聚焦滚动，scrolledRef 保证只滚一次）
-					docReadyRef.current = true;
-					applyDiffMarks(true);
-				})
-				.catch((err: unknown) => {
-					if (!cancelled && version === readVersion) setError(err instanceof Error ? err.message : String(err));
-				})
-				.finally(() => {
-					if (!cancelled && version === readVersion) setLoading(false);
-				});
+		let writable = false;
+		const sync = (): void => {
+			if (cancelled) return;
+			const snapshot = controller.getSnapshot();
+			const doc = editorDisplayText(snapshot.text);
+			applying = true;
+			try {
+				if (view.state.doc.toString() !== doc) { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } }); setPreviewText(doc); }
+				const nextWritable = snapshot.ready && snapshot.editable && !snapshot.loading && !editorsTransitionLocked();
+				if (nextWritable !== writable) { writable = nextWritable; view.dispatch({ effects: editability.reconfigure([EditorState.readOnly.of(!writable), EditorView.editable.of(writable)]) }); }
+			} finally { applying = false; }
+			store.setDirty(tab.id, snapshot.dirty);
+			if (!docReadyRef.current && snapshot.ready) { docReadyRef.current = true; applyDiffMarks(true); }
+			if (isMarkdown && !snapshot.dirty) setPreviewText(doc);
 		};
+		const offController = controller.subscribe(sync);
+		const offTransition = subscribeEditorTransition(sync);
+		const offGuard = store.registerEditor(tab.id, { isDirty: controller.isDirty, revision: controller.revision, isProtected: controller.isProtected, save: () => controller.save(), preserveDraft: () => controller.preserveDraft(), discard: () => controller.discard() });
 		const offStatus = client.onStatus((connected) => {
-			if (connected) load();
-			else {
-				readVersion += 1;
-				if (!cancelled) setLoading(false);
-			}
+			const snapshot = controller.getSnapshot();
+			if (connected && (!snapshot.ready || (snapshot.dirty && !snapshot.disk))) void controller.load();
 		});
-		load();
+		sync(); void controller.load();
 
 		return () => {
 			cancelled = true;
-			readVersion += 1;
+			controller.dispose();
 			if (previewTimer !== undefined) clearTimeout(previewTimer);
 			offStatus();
 			offTheme();
-			saveRef.current = null;
+			offController(); offTransition(); offGuard();
 			docReadyRef.current = false;
 			view.destroy();
 			viewRef.current = null;
 		};
 		// 语言与文档都随 path 走；Workbench 按 tab.id key 挂载，切文件即重建
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [cwd, path, api, client, store, tab.id]);
+	}, [cwd, path, api, client, store, tab.id, controller]);
 
 	// 从磁盘重新加载（refresh 按钮与"磁盘已更改"横幅共用）。整篇替换会把
 	// 装饰坍缩到文档头，落库后按标记重放；消费过聚焦的 tab 顺带按活口径
 	// 重取 diff（条目可能已被保留/回滚）。
-	const refresh = (): void => {
-		const view = viewRef.current;
-		if (view === null) return;
-		setLoading(true);
-		void api
-			.fsRead(cwd, path)
-			.then((result) => {
-				view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: result.content } });
-				store.setDirty(tab.id, false);
-				setTruncated(result.truncated);
-				setStale(false);
-				if (focusSeenRef.current) loadDiffMarks(false);
-				else applyDiffMarks(false);
-			})
-			.catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-			.finally(() => setLoading(false));
-	};
+	const refresh = (): void => { void controller.reload().then((changed) => { if (changed && activeController.current === controller) { if (focusSeenRef.current) loadDiffMarks(false); else applyDiffMarks(false); } }); };
+	useEffect(() => { if (!state.dirty || !state.ready) return; const timer = setTimeout(() => void controller.preserveDraft(), 500); return () => clearTimeout(timer); }, [controller, state.version, state.dirty, state.ready]);
 
 	// 外部变更：所在目录有 fs_changed 事件时挂"磁盘已更改"横幅。
 	useEffect(() => {
 		const dir = path.split("/").slice(0, -1).join("/");
 		return store.onFsChanged((dirs) => {
-			if (Date.now() - lastSaveAtRef.current < SELF_SAVE_GRACE_MS) return;
-			if (dirs.includes(path) || dirs.includes(dir)) setStale(true);
+			if (dirs.includes(path) || dirs.includes(dir)) controller.markStale();
 		});
-	}, [store, path]);
+	}, [store, path, controller]);
 
 	// 编辑器从 display:none 恢复可见时重新量尺寸（行号槽宽、视口行）
 	useEffect(() => {
@@ -453,13 +435,13 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 	}, [mode]);
 
 	return (
-		<div className="flex h-full flex-col overflow-hidden">
-			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
+		<div className="flex h-full min-h-0 flex-col overflow-hidden">
+			<div className="flex shrink-0 items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-faint" title={path}>
 					{path}
 					{stale && <span className="ml-2 text-amber-300">{t("editor.stale")}</span>}
 				</span>
-				{savedAt !== undefined && !stale && <span className="text-[11px] text-emerald-300/80">{t("editor.saved")}</span>}
+				{state.dirty ? <span className="text-[11px] text-owl-warning">{copy("dirty")}</span> : savedAt !== undefined && !stale && <span className="text-[11px] text-owl-success">{copy("saved")}</span>}
 				{loading && <IconLoader size={13} className="animate-spin text-owl-faint" />}
 				{isMarkdown && (
 					<div role="group" aria-label={t("editor.mdModeLabel")} className="flex items-center rounded-md border border-owl-border/40 p-0.5">
@@ -476,19 +458,33 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 						))}
 					</div>
 				)}
-				<button type="button" title={t("editor.reloadTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={refresh}>
+				<button type="button" disabled={transitionLocked || loading || state.saving} title={copy("refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40" onClick={refresh}>
 					<IconRefresh size={14} />
 				</button>
-				<button type="button" title={t("editor.saveTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={() => saveRef.current?.()}>
+				<button type="button" disabled={!state.ready || !state.editable || !state.dirty || loading || state.saving || stale || Boolean(state.conflict)} title={state.saving ? copy("saving") : t("editor.saveTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40" onClick={() => void controller.save()}>
 					<IconSave size={14} />
 				</button>
 			</div>
+			<div className="owl-editor-safety-scroll">
+			{transitionLocked && <div className="owl-editor-safety-status" role="status">{copy("accountLocked")}</div>}
+			{state.dirty && <div className="owl-editor-safety-status" role="status"><p>{state.draftStatus === "pending" ? copy("draftPending") : state.draftStatus === "saved" ? copy(state.serverSavedVersion === state.version ? "draftSaved" : "draftOlder") : copy("protectedNone")}</p>{state.walStatus === "saved" && <p>{copy("walSaved")}</p>}<button type="button" disabled={state.draftStatus === "pending"} onClick={() => void controller.preserveDraft()}>{copy(state.draftStatus === "error" ? "retryDraft" : "keep")}</button></div>}
+			{(state.draftError || state.walError) && <div className="owl-editor-safety-error" role="alert">{state.draftError && <p>{state.draftError}</p>}{state.walError && <p>{copy("walError")}: {state.walError}</p>}</div>}
+			{(state.recovery || state.localRecoveries?.length) ? <details className="owl-editor-safety-recovery" open>
+				<summary>{copy("restoreNote")}</summary>
+				{state.recovery && <div><p>{new Date(state.recovery.updatedAt).toLocaleString()}</p><pre>{state.recovery.content}</pre><button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => controller.restore("server")}>{copy("recoverServer")}</button></div>}
+				{state.localRecoveries?.map((draft) => <div key={draft.walKey}>
+					<p>{new Date(draft.updatedAt).toLocaleString()}</p><pre>{draft.content}</pre>
+					<button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => controller.restore("local", draft.walKey)}>{copy("recoverLocal")}</button>
+					{removeRecovery === draft.walKey ? <><button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => { if (draft.walKey && controller.removeLocalRecovery(draft.walKey)) setRemoveRecovery(undefined); }}>{copy("confirmRemoveRecovery")}</button><button type="button" onClick={() => setRemoveRecovery(undefined)}>{copy("cancelRemoveRecovery")}</button></> : <button type="button" disabled={transitionLocked || loading || state.saving || !draft.token || !draft.editorId} onClick={() => setRemoveRecovery(draft.walKey)}>{copy("removeRecovery")}</button>}
+				</div>)}
+			</details> : null}
 			{error !== undefined && (
 				<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</div>
 			)}
 			{stale && (
 				<button
 					type="button"
+					disabled={transitionLocked}
 					className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-left text-xs text-amber-200 hover:bg-amber-500/15"
 					onClick={refresh}
 				>
@@ -500,7 +496,12 @@ export function EditorTab({ api, client, store, cwd, tab, onOpenFile }: TabCompo
 					{t("editor.tooLarge")}
 				</div>
 			)}
-			<div className="flex min-h-0 flex-1 overflow-hidden">
+			{state.ready && !state.editable && <div className="owl-editor-safety-status" role="status">{copy("readonly")}{state.disk?.readOnlyReason && <p>{state.disk.readOnlyReason}</p>}<button type="button" onClick={() => { void api.openExternal("url", fileUrlOf(cwd, path)).catch((reason: unknown) => { if (activeController.current === controller) setActionError(reason instanceof Error ? reason.message : String(reason)); }); }}>{copy("external")}</button></div>}
+			{state.conflict && <details className="owl-editor-safety-conflict" open><summary>{copy("conflict")}</summary><div className="owl-editor-compare"><section><strong>{copy("mine")}</strong><pre>{state.text}</pre></section><section><strong>{copy("disk")}</strong><pre>{state.conflict.content}</pre></section></div><button type="button" disabled={transitionLocked || loading || state.saving || state.draftStatus === "pending"} onClick={() => void controller.useDiskAfterPreserve()}>{copy("keep")} · {copy("refresh")}</button></details>}
+			{state.ready && <details className="owl-editor-safety-saveas"><summary>{copy("saveAs")}</summary><p>{copy("saveAsNote")}</p><label>{copy("path")}<input disabled={transitionLocked} value={newPath} onChange={(event) => setNewPath(event.target.value)} placeholder={`${path}.copy`} /></label><button type="button" disabled={transitionLocked || !newPath.trim() || loading || state.saving || state.disk?.kind === "binary"} onClick={() => void controller.saveAs(newPath)}>{copy("saveAs")}</button>{state.copyPath && <p role="status">{copy("copySaved")}: <button type="button" onClick={() => onOpenFile(state.copyPath!)}>{state.copyPath}</button></p>}</details>}
+			{state.warnings?.length ? <div className="owl-editor-safety-status" role="alert">{copy("warnings")}: {state.warnings.join("; ")}</div> : null}
+			</div>
+			<div className="owl-editor-content flex flex-1 overflow-hidden">
 				<div ref={hostRef} className={`min-h-0 min-w-0 flex-1 overflow-hidden px-2 ${mode === "preview" ? "hidden" : ""}`} />
 				{mode !== "edit" && (
 					<MarkdownPreview

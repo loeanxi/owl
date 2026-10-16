@@ -70,6 +70,26 @@ test("the same file can belong to several questions without cross-turn deduplica
 	assert.deepEqual(collectArtifacts(entries, "D:/owl").map((artifact) => artifact.toolId), ["current"]);
 });
 
+test("deduplicated files keep every successful mutation id from their own turn", () => {
+	const entries: ChatEntry[] = [
+		{ kind: "user", text: "先改" },
+		assistant([tool("first", "write", "REPORT.md"), tool("second", "edit", "report.md"), tool("failed", "edit", "report.md", "error")]),
+		{ kind: "user", text: "再改" },
+		assistant([tool("third", "edit", "report.md"), tool("fourth", "edit", "report.md")]),
+	];
+	const historical = collectHistoricalArtifacts(entries, "D:/owl", { includeCode: true });
+	assert.deepEqual(historical.get(2)?.map(({ toolId, toolIds }) => ({ toolId, toolIds })), [{ toolId: "second", toolIds: ["first", "second"] }]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl")[0].toolIds, ["third", "fourth"]);
+	assert.deepEqual(collectArtifacts(entries, "D:/owl", { scope: "session" })[0].toolIds, ["third", "fourth"]);
+});
+
+test("opening an already changed file keeps same-turn mutation ids without adding open calls", () => {
+	const opened = { ...tool("open", "sidebar_open", "report.md"), output: { text: "已在侧边栏打开 report.md。", totalLines: 1 } };
+	const artifacts = collectArtifacts([assistant([tool("write", "write", "report.md"), tool("edit", "edit", "report.md"), opened])], "D:/owl");
+	assert.deepEqual(artifacts[0].toolIds, ["write", "edit"]);
+	assert.equal(artifacts[0].toolId, "open");
+});
+
 test("restored plugin results retain their original question placement and safe workspace path", () => {
 	const entries = rebuild([
 		{ role: "user", content: "生成办公文件" },

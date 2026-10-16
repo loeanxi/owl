@@ -24,7 +24,8 @@ export function getWorkspaceDiffApprovalStore(
 	options?: { maxFileBytes?: number },
 ): DiffApprovalStore {
 	const normalized = resolve(cwd);
-	const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+	const sourceKey = `${resolve(agentDir)}\0${normalized}`;
+	const key = process.platform === "win32" ? sourceKey.toLowerCase() : sourceKey;
 	let store = stores.get(key);
 	if (!store) {
 		store = new DiffApprovalStore({
@@ -42,4 +43,26 @@ export function getWorkspaceDiffApprovalStore(
 /** 向桌面 UI 推送某工作区的待审清单已变化（无桥/非桌面模式为 no-op）。 */
 export function notifyDiffApprovalChanged(cwd: string): void {
 	broadcaster?.({ type: "diffApproval.changed", cwd: resolve(cwd) });
+}
+
+/**
+ * The local write/edit tool owns the true write-before boundary. The plugin only
+ * declares provenance at tool_call; do not reuse that earlier disk snapshot.
+ * Search existing staged stores only, so disabled plugins never create tracking data.
+ */
+export function recordDiffApprovalMutationBefore(
+	toolCallId: string,
+	path: string,
+	expectedAfter: string,
+	sourceContent?: string,
+	sessionId?: string,
+): void {
+	const candidates = [...stores.values()].flatMap((store) =>
+		store.stagedMutationKeys(toolCallId, path, sessionId).map((key) => ({ store, key })),
+	);
+	if (candidates.length !== 1) {
+		for (const candidate of candidates) candidate.store.rejectStagedMutation(candidate.key);
+		return;
+	}
+	candidates[0].store.recordMutationBefore(candidates[0].key, expectedAfter, sourceContent);
 }

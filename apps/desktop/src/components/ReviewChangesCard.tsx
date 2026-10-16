@@ -14,16 +14,22 @@ import { createSidebarApi, samePath } from "../sidebar/api.ts";
 import { focusEditorDiff } from "../sidebar/editor-diff-focus.ts";
 import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
-import { t, useT } from "../i18n/index.ts";
+import { useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
 import { FileLanguageIcon, fileLanguageTitle } from "./file-language-icon.tsx";
 import { IconChevronDown, IconChevronRight, IconFile, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
+import { UndoReviewPanel } from "../sidebar/UndoReviewPanel.tsx";
+import { useUndoReview } from "../sidebar/use-undo-review.ts";
+import { useUndoCopy } from "../sidebar/undo-copy.ts";
+import { ArtifactActions } from "./ArtifactActions.tsx";
 
 export interface ReviewChangesCardProps {
 	/** 本轮 write/edit 产物（工作区相对 POSIX 路径）。 */
 	files: readonly FileArtifact[];
 	cwd: string;
 	client: BridgeClient;
+	sessionId?: string;
+	disabled?: boolean;
 	onOpenFile: (path: string) => void;
 	/** 跳转工作台「改动审批」卡片并选中该文件。 */
 	onOpenReview: (focusPath: string) => void;
@@ -70,47 +76,98 @@ function DiffStat({ added, removed, mini = false }: { added: number; removed: nu
 	);
 }
 
-export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview }: ReviewChangesCardProps): React.JSX.Element {
+export function ReviewChangesCard({ files, cwd, client, sessionId, disabled = false, onOpenFile, onOpenReview }: ReviewChangesCardProps): React.JSX.Element {
 	const t = useT();
+	const copy = useUndoCopy();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const [list, setList] = useState<DiffApprovalFileSummary[] | undefined>(undefined);
+	const [loadError, setLoadError] = useState<string | undefined>();
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-	const [diffText, setDiffText] = useState<ReadonlyMap<string, string>>(new Map());
+	const [diffText, setDiffText] = useState<ReadonlyMap<string, string[]>>(new Map());
 	const [diffLoading, setDiffLoading] = useState<ReadonlySet<string>>(new Set());
-	const [busy, setBusy] = useState(false);
 	// 整卡默认收起。对话里只留一行「改了 N 个文件」，点开才看清单，避免摊在回答下面。
 	const [collapsed, setCollapsed] = useState(true);
 	// 展开集合的 ref 镜像：推送回调里免 stale closure
 	const expandedRef = useRef<ReadonlySet<string>>(new Set());
 	expandedRef.current = expanded;
-
-	const refresh = (): void => {
-		void api
-			.diffApprovalList(cwd)
-			.then((next) => {
-				setList(next);
-				// 已展开的 diff 随推送刷新（外部改动/二次编辑后的活口径）
-				for (const id of expandedRef.current) {
-					void api
-						.diffApprovalDiff(cwd, id)
-						.then((result) => setDiffText((prev) => new Map(prev).set(id, result.diff)))
-						.catch(() => undefined);
-				}
+	const toolCallIds = [...new Set(files.flatMap((file) => file.toolIds ?? [file.toolId]))];
+	const contextKey = JSON.stringify([cwd, sessionId, toolCallIds]);
+	const context = useRef(contextKey);
+	context.current = contextKey;
+	const listSequence = useRef(0);
+	const diffSequence = useRef(new Map<string, number>());
+	const readDiff = (entryIds: string[], key: string): void => {
+		const identity = contextKey;
+		const sequence = (diffSequence.current.get(key) ?? 0) + 1;
+		diffSequence.current.set(key, sequence);
+		setDiffLoading((previous) => new Set(previous).add(key));
+		void Promise.all(entryIds.map((id) => api.diffApprovalDiff(cwd, id)))
+			.then((results) => {
+				if (context.current !== identity || diffSequence.current.get(key) !== sequence) return;
+				setDiffText((previous) => new Map(previous).set(key, results.map((result) => result.diff)));
 			})
-			.catch(() => setList(undefined));
+			.catch((error: unknown) => {
+				if (context.current !== identity || diffSequence.current.get(key) !== sequence) return;
+				setLoadError(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => {
+				if (context.current !== identity || diffSequence.current.get(key) !== sequence) return;
+				setDiffLoading((previous) => { const next = new Set(previous); next.delete(key); return next; });
+			});
 	};
 
+	const refresh = (): void => {
+		const identity = contextKey;
+		const sequence = ++listSequence.current;
+		void api
+			.diffApprovalList(cwd, { toolCallIds, ...(sessionId !== undefined ? { sessionId } : {}) })
+			.then((next) => {
+				if (context.current !== identity || listSequence.current !== sequence) return;
+				setList(next);
+				setLoadError(undefined);
+				for (const file of files) {
+					if (expandedRef.current.has(file.path)) {
+						const ids = matchingEntries(file, next).filter((entry) => entry.status === "pending").map((entry) => entry.id);
+						if (ids.length > 0) readDiff(ids, file.path);
+						else setExpanded((previous) => { const remaining = new Set(previous); remaining.delete(file.path); return remaining; });
+					}
+				}
+			})
+			.catch((error: unknown) => {
+				if (context.current !== identity || listSequence.current !== sequence) return;
+				setLoadError(error instanceof Error ? error.message : String(error));
+			});
+	};
+	const undo = useUndoReview(api, cwd, contextKey, refresh);
+	const busy = undo.busy || disabled;
+
 	useEffect(() => {
+		context.current = contextKey;
+		setList(undefined);
+		setLoadError(undefined);
+		setExpanded(new Set());
+		setDiffText(new Map());
+		setDiffLoading(new Set());
 		refresh();
-		return client.onDiffApprovalChanged((message) => {
+		const offChanged = client.onDiffApprovalChanged((message) => {
 			if (samePath(message.cwd, cwd)) refresh();
 		});
+		const offStatus = client.onStatus((connected) => { if (connected) refresh(); });
+		return () => { ++listSequence.current; if (context.current === contextKey) context.current = ""; offChanged(); offStatus(); };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [cwd, client]);
+	}, [contextKey, client]);
 
-	/** 产物路径（工作区相对）→ 待审条目；匹配不上（shell 写的/已清记录）就没有行内操作。 */
-	const entryFor = (artifact: FileArtifact): DiffApprovalFileSummary | undefined =>
-		list?.find((entry) => samePath(entry.displayPath, artifact.path) || samePath(entry.path, `${cwd}/${artifact.path}`));
+	/** Tool provenance, never the path, determines which operations belong to this turn. */
+	const matchingEntries = (artifact: FileArtifact, candidates = list ?? []): DiffApprovalFileSummary[] => {
+		const ids = new Set(artifact.toolIds ?? [artifact.toolId]);
+		return candidates.filter((entry) => entry.scope === "operation" && entry.toolCallId !== undefined && [...ids].some((id) => entry.toolCallId === id || entry.toolCallId?.startsWith(`${id}/`)) && (sessionId === undefined || entry.sessionId === sessionId) && (samePath(entry.displayPath, artifact.path) || samePath(entry.path, `${cwd}/${artifact.path}`))).sort((a, b) => a.baselineAt.localeCompare(b.baselineAt));
+	};
+	const entryFor = (artifact: FileArtifact): DiffApprovalFileSummary | undefined => {
+		const entries = matchingEntries(artifact);
+		const entry = entries[0];
+		if (!entry) return undefined;
+		return { ...entry, status: entries.some((item) => item.status === "pending") ? "pending" : entries.every((item) => item.status === "reverted") ? "reverted" : "kept", added: entries.reduce((n, item) => n + (item.added ?? 0), 0), removed: entries.reduce((n, item) => n + (item.removed ?? 0), 0) };
+	};
 
 	const tracked = files.map((file) => ({ file, entry: entryFor(file) })).filter((row) => row.entry !== undefined) as Array<{ file: FileArtifact; entry: DiffApprovalFileSummary }>;
 	const totals = tracked.reduce(
@@ -123,57 +180,24 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 		{ added: 0, removed: 0 },
 	);
 
-	const toggleDiff = (entryId: string): void => {
-		if (expanded.has(entryId)) {
+	const toggleDiff = (file: FileArtifact): void => {
+		const key = file.path;
+		if (expanded.has(key)) {
 			const next = new Set(expanded);
-			next.delete(entryId);
+			next.delete(key);
 			setExpanded(next);
 			return;
 		}
-		setExpanded(new Set(expanded).add(entryId));
-		if (diffText.has(entryId)) return;
-		setDiffLoading(new Set(diffLoading).add(entryId));
-		void api
-			.diffApprovalDiff(cwd, entryId)
-			.then((result) => setDiffText(new Map(diffText).set(entryId, result.diff)))
-			.catch((error: unknown) => setDiffText(new Map(diffText).set(entryId, `${error instanceof Error ? error.message : String(error)}`)))
-			.finally(() => {
-				const next = new Set(diffLoading);
-				next.delete(entryId);
-				setDiffLoading(next);
-			});
-	};
-
-	const revert = (entryId: string): void => {
-		setBusy(true);
-		const next = new Set(expanded);
-		next.delete(entryId);
-		setExpanded(next);
-		void api
-			.diffApprovalResolve(cwd, [entryId], "revert")
-			.catch(() => undefined)
-			.finally(() => {
-				setBusy(false);
-				refresh();
-			});
+		setExpanded(new Set(expanded).add(key));
+		readDiff(matchingEntries(file).filter((entry) => entry.status === "pending").map((entry) => entry.id), key);
 	};
 
 	/** 头部批量撤销：只收本轮待审的条目（工作台里的「全部回滚」是全工作区口径）。 */
 	const revertAll = (): void => {
-		const ids = tracked.filter((row) => row.entry.status === "pending").map((row) => row.entry.id);
+		const ids = [...new Set(files.flatMap((file) => matchingEntries(file).filter((entry) => entry.status === "pending").map((entry) => entry.id)))];
 		if (ids.length === 0) return;
-		if (!window.confirm(t("review.revertAllConfirm", { n: ids.length }))) return;
-		setBusy(true);
-		const next = new Set(expanded);
-		for (const id of ids) next.delete(id);
-		setExpanded(next);
-		void api
-			.diffApprovalResolve(cwd, ids, "revert")
-			.catch(() => undefined)
-			.finally(() => {
-				setBusy(false);
-				refresh();
-			});
+		setCollapsed(false);
+		void undo.requestPreview(ids);
 	};
 
 	/** 点文件名：照旧打开整文件（可编辑）；pending 条目顺带经聚焦总线给
@@ -203,8 +227,8 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 					</span>
 				</button>
 				{tracked.some((row) => row.entry.status === "pending") && (
-					<button type="button" className="owl-changes-revert-all" disabled={busy} title={t("review.revertAll")} onClick={revertAll}>
-						{t("review.revertAll")}
+					<button type="button" className="owl-changes-revert-all" disabled={busy} title={copy.turn} onClick={revertAll}>
+						{copy.turn}
 						<IconUndo size={11} />
 					</button>
 				)}
@@ -215,6 +239,8 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 					</button>
 				)}
 			</header>
+			{loadError && <div className="owl-undo-panel" role="alert">{copy.refreshing}: {loadError} <button type="button" onClick={refresh}>{t("common.retry")}</button></div>}
+			<UndoReviewPanel review={undo} disabled={disabled} />
 			{!collapsed && (
 				<ul className="owl-changes-list">
 					{files.map((file) => {
@@ -222,7 +248,7 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 						const name = file.path.split("/").at(-1) ?? file.path;
 						const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
 						const stats = entry ? statsOf(entry) : undefined;
-						const isExpanded = entry !== undefined && expanded.has(entry.id);
+						const isExpanded = entry !== undefined && expanded.has(file.path);
 						const status = entry?.status;
 						return (
 							<li key={file.path} className={`owl-changes-item is-${status ?? "untracked"}${isExpanded ? " is-open" : ""}`}>
@@ -255,30 +281,32 @@ export function ReviewChangesCard({ files, cwd, client, onOpenFile, onOpenReview
 									{status === "reverted" && <span className="owl-changes-state">{t("review.revertedBadge")}</span>}
 									{entry !== undefined && status === "pending" && (
 										<span className="owl-changes-actions">
-											<button type="button" className="owl-changes-act is-review" onClick={() => toggleDiff(entry.id)}>
+											<button type="button" className="owl-changes-act is-review" onClick={() => toggleDiff(file)}>
 												{isExpanded ? t("common.collapse") : t("chat.reviewCta")}
 											</button>
 											<button
 												type="button"
 												className="owl-changes-act is-revert"
 												disabled={busy}
-												title={t("review.revert")}
-												onClick={() => revert(entry.id)}
+												title={copy.preview}
+												onClick={() => void undo.requestPreview(matchingEntries(file).filter((item) => item.status === "pending").map((item) => item.id))}
 											>
 												<IconUndo size={10} />
-												{t("chat.revertEdit")}
+												{copy.preview}
 											</button>
 										</span>
 									)}
 								</div>
+								{entry === undefined && <p className="px-3 py-1 text-[11px] text-owl-faint">{copy.unavailable}</p>}
+								<ArtifactActions path={file.path} title={file.title} cwd={cwd} client={client} />
 								{isExpanded && entry !== undefined && (
 									<div className="owl-changes-diff">
-										{diffLoading.has(entry.id) && (
+										{diffLoading.has(file.path) && (
 											<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
 												<IconLoader size={12} className="animate-spin" /> {t("changes.readingDiff")}
 											</div>
 										)}
-										{!diffLoading.has(entry.id) && diffText.get(entry.id) !== undefined && <DiffView text={diffText.get(entry.id)!} />}
+										{!diffLoading.has(file.path) && diffText.get(file.path)?.map((text, index) => <DiffView key={`${file.path}:${index}`} text={text} />)}
 									</div>
 								)}
 							</li>
@@ -295,24 +323,28 @@ export function TurnArtifacts({
 	artifacts,
 	cwd,
 	client,
+	sessionId,
+	disabled,
 	onOpenFile,
 	onOpenReview,
 }: {
 	artifacts: readonly FileArtifact[];
 	cwd?: string;
 	client?: BridgeClient;
+	sessionId?: string;
+	disabled?: boolean;
 	onOpenFile: (path: string) => void;
 	onOpenReview?: (focusPath: string) => void;
 }): React.JSX.Element | null {
 	const changes = artifacts.filter((artifact) => artifact.action === "written" || artifact.action === "edited");
 	const others = artifacts.filter((artifact) => artifact.action !== "written" && artifact.action !== "edited");
 	if (changes.length === 0 || cwd === undefined || client === undefined || onOpenReview === undefined) {
-		return <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} />;
+		return <Artifacts artifacts={artifacts} onOpenFile={onOpenFile} cwd={cwd} client={client} />;
 	}
 	return (
 		<>
-			<ReviewChangesCard files={changes} cwd={cwd} client={client} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />
-			{others.length > 0 && <Artifacts artifacts={others} onOpenFile={onOpenFile} />}
+			<ReviewChangesCard files={changes} cwd={cwd} client={client} sessionId={sessionId} disabled={disabled} onOpenFile={onOpenFile} onOpenReview={onOpenReview} />
+			{others.length > 0 && <Artifacts artifacts={others} onOpenFile={onOpenFile} cwd={cwd} client={client} />}
 		</>
 	);
 }

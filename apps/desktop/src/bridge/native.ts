@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { cancelEditorAccountTransition, prepareEditorExit } from "../sidebar/editor-exit-guard.ts";
 
 /**
  * Tauri 原生能力封装（桌面壳独有，浏览器模式优雅降级）。
@@ -17,14 +18,17 @@ export function hasTauri(): boolean {
 /** 启动独立构建窗口；Rust 会随后安全退出当前进程，helper 完整重建并启动新版本。 */
 export async function startDebugRebuild(): Promise<boolean> {
 	if (!hasTauri()) return false;
+	if (!(await prepareEditorExit())) return false;
 	await invoke("debug_rebuild_and_restart");
 	return true;
 }
 
 /** 切换账号后以新数据目录重启桥进程（kill + spawn，端口不变）；返回时新桥已监听。 */
 export async function switchAccountBridge(agentDir: string): Promise<void> {
-	if (!hasTauri()) throw new Error("账号切换需要桌面壳支持");
-	await invoke("switch_account_bridge", { agentDir });
+	try {
+		if (!hasTauri()) throw new Error("账号切换需要桌面壳支持");
+		await invoke("switch_account_bridge", { agentDir });
+	} catch (error) { cancelEditorAccountTransition(); throw error; }
 }
 
 /** 打开系统文件夹选择对话框（资源管理器），取消返回 null。 */
@@ -108,6 +112,7 @@ export async function setWindowGlass(mode: "off" | "clear" | "blur" | "acrylic")
 /** 退出整个应用（Rust RunEvent::Exit 里会顺带杀掉桥子进程）。 */
 export async function quitDesktopApp(): Promise<boolean> {
 	if (!hasTauri()) return false;
+	if (!(await prepareEditorExit())) return false;
 	try {
 		await invoke("quit_app");
 		return true;

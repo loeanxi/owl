@@ -1,0 +1,150 @@
+/* Permission review is one panel with a single scrollable reading area. */
+.owl-permission-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	display: flex;
+	box-sizing: border-box;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: rgb(0 0 0 / 50%);
+}
+
+.owl-permission-overlay .owl-permission-dialog.owl-permission-review {
+	--owl-permission-text: var(--owl-ui-text, var(--color-owl-text));
+	--owl-permission-muted: var(--owl-ui-muted, var(--color-owl-muted));
+	--owl-permission-border: var(--owl-ui-border, var(--color-owl-border));
+	display: flex;
+	box-sizing: border-box;
+	width: min(640px, 100%);
+	max-width: 100%;
+	min-width: 0;
+	min-height: 0;
+	max-height: calc(100dvh - 32px);
+	flex-direction: column;
+	overflow: hidden;
+	padding: 0;
+	border: 1px solid var(--owl-permission-border);
+	border-radius: 12px;
+	background: var(--owl-ui-panel, var(--color-owl-panel));
+	color: var(--owl-permission-text);
+	box-shadow: none;
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 1.6;
+}
+.owl-permission-overlay .owl-permission-dialog.owl-permission-review:focus { outline: none; }
+
+.owl-permission-review .owl-permission-head {
+	min-width: 0;
+	flex: 0 0 auto;
+	padding: 20px 20px 16px;
+	border-bottom: 1px solid var(--owl-permission-border);
+}
+.owl-permission-review .owl-permission-title { margin: 0; color: var(--owl-permission-text); font-size: 18px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.owl-permission-review .owl-permission-scope { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: 10px; }
+.owl-permission-review .owl-permission-workspace-label { flex: none; color: var(--owl-permission-muted); font-size: 12px; }
+.owl-permission-review .owl-permission-workspace-name { min-width: 0; color: var(--owl-permission-text); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.owl-permission-review .owl-permission-workspace-path { min-width: 0; flex: 0 0 100%; color: var(--owl-permission-muted); font-size: 12px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+
+.owl-permission-review .owl-permission-body {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 18px 20px;
+}
+.owl-permission-review .owl-permission-body:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-permission-review .owl-permission-input { min-width: 0; }
+.owl-permission-review .owl-permission-input :is(h3, .owl-permission-input-label),
+.owl-permission-review .owl-permission-source h3 { margin: 0; color: var(--owl-permission-muted); font-size: 12px; font-weight: 500; line-height: 1.6; }
+.owl-permission-review :is(.owl-permission-input-text, .owl-permission-raw-input) {
+	min-width: 0;
+	max-width: 100%;
+	max-height: none;
+	margin: 8px 0 0;
+	overflow: visible;
+	border: 0;
+	background: transparent;
+	padding: 0;
+	color: var(--owl-permission-text);
+	font-family: ui-monospace, Consolas, monospace;
+	font-size: var(--owl-chat-code-font-size, 13px);
+	line-height: 1.65;
+	white-space: pre-wrap;
+	word-break: normal;
+	overflow-wrap: anywhere;
+}
+.owl-permission-review .owl-permission-source { min-width: 0; margin-top: 18px; border-top: 1px solid var(--owl-permission-border); }
+.owl-permission-review .owl-permission-source > summary { min-width: 0; min-height: 36px; padding: 8px 0; border-radius: 4px; color: var(--owl-permission-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; cursor: pointer; }
+.owl-permission-review .owl-permission-source > summary:hover { color: var(--owl-permission-text); }
+.owl-permission-review .owl-permission-source dl { display: grid; min-width: 0; grid-template-columns: minmax(48px, max-content) minmax(0, 1fr); gap: 6px 12px; margin: 6px 0 16px; font-size: 12px; line-height: 1.6; }
+.owl-permission-review .owl-permission-source dt { color: var(--owl-permission-muted); }
+.owl-permission-review .owl-permission-source dd { min-width: 0; margin: 0; color: var(--owl-permission-text); overflow-wrap: anywhere; }
+.owl-permission-review .owl-permission-source dd > code { display: block; margin-top: 2px; }
+.owl-permission-review .owl-permission-source .owl-permission-raw-input { font-size: 12px; }
+
+.owl-permission-review .owl-permission-body .owl-pending-feedback { min-width: 0; max-width: 100%; margin-top: 16px; padding: 12px 0 0; border-top: 1px solid var(--owl-permission-border); line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+.owl-permission-review .owl-permission-body > .owl-pending-feedback:first-child { margin-top: 0; margin-bottom: 16px; padding-top: 0; border-top: 0; }
+.owl-permission-review .owl-pending-feedback button { min-height: 32px; padding: 5px 10px; border-color: var(--owl-permission-border); font-size: 12px; }
+
+.owl-permission-review .owl-permission-foot {
+	display: flex;
+	min-width: 0;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 14px 20px;
+	border-top: 1px solid var(--owl-permission-border);
+}
+.owl-permission-review .owl-permission-action {
+	display: inline-flex;
+	min-width: 72px;
+	min-height: 36px;
+	max-width: 100%;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 7px 12px;
+	border: 1px solid var(--owl-permission-border);
+	border-radius: 7px;
+	background: transparent;
+	color: var(--owl-permission-text);
+	font-size: 13px;
+	line-height: 1.5;
+	text-align: center;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+.owl-permission-review .owl-permission-action.later { margin-inline-end: auto; border-color: transparent; color: var(--owl-permission-muted); }
+.owl-permission-review .owl-permission-action:hover:not(:disabled) { background: var(--owl-ui-hover, var(--color-owl-hover)); }
+.owl-permission-review .owl-permission-action.allow { border-color: transparent; background: var(--color-owl-accent); color: var(--color-owl-on-accent); font-weight: 500; }
+html[data-owl-theme="light"] .owl-permission-review .owl-permission-action.allow:not(:hover) { background: color-mix(in srgb, var(--color-owl-accent) 97%, black); }
+.owl-permission-review .owl-permission-action.allow:hover:not(:disabled) { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
+.owl-permission-review .owl-permission-action:disabled { cursor: default; opacity: 0.5; }
+.owl-permission-review button:focus-visible,
+.owl-permission-review .owl-permission-source > summary:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+
+@media (max-width: 480px) {
+	.owl-permission-overlay { padding: 12px; }
+	.owl-permission-overlay .owl-permission-dialog.owl-permission-review { max-height: calc(100dvh - 24px); }
+	.owl-permission-review .owl-permission-head { padding: 16px 16px 12px; }
+	.owl-permission-review .owl-permission-body { padding: 14px 16px; }
+	.owl-permission-review .owl-permission-foot { padding: 12px 16px; }
+}
+
+@media (max-height: 460px) {
+	.owl-permission-overlay { padding: 8px; }
+	.owl-permission-overlay .owl-permission-dialog.owl-permission-review { max-height: calc(100dvh - 16px); }
+	.owl-permission-review .owl-permission-head { padding: 10px 16px; }
+	.owl-permission-review .owl-permission-title { font-size: 16px; }
+	.owl-permission-review .owl-permission-scope { margin-top: 6px; }
+	.owl-permission-review .owl-permission-workspace-path { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+	.owl-permission-review .owl-permission-body { padding-top: 12px; padding-bottom: 12px; }
+	.owl-permission-review .owl-permission-foot { padding: 10px 16px; }
+}

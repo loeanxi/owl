@@ -13,6 +13,11 @@
 		"useDefineForClassFields": true,
 		"types": ["vite/client"]
 	},
-	"include": ["src", "../../coding-agent/src/modes/desktop/protocol.ts"],
+	"include": [
+		"src",
+		"../../packages/coding-agent/src/modes/desktop/protocol.ts",
+		// 高亮库只有根入口带 types，子路径导入靠这份环境声明；它必须进 program 才生效。
+		"../../packages/coding-agent/src/utils/highlight-js.d.ts"
+	],
 	"exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

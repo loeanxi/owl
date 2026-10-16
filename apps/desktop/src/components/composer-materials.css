@@ -1,0 +1,67 @@
+.owl-composer-materials {
+	position: relative;
+	min-width: 0;
+	margin: 4px 12px 0;
+	padding: 4px 0 6px;
+	border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border));
+	color: var(--owl-ui-text, var(--color-owl-text));
+}
+.owl-composer-materials .owl-composer-materials-head { display: flex; min-width: 0; min-height: 28px; align-items: center; justify-content: space-between; gap: 8px; }
+.owl-composer-materials .owl-composer-materials-count { color: var(--owl-ui-muted, var(--color-owl-muted)); font-size: 12px; line-height: 1.5; }
+.owl-composer-materials .owl-composer-materials-toggle { min-height: 28px; padding: 3px 6px; border-radius: 5px; color: var(--owl-ui-text, var(--color-owl-text)); font-size: 12px; line-height: 1.5; }
+.owl-composer-materials .owl-composer-materials-toggle:hover { background: var(--owl-ui-hover, var(--color-owl-hover)); }
+
+.owl-composer-materials .owl-composer-materials-list {
+	display: grid;
+	min-width: 0;
+	max-height: min(160px, 25dvh);
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	align-items: start;
+	gap: 4px 12px;
+	margin: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 0;
+	list-style: none;
+}
+.owl-composer-materials[data-expanded="true"] .owl-composer-materials-list { max-height: min(280px, 30dvh); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.owl-composer-materials .owl-composer-material {
+	display: grid;
+	min-width: 0;
+	grid-template-columns: 34px minmax(0, 1fr) 32px;
+	align-items: start;
+	gap: 8px;
+	padding: 3px 0;
+}
+.owl-composer-materials .owl-composer-material-preview,
+.owl-composer-materials .owl-composer-material-file { display: flex; width: 34px; height: 34px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 5px; }
+.owl-composer-materials .owl-composer-material-preview { cursor: pointer; }
+.owl-composer-materials .owl-composer-material-preview:hover { border-color: var(--owl-ui-border, var(--color-owl-border)); }
+.owl-composer-materials .owl-composer-material-preview img { width: 32px; height: 32px; border-radius: 4px; object-fit: cover; }
+.owl-composer-materials .owl-composer-material-file > svg { width: 20px; height: 20px; color: var(--owl-ui-muted, var(--color-owl-muted)); }
+.owl-composer-materials .owl-composer-material-copy { min-width: 0; }
+.owl-composer-materials .owl-composer-material-name { display: block; min-width: 0; overflow: hidden; color: var(--owl-ui-text, var(--color-owl-text)); font-size: 13px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.owl-composer-materials .owl-composer-material-path { display: block; min-width: 0; overflow: hidden; color: var(--owl-ui-muted, var(--color-owl-muted)); font-size: 12px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.owl-composer-materials .owl-composer-material-path:focus { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.owl-composer-materials .owl-composer-material:focus-within .owl-composer-material-path[tabindex] { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.owl-composer-materials .owl-composer-material-remove { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border-radius: 5px; background: transparent; color: var(--owl-ui-muted, var(--color-owl-muted)); cursor: pointer; }
+.owl-composer-materials .owl-composer-material-remove > svg { width: 16px; height: 16px; }
+.owl-composer-materials .owl-composer-material-remove:hover { background: var(--owl-ui-hover, var(--color-owl-hover)); color: var(--owl-ui-text, var(--color-owl-text)); }
+.owl-composer-materials :is(button, [tabindex]):focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+
+@container owl-composer (max-width: 420px) {
+	.owl-composer-materials { margin-inline: 10px; }
+	.owl-composer-materials .owl-composer-material { gap: 6px; }
+}
+
+@container owl-composer (max-width: 640px) {
+	.owl-composer-materials .owl-composer-materials-list,
+	.owl-composer-materials[data-expanded="true"] .owl-composer-materials-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (pointer: coarse) {
+	.owl-composer-materials .owl-composer-material { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+	.owl-composer-materials :is(.owl-composer-material-preview, .owl-composer-material-remove) { width: 44px; height: 44px; }
+	.owl-composer-materials .owl-composer-materials-toggle { min-height: 36px; }
+}

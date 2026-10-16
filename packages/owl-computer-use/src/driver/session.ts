@@ -27,6 +27,16 @@ export interface DriverSpawnOptions {
 	idleTimeoutMs?: number;
 	/** 单条协议行的最大字符数，默认 16 MiB（含 JPEG base64）。 */
 	maxResponseChars?: number;
+	/** Native control Stop, after authenticating the current worker/control instance. */
+	onControlStop?: (event: DriverControlStop) => void;
+}
+
+export interface DriverControlStop {
+	controlId: string;
+	requestId: number;
+	workerGeneration: number;
+	/** Host-supplied run identity, captured when the authorizing act was queued. */
+	ownerId?: string;
 }
 
 export type DriverWorkerFactory = () => ChildProcessWithoutNullStreams;
@@ -43,10 +53,13 @@ interface QueuedCommand {
 	started: boolean;
 	settled: boolean;
 	epoch: number;
+	ownerId?: string;
 }
 
 interface PendingRequest {
 	id: number;
+	command: string;
+	ownerId?: string;
 	resolve: (value: Record<string, unknown>) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
@@ -61,6 +74,7 @@ interface DriverWorker {
 	readySettled: boolean;
 	readyTimer?: NodeJS.Timeout;
 	pending?: PendingRequest;
+	control?: { controlId: string; requestId: number; ownerId?: string };
 	stdoutBuffer: string;
 	stderrBuffer: string;
 	detach: () => void;
@@ -77,6 +91,8 @@ export class ComputerDriverSession {
 	private readonly queueTimeoutMs: number;
 	private readonly idleTimeoutMs: number;
 	private readonly maxResponseChars: number;
+	private readonly onControlStop: ((event: DriverControlStop) => void) | undefined;
+	private controlOwnerId: string | undefined;
 	private worker: DriverWorker | undefined;
 	private generation = 0;
 	private epoch = 0;
@@ -102,6 +118,17 @@ export class ComputerDriverSession {
 		this.queueTimeoutMs = options.queueTimeoutMs ?? 120_000;
 		this.idleTimeoutMs = options.idleTimeoutMs ?? 60_000;
 		this.maxResponseChars = options.maxResponseChars ?? 16 * 1024 * 1024;
+		this.onControlStop = options.onControlStop;
+	}
+
+	/** Only the host sets this identity; a new run cannot inherit an old control Stop. */
+	setControlOwner(ownerId: string | undefined): void {
+		if (this.controlOwnerId === ownerId) return;
+		// Native Stop is latched and its HUD belongs to the old run. A new owner
+		// needs a fresh native worker, not merely a cleared JavaScript identity.
+		if (ownerId !== undefined && this.worker !== undefined) this.close();
+		this.controlOwnerId = ownerId;
+		if (this.worker) this.worker.control = undefined;
 	}
 
 	async observe(
@@ -147,6 +174,7 @@ export class ComputerDriverSession {
 	}
 
 	async release(signal?: AbortSignal): Promise<void> {
+		if (this.worker) this.worker.control = undefined;
 		// abort/close 会先停止 worker，再让 drain 异步退出。此时即使 active 尚未
 		// 清空，也已经没有原生资源可释放；cleanup 不能为 release 重启进程。
 		if (this.worker === undefined) {
@@ -327,6 +355,7 @@ export class ComputerDriverSession {
 				started: false,
 				settled: false,
 				epoch: this.epoch,
+				ownerId: this.controlOwnerId,
 			};
 			item.onAbort = () => {
 				if (item.settled) return;
@@ -369,7 +398,7 @@ export class ComputerDriverSession {
 				item.started = true;
 				if (item.queueTimer !== undefined) clearTimeout(item.queueTimer);
 				try {
-					const data = await this.dispatch(item.buildPayload());
+					const data = await this.dispatch(item.buildPayload(), item.ownerId);
 					if (!item.settled && item.epoch === this.epoch) {
 						item.accept?.(data);
 						this.finishCommand(item, undefined, data);
@@ -395,7 +424,7 @@ export class ComputerDriverSession {
 		else item.resolve(data ?? {});
 	}
 
-	private async dispatch(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+	private async dispatch(payload: Record<string, unknown>, ownerId?: string): Promise<Record<string, unknown>> {
 		if (["click", "type", "key", "scroll", "focus", "restore"].includes(String(payload.cmd)))
 			this.observationId = undefined;
 		const state = this.ensureWorker();
@@ -414,7 +443,7 @@ export class ComputerDriverSession {
 				);
 			}, this.requestTimeoutMs);
 			timer.unref();
-			state.pending = { id, resolve, reject, timer };
+			state.pending = { id, command: String(payload.cmd), ownerId, resolve, reject, timer };
 			try {
 				state.process.stdin.write(JSON.stringify({ id, ...payload }) + "\n", "utf8", (error) => {
 					if (error !== null && error !== undefined && this.worker === state) this.stopWorker(error);
@@ -520,6 +549,8 @@ export class ComputerDriverSession {
 				state.readySettled = true;
 				if (state.readyTimer !== undefined) clearTimeout(state.readyTimer);
 				state.resolveReady();
+			} else if (payload.event === "control_started" || payload.event === "control_stop") {
+				this.acceptControlEvent(state, payload);
 			} else if (payload.event === "error")
 				this.stopWorker(new Error("computer-use driver failed: " + String(payload.message ?? "unknown")));
 			return;
@@ -532,6 +563,54 @@ export class ComputerDriverSession {
 		else if (typeof payload.data !== "object" || payload.data === null || Array.isArray(payload.data))
 			pending.reject(new Error("computer-use driver returned invalid response data."));
 		else pending.resolve(payload.data as Record<string, unknown>);
+	}
+
+	private acceptControlEvent(state: DriverWorker, event: Record<string, unknown>): void {
+		if (this.worker !== state || state.generation !== this.generation || !state.readySettled) return;
+		const { controlId, requestId } = event;
+		if (
+			typeof controlId !== "string" ||
+			!controlId ||
+			controlId.length > 128 ||
+			typeof requestId !== "number" ||
+			!Number.isSafeInteger(requestId) ||
+			requestId <= 0
+		)
+			return;
+		if (event.event === "control_started") {
+			const pending = state.pending;
+			// Neither an observe nor a tool-call prediction authorizes a control Stop.
+			if (
+				!pending ||
+				pending.id !== requestId ||
+				pending.command !== "act" ||
+				pending.ownerId !== this.controlOwnerId
+			)
+				return;
+			state.control = { controlId, requestId, ownerId: pending.ownerId };
+			return;
+		}
+		const control = state.control;
+		if (
+			!control ||
+			control.controlId !== controlId ||
+			control.requestId !== requestId ||
+			control.ownerId !== this.controlOwnerId
+		)
+			return;
+		state.control = undefined;
+		try {
+			// Revoke host ownership before rejecting active/queued requests.
+			this.onControlStop?.({ controlId, requestId, ownerId: control.ownerId, workerGeneration: state.generation });
+		} catch (error) {
+			console.warn("[owl-computer-use] control Stop callback failed:", error);
+		} finally {
+			// A callback may already have closed this worker or created a replacement.
+			if (this.worker === state && state.generation === this.generation)
+				this.stopWorker(
+					new Error("computer-use control stopped by the user; any issued action outcome may be unknown."),
+				);
+		}
 	}
 
 	private stopWorker(error: Error, kill = true): void {

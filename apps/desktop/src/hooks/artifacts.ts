@@ -9,6 +9,8 @@ export interface FileArtifact {
 	kind: ArtifactKind;
 	action: "written" | "edited" | "opened";
 	toolId: string;
+	/** Successful changes to this file in the same turn, in execution order. */
+	toolIds?: string[];
 }
 
 export interface ArtifactOptions {
@@ -161,7 +163,9 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 	const start = options.scope === "session" ? 0 : Math.max(0, entries.findLastIndex((entry) => entry.kind === "user"));
 	const windows = absolutePath(cwd.replace(/\\/g, "/"))?.windows;
 	const artifacts = new Map<string, FileArtifact>();
+	const turnToolIds = new Map<string, string[]>();
 	for (const entry of entries.slice(start)) {
+		if (entry.kind === "user") turnToolIds.clear();
 		if (entry.kind !== "assistant") continue;
 		for (const tool of entry.tools) {
 			if (tool.status !== "ok") continue;
@@ -176,6 +180,10 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 			for (const artifact of produced) {
 				if (!options.includeCode && artifact.kind === "code") continue;
 				const key = windows ? artifact.path.toLowerCase() : artifact.path;
+				const ids = turnToolIds.get(key) ?? [];
+				if (artifact.action !== "opened" && !ids.includes(tool.id)) ids.push(tool.id);
+				turnToolIds.set(key, ids);
+				if (ids.length > 0) artifact.toolIds = [...ids];
 				artifacts.delete(key);
 				artifacts.set(key, artifact);
 			}

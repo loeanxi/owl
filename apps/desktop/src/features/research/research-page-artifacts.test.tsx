@@ -1,5 +1,6 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { ResearchResult } from "../../bridge/protocol.ts";
@@ -21,6 +22,8 @@ vi.mock("./research-session.ts", () => ({
 	ResearchSessionController: class {
 		subscribe = (): (() => void) => () => undefined;
 		getSnapshot = (): ResearchSessionState => seam.state;
+		getQueueOwnerRevision = (): number => 0;
+		isQueueOwnerCurrent = (): boolean => true;
 	},
 }));
 vi.mock("../../components/Composer.tsx", () => ({ Composer: () => null }));
@@ -77,7 +80,11 @@ function userPosition(html: string, text: string): number {
 }
 
 function answerPosition(html: string, text: string): number {
-	const position = html.indexOf(`<div class="owl-answer"><p>${text}</p>`);
+	const { document } = parseHTML(html);
+	const answers = [...document.querySelectorAll(".owl-answer")].filter((answer) => answer.textContent?.trim() === text);
+	expect(answers).toHaveLength(1);
+	// Find the semantic answer node first; its reading classes and attributes are not a contract.
+	const position = html.indexOf(answers[0]!.outerHTML);
 	expect(position).toBeGreaterThanOrEqual(0);
 	return position;
 }

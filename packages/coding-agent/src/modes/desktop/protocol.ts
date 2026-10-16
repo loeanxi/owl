@@ -17,6 +17,40 @@ import type { ResearchPromptSettings } from "../../core/research/prompt-settings
 import type { ResearchTaskRecord } from "../../core/research/task-state.ts";
 import type { ResearchMode } from "../../core/research/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
+import type { ExecutionAnomalyListInput, ExecutionAnomalyProcessInput } from "./execution-anomalies.ts";
+
+export type {
+	ExecutionAnomalyKind,
+	ExecutionAnomalyListInput,
+	ExecutionAnomalyListResult,
+	ExecutionAnomalyOutcome,
+	ExecutionAnomalyProcessInput,
+	ExecutionAnomalyProcessing,
+	ExecutionAnomalyProcessingKind,
+	ExecutionAnomalyRecord,
+	ExecutionAnomalyStatus,
+} from "./execution-anomalies.ts";
+
+export interface ExecutionAnomaliesListRequest extends ExecutionAnomalyListInput {
+	type: "execution.anomalies.list";
+	id: string;
+}
+
+export interface ExecutionAnomaliesProcessRequest extends Omit<ExecutionAnomalyProcessInput, "id"> {
+	type: "execution.anomalies.process";
+	id: string;
+	anomalyId: string;
+}
+
+export interface ExecutionAnomaliesRestoreRequest {
+	type: "execution.anomalies.restore";
+	id: string;
+	anomalyId: string;
+}
+
+export interface ExecutionAnomaliesChangedMessage {
+	type: "execution.anomalies.changed";
+}
 
 export type * from "../../core/evaluation/types.ts";
 export type * from "../../core/mail/types.ts";
@@ -82,6 +116,14 @@ export type DesktopApprovalEvent =
 	  }
 	| { type: "approval_mode_changed"; approvalMode: ApprovalMode };
 
+/** One questionnaire decision retires the same request on every connected desktop. */
+export interface DesktopQuestionEvent {
+	type: "question_resolved";
+	requestId: string;
+	cancelled: boolean;
+	reason: "response" | "cancelled";
+}
+
 export interface SessionCreateRequest {
 	type: "session.create";
 	id: string;
@@ -110,6 +152,26 @@ export interface SessionPromptRequest {
 	researchMode?: ResearchMode;
 	/** While the session is already streaming, queue this message instead of rejecting it. */
 	streamingBehavior?: "steer" | "followUp";
+}
+
+/** Predict a possible next user message without starting an agent turn. */
+export interface SessionPromptSuggestionRequest {
+	type: "session.promptSuggestion";
+	id: string;
+	sessionId: string;
+	generationId: string;
+}
+
+export interface SessionPromptSuggestionCancelRequest {
+	type: "session.promptSuggestion.cancel";
+	id: string;
+	sessionId: string;
+	generationId: string;
+}
+
+export interface SessionPromptSuggestionResult {
+	basisEntryId?: string;
+	suggestion?: string;
 }
 
 /** Profile-level preferences for research conversations; ordinary chats keep their own prompts. */
@@ -141,13 +203,102 @@ export interface ResearchPromptsExportRequest {
 	settings: ResearchPromptSettings;
 }
 
-/** Drop one pending line from the steering or follow-up queue. */
+export type SessionQueueLane = "steering" | "followUp";
+export interface SessionQueueImage {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+export interface SessionQueueItem {
+	messageId: string;
+	/** Original input preview; full material is available through queue.get. */
+	text: string;
+	textTruncated: boolean;
+	imageCount: number;
+	attachedPaths: string[];
+	state: "queued" | "delivering";
+}
+export interface SessionQueueSnapshot {
+	steering: SessionQueueItem[];
+	followUp: SessionQueueItem[];
+}
+export interface SessionQueueInput {
+	messageId: string;
+	text: string;
+	images: SessionQueueImage[];
+	attachedPaths: string[];
+	state: "queued" | "delivering";
+}
+export interface SessionQueueActionResult {
+	queue: SessionQueueSnapshot;
+}
+export interface SessionQueueGetRequest {
+	type: "session.queue.get";
+	id: string;
+	sessionId: string;
+	messageId: string;
+}
+export interface SessionQueueGetResult extends SessionQueueActionResult {
+	input: SessionQueueInput;
+}
+export interface SessionQueueTakeRequest {
+	type: "session.queue.take";
+	id: string;
+	sessionId: string;
+	messageId: string;
+	/** Stable across request/connection retries; permanently bound to this source message. */
+	operationId: string;
+}
+export interface SessionQueueReturnedInput {
+	receiptId: string;
+	sourceSessionId: string;
+	sourceCwd: string;
+	createdAt: number;
+	input: SessionQueueInput;
+}
+export interface SessionQueueReturnedSummary {
+	receiptId: string;
+	sourceSessionId: string;
+	sourceCwd: string;
+	createdAt: number;
+	messageId: string;
+	text: string;
+	textTruncated: boolean;
+	imageCount: number;
+	attachedPaths: string[];
+}
+export interface SessionQueueTakeResult extends SessionQueueActionResult {
+	receipt: SessionQueueReturnedInput;
+}
+export interface SessionQueueReturnedListRequest {
+	type: "session.queue.returned.list";
+	id: string;
+	sessionId?: string;
+}
+export interface SessionQueueReturnedListResult {
+	receipts: SessionQueueReturnedSummary[];
+}
+export interface SessionQueueReturnedGetRequest {
+	type: "session.queue.returned.get";
+	id: string;
+	receiptId: string;
+}
+export interface SessionQueueReturnedGetResult {
+	receipt: SessionQueueReturnedInput;
+}
+export interface SessionQueueReturnedRemoveRequest {
+	type: "session.queue.returned.remove";
+	id: string;
+	receiptId: string;
+}
+
+/** Drop one exact pending input; stale IDs never target a shifted neighbour. */
 export interface SessionQueueRemoveRequest {
 	type: "session.queue.remove";
 	id: string;
 	sessionId: string;
-	lane: "steering" | "followUp";
-	index: number;
+	lane: SessionQueueLane;
+	messageId: string;
 }
 
 /** Move a queued follow-up into the current turn. It is delivered at the next tool boundary. */
@@ -155,7 +306,7 @@ export interface SessionQueuePromoteRequest {
 	type: "session.queue.promote";
 	id: string;
 	sessionId: string;
-	index: number;
+	messageId: string;
 }
 
 export interface SessionAbortRequest {
@@ -565,6 +716,18 @@ export interface DiffApprovalFileSummary {
 	size: number;
 	baselineAt: string;
 	resolvedAt: string | null;
+	/** Exact successful edit provenance; old records lack these fields. */
+	toolCallId?: string;
+	sessionId?: string;
+	turnId?: string;
+	scope?: "operation" | "legacy";
+	revertible?: boolean;
+	revertReason?: string;
+}
+
+export interface DiffApprovalScope {
+	sessionId?: string;
+	toolCallIds?: string[];
 }
 
 export interface DiffApprovalListRequest {
@@ -572,6 +735,7 @@ export interface DiffApprovalListRequest {
 	id: string;
 	/** 工作区目录（决定读哪份存储）。 */
 	cwd: string;
+	scope?: DiffApprovalScope;
 }
 
 export interface DiffApprovalListResult {
@@ -592,18 +756,52 @@ export interface DiffApprovalDiffResult {
 	truncated: boolean;
 }
 
-/** action=keep 接受改动（不动盘）；revert 还原基线（新建文件删除）。 */
+export type DiffApprovalUndoMode = "operations" | "baseline";
+
+export interface DiffApprovalPreviewRequest {
+	type: "diffApproval.preview";
+	id: string;
+	cwd: string;
+	entryIds: string[];
+	mode?: DiffApprovalUndoMode;
+}
+
+export interface DiffApprovalPreviewFile {
+	path: string;
+	displayPath: string;
+	entryIds: string[];
+	canRevert: boolean;
+	reason?: string;
+	/** Exact proposed reverse merge, from current disk to the preserved result. */
+	diff: string;
+	truncated: boolean;
+	currentExists: boolean;
+	targetExists: boolean;
+}
+
+export interface DiffApprovalPreviewResult {
+	token: string;
+	mode: DiffApprovalUndoMode;
+	files: DiffApprovalPreviewFile[];
+	expiresAt: string;
+}
+
+/** keep does not write files; revert requires an unchanged preview and preserves later edits. */
 export interface DiffApprovalResolveRequest {
 	type: "diffApproval.resolve";
 	id: string;
 	cwd: string;
 	entryIds: string[];
 	action: "keep" | "revert";
+	previewToken?: string;
 }
 
 export interface DiffApprovalResolveResult {
 	resolved: number;
+	resolvedIds: string[];
 	failed: Array<{ path: string; reason: string }>;
+	/** Undo succeeded, but a private original-content backup could not be cleaned up. */
+	warnings?: Array<{ path: string; reason: string }>;
 }
 
 export interface DiffApprovalClearRequest {
@@ -644,6 +842,7 @@ export interface SessionSnapshotPayload {
 	runStartMessageIndex?: number;
 	/** 与 messages 按下标对齐的会话条目 id（回退按钮需要；无条目来源的消息为 undefined） */
 	messageEntryIds: (string | undefined)[];
+	queue?: SessionQueueSnapshot;
 	thinkingLevel?: unknown;
 	header: unknown;
 	/** 会话显示名（session_info，如分支会话的「fork2 · 来自「你好」」）；无自定义名时缺省 */
@@ -872,7 +1071,7 @@ export interface SessionStatsResult {
 		cost: number;
 	};
 	/** Messages waiting while the session is still running. */
-	queue?: { steering: string[]; followUp: string[] };
+	queue?: SessionQueueSnapshot;
 }
 
 /** 导出会话日志：jsonl 为原始日志文件原样内容（含全部分支），markdown 只取当前分支的可读转录。 */
@@ -1549,6 +1748,10 @@ export interface FsReadResult {
 	content: string;
 	truncated: boolean;
 	size: number;
+	/** Only full, lossless UTF-8, independent regular files receive a writable revision. */
+	revision: string | null;
+	editable: boolean;
+	readOnlyReason?: string;
 	/** 二进制时的 base64 头（≤4096 字节）。 */
 	head?: string;
 }
@@ -1689,6 +1892,20 @@ export interface FsReadRequest {
 	path: string;
 }
 
+/** Read-only metadata and readability check; does not load file contents. */
+export interface FsStatRequest {
+	type: "fs.stat";
+	id: string;
+	cwd: string;
+	path: string;
+}
+
+export interface FsStatResult {
+	size: number;
+	isFile: boolean;
+	isDirectory: boolean;
+}
+
 /** 整文件 base64 读取（图片预览用，默认 8MB 上限）。 */
 export interface FsReadBinRequest {
 	type: "fs.readBin";
@@ -1703,6 +1920,90 @@ export interface FsWriteRequest {
 	cwd: string;
 	path: string;
 	content: string;
+}
+
+export type FsWriteResult =
+	| { status: "saved"; path: string; size: number; revision: string; warnings?: string[] }
+	| { status: "conflict"; reason: string; current?: FsReadResult };
+
+export interface EditorFileSaveRequest {
+	type: "editor.file.save";
+	id: string;
+	expectedProfile: string;
+	cwd: string;
+	path: string;
+	content: string;
+	/** null explicitly means create only if missing. */
+	expectedRevision: string | null;
+}
+
+export interface EditorDraft {
+	cwd: string;
+	path: string;
+	content: string;
+	baseRevision: string | null;
+	baseContent: string;
+	updatedAt: number;
+	draftRevision: string;
+	operationId: string;
+	editorId?: string;
+}
+export interface EditorDraftSummary {
+	cwd: string;
+	path: string;
+	updatedAt: number;
+	draftRevision: string;
+	baseRevision: string | null;
+	size: number;
+	editorId?: string;
+}
+export interface EditorDraftGetResult {
+	draft: EditorDraft | null;
+	/** Includes deletion tombstones, so old create requests cannot revive removed drafts. */
+	draftRevision: string | null;
+}
+export type EditorDraftPutResult =
+	| { status: "saved"; draft: EditorDraft; draftRevision: string }
+	| ({ status: "conflict"; reason: string } & EditorDraftGetResult);
+export type EditorDraftRemoveResult =
+	| { status: "removed"; draft: null; draftRevision: string }
+	| ({ status: "conflict"; reason: string } & EditorDraftGetResult);
+export interface EditorDraftListResult {
+	drafts: EditorDraftSummary[];
+}
+export interface EditorDraftGetRequest {
+	type: "editor.draft.get";
+	id: string;
+	expectedProfile: string;
+	cwd: string;
+	path: string;
+}
+export interface EditorDraftPutRequest {
+	type: "editor.draft.put";
+	id: string;
+	expectedProfile: string;
+	cwd: string;
+	path: string;
+	content: string;
+	baseRevision: string | null;
+	baseContent: string;
+	expectedDraftRevision: string | null;
+	operationId: string;
+	editorId?: string;
+}
+export interface EditorDraftRemoveRequest {
+	type: "editor.draft.remove";
+	id: string;
+	expectedProfile: string;
+	cwd: string;
+	path: string;
+	expectedDraftRevision: string;
+}
+export interface EditorDraftListRequest {
+	type: "editor.draft.list";
+	id: string;
+	expectedProfile: string;
+	cwd?: string;
 }
 
 export interface FsMkdirRequest {
@@ -2356,12 +2657,17 @@ export interface BuildHelloResult {
 
 export type DesktopClientRequest =
 	| BuildHelloRequest
+	| ExecutionAnomaliesListRequest
+	| ExecutionAnomaliesProcessRequest
+	| ExecutionAnomaliesRestoreRequest
 	| EvaluationClientRequest
 	| MailClientRequest
 	| MailAgentStartRequest
 	| NewsClientRequest
 	| SessionCreateRequest
 	| SessionPromptRequest
+	| SessionPromptSuggestionRequest
+	| SessionPromptSuggestionCancelRequest
 	| ResearchPromptsGetRequest
 	| ResearchPromptsSaveRequest
 	| ResearchPromptsApplyRequest
@@ -2369,6 +2675,11 @@ export type DesktopClientRequest =
 	| ResearchPromptsExportRequest
 	| SessionQueueRemoveRequest
 	| SessionQueuePromoteRequest
+	| SessionQueueGetRequest
+	| SessionQueueTakeRequest
+	| SessionQueueReturnedListRequest
+	| SessionQueueReturnedGetRequest
+	| SessionQueueReturnedRemoveRequest
 	| OwlUiActionRequest
 	| ContextGetRequest
 	| ContextDetailRequest
@@ -2396,6 +2707,7 @@ export type DesktopClientRequest =
 	| RewindExecuteRequest
 	| DiffApprovalListRequest
 	| DiffApprovalDiffRequest
+	| DiffApprovalPreviewRequest
 	| DiffApprovalResolveRequest
 	| DiffApprovalClearRequest
 	| SessionStatsRequest
@@ -2463,8 +2775,14 @@ export type DesktopClientRequest =
 	| ViewerOpenRequest
 	| FsTreeRequest
 	| FsReadRequest
+	| FsStatRequest
 	| FsReadBinRequest
 	| FsWriteRequest
+	| EditorFileSaveRequest
+	| EditorDraftGetRequest
+	| EditorDraftPutRequest
+	| EditorDraftRemoveRequest
+	| EditorDraftListRequest
 	| FsMkdirRequest
 	| FsRenameRequest
 	| FsRemoveRequest
@@ -2673,6 +2991,7 @@ export type ServerResponseMessage = {
 
 export type DesktopServerMessage =
 	| MailAgentDraftMessage
+	| ExecutionAnomaliesChangedMessage
 	| NewsOpenMessage
 	| ServerEventMessage
 	| ServerResponseMessage

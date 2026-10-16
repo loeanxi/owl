@@ -7,6 +7,7 @@ export interface MessageSearchTarget {
 }
 
 const SEARCH_HIGHLIGHT = "owl-message-search";
+const NON_MESSAGE_TEXT = "button, textarea, script, style, [aria-hidden='true'], [data-answer-toolbar], [data-message-action-ui]";
 
 /** Match text nodes literally; markup, link destinations and React's DOM stay intact. */
 export function messageMatchRanges(element: HTMLElement, query: string): Range[] {
@@ -18,7 +19,7 @@ export function messageMatchRanges(element: HTMLElement, query: string): Range[]
 	const walker = element.ownerDocument.createTreeWalker(element, 4 /* SHOW_TEXT */);
 	let node: Node | null;
 	while ((node = walker.nextNode())) {
-		if (node.parentElement?.closest("button, textarea, script, style, [aria-hidden='true']")) continue;
+		if (node.parentElement?.closest(NON_MESSAGE_TEXT)) continue;
 		const text = node.textContent ?? "";
 		if (!text) continue;
 		const block = node.parentElement?.closest("p, li, pre, blockquote, div, h1, h2, h3, h4, h5, h6, tr") ?? null;
@@ -55,7 +56,15 @@ export function highlightMessageMatches(element: HTMLElement, query: string): ()
 /** Avoid interpolating arbitrary entry IDs into CSS selectors. */
 export function messageElement(container: HTMLElement, entryId: string, query: string): HTMLElement | undefined {
 	const candidates = [...container.querySelectorAll<HTMLElement>("[data-entry-id]")].filter((element) => element.dataset.entryId === entryId);
-	return candidates.find((element) => element.textContent?.toLowerCase().includes(query.toLowerCase())) ?? candidates[0];
+	return candidates.find((element) => {
+		const walker = element.ownerDocument.createTreeWalker(element, 4 /* SHOW_TEXT */);
+		let content = "";
+		let node: Node | null;
+		while ((node = walker.nextNode())) {
+			if (!node.parentElement?.closest(NON_MESSAGE_TEXT)) content += node.textContent ?? "";
+		}
+		return content.toLowerCase().includes(query.toLowerCase());
+	}) ?? candidates[0];
 }
 
 export function messageScrollTop(container: HTMLElement, message: HTMLElement): number {

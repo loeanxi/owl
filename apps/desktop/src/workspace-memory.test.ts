@@ -54,7 +54,7 @@ test("profiles do not share locations and Windows path variations use one profil
 
 test("every real settings section survives reload, including appearance and changelog", () => {
 	const saved = storage();
-	for (const section of ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "notifications", "usage", "archived", "json", "diagnostics", "changelog", "about"] as const) {
+	for (const section of ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "notifications", "usage", "archived", "json", "diagnostics", "execution-anomalies", "changelog", "about"] as const) {
 		writeWorkspaceMemory(saved, "profile", memory({ settings: true, settingsTab: section }));
 		assert.equal(readWorkspaceMemory(saved, "profile")?.settingsTab, section);
 	}

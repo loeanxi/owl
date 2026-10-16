@@ -22,6 +22,8 @@ export interface TabComponentProps {
 	store: SidebarStore;
 	/** 当前项目目录（绝对路径）。 */
 	cwd: string;
+	/** Confirmed account identity; editor drafts must never cross profiles. */
+	profile?: string;
 	tab: SidebarTab;
 	/** 原始桥客户端（需要会话级 API 的 tab 用：侧边对话自建会话等）。 */
 	client: BridgeClient;

@@ -8,6 +8,10 @@ import type { ChatEntry } from "./hooks/transcript.ts";
 import type { SessionSearchHit, SessionSearchMessageResult } from "./bridge/protocol.ts";
 import type { MessageSearchTarget } from "./components/chat-message-navigation.ts";
 import { t } from "./i18n/index.ts";
+import type { SidebarStore } from "./sidebar/store.ts";
+import type { BridgeClient } from "./bridge/client.ts";
+import { createSidebarApi } from "./sidebar/api.ts";
+import { EditorController } from "./sidebar/editor-controller.ts";
 
 type ReplayCallbacks = {
 	onRegenerate: () => void;
@@ -28,6 +32,11 @@ const fixture = vi.hoisted(() => ({
 	research: undefined as ResearchProps | undefined,
 	sidebar: undefined as SidebarCallbacks | undefined,
 	composer: undefined as ComposerInput | undefined,
+	workbench: undefined as SidebarStore | undefined,
+	editorProbe: false,
+	editor: undefined as EditorController | undefined,
+	workbenchProfile: undefined as string | undefined,
+	workbenchConnected: false,
 	recovery: undefined as { onContinue: (model?: string) => Promise<boolean> } | undefined,
 	event: undefined as ((event: Record<string, unknown>) => void) | undefined,
 }));
@@ -93,7 +102,24 @@ vi.mock("./components/SettingsPage.tsx", () => ({ SettingsPage: () => null }));
 vi.mock("./components/TodoPin.tsx", () => ({ TodoPin: () => null }));
 vi.mock("./components/RetryPin.tsx", () => ({ RetryPin: () => null }));
 vi.mock("./components/BuildConsistencyBanner.tsx", () => ({ BuildConsistencyBanner: () => null }));
-vi.mock("./sidebar/Workbench.tsx", () => ({ Workbench: () => null }));
+type WorkbenchOwner = { role?: string; store: SidebarStore; client: BridgeClient; cwd: string; profile?: string; connected: boolean };
+/** Exercise the real editor controller's owner lifetime without CodeMirror's layout machinery. */
+function EditorOwnerProbe({ store, client, cwd, profile }: WorkbenchOwner): React.JSX.Element {
+	const controller = React.useMemo(() => new EditorController(createSidebarApi(client), cwd, "unsaved.ts", profile ?? "", localStorage), [client, cwd, profile]);
+	const state = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+	React.useEffect(() => {
+		fixture.editor = controller; controller.activate();
+		const off = store.registerEditor("editor:unsaved.ts", { isDirty: controller.isDirty, revision: controller.revision, isProtected: controller.isProtected, save: () => controller.save(), preserveDraft: () => controller.preserveDraft(), discard: () => controller.discard() });
+		void controller.load();
+		return () => { off(); controller.dispose(); };
+	}, [controller, store]);
+	return <pre data-editor-owner={profile}>{state.text}</pre>;
+}
+vi.mock("./sidebar/Workbench.tsx", () => ({ Workbench: (props: WorkbenchOwner) => {
+	if (props.role === "terminal") return null;
+	fixture.workbench = props.store; fixture.workbenchProfile = props.profile; fixture.workbenchConnected = props.connected;
+	return fixture.editorProbe ? <EditorOwnerProbe {...props} /> : null;
+} }));
 vi.mock("./components/WallpaperLayer.tsx", () => ({ WallpaperLayer: () => null }));
 
 let root: Root;
@@ -119,6 +145,8 @@ beforeEach(async () => {
 	fixture.research = undefined;
 	fixture.sidebar = undefined;
 	fixture.composer = undefined;
+	fixture.workbench = undefined;
+	fixture.editorProbe = false; fixture.editor = undefined; fixture.workbenchProfile = undefined; fixture.workbenchConnected = false;
 	rows = [
 		{ id: "alpha-old", cwd: "D:/alpha", scope: "chat", modified: "2026-10-01", messageCount: 2 },
 		{ id: "alpha-latest", cwd: "D:/alpha", scope: "chat", modified: "2026-10-15", messageCount: 2 },
@@ -162,6 +190,50 @@ function assertNoPrompt(): void {
 }
 
 describe("App project conversation navigation", () => {
+	it("retains the last confirmed editor owner and its only dirty buffer through disconnect and unconfirmed reconnect", async () => {
+		const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) => {
+			if (request.type === "fs.read") return Promise.resolve({ ok: true, result: { kind: "text", content: "disk", size: 4, truncated: false, editable: true, revision: "disk-v1" } });
+			if (request.type === "editor.draft.get") return Promise.resolve({ ok: true, result: { draft: null, draftRevision: null } });
+			return base(request);
+		});
+		fixture.workbench!.openFileTab("editor", "unsaved.ts", "unsaved.ts"); fixture.editorProbe = true;
+		await act(async () => root.render(<App />));
+		const editor = fixture.editor!;
+		vi.spyOn(localStorage, "setItem").mockImplementation((key) => { if (key.startsWith("owl.editor.wal.")) throw new Error("quota exceeded"); });
+		await act(async () => editor.change("only remaining unsaved text"));
+		expect(editor.isProtected()).toBe(false); expect(editor.isDirty()).toBe(true);
+		await act(async () => fixture.status?.(false));
+		expect(fixture.workbenchProfile).toBe(profile); expect(fixture.workbenchConnected).toBe(false); expect(fixture.editor).toBe(editor); expect(container.textContent).toContain("only remaining unsaved text");
+		const settings = Promise.withResolvers<unknown>();
+		fixture.request.mockImplementation((request) => request.type === "settings.get" ? settings.promise : base(request));
+		await act(async () => fixture.status?.(true));
+		expect(fixture.workbenchProfile).toBe(profile); expect(fixture.workbenchConnected).toBe(false); expect(fixture.editor).toBe(editor); expect(editor.getSnapshot().text).toBe("only remaining unsaved text");
+		await act(async () => settings.resolve({ ok: true, result: { agentDir: profile, settings: {} } }));
+		expect(fixture.workbenchConnected).toBe(true); expect(fixture.editor).toBe(editor); expect(editor.isDirty()).toBe(true); expect(editor.getSnapshot().text).toBe("only remaining unsaved text");
+	});
+	function protectEditor(preserveDraft: () => Promise<boolean>) {
+		const store = fixture.workbench!;
+		store.openFileTab("editor", "unsaved.ts", "unsaved.ts"); store.setDirty("editor:unsaved.ts", true);
+		let dirty = true;
+		store.registerEditor("editor:unsaved.ts", { isDirty: () => dirty, revision: () => 1, save: async () => false, preserveDraft, discard: async () => { dirty = false; return true; } });
+		return store;
+	}
+	it("keeps the project and editor when draft preservation fails and the user cancels", async () => {
+		const store = protectEditor(async () => false);
+		await selectProject("D:/beta"); expect(fixture.chat!.cwd).toBe("D:/alpha"); expect(fixture.sidebar!.activeId).toBe("alpha-old"); expect(store.editorClose.getSnapshot()?.error).toBe("editor-not-ready");
+		await act(async () => store.editorClose.choose("cancel")); expect(fixture.chat!.cwd).toBe("D:/alpha"); expect(store.getState().tabs.some((tab) => tab.path === "unsaved.ts")).toBe(true);
+	});
+	it("changes projects only after preservation is acknowledged, applying the most recent requested destination", async () => {
+		const pending = Promise.withResolvers<boolean>(); protectEditor(() => pending.promise);
+		await selectProject("D:/beta"); await selectProject("D:/gamma"); expect(fixture.chat!.cwd).toBe("D:/alpha");
+		await act(async () => pending.resolve(true)); expect(fixture.chat!.cwd).toBe("D:/gamma"); expect(fixture.sidebar!.activeId).toBe("gamma-one");
+	});
+	it("does not change the current project when a cross-project conversation restore is cancelled", async () => {
+		const store = protectEditor(async () => false);
+		await act(async () => fixture.sidebar!.onOpenSession("beta-one")); expect(fixture.chat!.cwd).toBe("D:/alpha");
+		await act(async () => store.editorClose.choose("cancel")); expect(fixture.chat!.cwd).toBe("D:/alpha"); expect(fixture.sidebar!.activeId).toBe("alpha-old");
+	});
 	it("returns to the last opened conversation instead of the latest modified conversation", async () => {
 		await selectProject("D:/beta");
 		expect(fixture.sidebar!.activeId).toBe("beta-one");

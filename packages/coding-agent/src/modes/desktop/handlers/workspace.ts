@@ -6,13 +6,17 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { constants, mkdirSync } from "node:fs";
+import { access, stat } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
 import type { WebSocket } from "ws";
 import { expandTildePath } from "../../../config.ts";
 import { listWorkspaceViewers, openWorkspaceViewer } from "../../../core/workspace-viewers.ts";
+import { EditorDraftStore } from "../editor-drafts.ts";
+import { canonicalEditorWorkspace, editorPathKey, saveEditorFile } from "../editor-files.ts";
 import type { DesktopClientRequest, DesktopServerMessage } from "../protocol.ts";
 import {
+	invalidateDirectoryCache,
 	listWorkspaceDirectory,
 	mkdirWorkspaceEntry,
 	readWorkspaceFile,
@@ -42,6 +46,7 @@ import { githubCommitChecks } from "../sidebar-github.ts";
 import { createDirectoryWatchers, createGitStateWatcher, type DirectoryWatchers } from "../sidebar-watch.ts";
 
 export interface WorkspaceHandlerContext {
+	defaultAgentDir: () => string;
 	reply: (ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }) => void;
 	onDiagnostic: (message: string) => void;
 	broadcast: (message: DesktopServerMessage) => void;
@@ -84,9 +89,59 @@ export async function handleProjectRequest(
 }
 
 /** Fs 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
-export type FsRequest = Extract<DesktopClientRequest, { type: `fs.${string}` | "viewer.list" | "viewer.open" }>;
+export type FsRequest = Extract<
+	DesktopClientRequest,
+	{ type: `fs.${string}` | `editor.${string}` | "viewer.list" | "viewer.open" }
+>;
 
 export async function handleFsRequest(ws: WebSocket, request: FsRequest, ctx: WorkspaceHandlerContext): Promise<void> {
+	if (request.type.startsWith("editor.")) {
+		const editor = request as Extract<FsRequest, { type: `editor.${string}` }>;
+		const agentDir = ctx.defaultAgentDir();
+		const profile = editorPathKey(canonicalEditorWorkspace(agentDir));
+		const assertProfile = (): void => {
+			if (
+				!editor.expectedProfile ||
+				editorPathKey(canonicalEditorWorkspace(editor.expectedProfile)) !== profile ||
+				editorPathKey(canonicalEditorWorkspace(ctx.defaultAgentDir())) !== profile
+			) {
+				throw new SidebarError("profile-changed", "账号已变化，未读取或写入其他账号的编辑材料");
+			}
+		};
+		assertProfile();
+		const drafts = new EditorDraftStore(agentDir, assertProfile);
+		switch (editor.type) {
+			case "editor.file.save": {
+				const absolute = await resolveUnderWorkspace(editor.cwd, editor.path);
+				assertProfile();
+				const result = await saveEditorFile(
+					editor.cwd,
+					absolute,
+					editor.content,
+					editor.expectedRevision,
+					assertProfile,
+				);
+				if (result.status === "saved") invalidateDirectoryCache(dirname(absolute));
+				ctx.reply(ws, editor.id, { ok: true, result });
+				return;
+			}
+			case "editor.draft.get":
+				ctx.reply(ws, editor.id, { ok: true, result: drafts.get(editor.cwd, editor.path) });
+				return;
+			case "editor.draft.put":
+				ctx.reply(ws, editor.id, { ok: true, result: drafts.put(editor) });
+				return;
+			case "editor.draft.remove":
+				ctx.reply(ws, editor.id, {
+					ok: true,
+					result: drafts.remove(editor.cwd, editor.path, editor.expectedDraftRevision),
+				});
+				return;
+			case "editor.draft.list":
+				ctx.reply(ws, editor.id, { ok: true, result: drafts.list(editor.cwd) });
+				return;
+		}
+	}
 	switch (request.type) {
 		case "fs.tree": {
 			ctx.reply(ws, request.id, { ok: true, result: await listWorkspaceDirectory(request.cwd, request.path ?? "") });
@@ -115,6 +170,16 @@ export async function handleFsRequest(ws: WebSocket, request: FsRequest, ctx: Wo
 		}
 		case "fs.read": {
 			ctx.reply(ws, request.id, { ok: true, result: await readWorkspaceFile(request.cwd, request.path) });
+			return;
+		}
+		case "fs.stat": {
+			const absolute = await resolveUnderWorkspace(request.cwd, request.path);
+			const info = await stat(absolute);
+			await access(absolute, constants.R_OK);
+			ctx.reply(ws, request.id, {
+				ok: true,
+				result: { size: info.size, isFile: info.isFile(), isDirectory: info.isDirectory() },
+			});
 			return;
 		}
 		case "fs.readBin": {
@@ -243,6 +308,24 @@ export async function handleGitRequest(
 /** Watch 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
 export type WatchRequest = Extract<DesktopClientRequest, { type: "watch.set" | "open.external" }>;
 
+/**
+ * 启动系统处理器（explorer / 协议处理器）。
+ *
+ * 实测（Windows 11 + explorer）：windowsHide: true 会让 explorer /select 建出 visible=false
+ * 的窗口——进程正常退出、应答成功，用户却看不到任何窗口（旧的隐藏窗口还会越积越多）。
+ * 本函数只会用来“让用户看到点什么”，必须保持窗口可见，别再加回 windowsHide: true。
+ */
+async function spawnExternalHandler(command: string, args: string[]): Promise<void> {
+	await new Promise<void>((done, reject) => {
+		const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: false });
+		child.once("error", reject);
+		child.once("spawn", () => {
+			child.unref();
+			done();
+		});
+	});
+}
+
 export async function handleWatchRequest(
 	ws: WebSocket,
 	request: WatchRequest,
@@ -299,13 +382,17 @@ export async function handleWatchRequest(
 				// workspace 相对路径 → 围栏解析成绝对路径，文件管理器定位。
 				const base = request.cwd ?? process.cwd();
 				const absolute = await resolveUnderWorkspace(base, request.target);
-				if (process.platform === "darwin") {
-					spawn("open", ["-R", absolute], { detached: true, stdio: "ignore" }).unref();
-				} else if (process.platform === "win32") {
-					spawn("explorer", [`/select,${absolute}`], { detached: true, stdio: "ignore" }).unref();
-				} else {
-					spawn("xdg-open", [absolute], { detached: true, stdio: "ignore" }).unref();
-				}
+				const info = await stat(absolute);
+				await access(absolute, constants.R_OK);
+				const command =
+					process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+				const args =
+					process.platform === "darwin"
+						? ["-R", absolute]
+						: process.platform === "win32"
+							? [`/select,${absolute}`]
+							: [info.isDirectory() ? absolute : dirname(absolute)];
+				await spawnExternalHandler(command, args);
 			} else {
 				// 自定义协议（vscode:// 等）白名单后交给系统处理器；argv 直传不落 shell。
 				const allowed = new Set(["vscode:", "cursor:", "zed:", "file:", "http:", "https:"]);
@@ -313,10 +400,12 @@ export async function handleWatchRequest(
 				if (!allowed.has(parsed.protocol)) {
 					throw new SidebarError("bad-request", `不允许的协议：${parsed.protocol}`);
 				}
-				spawn("rundll32", ["url.dll,FileProtocolHandler", request.target], {
-					detached: true,
-					stdio: "ignore",
-				}).unref();
+				const command =
+					process.platform === "darwin" ? "open" : process.platform === "win32" ? "rundll32" : "xdg-open";
+				await spawnExternalHandler(
+					command,
+					process.platform === "win32" ? ["url.dll,FileProtocolHandler", request.target] : [request.target],
+				);
 			}
 			ctx.reply(ws, request.id, { ok: true });
 			return;

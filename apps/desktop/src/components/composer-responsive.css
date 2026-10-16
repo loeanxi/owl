@@ -25,8 +25,7 @@
 
 .owl-composer-responsive .owl-composer-environment > .relative,
 .owl-composer-responsive .owl-composer-project > .relative,
-.owl-composer-responsive .owl-composer-primary-controls > .relative,
-.owl-composer-responsive .owl-composer-model-controls > .relative,
+.owl-composer-responsive .owl-settings-panel-row > .relative,
 .owl-composer-responsive .owl-composer-input-row > .relative {
 	position: static;
 	min-width: 0;
@@ -44,7 +43,7 @@
 .owl-composer-responsive .owl-composer-env-chip {
 	max-width: 100%;
 	min-width: 0;
-	height: 26px;
+	height: 28px;
 }
 
 .owl-composer-responsive .owl-composer-environment-accessory {
@@ -56,12 +55,19 @@
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto auto;
 	align-items: end;
-	gap: 6px;
-	padding: 6px 8px;
+	gap: 8px;
+	padding: 10px 12px;
 }
 
 .owl-composer-responsive .owl-composer-draft {
 	min-width: 0;
+}
+
+.owl-composer-responsive .owl-composer-editor {
+	min-height: 32px;
+	padding: 4px 2px;
+	font-size: 15px;
+	line-height: 24px;
 }
 
 .owl-composer-responsive .owl-composer-editor:empty::before {
@@ -71,45 +77,93 @@
 	white-space: nowrap;
 }
 
-.owl-composer-responsive .owl-composer-options {
-	position: relative;
-	display: grid;
-	grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
-	align-items: center;
-	gap: 4px 12px;
-	min-width: 0;
-	padding-top: 6px;
-}
-
-.owl-composer-responsive .owl-composer-primary-controls,
-.owl-composer-responsive .owl-composer-model-controls {
+.owl-composer-responsive .owl-composer-trailing {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 6px;
 	min-width: 0;
 }
 
-.owl-composer-responsive .owl-composer-primary-controls > .relative {
-	flex: 0 1 auto;
-	max-width: 14rem;
+.owl-composer-responsive .owl-composer-trailing > .relative {
+	position: relative;
 }
 
-.owl-composer-responsive .owl-composer-model-controls {
-	justify-content: flex-end;
+/* 吉祥物被排队托盘挤走时，输入行里的备用入口 */
+.owl-composer-settings-fallback {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 6px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	transition: background-color 120ms ease, color 120ms ease;
 }
 
-/* 模型 + 思考强度合并后的单一控件 */
-.owl-composer-responsive .owl-composer-model-controls > .relative {
-	flex: 0 1 14rem;
-	max-width: 18rem;
+.owl-composer-settings-fallback:hover {
+	background: var(--color-owl-hover);
+	color: var(--color-owl-text);
+}
+
+.owl-composer-settings-fallback.is-alert {
+	color: var(--color-owl-warning);
+}
+
+.owl-composer-responsive .owl-settings-fallback-panel {
+	width: 288px;
+}
+
+/* 面板会盖到输入框上方的兄弟层（如「今天」日程入口），打开时整块输入区要压在它们之上 */
+.owl-composer-dock:has(.owl-mascot-slot.is-open, .owl-settings-fallback-panel),
+.owl-composer-surface:has(.owl-mascot-slot.is-open, .owl-settings-fallback-panel) {
+	position: relative;
+	z-index: 30;
+}
+
+.owl-settings-panel-row .owl-composer-choice > .owl-composer-label {
+	flex: 1;
+	max-width: none;
+	text-align: left;
+}
+
+.owl-settings-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 2px 6px 4px;
+}
+
+.owl-settings-panel-title {
+	padding: 6px 6px 4px;
+	font-size: 10px;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	color: var(--color-owl-faint);
+}
+
+.owl-settings-panel-row {
+	display: grid;
+	grid-template-columns: 2.75rem minmax(0, 1fr);
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.owl-settings-panel-label {
+	padding-left: 6px;
+	font-size: 11px;
+	color: var(--color-owl-faint);
+	white-space: nowrap;
 }
 
 .owl-composer-responsive .owl-composer-choice {
 	width: 100%;
 	max-width: 100%;
 	min-width: 0;
-	height: 28px;
+	height: 30px;
 	gap: 5px;
+	font-size: 12px;
+	line-height: 18px;
 	color: var(--owl-ui-muted, var(--color-owl-muted));
 }
 
@@ -122,6 +176,10 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.owl-composer-responsive .owl-context-gauge {
+	font-size: 11px;
 }
 
 .owl-composer-responsive .owl-composer-menu {
@@ -150,30 +208,6 @@
 	outline-offset: 2px;
 }
 
-@container owl-composer (max-width: 620px) {
-	.owl-composer-responsive .owl-composer-options {
-		grid-template-columns: minmax(0, 1fr);
-		gap: 2px;
-	}
-
-	.owl-composer-responsive .owl-composer-model-controls {
-		justify-content: flex-start;
-	}
-
-	.owl-composer-responsive .owl-composer-model-controls > .relative {
-		flex: 1 1 0;
-		max-width: none;
-	}
-
-	.owl-composer-responsive .owl-composer-model-controls > .relative > button {
-		justify-content: flex-end;
-	}
-
-	.owl-composer-responsive .owl-composer-model-controls > .relative .owl-composer-label {
-		max-width: none;
-	}
-}
-
 @container owl-composer (max-width: 540px) {
 	.owl-composer-responsive .owl-composer-input-row {
 		grid-template-columns: minmax(0, 1fr) auto auto;
@@ -187,7 +221,6 @@
 	}
 
 	.owl-composer-responsive .owl-composer-editor {
-		min-height: 30px;
 		padding-inline: 0;
 	}
 
@@ -196,7 +229,7 @@
 		grid-row: 2;
 	}
 
-	.owl-composer-responsive .owl-context-gauge.is-capacity {
+	.owl-composer-responsive .owl-composer-trailing {
 		grid-column: 2;
 		grid-row: 2;
 	}

@@ -1,7 +1,10 @@
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useState } from "react";
 import type { QuestionAnswerPayload, QuestionRequest } from "../bridge/protocol.ts";
 import { useT } from "../i18n/index.ts";
 import { renderMarkdown } from "./ChatStream.tsx";
+import { usePendingResponses } from "../bridge/pending-responses.ts";
+import { PendingResponseNotice } from "./PendingResponseNotice.tsx";
+import { usePendingRequestCopy } from "./pending-request-copy.ts";
 import "./question-card.css";
 
 /**
@@ -35,15 +38,21 @@ export function QuestionDialog({
 }): React.JSX.Element | null {
 	const t = useT();
 	const questionId = useId();
+	const { controller, feedback } = usePendingResponses();
+	const busy = feedback.get(request.requestId)?.phase === "pending";
+	const copy = usePendingRequestCopy();
+	const draft = controller?.questionDrafts.get(request.requestId);
 	const total = request.questions.length;
-	const [states, setStates] = useState<QuestionUiState[]>(() => request.questions.map(initialState));
-	const [current, setCurrent] = useState(0);
-	const [missing, setMissing] = useState<Set<number>>(new Set());
-	const [collapsed, setCollapsed] = useState(false);
+	const [states, setStates] = useState<QuestionUiState[]>(() => draft?.states.length === total ? draft.states : request.questions.map(initialState));
+	const [current, setCurrent] = useState(draft?.current ?? 0);
+	const [missing, setMissing] = useState<Set<number>>(draft?.missing ?? new Set());
+	const [collapsed, setCollapsed] = useState(draft?.collapsed ?? false);
+	useLayoutEffect(() => { controller?.saveQuestionDraft(request.requestId, { states, current, missing, collapsed }); }, [controller, request.requestId, states, current, missing, collapsed]);
 
 	const isAnswered = (s: QuestionUiState) => s.picked.size > 0 || s.custom.trim() !== "";
 
 	function patch(index: number, changes: Partial<QuestionUiState>): void {
+		if (busy) return;
 		setStates((prev) => prev.map((s, i) => (i === index ? { ...s, ...changes } : s)));
 		setMissing((prev) => {
 			if (!prev.has(index)) return prev;
@@ -54,6 +63,7 @@ export function QuestionDialog({
 	}
 
 	function pick(index: number, label: string, multiSelect: boolean): void {
+		if (busy) return;
 		setStates((prev) =>
 			prev.map((s, i) => {
 				if (i !== index) return s;
@@ -83,6 +93,7 @@ export function QuestionDialog({
 	}
 
 	function submit(): void {
+		if (busy) return;
 		const unanswered = new Set<number>();
 		states.forEach((s, i) => {
 			if (!isAnswered(s)) unanswered.add(i);
@@ -105,6 +116,7 @@ export function QuestionDialog({
 
 	/** 当前题已答 → 前进；没答 → 标红并停在原地。最后一张即提交。 */
 	function advance(): void {
+		if (busy) return;
 		const state = states[current];
 		if (!state) return;
 		if (!isAnswered(state)) {
@@ -133,9 +145,10 @@ export function QuestionDialog({
 			className="owl-question-card"
 			data-collapsed={collapsed}
 			aria-labelledby={questionId}
+			aria-busy={busy}
 			onKeyDown={(event) => {
 				// 快捷键只作用于提问卡，工作台和输入框保留各自的键盘行为。
-				if (event.defaultPrevented || event.nativeEvent.isComposing || event.repeat) return;
+				if (busy || event.defaultPrevented || event.nativeEvent.isComposing || event.repeat) return;
 				if (event.key === "Escape") {
 					event.preventDefault();
 					event.stopPropagation();
@@ -207,6 +220,7 @@ export function QuestionDialog({
 									role={question.multiSelect ? "checkbox" : "radio"}
 									aria-label={option.label}
 									aria-checked={picked}
+									aria-disabled={busy}
 									tabIndex={0}
 									className="owl-question-card__choice"
 									data-picked={picked}
@@ -274,6 +288,7 @@ export function QuestionDialog({
 					>
 						<span className="shrink-0 text-sm text-owl-muted">{t("question.other")}</span>
 						<input
+							disabled={busy}
 							value={state.custom}
 							onChange={(event) => setCustom(qi, event.target.value, question.multiSelect)}
 							placeholder={t("question.customPlaceholder")}
@@ -283,6 +298,7 @@ export function QuestionDialog({
 					{/* 每题备注 */}
 					{noteVisible && (
 						<textarea
+							disabled={busy}
 							id={`${questionId}-note`}
 							value={state.note}
 							onChange={(event) => patch(qi, { note: event.target.value })}
@@ -293,6 +309,7 @@ export function QuestionDialog({
 					)}
 				</div>
 			</div>
+			<PendingResponseNotice requestId={request.requestId} />
 			<div hidden={collapsed} className="owl-question-card__footer">
 				<div className="owl-question-card__secondary-actions">
 					<button
@@ -318,6 +335,7 @@ export function QuestionDialog({
 					<button
 						type="button"
 						className="owl-question-card__cancel"
+						disabled={busy}
 						onClick={() => onAnswer([], true)}
 					>
 						{t("common.cancel")}
@@ -338,8 +356,9 @@ export function QuestionDialog({
 						type="button"
 						className="rounded-lg bg-owl-accent px-3 py-1.5 text-sm font-medium text-owl-on-accent transition-colors hover:bg-owl-accent-hover hover:text-owl-on-accent-hover"
 						onClick={advance}
+						disabled={busy}
 					>
-						{qi < total - 1 ? t("question.next") : t("question.submit")}
+						{busy ? copy.sending : qi < total - 1 ? t("question.next") : t("question.submit")}
 					</button>
 				</div>
 			</div>

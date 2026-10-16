@@ -1,0 +1,77 @@
+import { getUiLanguage, useT } from "../i18n/index.ts";
+
+const zh = {
+	process: "工作过程",
+	collapse: "收起过程",
+	current: "当前动作",
+	recent: "最近进展",
+	working: "正在执行",
+	finished: "执行结束",
+	pending: "准备执行",
+	generating: "正在整理答案",
+	thinking: "查看思考",
+	command: "执行内容",
+	output: "输出结果",
+	copyCommand: "复制执行内容",
+	copyOutput: "复制输出结果",
+	expandOutput: "查看全文（{n} 行）",
+	collapseOutput: "收起全文",
+	waiting: "等待你的确认或回答",
+	stepCount: "{n} 项操作",
+	recoveredCount: "{n} 项操作重试成功",
+	issueCount: "{n} 条执行异常",
+	issueHint: "执行记录中有异常，点击查看对应记录。",
+	reviewIssue: "执行结果待核对",
+	viewAnswer: "查看答案",
+	answerReady: "答案已生成",
+	latestUpdate: "有新进展",
+	runCommand: "运行命令",
+	runCheck: "运行项目检查",
+	readFile: "读取 {name}",
+	writeFile: "写入 {name}",
+	editFile: "编辑 {name}",
+	thinkingOriginal: "查看思考原文",
+} as const;
+
+const en: Record<keyof typeof zh, string> = {
+	process: "Work process",
+	collapse: "Collapse process",
+	current: "Current action",
+	recent: "Recent progress",
+	working: "Working",
+	finished: "Execution ended",
+	pending: "Preparing to run",
+	generating: "Preparing the answer",
+	thinking: "View thinking",
+	command: "Execution input",
+	output: "Output",
+	copyCommand: "Copy execution input",
+	copyOutput: "Copy output",
+	expandOutput: "View full output ({n} lines)",
+	collapseOutput: "Collapse full output",
+	waiting: "Waiting for your confirmation or answer",
+	stepCount: "{n} actions",
+	recoveredCount: "{n} actions retried successfully",
+	issueCount: "Execution issues: {n}",
+	issueHint: "The execution history contains issues. Select to view the corresponding record.",
+	reviewIssue: "Execution result needs review",
+	viewAnswer: "View answer",
+	answerReady: "Answer ready",
+	latestUpdate: "New progress",
+	runCommand: "Run command",
+	runCheck: "Run project checks",
+	readFile: "Read {name}",
+	writeFile: "Write {name}",
+	editFile: "Edit {name}",
+	thinkingOriginal: "View original thinking",
+};
+
+export function workProcessText(key: keyof typeof zh, vars?: Record<string, string | number>): string {
+	const template = (getUiLanguage() === "en" ? en : zh)[key];
+	return vars ? template.replace(/\{(\w+)\}/g, (raw, name: string) => name in vars ? String(vars[name]) : raw) : template;
+}
+
+export function useWorkProcessText(): typeof workProcessText {
+	useT();
+	return workProcessText;
+}

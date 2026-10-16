@@ -1,9 +1,9 @@
 /**
- * owl「改动审批」插件：追踪 AI 的每次成功 write/edit，把「改前基线」汇总进
- * 工作区待审清单，供桌面工作台「改动审批」卡片逐文件保留/回滚。
+ * owl「改动审批」插件：声明每次 write/edit 的会话、轮次、工具调用归属。
+ * 宿主工具在真实本地写入边界捕获 before/after，成功结果才进入待审清单。
  *
- * 捕获节奏与内置 owl-rewind 对齐：tool_call（执行前）暂存改前内容，
- * tool_result 成功才落库——失败的调用不产生待审条目。查询/保留/回滚不在
+ * tool_call 注册归属，tool_result 成功才落库；执行期间文件变化、工具归属
+ * 不唯一、远程文件操作都不能伪装为可撤销的本地记录。查询/保留/撤销不在
  * 本插件：桌面桥 serve.ts 经 core/diff-approval 注册表读同一份工作区存储，
  * 每次落库经广播接缝推 diffApproval.changed 给 UI。
  *
@@ -29,11 +29,18 @@ export default function createDiffApprovalExtension(pi: ExtensionAPI): void {
 		if (!TRACKED_TOOLS.has(event.toolName)) return;
 		const path = (event.input as { path?: unknown } | undefined)?.path;
 		if (typeof path !== "string" || !path.trim()) return;
-		storeFor(ctx.cwd).stage(event.toolCallId, resolveToCwd(path, ctx.cwd));
+		const branch = ctx.sessionManager.getBranch();
+		const turn = branch.findLast((entry) => entry.type === "message" && entry.message.role === "user");
+		storeFor(ctx.cwd).stage(event.toolCallId, resolveToCwd(path, ctx.cwd), {
+			sessionId: ctx.sessionManager.getSessionId(),
+			turnId: turn?.id ?? "",
+			toolName: event.toolName as "write" | "edit",
+			input: event.input,
+		});
 	});
 
 	pi.on("tool_result", (event, ctx) => {
 		if (!TRACKED_TOOLS.has(event.toolName)) return;
-		storeFor(ctx.cwd).commit(event.toolCallId, event.isError === true);
+		storeFor(ctx.cwd).commit(event.toolCallId, event.isError === true, ctx.sessionManager.getSessionId());
 	});
 }

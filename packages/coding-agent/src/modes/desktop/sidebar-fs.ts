@@ -18,8 +18,9 @@
 
 import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { EDITOR_TEXT_LIMIT, readEditorFile } from "./editor-files.ts";
 import type { FsEntry, FsListing, FsReadBinResult, FsReadResult, FsSearchHit } from "./protocol.ts";
 
 /** 侧边栏路由的结构化错误：code 过线给前端，用于区分提示文案。 */
@@ -190,9 +191,7 @@ async function probeSymlinkTargets(probes: { row: FsEntry; absolute: string }[],
 // ---------------------------------------------------------------------------
 
 /** 文本读取的大小上限（超限置 truncated，内容被截断）。 */
-export const READ_LIMIT = 1_000_000;
-/** 二进制嗅探返回的头部字节数。 */
-const READ_HEAD_LIMIT = 4096;
+export const READ_LIMIT = EDITOR_TEXT_LIMIT;
 /** 媒体预览（base64 整读）的大小上限。 */
 export const MEDIA_LIMIT = 8_000_000;
 
@@ -216,31 +215,17 @@ export function mediaTypeForPath(path: string): string {
 		: "application/octet-stream";
 }
 
-/** 读取一个文件：文本全文（限 READ_LIMIT）或二进制头嗅探。 */
+/** 读取一个文件：文本全文（限 READ_LIMIT）或二进制头嗅探；可编辑文本附带保存用的 revision。 */
 export async function readWorkspaceFile(cwd: string, target: string): Promise<FsReadResult> {
 	const absolute = await resolveUnderWorkspace(cwd, target);
 	const info = await stat(absolute).catch((error: unknown) => {
 		throw new SidebarError("fs-error", `无法读取 "${target}"：${messageOf(error)}`);
 	});
 	if (info.isDirectory()) throw new SidebarError("fs-error", `"${target}" 是目录`);
-	const truncated = info.size > READ_LIMIT;
-	const handle = await open(absolute, "r").catch((error: unknown) => {
-		throw new SidebarError("fs-error", `无法读取 "${target}"：${messageOf(error)}`);
-	});
 	try {
-		const buffer = Buffer.alloc(Math.min(info.size, READ_LIMIT));
-		const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-		const slice = buffer.subarray(0, bytesRead);
-		const binary = slice.includes(0);
-		return {
-			kind: binary ? "binary" : "text",
-			content: binary ? "" : slice.toString("utf8"),
-			truncated,
-			size: info.size,
-			...(binary ? { head: slice.subarray(0, Math.min(slice.length, READ_HEAD_LIMIT)).toString("base64") } : {}),
-		};
-	} finally {
-		await handle.close();
+		return readEditorFile(cwd, absolute);
+	} catch (error) {
+		throw new SidebarError("fs-error", `无法读取 "${target}"：${messageOf(error)}`);
 	}
 }
 

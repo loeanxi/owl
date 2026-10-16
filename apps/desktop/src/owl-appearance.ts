@@ -4,6 +4,7 @@
  *   （旧版暖绿灰配色，经 <html data-owl-preset> 切换 index.css / desktop-shell.css 的令牌块）。
  *   ink / polar-night / ink-hc 为中性灰与北欧冷色系；其余编辑器系预设取色自 VS Code 内置主题（MIT），
  *   vscode-classic 合并了 Visual Studio 与 Dark+/Light+（两者只差代码高亮）。
+ *   claude 取色自逆向 Claude Desktop 的设计系统令牌（open-claude-ui，MIT；令牌块在 claude-preset.css）。
  *   无官方浅色版的预设浅色档回落默认浅色；quiet-light 只有浅色版，锁定浅色档。
  * - accent：自定义强调色全局一份，深浅主题通用；空值跟随主题默认松石绿。
  * - background / foreground：按深浅模式各存一份，切档互不影响（空 = 跟随当前预设的默认）。
@@ -12,13 +13,17 @@
  * 主题解析档变化（含 system 跟随操作系统）时 theme.ts 会先更新 <html> 的
  * data-owl-theme 再广播 owl-theme-change，本模块监听后按新档重新落变量。
  * 刻意不静态导入 theme.ts：解析档直接读 dataset，让解析器可在 node 测试里单测。
+ * Codex 主题（cx- 前缀）由 codex-themes.ts / codex-themes.css 生成；只有单档的主题锁定该档。
  */
+
+import { CODEX_THEME_IDS, CODEX_THEMES, isCodexThemeId } from "./codex-themes.ts";
 
 /** 预设允许清单（未知值一律回默认经典黑）；顺序即设置页展示顺序。 */
 export const OWL_PRESET_IDS = [
 	"",
 	"owl-green",
 	"codex",
+	"claude",
 	"liquid-glass",
 	"frost",
 	"ink",
@@ -35,6 +40,7 @@ export const OWL_PRESET_IDS = [
 	"red",
 	"quiet-light",
 	"high-contrast",
+	...CODEX_THEME_IDS,
 ] as const;
 
 export type OwlPresetId = (typeof OWL_PRESET_IDS)[number];
@@ -51,6 +57,11 @@ export function isGlassPreset(preset: OwlPresetId): boolean {
 /** 预设锁定的深浅档；null = 跟随用户主题设置。 */
 export function presetThemeLock(preset: OwlPresetId): "dark" | "light" | null {
 	if (preset === "frost") return "dark";
+	if (isCodexThemeId(preset)) {
+		const theme = CODEX_THEMES[preset];
+		if (!theme.light) return "dark";
+		return theme.dark ? null : "light";
+	}
 	return preset === "quiet-light" ? "light" : null;
 }
 
@@ -84,6 +95,10 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 	codex: {
 		dark: { background: "#1f1f1f", foreground: "#ededed" },
 		light: { background: "#f7f6f3", foreground: "#1a1a1a" },
+	},
+	claude: {
+		dark: { background: "#151515", foreground: "#f5f5f5" },
+		light: { background: "#fcfcfb", foreground: "#151515" },
 	},
 	"liquid-glass": {
 		dark: { background: "#0b0d1a", foreground: "#f5f5f7" },
@@ -126,7 +141,7 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 		light: { background: "#fdf6e3", foreground: "#44575e" },
 	},
 	abyss: {
-		dark: { background: "#000c18", foreground: "#c6d0e8" },
+		dark: { background: "#0e1726", foreground: "#e0e8f5" },
 		light: { background: "#faf9f5", foreground: "#3d3a32" },
 	},
 	"tomorrow-night-blue": {
@@ -149,6 +164,14 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 		dark: { background: "#000000", foreground: "#ffffff" },
 		light: { background: "#ffffff", foreground: "#292929" },
 	},
+	...Object.fromEntries(CODEX_THEME_IDS.map((id) => {
+		const { dark, light } = CODEX_THEMES[id];
+		const pick = (variant: typeof dark) => {
+			const colors = variant ?? dark ?? light!;
+			return { background: colors.background, foreground: colors.foreground };
+		};
+		return [id, { dark: pick(dark), light: pick(light) }];
+	})) as Record<(typeof CODEX_THEME_IDS)[number], { dark: { background: string; foreground: string }; light: { background: string; foreground: string } }>,
 };
 
 export const DEFAULT_ACCENTS = { dark: "#50a992", light: "#268574" } as const;

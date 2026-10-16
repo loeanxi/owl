@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	cancelAllPendingQuestions,
 	cancelPendingQuestionsForSession,
+	getAllPendingQuestionRequests,
 	getPendingQuestionRequests,
 	getQuestionChannel,
 	type QuestionOutcome,
@@ -138,5 +139,80 @@ describe("pending question replay after reconnect", () => {
 		expect(getPendingQuestionRequests("main")).toEqual([]);
 		setQuestionChannel(undefined);
 		expect(getQuestionChannel()).toBeUndefined();
+	});
+
+	it("broadcasts a terminal decision once, without including answer contents", () => {
+		const sent: DesktopServerMessage[] = [];
+		const resolved: QuestionOutcome[] = [];
+		setQuestionChannel({ broadcast: (message) => sent.push(message), hasConnectedClients: () => true });
+		const message = question("answered", "research");
+		registerPendingQuestion(message.requestId, {
+			sessionId: message.sessionId,
+			toolCallId: message.toolCallId,
+			resolve: (outcome) => resolved.push(outcome),
+		});
+		getQuestionChannel()?.broadcast(message);
+		const outcome = { cancelled: false, answers: [{ index: 0, customText: "private answer", note: "private note" }] };
+		expect(resolveQuestion(message.requestId, outcome)).toBe(true);
+		expect(resolveQuestion(message.requestId, outcome)).toBe(false);
+		expect(sent.filter((item) => item.type === "event")).toEqual([
+			{
+				type: "event",
+				sessionId: "research",
+				event: { type: "question_resolved", requestId: "answered", cancelled: false, reason: "response" },
+			},
+		]);
+		expect(resolved).toEqual([outcome]);
+		expect(getAllPendingQuestionRequests()).toEqual([]);
+	});
+
+	it("broadcasts scoped cancellation and shutdown for each retired request", () => {
+		const sent: DesktopServerMessage[] = [];
+		setQuestionChannel({ broadcast: (message) => sent.push(message), hasConnectedClients: () => true });
+		for (const [requestId, sessionId] of [
+			["first", "research"],
+			["second", "research"],
+			["other", "main"],
+		]) {
+			registerPendingQuestion(requestId, { sessionId, toolCallId: requestId, resolve: () => {} });
+			getQuestionChannel()?.broadcast({ ...question(requestId, sessionId), toolCallId: requestId });
+		}
+		cancelPendingQuestionsForSession("research");
+		expect(getAllPendingQuestionRequests().map((item) => item.requestId)).toEqual(["other"]);
+		expect(sent.filter((item) => item.type === "event")).toEqual(
+			["first", "second"].map((requestId) => ({
+				type: "event",
+				sessionId: "research",
+				event: { type: "question_resolved", requestId, cancelled: true, reason: "cancelled" },
+			})),
+		);
+		cancelAllPendingQuestions();
+		expect(sent.at(-1)).toEqual({
+			type: "event",
+			sessionId: "main",
+			event: { type: "question_resolved", requestId: "other", cancelled: true, reason: "cancelled" },
+		});
+		expect(getAllPendingQuestionRequests()).toEqual([]);
+	});
+
+	it("settles all tools even if a disconnected notification sink throws", () => {
+		const outcomes: QuestionOutcome[] = [];
+		setQuestionChannel({
+			broadcast: () => {
+				throw new Error("socket disconnected");
+			},
+			hasConnectedClients: () => false,
+		});
+		for (const requestId of ["first", "second"])
+			registerPendingQuestion(requestId, {
+				sessionId: "research",
+				toolCallId: requestId,
+				resolve: (outcome) => outcomes.push(outcome),
+			});
+		expect(() => cancelAllPendingQuestions()).not.toThrow();
+		expect(outcomes).toEqual([
+			{ cancelled: true, answers: [] },
+			{ cancelled: true, answers: [] },
+		]);
 	});
 });

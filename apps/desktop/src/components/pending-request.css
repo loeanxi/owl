@@ -1,0 +1,11 @@
+.owl-pending-feedback { flex: 0 0 auto; padding: 7px 12px; border-top: 1px solid var(--color-owl-border); overflow-wrap: anywhere; font-size: 12px; }
+.owl-pending-feedback[role="alert"] { color: var(--color-owl-danger); }
+.owl-pending-feedback p { margin: 2px 0; }
+.owl-pending-feedback button { margin-top: 4px; border: 1px solid var(--color-owl-border); border-radius: 5px; padding: 4px 8px; color: var(--color-owl-text); }
+.owl-pending-feedback button:hover { background: var(--color-owl-hover); }
+.owl-pending-context { font-size: 11px; margin-top: 4px; color: var(--color-owl-muted); overflow-wrap: anywhere; }
+.owl-permission-dialog { max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow: auto; }
+.owl-permission-dialog button:disabled, .owl-question-card button:disabled { opacity: .5; cursor: default; }
+.owl-island-permission { margin: 2px 12px 6px; font-size: 11px; color: var(--owl-island-ink, var(--color-owl-text)); overflow-wrap: anywhere; }
+.owl-island-permission pre { margin-top: 4px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.owl-island-permission .owl-pending-feedback { padding: 5px 0; }

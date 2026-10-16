@@ -1,4 +1,8 @@
 import type {
+	ExecutionAnomalyListInput,
+	ExecutionAnomalyListResult,
+	ExecutionAnomalyProcessInput,
+	ExecutionAnomalyRecord,
 	DesktopClientRequestWithoutId,
 	DesktopServerMessage,
 	DiffApprovalChangedMessage,
@@ -16,6 +20,8 @@ import type {
 	TermExitMessage,
 	ViewerChangedMessage,
 } from "./protocol.ts";
+import { beginEditorAccountTransition, cancelEditorAccountTransition, prepareEditorExit, targetEditorAccountTransition } from "../sidebar/editor-exit-guard.ts";
+import { getUiLanguage } from "../i18n/index.ts";
 
 export type PermissionRequest = PermissionRequestMessage;
 export type QuestionRequest = QuestionRequestMessage;
@@ -109,6 +115,7 @@ export class BridgeClient {
 	private mapResultsHandlers = new Set<MapResultsHandler>();
 	private diffApprovalHandlers = new Set<DiffApprovalChangedHandler>();
 	private scheduleChangedHandlers = new Set<() => void>();
+	private executionAnomaliesChangedHandlers = new Set<() => void>();
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	/** sessionId → 引用计数；空表示未声明，桥端按 all 推送（兼容旧行为）。 */
 	private watchedSessions = new Map<string, number>();
@@ -190,6 +197,10 @@ export class BridgeClient {
 			}
 			if (message.type === "schedule.changed") {
 				for (const handler of this.scheduleChangedHandlers) handler();
+				return;
+			}
+			if (message.type === "execution.anomalies.changed") {
+				for (const handler of this.executionAnomaliesChangedHandlers) handler();
 				return;
 			}
 			if (message.type === "diffApproval.changed") {
@@ -307,6 +318,36 @@ export class BridgeClient {
 		return () => this.scheduleChangedHandlers.delete(handler);
 	}
 
+	onExecutionAnomaliesChanged(handler: () => void): () => void {
+		this.executionAnomaliesChangedHandlers.add(handler);
+		return () => this.executionAnomaliesChangedHandlers.delete(handler);
+	}
+
+	listExecutionAnomalies(filter: ExecutionAnomalyListInput = {}): Promise<{
+		ok: boolean;
+		result?: ExecutionAnomalyListResult;
+		error?: string;
+	}> {
+		return this.request<ExecutionAnomalyListResult>({ ...filter, type: "execution.anomalies.list" });
+	}
+
+	processExecutionAnomaly(input: ExecutionAnomalyProcessInput): Promise<{
+		ok: boolean;
+		result?: ExecutionAnomalyRecord;
+		error?: string;
+	}> {
+		const { id: anomalyId, ...fields } = input;
+		return this.request<ExecutionAnomalyRecord>({ type: "execution.anomalies.process", anomalyId, ...fields });
+	}
+
+	restoreExecutionAnomaly(anomalyId: string): Promise<{
+		ok: boolean;
+		result?: ExecutionAnomalyRecord;
+		error?: string;
+	}> {
+		return this.request<ExecutionAnomalyRecord>({ type: "execution.anomalies.restore", anomalyId });
+	}
+
 	onMailDraft(handler: MailDraftHandler): () => void {
 		this.mailDraftHandlers.add(handler);
 		return () => this.mailDraftHandlers.delete(handler);
@@ -322,6 +363,29 @@ export class BridgeClient {
 		result?: T;
 		error?: string;
 	}> {
+		if (request.type === "account.switch") {
+			const transition = beginEditorAccountTransition();
+			if (transition === undefined) return Promise.resolve({ ok: false, error: getUiLanguage() === "en" ? "An account switch is already in progress" : "账号正在切换，请稍候" });
+			return (async () => {
+				try {
+					if (!(await prepareEditorExit())) {
+						cancelEditorAccountTransition(transition);
+						return { ok: false, error: getUiLanguage() === "en" ? "Editor changes were not preserved; account was not switched" : "编辑内容尚未保留，账号未切换" };
+					}
+					const response = await this.sendRequest<T>(request);
+					if (!response.ok) cancelEditorAccountTransition(transition);
+					else {
+						const account = (response.result as { account?: { dataDir?: unknown } } | undefined)?.account;
+						targetEditorAccountTransition(transition, typeof account?.dataDir === "string" ? account.dataDir : undefined);
+					}
+					return response;
+				} catch (error) { cancelEditorAccountTransition(transition); throw error; }
+			})();
+		}
+		return this.sendRequest<T>(request);
+	}
+
+	private sendRequest<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{ ok: boolean; result?: T; error?: string }> {
 		const id = request.id ?? `req-${++this.seq}`;
 		return new Promise((resolve, reject) => {
 			if (!this.ws || this.ws.readyState !== this.ws.OPEN) {
@@ -366,19 +430,21 @@ export class BridgeClient {
 				}, 60_000);
 			}
 			// 审查和提示词设置都是快操作；桥已连接但不回包时，应让面板退出等待并可重试。
-			if (request.type.startsWith("diffApproval.") || request.type.startsWith("research.prompts.")) {
+			if (request.type.startsWith("diffApproval.") || request.type.startsWith("research.prompts.") || request.type.startsWith("execution.anomalies.")) {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new Error(request.type.startsWith("research.prompts.") ? "提示词设置请求超时，请重新连接后重试" : "Review request timed out"));
+					reject(new Error(request.type.startsWith("execution.anomalies.") ? "执行异常日志请求超时，请重试" : request.type.startsWith("research.prompts.") ? "提示词设置请求超时，请重新连接后重试" : "Review request timed out"));
 				}, 15_000);
 			}
 			// 其余门控 UI 的快请求统一兜底：session.prompt 的应答是立即 ack（真正的
 			// 回答走事件流），session.resume 要回放整份转录所以放宽到 30s。桥假死时
 			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
 			const fallbackTimeout =
+				request.type === "session.promptSuggestion" || request.type === "session.promptSuggestion.cancel" ? 15_000 :
 				request.type === "session.resume" ? 30_000
+				: request.type.startsWith("editor.") || request.type === "fs.stat" || request.type.startsWith("session.queue.") ? 30_000
 				: request.type === "models.discover" ? 30_000
-				: ["session.create", "session.prompt", "session.stats", "session.running", "session.turns", "subagent.list", "subagent.get", "models.list", "build.hello"].includes(request.type)
+				: ["account.switch", "session.create", "session.prompt", "session.stats", "session.running", "session.turns", "session.setModel", "session.setThinkingLevel", "permission.response", "question.response", "subagent.list", "subagent.get", "models.list", "build.hello"].includes(request.type)
 					? 15_000
 					: undefined;
 			if (fallbackTimeout !== undefined) {
@@ -393,9 +459,8 @@ export class BridgeClient {
 	}
 
 	respondPermission(requestId: string, approved: boolean): Promise<{ ok: boolean; error?: string }> {
-		// 先挂 no-op catch 标记拒绝已处理（断线时 ResearchPage 这类不观察结果的
-		// 调用点不会冒 unhandled rejection），再返回原 promise 给需要做失败恢复
-		// （回滚出队）的调用方
+		// Mark legacy fire-and-forget callers as handled; acknowledged UI callers still
+		// receive the original response or rejection and retain their request on failure.
 		const pending = this.request({ type: "permission.response", requestId, approved });
 		pending.catch(() => {});
 		return pending;

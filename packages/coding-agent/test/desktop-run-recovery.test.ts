@@ -14,6 +14,7 @@ import type {
 	DesktopClientRequestWithoutId,
 	ServerEventMessage,
 	ServerResponseMessage,
+	SessionQueueSnapshot,
 	SessionSnapshotPayload,
 } from "../src/modes/desktop/protocol.ts";
 import {
@@ -533,11 +534,14 @@ it("automatically resumes once after a real bridge shutdown, preserving user and
 			message: "promoted instruction",
 			streamingBehavior: "followUp",
 		});
-		const beforeQueue = await first.request<{ queue: { steering: string[]; followUp: string[] } }>({
+		const beforeQueue = await first.request<{ queue: SessionQueueSnapshot }>({
 			type: "session.stats",
 			sessionId,
 		});
-		expect(beforeQueue.result?.queue).toEqual({
+		expect({
+			steering: beforeQueue.result?.queue.steering.map((item) => item.text),
+			followUp: beforeQueue.result?.queue.followUp.map((item) => item.text),
+		}).toEqual({
 			steering: ["same queued instruction"],
 			followUp: ["same queued instruction", "promoted instruction"],
 		});
@@ -568,12 +572,15 @@ it("automatically resumes once after a real bridge shutdown, preserving user and
 		expect(restored.result?.recovery?.status).toBe("resuming");
 		expect(concurrent.result?.running).toBe(true);
 		expect(factory).toHaveBeenCalledTimes(2);
-		const restoredQueue = await second.request<{ queue: { steering: string[]; followUp: string[] } }>({
+		const restoredQueue = await second.request<{ queue: SessionQueueSnapshot }>({
 			type: "session.stats",
 			sessionId,
 		});
 		// Steering is intentionally delivered at the recovery turn's first provider boundary.
-		expect(restoredQueue.result?.queue).toEqual({
+		expect({
+			steering: restoredQueue.result?.queue.steering.map((item) => item.text),
+			followUp: restoredQueue.result?.queue.followUp.map((item) => item.text),
+		}).toEqual({
 			steering: [],
 			followUp: ["same queued instruction", "promoted instruction"],
 		});
@@ -591,13 +598,17 @@ it("automatically resumes once after a real bridge shutdown, preserving user and
 			content: [{ type: "text", text: "same queued instruction" }, queuedImage],
 			owlQueueId: expect.any(String),
 		});
-		await second.request({ type: "session.queue.promote", sessionId, index: 1 });
-		await second.request({ type: "session.queue.remove", sessionId, lane: "steering", index: 0 });
-		const changedQueue = await second.request<{ queue: { steering: string[]; followUp: string[] } }>({
+		const promotedId = restoredQueue.result!.queue.followUp[1].messageId;
+		await second.request({ type: "session.queue.promote", sessionId, messageId: promotedId });
+		await second.request({ type: "session.queue.remove", sessionId, lane: "steering", messageId: promotedId });
+		const changedQueue = await second.request<{ queue: SessionQueueSnapshot }>({
 			type: "session.stats",
 			sessionId,
 		});
-		expect(changedQueue.result?.queue).toEqual({ steering: [], followUp: ["same queued instruction"] });
+		expect({
+			steering: changedQueue.result?.queue.steering.map((item) => item.text),
+			followUp: changedQueue.result?.queue.followUp.map((item) => item.text),
+		}).toEqual({ steering: [], followUp: ["same queued instruction"] });
 		expect(
 			restored.result?.messages.filter((message) => (message as { role?: string }).role === "user"),
 		).toHaveLength(2);

@@ -13,6 +13,7 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import {
@@ -125,7 +126,12 @@ import {
 	SessionManager,
 	type SessionProjection,
 } from "./session-manager.ts";
-import { SessionQueueTracker } from "./session-queue.ts";
+import {
+	type QueuedUserInput,
+	type QueuedUserMessage,
+	SessionQueueTracker,
+	snapshotAgentQueue,
+} from "./session-queue.ts";
 import { isExplicitProviderRefusal, SessionRetryController } from "./session-retry.ts";
 import { computeContextUsage, computeSessionStats } from "./session-stats.ts";
 import { SessionTreeNavigationController } from "./session-tree.ts";
@@ -1286,7 +1292,11 @@ export class AgentSession {
 			this._emptyLengthRecoveryCount = 0;
 			this._lastRequestOutputBudget = undefined;
 			const messageText = contentText(event.message.content, "");
-			if (messageText) this._queue.removeDelivered(messageText);
+			const messageId =
+				"owlQueueId" in event.message && typeof event.message.owlQueueId === "string"
+					? event.message.owlQueueId
+					: undefined;
+			if (messageText || messageId) this._queue.removeDelivered(messageText, messageId);
 		}
 
 		// Emit to extensions first, then notify public listeners.
@@ -2235,10 +2245,11 @@ export class AgentSession {
 				? `[Attached files for this turn]\n${options.attachedPaths.map((p) => `- ${p}`).join("\n")}\n\n`
 				: "";
 			const queuedText = attachmentsHeader + expandedText;
+			const originalInput: QueuedUserInput = { text, images: options.images, attachedPaths: options.attachedPaths };
 			if (options.streamingBehavior === "followUp") {
-				await this._queueFollowUp(queuedText, currentImages);
+				await this._queueFollowUp(queuedText, currentImages, originalInput);
 			} else {
-				await this._queueSteer(queuedText, currentImages);
+				await this._queueSteer(queuedText, currentImages, originalInput);
 			}
 			preflightResult?.("queued");
 			return;
@@ -2448,9 +2459,9 @@ export class AgentSession {
 		expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
 
 		if (behavior === "steer") {
-			await this._queueSteer(expandedText, processedInput.images);
+			await this._queueSteer(expandedText, processedInput.images, { text, images });
 		} else {
-			await this._queueFollowUp(expandedText, processedInput.images);
+			await this._queueFollowUp(expandedText, processedInput.images, { text, images });
 		}
 		return "queued";
 	}
@@ -2491,29 +2502,39 @@ export class AgentSession {
 	/**
 	 * Internal: Queue a steering message (already expanded, no extension command check).
 	 */
-	private async _queueSteer(text: string, images?: ImageContent[]): Promise<void> {
-		this._queue.pushSteering(text);
+	private async _queueSteer(text: string, images?: ImageContent[], input?: QueuedUserInput): Promise<void> {
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
 		}
-		this.agent.steer({
+		const message: QueuedUserMessage = {
 			role: "user",
 			content,
 			timestamp: Date.now(),
-		});
+			owlQueueId: randomUUID(),
+			owlQueueInput: structuredClone(input ?? { text, images }),
+		};
+		this.agent.steer(message);
+		this._queue.pushSteering(text, message.owlQueueId);
 	}
 
 	/**
 	 * Internal: Queue a follow-up message (already expanded, no extension command check).
 	 */
-	private async _queueFollowUp(text: string, images?: ImageContent[]): Promise<void> {
-		this._queue.pushFollowUp(text);
+	private async _queueFollowUp(text: string, images?: ImageContent[], input?: QueuedUserInput): Promise<void> {
 		const content: (TextContent | ImageContent)[] = [{ type: "text", text }];
 		if (images) {
 			content.push(...images);
 		}
-		this.agent.followUp({ role: "user", content, timestamp: Date.now() });
+		const message: QueuedUserMessage = {
+			role: "user",
+			content,
+			timestamp: Date.now(),
+			owlQueueId: randomUUID(),
+			owlQueueInput: structuredClone(input ?? { text, images }),
+		};
+		this.agent.followUp(message);
+		this._queue.pushFollowUp(text, message.owlQueueId);
 	}
 
 	/**
@@ -2674,20 +2695,42 @@ export class AgentSession {
 		return this._queue.clear();
 	}
 
-	/** Drop one pending line from both the agent queue and the UI mirror. */
-	removeQueuedMessage(lane: "steering" | "followUp", index: number): boolean {
+	/** The real Agent queue is authoritative; stable IDs never target a shifted neighbour. */
+	getQueuedMessage(messageId: string): { lane: "steering" | "followUp"; message: QueuedUserMessage } | undefined {
+		const queues = snapshotAgentQueue(this.agent);
+		for (const lane of ["steering", "followUp"] as const) {
+			const message = queues[lane].find(
+				(item) => item.role === "user" && "owlQueueId" in item && item.owlQueueId === messageId,
+			);
+			if (message?.role === "user") return { lane, message: message as QueuedUserMessage };
+		}
+		return undefined;
+	}
+
+	/** Only pending messages are removable; drained/in-flight messages are never guessed by text. */
+	removeQueuedMessage(lane: "steering" | "followUp", messageId: string): boolean {
+		const messages = snapshotAgentQueue(this.agent)[lane];
+		const index = messages.findIndex(
+			(item) => item.role === "user" && "owlQueueId" in item && item.owlQueueId === messageId,
+		);
+		if (index < 0) return false;
 		const taken = lane === "steering" ? this.agent.takeSteeringAt(index) : this.agent.takeFollowUpAt(index);
 		if (!taken) return false;
-		this._queue.removeAt(lane, index);
+		this._queue.removeId(lane, messageId);
 		return true;
 	}
 
 	/** Move a follow-up into the steering queue so the current turn sees it at the next tool boundary. */
-	promoteQueuedFollowUp(index: number): boolean {
+	promoteQueuedFollowUp(messageId: string): boolean {
+		const messages = snapshotAgentQueue(this.agent).followUp;
+		const index = messages.findIndex(
+			(item) => item.role === "user" && "owlQueueId" in item && item.owlQueueId === messageId,
+		);
+		if (index < 0) return false;
 		const taken = this.agent.takeFollowUpAt(index);
 		if (!taken) return false;
 		this.agent.steer(taken);
-		this._queue.moveFollowUpToSteering(index);
+		this._queue.promoteId(messageId);
 		return true;
 	}
 

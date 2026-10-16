@@ -18,10 +18,12 @@ import type {
 	NativeObservation,
 	WindowRow,
 } from "../src/driver/protocol.ts";
+import type { DriverControlStop, DriverSpawnOptions } from "../src/driver/session.ts";
 
 const mockHost = vi.hoisted(() => ({
 	driver: undefined as (ComputerDriverPort & { close(): void }) | undefined,
 	interrupt: undefined as ((event: DesktopControlInterruption) => void) | undefined,
+	onControlStop: undefined as ((event: DriverControlStop) => void) | undefined,
 }));
 
 vi.mock("@owl/owl-coding-agent", () => ({
@@ -35,9 +37,13 @@ vi.mock("@owl/owl-coding-agent", () => ({
 vi.mock("../src/driver/session.ts", () => ({
 	ComputerDriverSession: class {
 		private readonly driver: ComputerDriverPort & { close(): void };
-		constructor() {
+		constructor(_factory?: unknown, options: DriverSpawnOptions = {}) {
 			if (!mockHost.driver) throw new Error("Missing lifecycle fixture driver");
 			this.driver = mockHost.driver;
+			mockHost.onControlStop = options.onControlStop;
+		}
+		setControlOwner(ownerId: string | undefined) {
+			if (this.driver instanceof FakeDriver) this.driver.controlOwnerId = ownerId;
 		}
 		windows(signal?: AbortSignal) {
 			return this.driver.windows(signal);
@@ -85,6 +91,8 @@ class FakeDriver implements ComputerDriverPort {
 	releaseWait: Promise<void> | undefined;
 	observeWait: Promise<void> | undefined;
 	diagnostics: string[] = [];
+	controlOwnerId: string | undefined;
+	onClose: (() => void) | undefined;
 	async windows(): Promise<WindowRow[]> {
 		return [{ ...window }];
 	}
@@ -107,15 +115,17 @@ class FakeDriver implements ComputerDriverPort {
 	}
 	close(): void {
 		this.closeCount++;
+		this.onClose?.();
 	}
 }
 
 type LifecycleHandler = (event: { type: string; reason?: string; aborted?: boolean }, ctx: ExtensionContext) => unknown;
 
-function context(sessionId = "chat-a"): ExtensionToolContext {
+function context(sessionId = "chat-a", abort: () => void = () => {}): ExtensionToolContext {
 	return {
 		sessionManager: { getSessionId: () => sessionId, buildSessionProjection: () => ({ messages: [] }) },
 		model: { input: ["text", "image"] },
+		abort,
 	} as unknown as ExtensionToolContext;
 }
 
@@ -126,6 +136,7 @@ function createHost() {
 	const handlers = new Map<string, LifecycleHandler>();
 	const events: string[] = [];
 	let active: string[] = [];
+	const abort = vi.fn();
 	const api = {
 		getSettings: () => ({ owlComputerUse: { enabled: true } }),
 		registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool),
@@ -135,13 +146,24 @@ function createHost() {
 		},
 	};
 	computerUsePlugin(api as unknown as ExtensionAPI);
+	const onControlStop = mockHost.onControlStop;
 	return {
 		driver,
 		tools,
 		events,
+		abort,
+		stopControl(event: Partial<DriverControlStop> = {}) {
+			onControlStop?.({
+				controlId: "native-control",
+				requestId: 1,
+				workerGeneration: 1,
+				ownerId: driver.controlOwnerId,
+				...event,
+			});
+		},
 		async emit(type: string, sessionId = "chat-a", reason?: string) {
 			events.push(type);
-			await handlers.get(type)?.({ type, reason }, context(sessionId));
+			await handlers.get(type)?.({ type, reason }, context(sessionId, abort));
 		},
 		async call(name: string, params: Record<string, unknown> = {}, sessionId = "chat-a") {
 			const tool = tools.get(name);
@@ -169,6 +191,7 @@ describe("computer-use real plugin lifecycle", () => {
 	beforeEach(() => {
 		mockHost.driver = undefined;
 		mockHost.interrupt = undefined;
+		mockHost.onControlStop = undefined;
 	});
 
 	it("startup then agent_start and actual tool_search activation does not reset the run", async () => {
@@ -316,5 +339,105 @@ describe("computer-use real plugin lifecycle", () => {
 		delayed.resolve();
 		await oldCleanup;
 		expect(host.driver.closeCount).toBe(closesBeforeOldCleanup);
+	});
+
+	it("native control Stop revokes the run before closing input and aborts its owning host", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		await host.call("computer_observe");
+		expect(host.driver.controlOwnerId).toBeTypeOf("string");
+		const close = vi.spyOn(host.driver, "close");
+		host.stopControl();
+		expect(close).toHaveBeenCalledOnce();
+		expect(host.abort).toHaveBeenCalledOnce();
+		expect(close.mock.invocationCallOrder[0]).toBeLessThan(host.abort.mock.invocationCallOrder[0]);
+		await expect(host.call("computer_observe")).rejects.toThrow("桌面操作已停止");
+		await expect(host.call("computer_release")).resolves.toMatchObject({ structuredContent: { status: "released" } });
+	});
+
+	it("a late control Stop cannot abort the next run of the same chat", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		const oldOwner = host.driver.controlOwnerId;
+		await host.emit("agent_start");
+		expect(host.driver.controlOwnerId).not.toBe(oldOwner);
+		const closes = host.driver.closeCount;
+		host.stopControl({ ownerId: oldOwner });
+		expect(host.abort).not.toHaveBeenCalled();
+		expect(host.driver.closeCount).toBe(closes);
+		await expect(host.call("computer_observe")).resolves.toMatchObject({ structuredContent: { status: "observed" } });
+	});
+
+	it("native Stop cancels only the owning plugin host", async () => {
+		const first = createHost();
+		await first.emit("agent_start", "chat-a");
+		const second = createHost();
+		await second.emit("agent_start", "chat-b");
+		first.stopControl();
+		expect(first.abort).toHaveBeenCalledOnce();
+		expect(second.abort).not.toHaveBeenCalled();
+		expect(second.driver.closeCount).toBe(0);
+	});
+
+	it("a stopped in-flight action remains unknown and cannot obtain another token", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		const observed = await host.call("computer_observe");
+		const content = observed.structuredContent as { observation: { observationId: string } };
+		const entered = deferred();
+		const finish = deferred();
+		vi.spyOn(host.driver, "act").mockImplementationOnce(async () => {
+			entered.resolve();
+			await finish.promise;
+			throw new Error("native worker closed after Stop");
+		});
+		const action = host.call("computer_act", {
+			observationId: content.observation.observationId,
+			action: "type",
+			text: "abc",
+		});
+		await entered.promise;
+		host.stopControl();
+		finish.resolve();
+		expect((await action).structuredContent).toMatchObject({
+			status: "unknown",
+			code: "user_stopped",
+			retryable: false,
+		});
+		await expect(host.call("computer_observe")).rejects.toThrow("桌面操作已停止");
+	});
+
+	it("an old native cleanup rejection cannot close a replacement run", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		const delayed = deferred();
+		vi.spyOn(host.driver, "release").mockImplementationOnce(async () => {
+			await delayed.promise;
+			throw new Error("old worker closed by next run");
+		});
+		const oldCleanup = host.emit("agent_settled");
+		await host.emit("agent_start");
+		delayed.resolve();
+		await expect(oldCleanup).resolves.toBeUndefined();
+		await expect(host.call("computer_observe")).resolves.toMatchObject({ structuredContent: { status: "observed" } });
+	});
+
+	it("still surfaces cleanup failures belonging to the current run", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		vi.spyOn(host.driver, "release").mockRejectedValueOnce(new Error("current cleanup failure"));
+		await expect(host.emit("agent_settled")).rejects.toThrow("current cleanup failure");
+	});
+
+	it("a synchronous run replacement during Stop cleanup is not aborted by the old callback", async () => {
+		const host = createHost();
+		await host.emit("agent_start");
+		host.driver.onClose = () => {
+			void host.emit("agent_start");
+		};
+		host.stopControl();
+		expect(host.abort).not.toHaveBeenCalled();
+		host.driver.onClose = undefined;
+		await expect(host.call("computer_observe")).resolves.toMatchObject({ structuredContent: { status: "observed" } });
 	});
 });

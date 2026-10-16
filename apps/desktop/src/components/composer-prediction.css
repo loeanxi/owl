@@ -1,0 +1,113 @@
+.owl-composer-draft[data-prediction] {
+	position: relative;
+}
+
+.owl-composer-responsive .owl-composer-editor[data-prediction] {
+	padding-inline-end: 82px;
+}
+
+.owl-composer-editor[data-prediction]:empty::before {
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-composer-prediction-accept {
+	position: absolute;
+	inset-block-start: 4px;
+	inset-inline-end: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	min-height: 24px;
+	padding: 2px 5px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 11px;
+	line-height: 18px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.owl-composer-prediction-accept kbd {
+	padding: 0 3px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-border));
+	border-radius: 3px;
+	font-family: inherit;
+	font-size: 10px;
+	line-height: 16px;
+}
+
+.owl-composer-prediction-accept:hover {
+	background: var(--color-owl-hover);
+	color: var(--owl-ui-text, var(--color-owl-text));
+}
+
+.owl-composer-prediction-accept:focus-visible,
+.owl-composer-prediction-switch:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 2px;
+}
+
+.owl-composer-prediction-setting {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 6px;
+	padding: 8px 6px 4px;
+	border-top: 1px solid var(--owl-ui-border, var(--color-owl-border));
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 11px;
+}
+
+.owl-composer-prediction-setting label {
+	cursor: pointer;
+}
+
+.owl-composer-prediction-switch {
+	display: flex;
+	flex: none;
+	align-items: center;
+	width: 28px;
+	height: 18px;
+	padding: 2px;
+	border: 0;
+	border-radius: 9px;
+	background: var(--color-owl-hover);
+	cursor: pointer;
+}
+
+.owl-composer-prediction-switch span {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: var(--owl-ui-muted, var(--color-owl-muted));
+}
+
+.owl-composer-prediction-switch[aria-checked="true"] {
+	justify-content: flex-end;
+	background: var(--color-owl-accent);
+}
+
+.owl-composer-prediction-switch[aria-checked="true"] span {
+	background: var(--color-owl-on-accent);
+}
+
+@media (pointer: coarse) {
+	.owl-composer-prediction-accept {
+		min-height: 32px;
+		inset-block-start: 0;
+	}
+
+	.owl-composer-prediction-switch {
+		position: relative;
+	}
+
+	.owl-composer-prediction-switch::after {
+		position: absolute;
+		inset: -7px -4px;
+		content: "";
+	}
+}

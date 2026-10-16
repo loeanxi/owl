@@ -2,10 +2,19 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { SessionManager } from "../../core/session-manager.ts";
+import { type QueuedUserMessage, queuedInputOf, snapshotAgentQueue } from "../../core/session-queue.ts";
 import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
-import type { DesktopRunTiming, SessionSnapshotPayload } from "./protocol.ts";
+import type {
+	DesktopRunTiming,
+	SessionQueueInput,
+	SessionQueueItem,
+	SessionQueueReturnedInput,
+	SessionQueueReturnedSummary,
+	SessionQueueSnapshot,
+	SessionSnapshotPayload,
+} from "./protocol.ts";
 
 export interface InterruptedDesktopRun {
 	sessionId: string;
@@ -28,34 +37,54 @@ export interface InterruptedDesktopRun {
 
 export interface DesktopQueuedMessage {
 	lane: "steering" | "followUp";
-	message: UserMessage & { owlQueueId: string };
+	message: QueuedUserMessage;
 }
 
 /** Public queue APIs are synchronous, so no model turn can drain these queues during the snapshot. */
 export function desktopQueuedMessages(agent: Agent): { steering: AgentMessage[]; followUp: AgentMessage[] } {
-	const steering: AgentMessage[] = [];
-	const followUp: AgentMessage[] = [];
-	try {
-		for (;;) {
-			const message = agent.takeSteeringAt(0);
-			if (!message) break;
-			steering.push(message);
-		}
-		for (;;) {
-			const message = agent.takeFollowUpAt(0);
-			if (!message) break;
-			followUp.push(message);
-		}
-		return { steering, followUp };
-	} finally {
-		for (const message of steering) agent.steer(message);
-		for (const message of followUp) agent.followUp(message);
-	}
+	return snapshotAgentQueue(agent);
+}
+
+export function desktopQueueInput(message: QueuedUserMessage, state: "queued" | "delivering"): SessionQueueInput {
+	const input = queuedInputOf(message);
+	return {
+		messageId: message.owlQueueId,
+		text: input.text,
+		images: input.images ?? [],
+		attachedPaths: input.attachedPaths ?? [],
+		state,
+	};
+}
+
+function queueItem(input: SessionQueueInput): SessionQueueItem {
+	return {
+		messageId: input.messageId,
+		text: input.text.slice(0, 500),
+		textTruncated: input.text.length > 500,
+		imageCount: input.images.length,
+		attachedPaths: [...input.attachedPaths],
+		state: input.state,
+	};
+}
+
+function pendingQueueEntries(agent: Agent): DesktopQueuedMessage[] {
+	const raw = desktopQueuedMessages(agent);
+	return (["steering", "followUp"] as const).flatMap((lane) =>
+		raw[lane].flatMap((message) =>
+			message.role === "user" ? [{ lane, message: message as QueuedUserMessage }] : [],
+		),
+	);
 }
 
 interface RecoveryFile {
 	version: 1;
 	runs: Record<string, InterruptedDesktopRun>;
+	/** Durable hand-off receipts survive session shutdown/deletion and contain the only returned binary material. */
+	returnedInputs?: Record<string, SessionQueueReturnedInput>;
+	/** Permanent identity tombstones prevent restart replay even after a receipt is explicitly removed. */
+	removedQueueIds?: Record<string, { removedAt: number; receiptId?: string }>;
+	/** Pending input is retained independently from permission to automatically resume an active run. */
+	pendingQueues?: Record<string, DesktopQueuedMessage[]>;
 }
 
 function processExists(pid: number): boolean {
@@ -179,35 +208,33 @@ export class DesktopRunRecovery {
 	boundary(sessionManager: SessionManager): void {
 		if (this.frozen) return;
 		this.update((file) => {
-			const run = file.runs[sessionManager.getSessionId()];
-			if (run?.ownerId !== this.ownerId) return;
+			const sessionId = sessionManager.getSessionId();
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) return;
 			for (const message of sessionManager.buildSessionProjection().messages) {
-				if (message.role === "toolResult") delete run.completedTools[message.toolCallId];
+				if (run && message.role === "toolResult") delete run.completedTools[message.toolCallId];
 				if ("owlQueueId" in message && typeof message.owlQueueId === "string") {
-					run.pendingMessages = run.pendingMessages?.filter(
-						(queued) => queued.message.owlQueueId !== message.owlQueueId,
-					);
+					if (run)
+						run.pendingMessages = run.pendingMessages?.filter(
+							(queued) => queued.message.owlQueueId !== message.owlQueueId,
+						);
+					if (file.pendingQueues?.[sessionId])
+						file.pendingQueues[sessionId] = file.pendingQueues[sessionId].filter(
+							(queued) => queued.message.owlQueueId !== message.owlQueueId,
+						);
 				}
 			}
-			run.updatedAt = Date.now();
+			if (run) run.updatedAt = Date.now();
 		});
 	}
 
 	captureQueue(sessionManager: SessionManager, agent: Agent, discardedIds: readonly string[] = []): void {
 		if (this.frozen) return;
-		const queues = desktopQueuedMessages(agent);
-		const pending: DesktopQueuedMessage[] = [];
-		for (const lane of ["steering", "followUp"] as const) {
-			for (const message of queues[lane]) {
-				if (message.role !== "user") continue;
-				const queued = message as UserMessage & { owlQueueId?: string };
-				queued.owlQueueId ??= randomUUID();
-				pending.push({ lane, message: queued as DesktopQueuedMessage["message"] });
-			}
-		}
+		const pending = pendingQueueEntries(agent);
 		this.update((file) => {
-			const run = file.runs[sessionManager.getSessionId()];
-			if (run?.ownerId !== this.ownerId) return;
+			const sessionId = sessionManager.getSessionId();
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) return;
 			const delivered = new Set(
 				sessionManager
 					.buildSessionProjection()
@@ -215,40 +242,241 @@ export class DesktopRunRecovery {
 						"owlQueueId" in message && typeof message.owlQueueId === "string" ? [message.owlQueueId] : [],
 					),
 			);
-			const current = new Set(pending.map((queued) => queued.message.owlQueueId));
+			const removed = (id: string) => Boolean(file.removedQueueIds?.[`${sessionId}:${id}`]);
+			const retainedPending = pending.filter(
+				(queued) => !removed(queued.message.owlQueueId) && !delivered.has(queued.message.owlQueueId),
+			);
+			file.pendingQueues ??= {};
+			file.pendingQueues[sessionId] = retainedPending;
+			if (!run) return;
+			const current = new Set(retainedPending.map((queued) => queued.message.owlQueueId));
 			// A queue can be drained before its messages append; retain those until their durable entry arrives.
 			const inFlight = (run.pendingMessages ?? []).filter(
 				(queued) =>
 					!current.has(queued.message.owlQueueId) &&
 					!delivered.has(queued.message.owlQueueId) &&
+					!removed(queued.message.owlQueueId) &&
 					!discardedIds.includes(queued.message.owlQueueId),
 			);
-			run.pendingMessages = [...inFlight, ...pending];
+			run.pendingMessages = [...inFlight, ...retainedPending];
 			run.updatedAt = Date.now();
 		});
 	}
 
-	queue(sessionId: string): { steering: string[]; followUp: string[] } | undefined {
-		const run = this.read().runs[sessionId];
-		if (!run) return undefined;
-		const snapshot = { steering: [] as string[], followUp: [] as string[] };
-		for (const queued of run.pendingMessages ?? []) {
-			const content = queued.message.content;
-			snapshot[queued.lane].push(
-				typeof content === "string"
-					? content
-					: content
-							.filter((part) => part.type === "text")
-							.map((part) => part.text)
-							.join("\n"),
+	queue(sessionId: string, agent?: Agent): SessionQueueSnapshot | undefined {
+		const file = this.read();
+		const run = file.runs[sessionId];
+		if (!run && !agent && !file.pendingQueues?.[sessionId]) return undefined;
+		const raw = agent ? desktopQueuedMessages(agent) : undefined;
+		const actual = new Map<string, DesktopQueuedMessage>();
+		if (raw)
+			for (const lane of ["steering", "followUp"] as const)
+				for (const message of raw[lane]) {
+					if (message.role === "user" && "owlQueueId" in message && typeof message.owlQueueId === "string") {
+						actual.set(message.owlQueueId, { lane, message: message as QueuedUserMessage });
+					}
+				}
+		const snapshot: SessionQueueSnapshot = { steering: [], followUp: [] };
+		const seen = new Set<string>();
+		for (const queued of run?.pendingMessages ?? file.pendingQueues?.[sessionId] ?? []) {
+			if (file.removedQueueIds?.[`${sessionId}:${queued.message.owlQueueId}`]) continue;
+			const live = actual.get(queued.message.owlQueueId);
+			const source = live ?? queued;
+			snapshot[source.lane].push(
+				queueItem(desktopQueueInput(source.message, raw && !live ? "delivering" : "queued")),
 			);
+			seen.add(queued.message.owlQueueId);
+		}
+		for (const [id, source] of actual) {
+			if (!seen.has(id) && !file.removedQueueIds?.[`${sessionId}:${id}`]) {
+				snapshot[source.lane].push(queueItem(desktopQueueInput(source.message, "queued")));
+			}
 		}
 		return snapshot;
 	}
 
-	finish(sessionId: string): void {
-		if (this.frozen) return;
+	queuedInput(sessionId: string, messageId: string): SessionQueueInput | undefined {
+		const file = this.read();
+		if (file.removedQueueIds?.[`${sessionId}:${messageId}`]) return undefined;
+		const active = file.runs[sessionId]?.pendingMessages?.find((item) => item.message.owlQueueId === messageId);
+		if (active) return desktopQueueInput(active.message, "delivering");
+		const passive = file.pendingQueues?.[sessionId]?.find((item) => item.message.owlQueueId === messageId);
+		return passive ? desktopQueueInput(passive.message, "queued") : undefined;
+	}
+
+	/** Restore editor material on an explicit mount, without starting or continuing the agent. */
+	restoreQueue(sessionManager: SessionManager, agent: Agent): void {
+		const sessionId = sessionManager.getSessionId();
+		const file = this.read();
+		const delivered = new Set(
+			sessionManager
+				.buildSessionProjection()
+				.messages.flatMap((message) =>
+					"owlQueueId" in message && typeof message.owlQueueId === "string" ? [message.owlQueueId] : [],
+				),
+		);
+		const existing = new Set(pendingQueueEntries(agent).map((item) => item.message.owlQueueId));
+		for (const queued of file.pendingQueues?.[sessionId] ?? []) {
+			const id = queued.message.owlQueueId;
+			if (existing.has(id) || delivered.has(id) || file.removedQueueIds?.[`${sessionId}:${id}`]) continue;
+			if (queued.lane === "steering") agent.steer(structuredClone(queued.message));
+			else agent.followUp(structuredClone(queued.message));
+			existing.add(id);
+		}
+	}
+
+	deletePendingQueue(sessionId: string): void {
 		this.update((file) => {
+			if (file.pendingQueues) delete file.pendingQueues[sessionId];
+		});
+	}
+
+	removeQueuedInput(sessionId: string, messageId: string): void {
+		if (this.frozen) throw new Error("桥正在关闭，队列操作未执行");
+		this.update((file) => {
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) throw new Error("当前运行由另一个桥拥有");
+			file.removedQueueIds ??= {};
+			file.removedQueueIds[`${sessionId}:${messageId}`] ??= { removedAt: Date.now() };
+			if (run) run.pendingMessages = run.pendingMessages?.filter((item) => item.message.owlQueueId !== messageId);
+			if (file.pendingQueues?.[sessionId])
+				file.pendingQueues[sessionId] = file.pendingQueues[sessionId].filter(
+					(item) => item.message.owlQueueId !== messageId,
+				);
+		});
+	}
+
+	promoteQueuedInput(sessionId: string, messageId: string): void {
+		if (this.frozen) throw new Error("桥正在关闭，队列操作未执行");
+		this.update((file) => {
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) throw new Error("当前运行由另一个桥拥有");
+			const queued = run?.pendingMessages?.find((item) => item.message.owlQueueId === messageId);
+			if (queued) queued.lane = "steering";
+			const passive = file.pendingQueues?.[sessionId]?.find((item) => item.message.owlQueueId === messageId);
+			if (passive) passive.lane = "steering";
+		});
+	}
+
+	/** Write the complete receipt and replay tombstone atomically before the live queue is touched. */
+	takeQueuedInput(
+		sessionManager: SessionManager,
+		agent: Agent,
+		messageId: string,
+		operationId: string,
+	): SessionQueueReturnedInput {
+		if (this.frozen) throw new Error("桥正在关闭，取回未执行");
+		if (!/^[a-zA-Z0-9_-]{1,200}$/.test(operationId)) throw new Error("无效的取回操作标识");
+		const sessionId = sessionManager.getSessionId();
+		return this.update((file) => {
+			const receiptKey = `receipt:${operationId}`;
+			const previous = file.returnedInputs?.[receiptKey];
+			if (previous) {
+				if (previous.sourceSessionId !== sessionId || previous.input.messageId !== messageId)
+					throw new Error("取回操作标识已用于另一条输入");
+				return structuredClone(previous);
+			}
+			if (Object.values(file.removedQueueIds ?? {}).some((removed) => removed.receiptId === operationId)) {
+				throw new Error("这份取回原件已被显式移除，操作标识不能用于另一条输入");
+			}
+			if (file.removedQueueIds?.[`${sessionId}:${messageId}`])
+				throw new Error("这条输入已移除或取回，请查看已取回输入");
+			const queues = desktopQueuedMessages(agent);
+			const message = [...queues.steering, ...queues.followUp].find(
+				(item) => item.role === "user" && "owlQueueId" in item && item.owlQueueId === messageId,
+			);
+			if (!message || message.role !== "user") throw new Error("这条输入已开始处理或已不在队列，不能取回");
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) throw new Error("当前运行由另一个桥拥有");
+			const receipt: SessionQueueReturnedInput = {
+				receiptId: operationId,
+				sourceSessionId: sessionId,
+				sourceCwd: sessionManager.getCwd(),
+				createdAt: Date.now(),
+				input: desktopQueueInput(message as QueuedUserMessage, "queued"),
+			};
+			file.returnedInputs ??= {};
+			file.returnedInputs[receiptKey] = receipt;
+			file.removedQueueIds ??= {};
+			file.removedQueueIds[`${sessionId}:${messageId}`] = { removedAt: receipt.createdAt, receiptId: operationId };
+			if (run) run.pendingMessages = run.pendingMessages?.filter((item) => item.message.owlQueueId !== messageId);
+			if (file.pendingQueues?.[sessionId])
+				file.pendingQueues[sessionId] = file.pendingQueues[sessionId].filter(
+					(item) => item.message.owlQueueId !== messageId,
+				);
+			return structuredClone(receipt);
+		});
+	}
+
+	returnedInput(receiptId: string): SessionQueueReturnedInput | undefined {
+		const found = this.read().returnedInputs?.[`receipt:${receiptId}`];
+		return found ? structuredClone(found) : undefined;
+	}
+
+	returnedInputs(sessionId?: string): SessionQueueReturnedSummary[] {
+		return Object.values(this.read().returnedInputs ?? {})
+			.filter((item) => sessionId === undefined || item.sourceSessionId === sessionId)
+			.sort((a, b) => b.createdAt - a.createdAt)
+			.map((item) => ({
+				receiptId: item.receiptId,
+				sourceSessionId: item.sourceSessionId,
+				sourceCwd: item.sourceCwd,
+				createdAt: item.createdAt,
+				...queueItem(item.input),
+			}));
+	}
+
+	removeReturnedInput(receiptId: string): void {
+		this.update((file) => {
+			if (!file.returnedInputs?.[`receipt:${receiptId}`]) throw new Error("这份已取回输入不存在");
+			delete file.returnedInputs[`receipt:${receiptId}`];
+		});
+	}
+
+	finish(sessionId: string, current?: { sessionManager: SessionManager; agent: Agent }): void {
+		if (this.frozen) return;
+		const pending = current ? pendingQueueEntries(current.agent) : undefined;
+		let delivered = current
+			? new Set(
+					current.sessionManager
+						.buildSessionProjection()
+						.messages.flatMap((message) =>
+							"owlQueueId" in message && typeof message.owlQueueId === "string" ? [message.owlQueueId] : [],
+						),
+				)
+			: undefined;
+		this.update((file) => {
+			const run = file.runs[sessionId];
+			if (run && run.ownerId !== this.ownerId) return;
+			if (!delivered && run && existsSync(run.sessionPath)) {
+				try {
+					delivered = new Set(
+						SessionManager.open(run.sessionPath)
+							.buildSessionProjection()
+							.messages.flatMap((message) =>
+								"owlQueueId" in message && typeof message.owlQueueId === "string" ? [message.owlQueueId] : [],
+							),
+					);
+				} catch {
+					// Uncertain material stays passive; it never grants automatic execution permission.
+				}
+			}
+			if (pending || run) {
+				file.pendingQueues ??= {};
+				const retained = new Map<string, DesktopQueuedMessage>();
+				for (const item of [
+					...(file.pendingQueues[sessionId] ?? []),
+					...(run?.pendingMessages ?? []),
+					...(pending ?? []),
+				]) {
+					retained.set(item.message.owlQueueId, item);
+				}
+				file.pendingQueues[sessionId] = [...retained.values()].filter(
+					(item) =>
+						!file.removedQueueIds?.[`${sessionId}:${item.message.owlQueueId}`] &&
+						!delivered?.has(item.message.owlQueueId),
+				);
+			}
 			if (file.runs[sessionId]?.ownerId === this.ownerId) delete file.runs[sessionId];
 		});
 	}
@@ -289,6 +517,9 @@ export class DesktopRunRecovery {
 				run.ownerId = this.ownerId;
 				run.ownerPid = process.pid;
 				delete run.ownerReleased;
+				run.pendingMessages = run.pendingMessages?.filter(
+					(item) => !file.removedQueueIds?.[`${run.sessionId}:${item.message.owlQueueId}`],
+				);
 				claimed.push(structuredClone(run));
 			}
 			return claimed;

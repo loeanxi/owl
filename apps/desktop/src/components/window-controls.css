@@ -1,0 +1,53 @@
+/* Caption controls keep a full hit area while their glyphs use a consistent optical size. */
+.owl-desktop-titlebar .owl-window-controls {
+	display: flex;
+	height: 100%;
+	flex: 0 0 auto;
+	align-items: stretch;
+	gap: 0;
+	margin-left: 0;
+}
+
+.owl-desktop-titlebar .owl-window-controls > .owl-window-button {
+	display: inline-flex;
+	width: 45px;
+	height: 100%;
+	flex: 0 0 45px;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	border-radius: 0;
+	color: var(--owl-ui-text, var(--color-owl-sidebar-text));
+}
+
+.owl-window-controls .owl-window-control-icon {
+	display: block;
+	width: 16px;
+	height: 16px;
+	flex: none;
+	pointer-events: none;
+}
+
+.owl-desktop-titlebar .owl-window-button:hover {
+	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+}
+
+.owl-desktop-titlebar .owl-window-button:focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: -3px;
+}
+
+.owl-desktop-titlebar .owl-window-controls .owl-window-close:hover {
+	background: #c42b1c;
+	color: #fff;
+}
+
+.owl-desktop-titlebar .owl-window-controls .owl-window-close:active {
+	background: #a82418;
+	color: #fff;
+}
+
+/* Native Frost keeps dark idle glyphs, but the red close state needs a white cross. */
+html[data-owl-preset="frost"][data-owl-window-glass]:not([data-owl-wallpaper="on"]) .owl-desktop-titlebar .owl-window-controls .owl-window-close:is(:hover, :active) {
+	color: #fff;
+}

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accentTextColor, applyOwlAppearance, DEFAULT_OWL_APPEARANCE, isGlassPreset, normalizeHexColor, parseOwlAppearance, presetThemeLock, resolveSurfaceTheme } from "./owl-appearance.ts";
+import { CODEX_THEME_IDS, CODEX_THEMES } from "./codex-themes.ts";
+import { accentTextColor, applyOwlAppearance, DEFAULT_OWL_APPEARANCE, isGlassPreset, normalizeHexColor, parseOwlAppearance, presetThemeLock, PRESET_DEFAULT_COLORS, resolveSurfaceTheme } from "./owl-appearance.ts";
 
 test("normalizeHexColor accepts only #rgb and #rrggbb and normalizes to lowercase #rrggbb", () => {
 	assert.equal(normalizeHexColor("#ABC"), "#aabbcc");
@@ -44,7 +45,7 @@ test("known presets are kept and unknown ones fall back to the default preset", 
 	assert.equal(parseOwlAppearance({ preset: "codex" }).preset, "codex");
 	assert.equal(parseOwlAppearance({ preset: "liquid-glass" }).preset, "liquid-glass");
 	assert.equal(parseOwlAppearance({ preset: "frost" }).preset, "frost");
-	for (const preset of ["ink", "polar-night", "ink-hc", "vscode-modern", "vscode-classic", "monokai", "monokai-dimmed", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red", "high-contrast"]) {
+	for (const preset of ["claude", "ink", "polar-night", "ink-hc", "vscode-modern", "vscode-classic", "monokai", "monokai-dimmed", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red", "high-contrast"]) {
 		assert.equal(parseOwlAppearance({ preset }).preset, preset);
 		assert.equal(presetThemeLock(parseOwlAppearance({ preset }).preset), null);
 		assert.equal(isGlassPreset(parseOwlAppearance({ preset }).preset), false);
@@ -77,6 +78,20 @@ test("frost shares the glass family and locks the dark theme", () => {
 test("quiet light only has a light palette, so it locks the light theme", () => {
 	assert.equal(presetThemeLock("quiet-light"), "light");
 	assert.equal(isGlassPreset("quiet-light"), false);
+});
+
+test("codex themes parse as presets and lock the only variant they ship", () => {
+	for (const id of CODEX_THEME_IDS) {
+		assert.equal(parseOwlAppearance({ preset: id }).preset, id);
+		assert.equal(isGlassPreset(id), false);
+		const { dark, light } = CODEX_THEMES[id];
+		assert.equal(presetThemeLock(id), dark && light ? null : dark ? "dark" : "light");
+		assert.ok(PRESET_DEFAULT_COLORS[id].dark.background && PRESET_DEFAULT_COLORS[id].light.background);
+	}
+	assert.equal(presetThemeLock("cx-tokyo-night"), "dark");
+	assert.equal(presetThemeLock("cx-proof"), "light");
+	assert.equal(presetThemeLock("cx-github"), null);
+	assert.deepEqual(PRESET_DEFAULT_COLORS["cx-tokyo-night"].light, { background: "#1a1b26", foreground: "#a9b1d6" });
 });
 
 test("accent text stays readable on bright, dark and middle-tone custom colors and hover shades", () => {

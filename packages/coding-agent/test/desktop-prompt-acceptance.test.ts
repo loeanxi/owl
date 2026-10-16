@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import * as runtimeModule from "../src/core/agent-session-runtime.ts";
@@ -38,6 +39,7 @@ async function withBridge(
 		responses: ServerResponseMessage[];
 		request: (payload: DesktopClientRequestWithoutId) => Promise<ServerResponseMessage>;
 	}) => Promise<void>,
+	agentPreset?: string,
 ) {
 	const root = resolve(await mkdtemp(join(tmpdir(), "owl-prompt-acceptance-")));
 	if (dirname(root) !== resolve(tmpdir()) || !basename(root).startsWith("owl-prompt-acceptance-"))
@@ -98,7 +100,7 @@ async function withBridge(
 				connected.send(JSON.stringify({ ...payload, id }));
 			});
 		}
-		const created = await request({ type: "session.create", cwd });
+		const created = await request({ type: "session.create", cwd, ...(agentPreset ? { agentPreset } : {}) });
 		expect(created.ok).toBe(true);
 		const sessionId = (created.result as { sessionId: string }).sessionId;
 		if (!harness) throw new Error("Faux runtime was not mounted");
@@ -125,6 +127,82 @@ it("rejects missing credentials before accepting or persisting attached input", 
 		expect(harness.session.messages.filter((message) => message.role === "user")).toEqual([]);
 		expect(events.some((message) => (message.event as { type?: string }).type === "agent_start")).toBe(false);
 	});
+});
+
+it("rejects an unsupported real desktop task before any provider or Bash work", async () => {
+	await withBridge(
+		{ initialActiveToolNames: ["read", "bash", "edit"], allowedToolNames: ["read", "bash", "edit"] },
+		async ({ harness, sessionId, request, events }) => {
+			const result = await request({
+				type: "session.prompt",
+				sessionId,
+				message:
+					"测试 Owl 新版 Computer Use，完成一次真实桌面操作闭环。\n先通过 tool_search 加载 computer_observe、computer_act、computer_release，只操作空白记事本，输入中文并回读核对。全程使用这三个工具，不要用 Bash、PowerShell 或文件写入代替桌面操作。",
+			});
+			expect(result).toMatchObject({ ok: false, error: expect.stringContaining("极简模式") });
+			expect(result.error).toContain("computer_observe");
+			expect(result.error).toContain("标准模式");
+			expect(harness.faux.state.callCount).toBe(0);
+			expect(harness.session.messages.some((message) => message.role === "toolResult")).toBe(false);
+			expect(events.some((message) => (message.event as { type?: string }).type === "agent_start")).toBe(false);
+		},
+		"minimal",
+	);
+});
+
+it("still lets a restricted desktop session diagnose Computer Use source", async () => {
+	await withBridge(
+		{ initialActiveToolNames: ["read", "bash", "edit"], allowedToolNames: ["read", "bash", "edit"] },
+		async ({ harness, sessionId, request }) => {
+			harness.setResponses([fauxAssistantMessage("定位源码问题")]);
+			expect(
+				await request({
+					type: "session.prompt",
+					sessionId,
+					message: "只读检查 Computer Use 源码和这次失败会话，解释 computer_act 的执行链；不要实际操作电脑。",
+				}),
+			).toMatchObject({ ok: true });
+			await harness.session.waitForIdle();
+			expect(harness.faux.state.callCount).toBe(1);
+		},
+		"minimal",
+	);
+});
+
+it("lets standard mode with registered computer tools enter its provider normally", async () => {
+	await withBridge(
+		{
+			extensionFactories: [
+				{
+					name: "computer-fixture",
+					factory: (pi) => {
+						for (const name of ["computer_observe", "computer_act", "computer_release"])
+							pi.registerTool({
+								name,
+								label: name,
+								description: "Desktop test capability",
+								parameters: Type.Object({}),
+								execute: async () => ({ content: [{ type: "text", text: "fixture" }], details: undefined }),
+							});
+					},
+				},
+			],
+		},
+		async ({ harness, sessionId, request }) => {
+			harness.setResponses([fauxAssistantMessage("ready")]);
+			expect(
+				await request({
+					type: "session.prompt",
+					sessionId,
+					message:
+						"测试 Owl 新版 Computer Use，通过 computer_observe、computer_act、computer_release 在记事本输入中文并核对。",
+				}),
+			).toMatchObject({ ok: true });
+			await harness.session.waitForIdle();
+			expect(harness.faux.state.callCount).toBe(1);
+		},
+		"standard",
+	);
 });
 
 it("rejects compaction and missing-model preflight failures with a single failure response", async () => {

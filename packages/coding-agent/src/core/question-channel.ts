@@ -12,7 +12,12 @@
  * 同一份 dist 模块实例，这里就是两边共享的接缝。
  */
 
-import type { DesktopServerMessage, QuestionAnswerPayload, QuestionRequestMessage } from "../modes/desktop/protocol.ts";
+import type {
+	DesktopQuestionEvent,
+	DesktopServerMessage,
+	QuestionAnswerPayload,
+	QuestionRequestMessage,
+} from "../modes/desktop/protocol.ts";
 
 /** 桥注入的提问通道：向所有已连接的桌面 UI 广播 + 连接探针。 */
 export interface QuestionChannel {
@@ -89,7 +94,21 @@ export function resolveQuestion(requestId: string, outcome: QuestionOutcome): bo
 	if (!entry) return false;
 	pending.delete(requestId);
 	requests.delete(requestId);
-	entry.resolve(outcome);
+	try {
+		const event: DesktopQuestionEvent = {
+			type: "question_resolved",
+			requestId,
+			cancelled: outcome.cancelled,
+			reason: outcome.cancelled ? "cancelled" : "response",
+		};
+		channel?.broadcast({ type: "event", sessionId: entry.sessionId, event });
+	} catch {
+		// The decision is already terminal. Notification failure must not report a failed
+		// answer or stop cancellation of the other pending questionnaires.
+	} finally {
+		// A disconnected notification sink must never leave the tool waiting for a retired request.
+		entry.resolve(outcome);
+	}
 	return true;
 }
 
@@ -97,15 +116,11 @@ export function resolveQuestion(requestId: string, outcome: QuestionOutcome): bo
 export function cancelPendingQuestionsForSession(sessionId: string): void {
 	for (const [requestId, entry] of pending) {
 		if (entry.sessionId !== sessionId) continue;
-		pending.delete(requestId);
-		requests.delete(requestId);
-		entry.resolve({ cancelled: true, answers: [] });
+		resolveQuestion(requestId, { cancelled: true, answers: [] });
 	}
 }
 
 /** 桥关闭：所有挂起提问按取消处理。 */
 export function cancelAllPendingQuestions(): void {
-	for (const entry of pending.values()) entry.resolve({ cancelled: true, answers: [] });
-	pending.clear();
-	requests.clear();
+	for (const requestId of [...pending.keys()]) resolveQuestion(requestId, { cancelled: true, answers: [] });
 }

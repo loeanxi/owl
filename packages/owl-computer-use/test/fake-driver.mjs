@@ -21,6 +21,11 @@ rl.on("line", (line) => {
 	if (line.trim() === "") return;
 	const req = JSON.parse(line);
 	process.stderr.write("request:" + JSON.stringify(req) + "\n");
+	if (mode === "control-observe" || (req.cmd === "act" && mode.startsWith("control-"))) {
+		const controlId = "control-" + req.id;
+		process.stdout.write(JSON.stringify({ event: "control_started", controlId, requestId: req.id }) + "\n");
+		if (mode === "control-stop" || mode === "control-observe") setTimeout(() => process.stdout.write(JSON.stringify({ event: "control_stop", controlId, requestId: req.id }) + "\n"), 30);
+	}
 	if (req.text === "hang") return;
 	if (mode === "serial-check" && busy) {
 		process.stdout.write(JSON.stringify({ id: req.id, ok: false, error: "concurrent request" }) + "\n");

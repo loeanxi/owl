@@ -38,6 +38,8 @@ vi.mock("./research-session.ts", () => ({
 		constructor(_client: unknown, _storage: unknown, _cwd: string, defaults: unknown) { seam.controllerDefaults = defaults; }
 		subscribe = (): (() => void) => () => undefined;
 		getSnapshot = (): ResearchSessionState => seam.state;
+		getQueueOwnerRevision = (): number => 0;
+		isQueueOwnerCurrent = (): boolean => true;
 		setAgentPreset = seam.selectPreset;
 	},
 }));

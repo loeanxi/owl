@@ -114,7 +114,8 @@ namespace OwlComputerUse
             result.ScreenWidth = width;
             result.ScreenHeight = height;
 
-            lock (Gate)
+            bool overlaySuspended = ControlOverlay.SuspendForCapture();
+            try { lock (Gate)
             {
                 IntPtr hdcScreen = GetDC(IntPtr.Zero);
                 if (hdcScreen == IntPtr.Zero) throw new Exception("GetDC failed");
@@ -168,7 +169,8 @@ namespace OwlComputerUse
                     if (hdcMem != IntPtr.Zero) DeleteDC(hdcMem);
                     ReleaseDC(IntPtr.Zero, hdcScreen);
                 }
-            }
+            } }
+            finally { ControlOverlay.ResumeAfterCapture(overlaySuspended); }
             return result;
         }
 
@@ -610,6 +612,14 @@ namespace OwlComputerUse
         public static bool Monitoring { get; private set; }
         public static long UserRevision { get { return Interlocked.Read(ref revision); } }
         public static bool StopRequested { get { return Interlocked.CompareExchange(ref stopRequested, 0, 0) != 0; } }
+        public static void RequestStop() { Interlocked.Exchange(ref stopRequested, 1); }
+        public static void HoldForControlTest(int milliseconds)
+        {
+            if (Environment.GetEnvironmentVariable("OWL_COMPUTER_USE_NATIVE_TEST") != "1") return;
+            Stopwatch clock = Stopwatch.StartNew();
+            int duration = Math.Max(0, Math.Min(2000, milliseconds));
+            while (!StopRequested && clock.ElapsedMilliseconds < duration) Thread.Sleep(10);
+        }
         public static int QuietForMs
         {
             get
@@ -634,10 +644,16 @@ namespace OwlComputerUse
                         MouseHook input = (MouseHook)Marshal.PtrToStructure(l, typeof(MouseHook));
                         if (input.Extra != Kernel.OwnInputTag)
                         {
-                            IntPtr hit = WindowFromPoint(input.Pt), root = GetAncestor(hit, 2);
-                            long hwnd = (root == IntPtr.Zero ? hit : root).ToInt64();
-                            long owner = RootOwner(hwnd);
                             int messageId = w.ToInt32();
+                            long hwnd = ControlOverlay.WindowAtPointForHook(input.Pt.X, input.Pt.Y);
+                            // Stop UI clicks must latch/send the typed stop event instead
+                            // of first cancelling the same action as generic interference.
+                            if (ControlOverlay.IsStopPointForHook(input.Pt.X, input.Pt.Y, hwnd))
+                            {
+                                if (messageId == 0x201) ControlOverlay.RequestUserStop();
+                                return CallNextHookEx(mouseHook, code, w, l);
+                            }
+                            long owner = RootOwner(hwnd);
                             int button = messageId == 0x201 || messageId == 0x202 ? 1
                                 : messageId == 0x204 || messageId == 0x205 ? 2
                                 : messageId == 0x207 || messageId == 0x208 ? 4
@@ -665,7 +681,7 @@ namespace OwlComputerUse
                         if (input.Extra != Kernel.OwnInputTag)
                         {
                             if (input.Vk == 0x1b && (w.ToInt32() == 0x100 || w.ToInt32() == 0x104))
-                                Interlocked.Exchange(ref stopRequested, 1);
+                                RequestStop();
                             long hwnd = ForegroundHwnd();
                             RecordExternalInput(hwnd, RootOwner(hwnd), true);
                         }
@@ -693,6 +709,7 @@ namespace OwlComputerUse
         public static void Stop()
         {
             Kernel.ReleaseHeldKeys();
+            ControlOverlay.Shutdown();
             if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero);
             if (hookThread != null && hookThread != Thread.CurrentThread) hookThread.Join(250);
         }
@@ -788,8 +805,7 @@ namespace OwlComputerUse
         {
             POINT point;
             if (!GetCursorPos(out point)) return 0;
-            IntPtr hwnd = WindowFromPoint(point), root = GetAncestor(hwnd, 2);
-            return (root == IntPtr.Zero ? hwnd : root).ToInt64();
+            return ControlOverlay.WindowAtPoint(point.X, point.Y);
         }
         public static int InputTick()
         {
@@ -815,6 +831,7 @@ namespace OwlComputerUse
             EnumWindows(delegate(IntPtr above, IntPtr unused)
             {
                 if (above.ToInt64() == hwnd) return false;
+                if (ControlOverlay.OwnsWindow(above.ToInt64())) return true;
                 if (!IsWindowVisible(above) || IsIconic(above)) return true;
                 int cloaked;
                 if (DwmGetCloaked(above, 14, out cloaked, 4) == 0 && cloaked != 0) return true;
@@ -833,6 +850,12 @@ namespace OwlComputerUse
 
         public static ChildResult RunChild(string executable, string request, int timeoutMs,
             long hwnd, long windowRevision, long globalRevision, bool exclusive)
+        {
+            return RunChild(executable, request, timeoutMs, hwnd, windowRevision, globalRevision, exclusive, false, 0, "", 0);
+        }
+
+        public static ChildResult RunChild(string executable, string request, int timeoutMs,
+            long hwnd, long windowRevision, long globalRevision, bool exclusive, bool showControl, long controlRequestId, string controlMode, int testHoldMs)
         {
             ChildResult result = new ChildResult();
             StringBuilder output = new StringBuilder(), error = new StringBuilder();
@@ -856,6 +879,20 @@ namespace OwlComputerUse
                         // parent's live hooks at the last possible moment before execution.
                         bool allowed = hwnd != 0 && Monitoring && !StopRequested && Exists(hwnd) && WindowRevision(hwnd) == windowRevision
                             && (!exclusive || UserRevision == globalRevision);
+                        if (allowed && showControl)
+                        {
+                            try
+                            {
+                                if (ControlOverlay.Begin(controlMode, hwnd, controlRequestId)) HoldForControlTest(testHoldMs);
+                                allowed = !StopRequested && Exists(hwnd) && WindowRevision(hwnd) == windowRevision
+                                    && (!exclusive || UserRevision == globalRevision);
+                            }
+                            catch (Exception overlayError)
+                            {
+                                allowed = false;
+                                lock (error) error.AppendLine("control overlay unavailable: " + overlayError.GetType().Name);
+                            }
+                        }
                         try
                         {
                             byte[] decision = Encoding.UTF8.GetBytes(allowed ? "continue\n" : "stop\n");

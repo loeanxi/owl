@@ -12,6 +12,8 @@ Windows 应用操作插件。主模型使用三个工具完成「定位或打开
 
 工具为 `model-only`，按需发现后直接调用。不能在 `codemode` 中嵌套调用，窗口图片以原生 image block 直接进入主模型上下文。
 
+桌面操作使用「标准模式」或其它包含这组工具的预设。用户明确点名的已注册工具会优先预加载，不依赖长段任务描述的语义分类。「极简模式」和 Pi 等受限预设保留自己的工具范围；缺少桌面操作能力时，在请求入口直接说明限制，不把实际桌面任务转成终端源码调查。已有消息的会话保留原预设，需要其它能力时创建相应预设的新会话。
+
 ```js
 computer_observe({ windowQuery: "notepad" }) // 按标题或进程定位目标
 computer_observe({})                        // 枚举窗口并观察前台应用
@@ -28,7 +30,7 @@ computer_act({
 computer_release({})
 ```
 
-自动模式会把有 Invoke / SelectionItem / Toggle 的普通左键单击转为对应后台动作；`set_value` 等控件动作按公开 pattern 执行。`type` 默认保持插入语义；只有明确 `replace: true` 才允许自动转为后台 Value 替换整个字段。显式 `background` 约束后台路径，不能以此投递真实键鼠。后台路径不会主动聚焦窗口或调用真实键鼠；应用提供方自身行为仍由应用决定。
+自动模式会把有 Invoke / SelectionItem / Toggle 的普通左键单击匹配到对应语义动作，再在副作用前检查实际 backend：经过验证的非激活实现才能后台执行，其余提供方使用受用户空闲和前台互斥保护的路径。仅有 UIA pattern 不代表提供方不会抢焦点。`type` 默认保持插入语义；只有明确 `replace: true` 才允许使用 Value 替换整个字段。显式 `background` 对没有已验证非激活实现的动作在执行前返回 `background_backend_unavailable`，不能以此投递真实键鼠。
 
 需要真实 `click`、`type`、`key`、`scroll`、`focus`、`restore` 时，自动模式检查桌面输入静默、目标身份和互斥后切换前台。用户正使用键鼠时返回可恢复的 `user_busy`，模型按 `retryAfterMs` 等待、重新观察后再决定；不会把普通活动锁成永久停止。坐标 click/scroll 要求当前模型支持图片，并且该观察实际交付过窗口截图；坐标为该截图中的像素，不是屏幕绝对坐标。缺参数返回可复制的 JSON 模板。
 
@@ -38,7 +40,21 @@ computer_release({})
 
 观察的非密码控件提供 `value` / `text`、`isReadOnly` 和 `truncated`，正文最多 4096 字符，纯文本模型也能核对输入；密码控件不会读取或输出正文。标准 Win32 编辑框、按钮及经过校验的 WinForms 控件会在动作前选择无需激活的控件消息路径，执行后仍通过 UIA 回读。没有已证等价路径的提供方保留 UIA 路径；执行结果未知时不会改用另一种方式重放。
 
+现代 Windows 记事本仅对严格匹配的 `Notepad` / `Document` / `RichEditD2DPT` 文本编辑器启用已验证的非激活全值替换；新建标签页、标签选择及其它未验证的 UIA 操作仍遵守前台空闲与聚焦条件。
+
 浏览器、文件、文档、表格已有专用工具时先使用它们；原生窗口和系统对话框使用本插件。纯文本模型可以使用可读的 UIA 控件，不能猜坐标。
+
+## 系统级控制提示
+
+原生驱动在真实取得本次控制条件后显示独立桌面提示，主窗口失焦或最小化不影响它：
+
+- 顶部显示「Owl 正在控制你的电脑」，并说明前台键鼠或后台控件模式；目标边缘显示青蓝色标记。
+- 只读观察、用户忙、窗口校验失败不会点亮正在控制状态；本次动作释放后撤下提示。
+- 「停止」先锁止原生输入，再经绑定的 worker、请求和宿主 run 停止所属任务；旧提示的迟到消息不能取消新任务或其它会话。
+- 提示和边缘窗口不抢焦点；坐标输入前会把遮挡该点的胶囊挪开。截图、窗口发现和命中判断识别 Owl 自己注册的提示句柄，不按窗口标题过滤。
+- 释放、取消、超时、会话结束、原生 worker 退出时清理提示。停止过程中显示撤销状态，不能提前宣称全部输入均未发生。
+
+提示层使用本包自己的 Windows 控制内核，不依赖主窗口 WebView 的刷新，也不需要 Codex 的私有控制服务。
 
 ## 执行契约
 
@@ -68,6 +84,7 @@ Owl 当前模型 → model-only 工具 → ComputerUseRuntime
       ├─ computer-uia.cs（独立进程、8 秒超时、Job Object 清理）
       ├─ Owl 现有 mirror/windows-capture.cs（WGC 新帧，按模型尺寸缩放）
       └─ computer-kernel.cs（GDI 兜底、DPI/多屏、标记输入和 SendInput）
+          └─ computer-control-overlay.cs（独立 STA 控制提示、透点边缘和定向停止）
 ```
 
 WGC 仅复用捕获内核，不复用短剧投影的窗口布局或输入接口。WGC 不可用时，仅允许未遮挡、未最小化窗口的 GDI 裁剪；条件不满足返回无图片及诊断，不会用其他窗口的画面代替。观察不会聚焦、恢复或移动窗口。
@@ -95,6 +112,8 @@ node ../../node_modules/vitest/dist/cli.js --run test/session.test.ts test/runti
 ```powershell
 node scripts/native-self-test.mjs --scope-unit
 node scripts/native-self-test.mjs --background
+# 控制提示、真实按钮停止、前台保持和截图证明；只操作自己的后台测试窗
+node scripts/native-self-test.mjs --overlay
 # 自动选择后台动作、前台回退、用户忙后恢复和打开缺失应用
 node scripts/native-self-test.mjs --auto
 # 完整前台回归需要短时间输入静默
@@ -105,4 +124,6 @@ node scripts/smoke.mjs
 
 后台回归覆盖四种 UIA 动作的独立回读、原前台保持、不同窗口控制并用、同目标编辑拒绝、鼠标路过可继续，以及禁止后台隐式键鼠输入。完整前台脚本另覆盖中文回读、一次性令牌、真实 focus/click/Ctrl+A/Unicode 输入和窗口捕获；它需要独占的短测试窗口，不能把后台检查通过等同于前台全链重新实测通过。
 
-源码与本地测试通过后，桌面 bridge/UI 仍需正常重新构建和启动，才能让正在运行的 Owl 使用新工具。没有进行付费模型调用或任意真实业务应用的效果排名。
+源码与本地测试通过后，须刷新实际运行的插件；桥或界面源码变化还需要构建并重启相应层。真实模型记事本验收、独立回读与并用监测证据保存在 `.validation/computer-control/` 各轮报告中，按报告的实际结果判定。
+
+输入证据分为作用域计数模拟、受控 `Win32.SendInput` 和独立观察到的人工物理输入。`_test_input` 与 reflection 只能证明分类逻辑，不能算人工并用；并用验收另外核对独立前台时间线、真实低级 hook、输入来源、目标回读和用户窗口无误投递。单个应用通过不代表任意 UIA 提供方都能后台执行。

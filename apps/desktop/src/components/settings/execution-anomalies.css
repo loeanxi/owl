@@ -1,0 +1,247 @@
+.owl-execution-anomalies-toolbar,
+.owl-execution-anomalies-search,
+.owl-execution-anomalies-filters,
+.owl-execution-anomalies-pagination {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.owl-execution-anomalies-toolbar,
+.owl-execution-anomalies-filters {
+	justify-content: space-between;
+}
+
+.owl-execution-anomalies-processing-filter {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--settings-muted);
+	font-size: 12px;
+}
+
+.owl-execution-anomalies-processing-filter select {
+	max-width: 220px;
+}
+
+.owl-execution-anomalies-toolbar {
+	flex-wrap: wrap;
+}
+
+.owl-execution-anomalies-search {
+	min-width: 0;
+	flex: 1 1 300px;
+}
+
+.owl-execution-anomalies-search input {
+	min-width: 0;
+	flex: 1;
+}
+
+.owl-execution-anomalies-toolbar button svg {
+	width: 14px;
+	height: 14px;
+}
+
+.owl-execution-anomalies-filters {
+	flex-wrap: wrap;
+	margin-block: 14px 20px;
+}
+
+.owl-execution-anomalies-count,
+.owl-execution-anomalies-pagination,
+.owl-execution-anomaly-kind,
+.owl-execution-anomaly-heading time {
+	color: var(--settings-muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-execution-anomalies-error {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	overflow-wrap: anywhere;
+}
+
+.owl-execution-anomaly {
+	min-width: 0;
+	padding-block: 22px;
+	border-top: 1px solid var(--settings-border);
+}
+
+.owl-execution-anomaly-heading,
+.owl-execution-anomaly-heading-main {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+.owl-execution-anomaly-heading {
+	justify-content: space-between;
+	gap: 8px 16px;
+}
+
+.owl-execution-anomaly-status {
+	color: var(--settings-text);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.owl-execution-anomaly-status.is-pending {
+	color: var(--settings-warning);
+}
+
+.owl-execution-anomaly-status.is-reported {
+	color: var(--settings-success);
+}
+
+.owl-execution-anomaly h3 {
+	margin-block: 10px 12px;
+	color: var(--settings-text);
+	font-size: 14px;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.owl-execution-anomaly-metadata,
+.owl-execution-anomaly-report dl,
+.owl-execution-anomaly-processing dl {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	font-size: 12px;
+}
+
+.owl-execution-anomaly-metadata > div,
+.owl-execution-anomaly-report dl > div,
+.owl-execution-anomaly-processing dl > div {
+	display: grid;
+	grid-template-columns: 80px minmax(0, 1fr);
+	gap: 12px;
+}
+
+.owl-execution-anomaly dt {
+	color: var(--settings-muted);
+}
+
+.owl-execution-anomaly dd {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.owl-execution-anomaly-details {
+	margin-block: 16px;
+	font-size: 12px;
+}
+
+.owl-execution-anomaly-details summary {
+	width: fit-content;
+	padding-block: 4px;
+	color: var(--settings-muted);
+	cursor: pointer;
+}
+
+.owl-execution-anomaly-details summary:hover {
+	color: var(--settings-text);
+}
+
+.owl-execution-anomaly-details pre {
+	max-height: 320px;
+	overflow: auto;
+	margin-block: 8px 0;
+	padding: 12px;
+	border-radius: 6px;
+	background: var(--settings-sidebar);
+	color: var(--settings-text);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.owl-execution-anomaly-awaiting {
+	margin-block: 14px;
+	color: var(--settings-muted);
+	font-size: 12px;
+}
+
+.owl-execution-anomaly-report {
+	margin-block: 16px;
+}
+
+.owl-execution-anomaly-report h4,
+.owl-execution-anomaly-processing h4 {
+	margin-block: 0 10px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.owl-execution-anomaly-processing {
+	margin-block: 20px 16px;
+	padding-top: 16px;
+	border-top: 1px solid var(--settings-border);
+}
+
+.owl-execution-anomaly-processing dl {
+	margin-bottom: 14px;
+}
+
+.owl-execution-anomaly-processing fieldset {
+	min-width: 0;
+}
+
+.owl-execution-anomaly-processing legend {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.owl-execution-anomaly-processing-hint {
+	margin-block: 8px 14px;
+	color: var(--settings-muted);
+	font-size: 12px;
+}
+
+.owl-execution-anomaly-processing label {
+	display: grid;
+	gap: 6px;
+	margin-bottom: 14px;
+	font-size: 12px;
+}
+
+.owl-execution-anomaly-processing textarea {
+	width: 100%;
+	min-width: 0;
+}
+
+.owl-execution-anomaly-processing-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.owl-execution-anomalies-pagination {
+	justify-content: center;
+	flex-wrap: wrap;
+	margin-top: 20px;
+}
+
+.owl-execution-anomalies-toolbar :focus-visible,
+.owl-execution-anomalies-filters :focus-visible,
+.owl-execution-anomalies-results :focus-visible,
+.owl-execution-anomalies-pagination :focus-visible {
+	outline: 2px solid var(--color-owl-accent);
+	outline-offset: 3px;
+}
+
+@container (max-width: 600px) {
+	.owl-execution-anomaly-metadata > div,
+	.owl-execution-anomaly-report dl > div,
+	.owl-execution-anomaly-processing dl > div {
+		grid-template-columns: 64px minmax(0, 1fr);
+		gap: 8px;
+	}
+}

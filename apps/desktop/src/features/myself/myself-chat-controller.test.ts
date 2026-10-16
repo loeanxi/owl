@@ -568,7 +568,8 @@ test("预设在空白会话选择，既有对话仅暂存下次预设；new清�
 		bridge.requests.some((request) => request.type === "session.setPreset"),
 		false,
 	);
-	bridge.emit({ type: "queue_update", steering: ["下一条"], followUp: ["后来一条"] });
+	bridge.emit({ type: "queue_update", steering: [{ messageId: "next", text: "下一条", textTruncated: false, imageCount: 0, attachedPaths: [], state: "queued" }], followUp: [{ messageId: "later", text: "后来一条", textTruncated: false, imageCount: 0, attachedPaths: [], state: "queued" }] });
+	assert.deepEqual(controller.getSnapshot().queue, { steering: ["下一条"], followUp: ["后来一条"] });
 	assert.equal(controller.newThread(), true);
 	assert.equal(controller.getSnapshot().agentPreset, undefined);
 	assert.equal(controller.getSnapshot().agentPresetLocked, false);

@@ -7,8 +7,11 @@
  */
 import type { BridgeClient } from "../bridge/client.ts";
 import { t } from "../i18n/index.ts";
+import type { DraftMutation, DraftSlot, EditorDraft, EditorSaveResult } from "./editor-controller.ts";
 import type {
 	DiffApprovalFileSummary,
+	DiffApprovalPreviewResult,
+	DiffApprovalResolveResult,
 	FsListing,
 	FsReadBinResult,
 	FsReadResult,
@@ -55,6 +58,16 @@ export function createSidebarApi(client: BridgeClient) {
 			client
 				.request<{ path: string; size: number }>({ type: "fs.write", cwd, path, content })
 				.then((r) => unwrap(r, t("api.opWriteFile"))),
+		editorFileSave: (cwd: string, path: string, content: string, expectedRevision: string | null, expectedProfile: string) =>
+			client.request<EditorSaveResult>({ type: "editor.file.save", cwd, path, content, expectedRevision, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+		editorDraftGet: (cwd: string, path: string, expectedProfile: string) =>
+			client.request<DraftSlot>({ type: "editor.draft.get", cwd, path, expectedProfile }).then((r) => unwrap(r, t("api.opReadFile"))),
+		editorDraftPut: (cwd: string, path: string, value: { content: string; baseRevision: string | null; baseContent: string; expectedDraftRevision: string | null; operationId: string; editorId?: string }, expectedProfile: string) =>
+			client.request<DraftMutation>({ type: "editor.draft.put", cwd, path, ...value, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+		editorDraftRemove: (cwd: string, path: string, expectedDraftRevision: string, expectedProfile: string) =>
+			client.request<DraftMutation>({ type: "editor.draft.remove", cwd, path, expectedDraftRevision, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+		editorDraftList: (expectedProfile: string, cwd?: string) =>
+			client.request<{ drafts: Array<Omit<EditorDraft, "content" | "baseContent" | "operationId"> & { size: number }> }>({ type: "editor.draft.list", expectedProfile, ...(cwd ? { cwd } : {}) }).then((r) => unwrap(r, t("api.opReadFile"))),
 		fsMkdir: (cwd: string, path: string, name: string) =>
 			client
 				.request<{ path: string }>({ type: "fs.mkdir", cwd, path, name })
@@ -118,17 +131,21 @@ export function createSidebarApi(client: BridgeClient) {
 			client
 				.request<Record<string, GitCiState>>({ type: "git.checks", cwd, hashes, ...withRepo(repo) })
 				.then((r) => unwrap(r, t("api.opGitChecks"))),
-		diffApprovalList: (cwd: string) =>
+		diffApprovalList: (cwd: string, scope?: { sessionId?: string; toolCallIds?: string[] }) =>
 			client
-				.request<{ files: DiffApprovalFileSummary[] }>({ type: "diffApproval.list", cwd })
+				.request<{ files: DiffApprovalFileSummary[] }>({ type: "diffApproval.list", cwd, ...(scope !== undefined ? { scope } : {}) })
 				.then((r) => unwrap(r, t("api.opReviewList")).files),
 		diffApprovalDiff: (cwd: string, entryId: string) =>
 			client
 				.request<{ diff: string; truncated: boolean }>({ type: "diffApproval.diff", cwd, entryId })
 				.then((r) => unwrap(r, t("api.opReviewDiff"))),
-		diffApprovalResolve: (cwd: string, entryIds: string[], action: "keep" | "revert") =>
+		diffApprovalPreview: (cwd: string, entryIds: string[], mode: "operations" | "baseline" = "operations") =>
 			client
-				.request<{ resolved: number; failed: Array<{ path: string; reason: string }> }>({ type: "diffApproval.resolve", cwd, entryIds, action })
+				.request<DiffApprovalPreviewResult>({ type: "diffApproval.preview", cwd, entryIds, mode })
+				.then((r) => unwrap(r, t("api.opReviewDiff"))),
+		diffApprovalResolve: (cwd: string, entryIds: string[], action: "keep" | "revert", previewToken?: string) =>
+			client
+				.request<DiffApprovalResolveResult>({ type: "diffApproval.resolve", cwd, entryIds, action, ...(previewToken !== undefined ? { previewToken } : {}) })
 				.then((r) => unwrap(r, t("api.opReviewResolve"))),
 		diffApprovalClear: (cwd: string) =>
 			client

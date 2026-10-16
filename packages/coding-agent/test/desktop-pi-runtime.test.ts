@@ -10,9 +10,20 @@ describe("Pi coding prompt", () => {
 		expect(PI_SYSTEM_PROMPT).toContain("original file");
 		expect(PI_SYSTEM_PROMPT).toContain("overlapping or nested edits");
 		expect(PI_SYSTEM_PROMPT).toContain("Overwriting an existing file requires having seen the whole current file");
-		for (const unavailable of ["codemode", "tool_search", "skill_search", "process tool", "powershell"]) {
+		for (const unavailable of ["codemode", "tool_search", "skill_search", "process tool"]) {
 			expect(PI_SYSTEM_PROMPT).not.toContain(unavailable);
 		}
+		expect(PI_SYSTEM_PROMPT).not.toMatch(/\bpowershell\s+tool\b|\btool\s+named\s+powershell\b/i);
+	});
+
+	it("retains shared Bash guidance about invoking PowerShell files without advertising a PowerShell tool", () => {
+		const crossShellGuidance = bashTools.bashToolSystemPromptContribution.guidelines.find((guideline) =>
+			guideline.includes("Prefer powershell -File"),
+		);
+		expect(crossShellGuidance).toBeDefined();
+		expect(PI_SYSTEM_PROMPT).toContain(crossShellGuidance);
+		const toolRoster = PI_SYSTEM_PROMPT.split("Available tools:\n")[1]?.split("Guidelines:")[0];
+		expect(toolRoster?.match(/^- \w+:/gm)).toEqual(["- read:", "- bash:", "- edit:", "- write:"]);
 	});
 });
 

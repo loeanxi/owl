@@ -1157,9 +1157,8 @@ describe("adaptive computer-use routing", () => {
 		expect((await runtime.observe(imageOwner)).observationId).not.toBe("");
 	});
 
-	it("keeps route and recovery metadata in structured model output", async () => {
-		const driver = new FakeDriver();
-		driver.result = {
+	it.each([
+		{
 			status: "blocked",
 			code: "user_busy",
 			requestedMode: "auto",
@@ -1169,20 +1168,46 @@ describe("adaptive computer-use routing", () => {
 			retryable: true,
 			retryAfterMs: 750,
 			nextAction: "computer_observe after activity settles",
-		};
-		const runtime = new ComputerUseRuntime(driver);
-		const [, act] = createComputerTools(runtime);
-		const first = await runtime.observe(imageOwner);
-		const result = await act.execute(
-			"busy",
-			{ observationId: first.observationId, action: "key", combo: "enter" },
-			undefined,
-			undefined,
-			context(),
-		);
-		expect(result.structuredContent).toMatchObject(driver.result);
-		expect(Value.Check(act.outputSchema!, result.structuredContent)).toBe(true);
-	});
+			idleWaitMs: 3000,
+			idleQuietForMs: 40,
+		},
+		{
+			status: "issued",
+			requestedMode: "auto",
+			executedMode: "foreground",
+			executedAction: "key",
+			idleWaitMs: 0,
+			idleGrantedAtMs: 1_760_000_000_123,
+			idleQuietForMs: 1001,
+		},
+	] satisfies NativeActResult[])(
+		"keeps route and idle-gate metadata in model output: $status",
+		async (nativeResult) => {
+			const driver = new FakeDriver();
+			driver.result = nativeResult;
+			const runtime = new ComputerUseRuntime(driver);
+			const [, act] = createComputerTools(runtime);
+			const first = await runtime.observe(imageOwner);
+			const result = await act.execute(
+				"busy",
+				{ observationId: first.observationId, action: "key", combo: "enter" },
+				undefined,
+				undefined,
+				context(),
+			);
+			expect(result.structuredContent).toMatchObject(driver.result);
+			expect(Value.Check(act.outputSchema!, result.structuredContent)).toBe(true);
+			const text = result.content.find((block) => block.type === "text");
+			if (text?.type !== "text") throw new Error("missing model text output");
+			const rendered: unknown = JSON.parse(text.text.slice(text.text.indexOf("\n") + 1));
+			expect(rendered).toMatchObject(driver.result);
+			if (nativeResult.idleGrantedAtMs === undefined) {
+				expect(result.structuredContent).not.toHaveProperty("idleGrantedAtMs");
+				expect(rendered).not.toHaveProperty("idleGrantedAtMs");
+			}
+			expect(driver.actions).toHaveLength(1);
+		},
+	);
 
 	it("multiple query matches require window selection before input", async () => {
 		const driver = new FakeDriver();

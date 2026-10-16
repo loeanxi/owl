@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { t } from "../i18n/index.ts";
 import { Composer, type ComposerImage } from "./Composer.tsx";
+import { composerMaterialsText } from "./composer-materials-copy.ts";
 
 vi.mock("../bridge/native.ts", () => ({
 	listenForOsFileDrop: async () => () => {},
@@ -34,7 +35,7 @@ beforeEach(() => {
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
 	props = {
-		client: {} as BridgeClient, connected: true, disabled: false, running: false,
+		client: { request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }) } as unknown as BridgeClient, connected: true, disabled: false, running: false,
 		hideEnvironment: true, hideMascot: true, onSend: vi.fn(() => true), onAbort: vi.fn(),
 		providers: [], model: "fixture/model", onModel: vi.fn(), thinkingLevel: "high", onThinkingLevel: vi.fn(),
 		approvalMode: "confirm", onApprovalMode: vi.fn(), sessionInfo: undefined,
@@ -83,6 +84,22 @@ async function type(text: string): Promise<void> {
 }
 
 describe("Composer task control", () => {
+	it("preserves the draft and blocks mouse and Enter sends until a model choice is confirmed", async () => {
+		await render({ initialDraft: "保留这条需求", modelSelection: { status: "pending", target: "fixture/next", actual: "fixture/model", running: false } });
+		expect(button(t("composer.send")).disabled).toBe(true);
+		await enter(); expect(props.onSend).not.toHaveBeenCalled(); expect(editor().textContent).toBe("保留这条需求");
+		await render({ modelSelection: { status: "error", target: "fixture/next", actual: "fixture/model", running: false, error: "No API key" }, onRetryModelSelection: vi.fn() });
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain("No API key");
+		expect(button(t("composer.send")).disabled).toBe(false);
+	});
+
+	it("keeps pause available while a running task's model switch is pending", async () => {
+		const onPause = vi.fn();
+		await render({ running: true, initialDraft: "调整要求", onPause, modelSelection: { status: "pending", target: "fixture/next", actual: "fixture/model", running: true } });
+		await click(t("composer.pause")); expect(onPause).toHaveBeenCalledOnce();
+		expect(button(t("composer.sendNextTurn")).disabled).toBe(true);
+		await enter(true); expect(props.onSend).not.toHaveBeenCalled();
+	});
 	it("keeps pause available with a draft and exposes distinct current/next-turn delivery", async () => {
 		const onSend = vi.fn(() => false);
 		const onPause = vi.fn();
@@ -163,7 +180,7 @@ describe("Composer complete draft delivery", () => {
 		const onSend = vi.fn<Props["onSend"]>().mockReturnValueOnce(pending.promise).mockReturnValue(false);
 		await render({ onSend, draftRequest: { id: 1, text: "保留这条要求", images: [screenshot], attachedPaths: ["D:/owl/main.ts"], replace: true } });
 		await click(t("composer.send"));
-		await click(t("composer.removeImage"));
+		await click(composerMaterialsText("removeImage", { n: 1 }));
 		await act(async () => pending.resolve(true));
 		expect(editor().textContent).toBe("保留这条要求");
 		await click(t("composer.send"));

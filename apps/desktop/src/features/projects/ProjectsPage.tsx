@@ -12,20 +12,20 @@ import {
 	useProjectSidebarRevision,
 	type ProjectSidebarPreferences,
 } from "../../project-sidebar-model.ts";
-import { loadSidebarStrings, matchesSessionScope } from "../../components/sidebar-scope.ts";
+import { matchesSessionScope } from "../../components/sidebar-scope.ts";
 import { getUiLanguage, t, useT } from "../../i18n/index.ts";
 import { islandSessionTitle } from "../../components/dynamic-island-model.ts";
 import { NewProjectDialog } from "../../components/NewProjectDialog.tsx";
 import { ProjectActionsMenu } from "../../components/ProjectActionsMenu.tsx";
 import { ProjectSidebarDialog } from "../../components/ProjectSidebarDialog.tsx";
 import { useProjectSidebarText } from "../../components/project-sidebar-copy.ts";
-import { IconChevron, IconCompose, IconFolder, IconMore, IconPin, IconPlus, IconSearch } from "../../components/icons.tsx";
+import { IconChevron, IconCompose, IconFolder, IconMore, IconPlus, IconSearch } from "../../components/icons.tsx";
 
 /**
  * 「项目」页（rail 一等视图，Codex 式一览表）：
- * 全部项目按最近更新排成两列表格（名称 / 已更新），行悬停露出置顶 / 新会话 / ⋯ 菜单，
+ * 全部项目按最近更新排成两列表格（名称 / 已更新），行悬停露出新会话 / ⋯ 菜单，
  * 点击行内展开该项目的会话列表，点会话即回到对话视图续聊。
- * 数据与侧边栏同源（session.list + localStorage 项目偏好），置顶 / 隐藏 / 别名互相可见。
+ * 数据与侧边栏同源（session.list + localStorage 项目偏好），隐藏 / 别名互相可见；项目不支持置顶。
  */
 type SessionRow = {
 	id?: string;
@@ -46,7 +46,6 @@ type ProjectSort = "recent" | "oldest" | "name";
 /** 排序偏好（localStorage）；键值独立于侧栏，仅本页使用。 */
 const SORT_KEY = "owl.projectsPage.sort";
 /** 与侧栏共用的项目偏好键（sidebarStorageKeys("chat") 的值，这里字面量固定避免循环依赖）。 */
-const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const KNOWN_PROJECTS_KEY = "owl.projects";
 
 function loadSort(): ProjectSort {
@@ -126,7 +125,6 @@ export function ProjectsPage({
 	const [sort, setSort] = useState<ProjectSort>(loadSort);
 	/** 手动展开的项目（normalized path）；搜索时全部按展开处理。 */
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-	const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => loadSidebarStrings(localStorage, PINNED_PROJECTS_KEY));
 	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY));
 	/** ⋯ 菜单目标（ProjectActionsMenu 需要锚点按钮定位）。 */
 	const [menu, setMenu] = useState<{ path: string; anchor: HTMLButtonElement } | null>(null);
@@ -151,10 +149,9 @@ export function ProjectsPage({
 		if (connected) void refresh();
 	}, [connected, refresh, revision, active]);
 
-	// 置顶 / 已知项目与侧栏共用同一份 localStorage：侧栏或本页任一侧变更都会
+	// 已知项目与侧栏共用同一份 localStorage：侧栏或本页任一侧变更都会
 	// publish（model 的 CHANGE_EVENT），这里随之重读保持双向同步。
 	useEffect(() => {
-		setPinnedProjects(loadAndScrubProjects(localStorage, PINNED_PROJECTS_KEY));
 		setKnownProjects(loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY));
 	}, [prefsRevision, revision]);
 
@@ -188,14 +185,10 @@ export function ProjectsPage({
 	}, [sessions, activeProject, knownProjects]);
 
 	const search = query.trim().toLowerCase();
-	const isPinned = useCallback(
-		(path: string) => pinnedProjects.some((entry) => samePath(entry, path)),
-		[pinnedProjects],
-	);
 	const titleMatches = (row: SessionRow): boolean =>
 		sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search);
 
-	/** 排序：置顶（按置顶先后）永远在前，其余按 最近更新 / 最早创建 / 名称。 */
+	/** 排序：最近更新 / 最早创建 / 名称。 */
 	const sortedProjects = useMemo(() => {
 		const visible = projects.filter((agg) => {
 			if (preferences.hidden.includes(normPath(agg.path))) return false;
@@ -206,19 +199,12 @@ export function ProjectsPage({
 		});
 		const byLatest = (a: ProjectAgg, b: ProjectAgg): number => (a.latest !== b.latest ? (a.latest > b.latest ? -1 : 1) : 0);
 		const sorted = [...visible].sort((a, b) => {
-			const pa = pinnedProjects.findIndex((p) => samePath(p, a.path));
-			const pb = pinnedProjects.findIndex((p) => samePath(p, b.path));
-			if (pa !== -1 || pb !== -1) {
-				if (pa === -1) return 1;
-				if (pb === -1) return -1;
-				return pa - pb;
-			}
 			if (sort === "name") return projectLabel(a.path).localeCompare(projectLabel(b.path), getUiLanguage());
 			if (sort === "oldest") return byLatest(b, a);
 			return byLatest(a, b);
 		});
 		return sorted;
-	}, [projects, preferences, search, sort, pinnedProjects]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [projects, preferences, search, sort]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const toggleExpand = (path: string): void => {
 		const key = normPath(path);
@@ -226,21 +212,6 @@ export function ProjectsPage({
 			const next = new Set(current);
 			if (next.has(key)) next.delete(key);
 			else next.add(key);
-			return next;
-		});
-	};
-
-	const togglePin = (path: string): void => {
-		setPinnedProjects((current) => {
-			const key = normPath(path);
-			const next = current.some((p) => samePath(p, path))
-				? current.filter((p) => !samePath(p, path))
-				: [...current, path];
-			try {
-				localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(next));
-			} catch {
-				// localStorage 不可用时置顶退化为本次会话内存态
-			}
 			return next;
 		});
 	};
@@ -258,18 +229,11 @@ export function ProjectsPage({
 		if (busyRef.current) return;
 		if (target.type === "remove") {
 			saveProjectSidebarPreferences("chat", hideProject(preferences, target.path));
-			setPinnedProjects((current) => {
-				const next = current.filter((p) => !samePath(p, target.path));
-				try {
-					localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(next));
-				} catch { /* 同上：存储不可用退化为内存态 */ }
-				return next;
-			});
 			setKnownProjects((current) => {
 				const next = current.filter((p) => !samePath(p, target.path));
 				try {
 					localStorage.setItem(KNOWN_PROJECTS_KEY, JSON.stringify(next));
-				} catch { /* 同上 */ }
+				} catch { /* 存储不可用退化为内存态 */ }
 				return next;
 			});
 			setConfirm(null);
@@ -324,7 +288,6 @@ export function ProjectsPage({
 		const key = normPath(agg.path);
 		const name = projectLabel(agg.path);
 		const open = isExpanded(agg);
-		const pinned = isPinned(agg.path);
 		const isCurrent = samePath(agg.path, activeProject);
 		const rows = open ? expandedRows(agg) : [];
 		return (
@@ -341,7 +304,6 @@ export function ProjectsPage({
 						<IconFolder className="h-4 w-4 shrink-0 text-owl-faint" />
 						<span className="truncate text-[13px] font-medium text-owl-text">{name}</span>
 						{isCurrent && <span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[9.5px] text-owl-faint">{t("projects.current")}</span>}
-						{pinned && <IconPin filled className="h-3.5 w-3.5 shrink-0 text-owl-accent" />}
 					</button>
 					<span className="text-right text-xs text-owl-muted">{agg.rows.length}</span>
 					<span className="text-right text-xs text-owl-muted">{agg.latest ? relativeTime(agg.latest) : "—"}</span>
@@ -356,15 +318,6 @@ export function ProjectsPage({
 							onClick={(event) => setMenu(menu?.path === agg.path ? null : { path: agg.path, anchor: event.currentTarget })}
 						>
 							<IconMore className="h-3.5 w-3.5" />
-						</button>
-						<button
-							type="button"
-							className={`rounded-md p-1.5 hover:bg-owl-hover ${pinned ? "text-owl-accent" : "text-owl-muted hover:text-owl-text"}`}
-							title={pt(pinned ? "unpin" : "pin")}
-							aria-label={pt(pinned ? "unpin" : "pin")}
-							onClick={() => togglePin(agg.path)}
-						>
-							<IconPin filled={pinned} className="h-3.5 w-3.5" />
 						</button>
 						<button
 							type="button"
@@ -510,11 +463,9 @@ export function ProjectsPage({
 					anchor={menu.anchor}
 					menuId={menuId}
 					label={t("projects.projectActions")}
-					pinned={isPinned(menu.path)}
 					sections={preferences.sections}
 					sectionId={preferences.assignments[normPath(menu.path)] ?? null}
 					onClose={() => setMenu(null)}
-					onPin={() => togglePin(menu.path)}
 					onEdit={() => setEditing(menu.path)}
 					onSection={(id) => saveProjectSidebarPreferences("chat", moveProjectToSection(preferences, menu.path, id))}
 					onNewSection={() => {

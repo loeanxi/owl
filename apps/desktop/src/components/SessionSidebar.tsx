@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionSearchHit } from "../bridge/protocol.ts";
 import { loadAndScrubProjects, normPath, samePath, isReservedDir, isValidationDir } from "../utils/paths.ts";
-import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, publishProjectSidebarChange, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
+import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
 import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
 import { startPointerDrag } from "../sidebar/pointer-drag.ts";
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, sidebarWidthLimit } from "../sidebar/pane-sizing.ts";
@@ -10,10 +10,12 @@ import { usePaneContainer } from "../sidebar/use-pane-container.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
 import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
-import { SessionSearchPanel } from "./SessionSearchPanel.tsx";
+import { SessionSearchDialog } from "./SessionSearchDialog.tsx";
+import { useSessionSearchText } from "./session-search-copy.ts";
 import { ProjectActionsMenu, ProjectsSectionMenu, SectionActionsMenu } from "./ProjectActionsMenu.tsx";
 import { ProjectSidebarDialog } from "./ProjectSidebarDialog.tsx";
 import { useProjectSidebarText } from "./project-sidebar-copy.ts";
+import { groupSessionsByPeriod, sessionDisplayTitle } from "./session-list-presentation.ts";
 import {
 	IconChat,
 	IconCheck,
@@ -52,8 +54,6 @@ type SessionRow = {
 };
 
 const PINNED_KEY = "owl.pinnedSessions";
-/** 置顶项目（localStorage）：置顶栏里的项目快捷入口，项目本身仍留在「项目」分组。 */
-const PINNED_PROJECTS_KEY = "owl.pinnedProjects";
 const COLLAPSED_KEY = "owl.sidebar.collapsed";
 /** 侧栏宽度（localStorage）：右缘拖拽调整，双击手柄复位为 CSS 默认值。 */
 const WIDTH_KEY = "owl.sidebar.width";
@@ -69,12 +69,10 @@ function loadSidebarWidth(): number | null {
 	}
 }
 /** 分组排序偏好（Codex 式分组菜单）：置顶 manual=置顶顺序；最近 name=按名称。 */
-/** 「最近」分组最多展示的会话数，避免长列表把项目挤出视口。 */
-const RECENT_LIMIT = 30;
+/** 各会话列表默认及每次展开的数量；只限制可见行，不截断真实数据。 */
+const SESSION_PAGE_SIZE = 5;
 /** 项目行操作菜单的 id 前缀（openMenu 状态，按项目路径区分）。 */
 const PROJECT_ROW_MENU_PREFIX = "project-row:";
-/** 置顶栏项目行操作菜单的 id 前缀：与「项目」分组的行菜单互不干扰。 */
-const PINNED_PROJECT_ROW_MENU_PREFIX = "pinned-project-row:";
 const SESSION_ROW_MENU_PREFIX = "session-row:";
 
 type PinnedSort = "recent" | "manual";
@@ -101,33 +99,16 @@ function sessionTime(row: SessionRow): string {
 	return String(row.modified ?? row.timestamp ?? row.created ?? "");
 }
 
-/** 会话显示名：自定义名 > 首条用户消息 > id 前缀。无名分支会话追加「· 分支」便于区分
- * （fork 时已持久化「forkN · 来自「…」」名字的不重复加）。 */
+/** 手动名称原样优先，自动标题仅清理显示层的内部封装。 */
 function sessionTitle(row: SessionRow): string {
-	const named = row.name?.trim();
-	if (named) return named;
-	const first = row.firstMessage?.trim();
-	let base: string;
-	if (first) {
-		const flat = flatText(first);
-		base = flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
-	} else {
-		base = row.id ? t("sidebar.sessionFallback", { id: row.id.slice(0, 8) }) : t("sidebar.sessionUnnamed");
-	}
-	return row.parentSessionPath ? `${base} · ${t("app.branchSuffix")}` : base;
+	return sessionDisplayTitle(row, t("sidebar.sessionUnnamed"), t("app.branchSuffix"));
 }
 
-/** 改名框的初值：已有自定义名优先，否则用首条消息，不再带截断和「· 分支」。 */
+/** 改名框使用清理过的首条消息，保留更长草稿且不自动带分支后缀。 */
 function sessionRenameDraft(row: SessionRow): string {
 	const named = row.name?.trim();
 	if (named) return named;
-	const first = row.firstMessage?.trim();
-	if (first) return flatText(first).slice(0, 80);
-	return sessionTitle(row).slice(0, 80);
-}
-
-function flatText(text: string): string {
-	return text.replace(/\s+/g, " ").trim();
+	return sessionDisplayTitle({ ...row, parentSessionPath: undefined }, t("sidebar.sessionUnnamed"), t("app.branchSuffix"), 80).slice(0, 80);
 }
 
 /** 相对时间：刚刚 / n 分钟前 / n 小时前 / 昨天 / n 天前 / MM-DD。 */
@@ -154,10 +135,6 @@ function loadPinned(key: string = PINNED_KEY): string[] {
 	} catch {
 		return [];
 	}
-}
-
-function loadPinnedProjects(key: string = PINNED_PROJECTS_KEY): string[] {
-	return loadAndScrubProjects(localStorage, key);
 }
 
 function loadCollapsed(key: string = COLLAPSED_KEY): Set<string> {
@@ -343,6 +320,7 @@ export function SessionSidebar({
 }): React.JSX.Element {
 	const t = useT();
 	const pt = useProjectSidebarText();
+	const searchText = useSessionSearchText();
 	const projectRevision = useProjectSidebarRevision();
 	const projectPreferences = useMemo(() => getProjectSidebarPreferences(sessionScope), [sessionScope, projectRevision]);
 	const researchText = getUiLanguage() === "en" ? { title: "Research chats", search: "Search research chats or projects", newChat: "New research chat", recent: "Recent research" } : { title: "研究会话", search: "搜索研究会话或项目", newChat: "新研究会话", recent: "最近研究" };
@@ -359,9 +337,11 @@ export function SessionSidebar({
 	const projectBusyRef = useRef(false);
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
 	const [pinned, setPinned] = useState<string[]>(() => loadPinned(keys.pinned));
-	const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => loadPinnedProjects(keys.pinnedProjects));
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(keys.collapsed));
 	const [query, setQuery] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
+	const closeSearch = useCallback((): void => { setSearchOpen(false); setQuery(""); }, []);
+	useEffect(() => { closeSearch(); }, [sessionScope, focus, minimized, closeSearch]);
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	const projectMenuId = useId();
@@ -395,6 +375,22 @@ export function SessionSidebar({
 	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, keys.projects));
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
+	const [listWindows, setListWindows] = useState<{ scope: SessionScope; counts: Record<string, number> }>(() => ({ scope: sessionScope, counts: {} }));
+	const visibleCount = (key: string): number => listWindows.scope === sessionScope ? listWindows.counts[key] ?? SESSION_PAGE_SIZE : SESSION_PAGE_SIZE;
+	const setVisibleCount = (key: string, count: number): void => setListWindows((current) => ({
+		scope: sessionScope,
+		counts: { ...(current.scope === sessionScope ? current.counts : {}), [key]: count },
+	}));
+	const listControls = (key: string, total: number, label: string): React.ReactNode => {
+		if (total <= SESSION_PAGE_SIZE) return null;
+		const count = Math.min(visibleCount(key), total);
+		const more = Math.min(SESSION_PAGE_SIZE, total - count);
+		const moreLabel = pt("showMoreSessions").replace("{n}", String(more));
+		return <div className="owl-sidebar-list-controls" data-sidebar-list={key} role="group" aria-label={label}>
+			{more > 0 && <button type="button" className="owl-sidebar-list-more" aria-label={label + "：" + moreLabel} onClick={() => setVisibleCount(key, count + SESSION_PAGE_SIZE)}>{moreLabel}</button>}
+			{count > SESSION_PAGE_SIZE && <button type="button" className="owl-sidebar-list-collapse" aria-label={label + "：" + pt("collapseSessions")} onClick={() => setVisibleCount(key, SESSION_PAGE_SIZE)}>{pt("collapseSessions")}</button>}
+		</div>;
+	};
 	/** 项目会话手动顺序（拖拽产生并持久化）。 */
 	const [sessionOrder, setSessionOrder] = useState<SessionOrderMap>(() => loadSessionOrder(keys.sessionOrder));
 	/** 拖拽排序进行中的会话（来源项目）；拖拽只允许发生在同一项目的会话列表内。 */
@@ -415,7 +411,7 @@ export function SessionSidebar({
 		: containerSize !== null
 			? Math.min(paneWidthLimit, Math.max(216, Math.round(containerSize.width * 0.28 + Math.max(0, containerSize.width - 1000) * 0.52)))
 			: paneWidthLimit;
-	const defaultSidebarWidth = drawerMode ? 288 : containerSize === null ? 264 : Math.min(280, Math.max(216, Math.round(containerSize.width * 0.15 + 100)));
+	const defaultSidebarWidth = drawerMode ? 288 : containerSize === null ? 252 : Math.min(260, Math.max(216, Math.round(containerSize.width * 0.12 + 100)));
 	/** 右缘拖拽调宽：null = 未拖过，使用自适应默认宽度。 */
 	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
 	const renderedSidebarWidth = Math.min(sidebarWidth ?? defaultSidebarWidth, maxSidebarWidth);
@@ -424,12 +420,13 @@ export function SessionSidebar({
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
 	const resizeAria = getUiLanguage() === "en" ? "Drag or use Left/Right arrows to resize sidebar, double-click to reset" : "拖拽或按左右方向键调整侧栏宽度，双击复位";
 	const closeDrawer = useCallback((): void => {
+		closeSearch();
 		setDrawerOpen(false);
 		setOpenMenu(null);
 		setProjectPopup(null);
 		setSessionMenu(null);
 		requestAnimationFrame(() => drawerTriggerRef.current?.focus({ preventScroll: true }));
-	}, []);
+	}, [closeSearch]);
 	useEffect(() => {
 		if (drawerMode && previousMinimized.current && !minimized) setDrawerOpen(true);
 		if (!drawerMode || minimized) setDrawerOpen(false);
@@ -452,11 +449,11 @@ export function SessionSidebar({
 	}, [drawerMode, minimized, sidebarHidden]);
 	useEffect(() => {
 		if (!drawerMode || sidebarHidden) return;
-		const frame = requestAnimationFrame(() => asideRef.current?.querySelector<HTMLInputElement>(".owl-sidebar-search-input")?.focus({ preventScroll: true }));
+		const frame = requestAnimationFrame(() => asideRef.current?.querySelector<HTMLButtonElement>(".owl-sidebar-search-trigger")?.focus({ preventScroll: true }));
 		return () => cancelAnimationFrame(frame);
 	}, [drawerMode, sidebarHidden]);
 	useEffect(() => {
-		if (!drawerMode || sidebarHidden || openMenu || showNewProject || editingProject || sectionDialog || projectConfirm || renaming || confirmDelete || resizing) return;
+		if (!drawerMode || sidebarHidden || searchOpen || openMenu || showNewProject || editingProject || sectionDialog || projectConfirm || renaming || confirmDelete || resizing) return;
 		const onKey = (event: KeyboardEvent): void => {
 			if (event.defaultPrevented) return;
 			if (event.key === "Escape") {
@@ -477,7 +474,7 @@ export function SessionSidebar({
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [drawerMode, sidebarHidden, closeDrawer, openMenu, showNewProject, editingProject, sectionDialog, projectConfirm, renaming, confirmDelete, resizing]);
+	}, [drawerMode, sidebarHidden, closeDrawer, searchOpen, openMenu, showNewProject, editingProject, sectionDialog, projectConfirm, renaming, confirmDelete, resizing]);
 	useEffect(() => {
 		const aside = asideRef.current;
 		if (!aside) return;
@@ -574,7 +571,7 @@ export function SessionSidebar({
 	}, [openMenu, projectPopup, closeProjectPopup, allSessions, projectRevision]);
 	useEffect(() => {
 		setProjectPopup(null);
-		setOpenMenu((current) => current === "projects" || current === "recent" || current?.startsWith(PROJECT_ROW_MENU_PREFIX) || current?.startsWith(PINNED_PROJECT_ROW_MENU_PREFIX) || current?.startsWith("partition:") ? null : current);
+		setOpenMenu((current) => current === "projects" || current === "recent" || current?.startsWith(PROJECT_ROW_MENU_PREFIX) || current?.startsWith("partition:") ? null : current);
 	}, [minimized, activeId, activeProject, sessionScope, focus, allSessions, query, collapsed, openProjects, projectRevision, recentSort]);
 
 	// A menu belongs to a specific rendered row, not every copy of that session.
@@ -613,7 +610,6 @@ export function SessionSidebar({
 			initializeReadMarkers(sessionScope, rows.filter((row) => matchesSessionScope(row, sessionScope)));
 			if (sessionScope === "research") {
 				setPinned(loadPinned(keys.pinned));
-				setPinnedProjects(loadPinnedProjects(keys.pinnedProjects));
 				setKnownProjects(loadAndScrubProjects(localStorage, keys.projects));
 			}
 			setAllSessions(rows);
@@ -676,29 +672,25 @@ export function SessionSidebar({
 		});
 	};
 
-	/**
-	 * 展开/收起某个项目的会话列表。scope 区分「项目」/「置顶」两组行，展开状态互不联动；
-	 * 首次交互前（openProjects 为 null）默认只展开「项目」分组里的当前项目。
-	 */
-	const toggleProjectGroup = (path: string, scope: "project" | "pinned"): void => {
-		const key = `${scope}:${normPath(path)}`;
+	/** 展开/收起某个项目的会话列表；首次交互前（openProjects 为 null）默认只展开当前项目。 */
+	const toggleProjectGroup = (path: string): void => {
+		const key = normPath(path);
 		setOpenProjects((current) => {
-			const expandedNow =
-				(current?.has(key) ?? false) || (current === null && scope === "project" && samePath(path, activeProject));
-			const next = new Set(current ?? []);
+			const expandedNow = (current?.has(key) ?? false) || (current === null && samePath(path, activeProject));
+			const next = new Set(current ?? (activeProject ? [normPath(activeProject)] : []));
 			if (expandedNow) next.delete(key);
 			else next.add(key);
 			return next;
 		});
 	};
 
-	/** 项目会话列表是否展开（openProjects 为 null 视作「项目」分组里仅当前项目展开）。 */
-	const projectGroupOpen = (path: string, scope: "project" | "pinned"): boolean => {
-		if (openProjects === null) return scope === "project" && samePath(path, activeProject);
-		return openProjects.has(`${scope}:${normPath(path)}`);
+	/** 项目会话列表是否展开（openProjects 为 null 视作仅当前项目展开）。 */
+	const projectGroupOpen = (path: string): boolean => {
+		if (openProjects === null) return samePath(path, activeProject);
+		return openProjects.has(normPath(path));
 	};
 
-	const isOpen = (id: string): boolean => query.trim() !== "" || !collapsed.has(id);
+	const isOpen = (id: string): boolean => !collapsed.has(id);
 
 	// rail 回到聊天视图：把会话列表滚回顶部。
 	useEffect(() => {
@@ -722,26 +714,6 @@ export function SessionSidebar({
 			return next;
 		});
 	};
-
-	/** 项目置顶/取消置顶：按置顶先后排序（与置顶会话的手动排序同习惯）。 */
-	const toggleProjectPin = (path: string): void => {
-		setPinnedProjects((current) => {
-			const next = current.some((p) => samePath(p, path))
-				? current.filter((p) => !samePath(p, path))
-				: [...current, path];
-			localStorage.setItem(keys.pinnedProjects, JSON.stringify(next));
-			return next;
-		});
-		// 项目页与侧栏共用这份置顶：广播让两边的本地 state 都重读。
-		publishProjectSidebarChange();
-	};
-
-	// 项目页（ProjectsPage）对置顶的修改经 publish 广播到这里：重读保持两边一致。
-	useEffect(() => {
-		setPinnedProjects(loadPinnedProjects(keys.pinnedProjects));
-	}, [projectRevision]); // eslint-disable-line react-hooks/exhaustive-deps
-
-	const isProjectPinned = (path: string): boolean => pinnedProjects.some((p) => samePath(p, path));
 
 	/** 归档会话：成功后从侧栏移除，恢复和删除由设置页统一管理。 */
 	const archiveSession = async (row: SessionRow): Promise<void> => {
@@ -821,7 +793,7 @@ export function SessionSidebar({
 	/** 已归档的会话在设置页管理，侧栏所有分组一律隐藏。 */
 	const isArchivedRow = (row: SessionRow): boolean => typeof row.archivedAt === "string" && row.archivedAt !== "";
 
-	// 会话行：标题/项目名匹配搜索词。列表本身已按 modified 降序。
+	// 弹窗中的标题/项目匹配；后台侧栏保留原列表和展开状态。
 	const sessionMatches = (row: SessionRow): boolean =>
 		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search) || (row.cwd ? projectLabel(row.cwd).toLowerCase().includes(search) : false);
 
@@ -864,32 +836,19 @@ export function SessionSidebar({
 			.map((entry) => entry.path);
 	}, [sessions, knownProjects, projectRevision]);
 
-	// 搜索时项目行按名称/路径/自身会话过滤，避免搜会话时冒出一堆不相干项目。
-	const projectMatchesSearch = (path: string): boolean =>
-		!search ||
-		projectLabel(path).toLowerCase().includes(search) ||
-		path.toLowerCase().includes(search) ||
-		sessions.some((row) => samePath(row.cwd, path) && !isArchivedRow(row) && sessionMatches(row));
-
 	const visibleProjects = useMemo(
-		() => projectPaths.filter((path) => !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
-		[projectPaths, sessions, search, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
-	);
-
-	// 置顶项目行：保留目录不设项目行，搜索时同样按项目过滤。
-	const pinnedProjectRows = useMemo(
-		() => pinnedProjects.filter((path) => !isReservedDir(path) && !isValidationDir(path) && !projectPreferences.hidden.includes(normPath(path)) && projectMatchesSearch(path)),
-		[pinnedProjects, search, sessions, projectPreferences], // eslint-disable-line react-hooks/exhaustive-deps
+		() => projectPaths.filter((path) => !projectPreferences.hidden.includes(normPath(path))),
+		[projectPaths, projectPreferences],
 	);
 
 	const recentSessions = useMemo(() => {
-		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && sessionMatches(row));
+		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row));
 		if (recentSort === "name") {
 			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
 		} else if (recentSort === "oldest") rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
 		else rows.sort(byLatest);
-		return rows.slice(0, RECENT_LIMIT);
-	}, [sessions, search, recentSort, projectRevision, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+		return rows;
+	}, [sessions, recentSort, projectRevision, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	/** 行内操作保留键盘入口，样式统一在侧边栏内控制。 */
 	const rowBtn = "owl-sidebar-action";
@@ -897,7 +856,7 @@ export function SessionSidebar({
 	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
 	const sessionRowTip = (row: SessionRow): string => {
 		const time = relativeTime(sessionTime(row));
-		return `${sessionTitle(row)}\n${time}${row.cwd ? ` · ${row.cwd}` : ""}`;
+		return [...new Set([sessionTitle(row), row.name?.trim(), row.firstMessage?.trim(), `${time}${row.cwd ? ` · ${row.cwd}` : ""}`, row.id, row.path].filter((part): part is string => Boolean(part)))].join("\n");
 	};
 
 	/**
@@ -911,8 +870,8 @@ export function SessionSidebar({
 		const time = relativeTime(sessionTime(row));
 		const menuKey = `${SESSION_ROW_MENU_PREFIX}${location}:${id ?? index}`;
 		const menuOpen = openMenu === menuKey && sessionMenu?.key === menuKey;
-		// 仅项目分组内的会话行可拖拽排序；搜索时列表是过滤子集，落盘会丢会话，禁用。
-		const draggable = projectPath !== undefined && id !== undefined && search === "";
+		// 仅项目分组内的完整会话列表可拖拽排序。
+		const draggable = projectPath !== undefined && id !== undefined;
 		const dropBefore = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
 		const dropAfter = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
 			return (
@@ -990,12 +949,12 @@ export function SessionSidebar({
 	};
 
 	/**
-	 * 项目下的未归档会话（搜索时同步过滤）。「项目」/「置顶」两组行共用。排序规则：
+	 * 项目下的未归档会话（置顶会话只在「置顶」分组出现）。排序规则：
 	 * 有手动顺序（拖拽过）的项目按手动序渲染，未收录的（新建）会话按最近活动排在最前；
 	 * 没有手动顺序时，最新创建的会话固定第一位（新对话默认置顶），其余按当前排序偏好。
 	 */
 	const projectSessionRows = (path: string): SessionRow[] => {
-		const sorted = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && samePath(row.cwd, path) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const sorted = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && samePath(row.cwd, path)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
 		const manual = sessionOrder[normPath(path)];
 		if (manual && manual.length > 0) {
 			const rank = new Map(manual.map((id, index) => [id, index]));
@@ -1008,21 +967,21 @@ export function SessionSidebar({
 		return newest ? [newest, ...sorted.filter((row) => row !== newest)] : sorted;
 	};
 
-	/** A single project row implementation serves pinned and partitioned projects. */
-	const renderProjectRow = (path: string, pinnedLocation: boolean): React.JSX.Element => {
+	/** A single project row implementation serves default and partitioned project sections. */
+	const projectRow = (path: string): React.JSX.Element => {
 		const isCurrent = samePath(path, activeProject);
-		const projectPinned = isProjectPinned(path);
-		const menuId = `${pinnedLocation ? PINNED_PROJECT_ROW_MENU_PREFIX : PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
-		const location = pinnedLocation ? "pinned" : "project";
-		const expanded = search !== "" || projectGroupOpen(path, location);
+		const menuId = `${PROJECT_ROW_MENU_PREFIX}${normPath(path)}`;
+		const expanded = projectGroupOpen(path);
 		const rows = projectSessionRows(path);
 		const name = projectLabel(path);
+		const windowKey = "project:" + normPath(path);
+		const visibleRows = rows.slice(0, visibleCount(windowKey));
 		return <div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
 			<div className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}>
-				<button type="button" className="owl-sidebar-project-toggle" aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path, location)}><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /></button>
+				<button type="button" className="owl-sidebar-project-toggle" aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path)}><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /></button>
 				<button type="button" className="owl-sidebar-row-main" title={path} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => { onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}><IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /><span className="owl-sidebar-row-label">{name}</span></button>
 				<div data-menu-root className="owl-sidebar-row-actions">
-					<button type="button" className={`owl-sidebar-action ${pinnedLocation ? "owl-sidebar-action--persistent" : ""}`} title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActionsAria", { project: name })} aria-haspopup="menu" aria-expanded={openMenu === menuId} aria-controls={openMenu === menuId ? projectMenuId : undefined} onClick={(event) => {
+					<button type="button" className="owl-sidebar-action" title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActionsAria", { project: name })} aria-haspopup="menu" aria-expanded={openMenu === menuId} aria-controls={openMenu === menuId ? projectMenuId : undefined} onClick={(event) => {
 						if (openMenu === menuId) closeProjectPopup();
 						else { setProjectPopup({ key: menuId, kind: "project", path, anchor: event.currentTarget }); setOpenMenu(menuId); }
 					}}><IconMore className="h-3.5 w-3.5" /></button>
@@ -1062,27 +1021,36 @@ export function SessionSidebar({
 					setDraggingSession(null);
 					setDropHint(null);
 				}}
-			>{rows.map((row, index) => sessionRow(row, index, false, menuId, path))}{rows.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}</div>}
+			>{visibleRows.map((row, index) => sessionRow(row, index, false, menuId, path))}{listControls(windowKey, rows.length, name)}{rows.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}</div>}
 		</div>;
 	};
-	const pinnedProjectRow = (path: string): React.JSX.Element => renderProjectRow(path, true);
-	const projectRow = (path: string): React.JSX.Element => renderProjectRow(path, false);
 	const renderProjectContents = (paths: string[], location: string): React.ReactNode => {
 		if (projectPreferences.view === "projects") return paths.map(projectRow);
 		const pathsSet = new Set(paths.map(normPath));
-		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd)) && sessionMatches(row)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
-		return rows.length ? rows.map((row, index) => sessionRow(row, index, false, location)) : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
+		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd))).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const windowKey = "merged:" + location;
+		return rows.length ? <>{rows.slice(0, visibleCount(windowKey)).map((row, index) => sessionRow(row, index, false, location))}{listControls(windowKey, rows.length, pt("defaultSection"))}</> : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
 	};
 	const defaultProjects = visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === undefined);
+	const renderRecentRows = (rows: SessionRow[], location: string): React.ReactNode => {
+		const groups = groupSessionsByPeriod(rows);
+		if (recentSort === "oldest") groups.reverse();
+		return groups.map(({ period, rows: periodRows }) => <div key={period} className="owl-sidebar-date-group" data-session-period={period}>
+			<h3 className="owl-sidebar-date-label">{t(period === "today" ? "history.today" : period === "yesterday" ? "sidebar.yesterday" : "myself.groupEarlier")}</h3>
+			{periodRows.map((row, index) => sessionRow(row, index, false, location))}
+		</div>);
+	};
 	const renderRecentContents = (): React.ReactNode => {
-		if (projectPreferences.recentView === "merged") return recentSessions.map((row, index) => sessionRow(row, index, false, "recent"));
+		const rows = recentSessions.slice(0, visibleCount("recent"));
+		const controls = listControls("recent", recentSessions.length, sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent"));
+		if (projectPreferences.recentView === "merged") return <>{renderRecentRows(rows, "recent")}{controls}</>;
 		const groups = new Map<string, { path?: string; rows: SessionRow[] }>();
-		for (const row of recentSessions) {
+		for (const row of rows) {
 			const key = normPath(row.cwd);
 			const group = groups.get(key);
 			if (group) group.rows.push(row); else groups.set(key, { path: row.cwd, rows: [row] });
 		}
-		return [...groups].map(([pathKey, group]) => {
+		return <>{[...groups].map(([pathKey, group]) => {
 			const key = `recent-project:${pathKey || "standalone"}`;
 			const expanded = isOpen(key);
 			const name = group.path ? projectLabel(group.path) : pt("standalone");
@@ -1092,9 +1060,9 @@ export function SessionSidebar({
 					{group.path ? <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}
 					<span className="owl-sidebar-row-label">{name}</span>
 				</button></div>
-				{expanded && <div className="owl-sidebar-project-sessions">{group.rows.map((row, index) => sessionRow(row, index, false, key))}</div>}
+				{expanded && <div className="owl-sidebar-project-sessions">{renderRecentRows(group.rows, key)}</div>}
 			</div>;
-		});
+		})}{controls}</>;
 	};
 	const savePreferences = (next: ProjectSidebarPreferences): void => saveProjectSidebarPreferences(sessionScope, next);
 	const confirmProjectAction = async (): Promise<void> => {
@@ -1108,9 +1076,8 @@ export function SessionSidebar({
 		if (projectConfirm.type === "remove") {
 			savePreferences(hideProject(projectPreferences, path));
 			const nextKnown = knownProjects.filter((entry) => !samePath(entry, path));
-			const nextPinned = pinnedProjects.filter((entry) => !samePath(entry, path));
-			setKnownProjects(nextKnown); setPinnedProjects(nextPinned);
-			localStorage.setItem(keys.projects, JSON.stringify(nextKnown)); localStorage.setItem(keys.pinnedProjects, JSON.stringify(nextPinned));
+			setKnownProjects(nextKnown);
+			localStorage.setItem(keys.projects, JSON.stringify(nextKnown));
 			setProjectConfirm(null); return;
 		}
 		const targets = sessions.filter((row) => row.id && !isArchivedRow(row) && samePath(row.cwd, path));
@@ -1175,9 +1142,9 @@ export function SessionSidebar({
 		<aside
 			ref={asideRef}
 			id="owl-session-sidebar"
-			className={`owl-sidebar${drawerMode ? " owl-sidebar--drawer" : ""}${renderedSidebarWidth <= 264 ? " owl-sidebar--compact" : ""}`}
+			className={`owl-sidebar${drawerMode ? " owl-sidebar--drawer" : ""}${renderedSidebarWidth <= 232 ? " owl-sidebar--compact" : ""}`}
 			role={drawerMode ? "dialog" : undefined}
-			aria-modal={drawerMode && !sidebarHidden ? true : undefined}
+			aria-modal={drawerMode && !sidebarHidden && !searchOpen ? true : undefined}
 			aria-label={t("sidebar.aria")}
 			hidden={sidebarHidden}
 			style={{ width: renderedSidebarWidth, flexBasis: renderedSidebarWidth, maxWidth: maxSidebarWidth }}
@@ -1198,45 +1165,24 @@ export function SessionSidebar({
 				{drawerMode && <button type="button" className="owl-sidebar-drawer-close" aria-label={t("sidebar.collapseSidebar")} title={t("sidebar.collapseSidebar")} onClick={closeDrawer}><IconPanelLeft className="h-4 w-4" /></button>}
 			</div>
 
-			<div className="owl-sidebar-search">
-				<IconSearch className="h-3.5 w-3.5 shrink-0" />
-				<input
-					type="text"
-					className="owl-sidebar-search-input"
-					placeholder={t("sidebar.searchPlaceholder")}
-					aria-label={t("sidebar.searchPlaceholder")}
-					value={query}
-					onInput={(event) => setQuery(event.currentTarget.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Escape" && query) { setQuery(""); event.stopPropagation(); }
-					}}
-				/>
-				{query && (
-					<button type="button" className="owl-sidebar-search-clear" aria-label={t("sidebar.clearSearch")} onClick={() => setQuery("")}>
-						<span aria-hidden="true">×</span>
-					</button>
-				)}
-			</div>
-
 			<div className="owl-sidebar-shortcuts">
+				<button
+					type="button"
+					className="owl-sidebar-search-trigger"
+					aria-label={searchText("title")}
+					aria-haspopup="dialog"
+					aria-expanded={searchOpen}
+					title={t("sidebar.searchPlaceholder")}
+					onClick={() => { setOpenMenu(null); setSessionMenu(null); setProjectPopup(null); setSearchOpen(true); }}
+				><IconSearch className="h-3.5 w-3.5 shrink-0" /><span>{searchText("title")}</span></button>
 				<button type="button" className="owl-sidebar-new-chat" aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")} onClick={() => { onNewChat(); if (drawerMode) setDrawerOpen(false); }}>
-					<IconPlus className="h-4 w-4 shrink-0" />
+					<IconCompose className="h-3.5 w-3.5 shrink-0" />
 					<span>{sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}</span>
 				</button>
 			</div>
 
 			<div ref={scrollRef} className="owl-sidebar-list">
-				{search ? <SessionSearchPanel
-					client={client} connected={connected} query={query} activeProject={activeProject} refreshKey={refreshKey} revision={revision}
-					metadataSessions={metadataSessions} projects={searchProjects}
-					onOpenHit={(hit, searchQuery) => {
-						if (onOpenSearchHit) onOpenSearchHit(hit, searchQuery);
-						else onOpenSession(hit.sessionId);
-						if (drawerMode) setDrawerOpen(false);
-					}}
-					onSelectProject={(path) => { onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}
-				/> : <>
-				{(pinnedProjectRows.length > 0 || pinnedSessions.length > 0) && (
+				{pinnedSessions.length > 0 && (
 					<Section
 						id="pinned"
 						label={t("sidebar.sectionPinned")}
@@ -1271,8 +1217,8 @@ export function SessionSidebar({
 							</>
 						}
 					>
-						{pinnedProjectRows.map((path) => pinnedProjectRow(path))}
-						{pinnedSessions.filter(sessionMatches).map((row, index) => sessionRow(row, index, true, "pinned"))}
+					{pinnedSessions.slice(0, visibleCount("pinned")).map((row, index) => sessionRow(row, index, true, "pinned"))}
+					{listControls("pinned", pinnedSessions.length, t("sidebar.sectionPinned"))}
 					</Section>
 				)}
 
@@ -1342,15 +1288,13 @@ export function SessionSidebar({
 					}
 				>
 					{renderRecentContents()}
-					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{search ? t("sidebar.noMatch") : t("sidebar.none")}</p>}
+					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}
 				</Section>
 
 				{projectNotice && <p className="owl-sidebar-notice" role="status">{projectNotice}</p>}
-				</>}
 			</div>
 			{!sidebarHidden && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? <ProjectActionsMenu
-				anchor={projectPopup.anchor} menuId={projectMenuId} label={t("sidebar.projectActionsAria", { project: projectLabel(projectPopup.path) })} pinned={isProjectPinned(projectPopup.path)} sections={projectPreferences.sections} sectionId={projectPreferences.assignments[normPath(projectPopup.path)] ?? null} onClose={closeProjectPopup}
-				onPin={() => { if (projectPopup.path) toggleProjectPin(projectPopup.path); }}
+				anchor={projectPopup.anchor} menuId={projectMenuId} label={t("sidebar.projectActionsAria", { project: projectLabel(projectPopup.path) })} sections={projectPreferences.sections} sectionId={projectPreferences.assignments[normPath(projectPopup.path)] ?? null} onClose={closeProjectPopup}
 				onEdit={() => setEditingProject(projectPopup.path ?? null)}
 				onSection={(id) => { if (projectPopup.path) savePreferences(moveProjectToSection(projectPreferences, projectPopup.path, id)); }}
 				onNewSection={() => { setSectionError(""); setSectionDialog({ path: projectPopup.path }); }}
@@ -1468,6 +1412,18 @@ export function SessionSidebar({
 				}}
 			/>
 		</aside>
+		{searchOpen && <SessionSearchDialog
+			client={client} connected={connected} query={query} activeProject={activeProject} refreshKey={refreshKey} revision={revision}
+			metadataSessions={metadataSessions} projects={searchProjects} placeholder={sessionScope === "research" ? researchText.search : t("sidebar.searchPlaceholder")}
+			onQueryChange={setQuery} onClose={closeSearch}
+			onOpenHit={(hit, searchQuery) => {
+				closeSearch();
+				if (onOpenSearchHit) onOpenSearchHit(hit, searchQuery);
+				else onOpenSession(hit.sessionId);
+				if (drawerMode) setDrawerOpen(false);
+			}}
+			onSelectProject={(path) => { closeSearch(); onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}
+		/>}
 		</>
 	);
 }

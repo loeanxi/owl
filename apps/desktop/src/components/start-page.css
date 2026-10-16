@@ -1,183 +1,255 @@
-/* Welcome surface only: typography and tokens do not reach messages or the composer. */
+/* The start page shares the conversation's reading column and restrained chrome. */
 .owl-start-page {
+	container: owl-start / inline-size;
+	width: 100%;
+	max-width: 760px;
+	margin-inline: auto;
+	padding: 16px 0 28px;
+	color: var(--owl-reading-text, var(--owl-ui-text, var(--color-owl-text)));
+	font-family: var(--font-sans);
+	text-align: left;
+}
+
+.owl-start-header {
 	display: flex;
-	min-height: clamp(280px, calc(100dvh - 340px), 440px);
-	flex-direction: column;
+	align-items: flex-start;
+	gap: 14px;
+}
+
+.owl-start-mark {
+	width: 40px;
+	height: 40px;
+	flex: none;
+	margin-top: 2px;
+}
+
+.owl-start-heading {
+	margin: 0;
+	font-size: 24px;
+	font-weight: 600;
+	letter-spacing: -0.025em;
+	line-height: 1.4;
+}
+
+.owl-start-description {
+	margin: 7px 0 0;
+	color: var(--owl-reading-muted, var(--owl-ui-muted, var(--color-owl-muted)));
+	font-size: 14px;
+	line-height: 1.65;
+}
+
+.owl-start-project {
+	display: flex;
 	align-items: center;
-	justify-content: center;
-	padding: 12px 4px;
-	color: var(--owl-ui-text, var(--color-owl-text));
-	text-align: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 20px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border));
 }
 
-.owl-start-page .owl-start-mark {
-	width: 46px;
-	height: 46px;
-	margin-bottom: 16px;
+.owl-start-project-info {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
 }
 
-.owl-start-page .owl-start-eyebrow {
-	margin-bottom: 8px;
+.owl-start-project-info > svg,
+.owl-start-project-label {
+	flex: none;
 	color: var(--owl-ui-muted, var(--color-owl-muted));
-	font-size: 10px;
-	letter-spacing: 0.12em;
-	line-height: 1.4;
 }
 
-.owl-start-page .owl-start-heading {
-	font-family: var(--font-serif);
-	font-size: clamp(24px, 2.3vw, 30px);
-	font-weight: 400;
-	letter-spacing: -0.8px;
-	line-height: 1.4;
+.owl-start-project-label {
+	font-size: 12px;
 }
 
-.owl-start-page .owl-start-description {
-	margin-top: 9px;
-	color: var(--owl-ui-muted, var(--color-owl-muted));
+.owl-start-project-name {
+	overflow: hidden;
 	font-size: 13px;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-start-recent,
+.owl-start-examples {
+	margin-top: 20px;
+}
+
+.owl-start-primary-actions {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.owl-start-section-heading {
+	margin: 0 0 8px;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.5;
+}
+
+.owl-start-recent-task,
+.owl-start-example {
+	display: flex;
+	width: 100%;
+	min-height: 40px;
+	align-items: center;
+	gap: 12px;
+	padding: 8px;
+	border-radius: 6px;
+	color: inherit;
+	font-size: 14px;
+	line-height: 1.5;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 150ms ease, color 150ms ease;
+}
+
+.owl-start-task-title,
+.owl-start-example > span {
+	flex: 1;
+	min-width: 0;
+}
+
+.owl-start-task-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-start-task-time {
+	flex: none;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.owl-start-task-time,
+.owl-start-recent-task > svg,
+.owl-start-example > svg,
+.owl-start-recent-empty,
+.owl-start-example-hint {
+	color: var(--owl-reading-muted, var(--owl-ui-muted, var(--color-owl-muted)));
+}
+
+.owl-start-example {
+	min-height: 46px;
+	justify-content: space-between;
+	padding: 10px 12px;
+	border: 1px solid var(--owl-ui-border, var(--color-owl-border));
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--owl-ui-text, var(--color-owl-text)) 4%, transparent);
+	transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.owl-start-example > svg { transition: transform 150ms ease, color 150ms ease; }
+
+.owl-start-example:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--owl-ui-text, var(--color-owl-text)) 12%, var(--owl-ui-border, var(--color-owl-border)));
+}
+
+.owl-start-example:hover:not(:disabled) > svg {
+	color: var(--owl-reading-text, var(--owl-ui-text, var(--color-owl-text)));
+	transform: translateX(2px);
+}
+
+.owl-start-recent-task:hover:not(:disabled),
+.owl-start-example:hover:not(:disabled),
+.owl-start-secondary-action:hover:not(:disabled) {
+	background: var(--owl-ui-hover, var(--color-owl-hover));
+}
+
+.owl-start-recent-empty,
+.owl-start-example-hint {
+	margin: 8px 0 0;
+	font-size: 12px;
 	line-height: 1.6;
 }
 
-.owl-start-page .owl-start-primary-actions {
-	display: grid;
-	width: 100%;
-	max-width: 606px;
-	grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-	gap: 10px;
-	margin-top: 26px;
-	text-align: left;
+.owl-start-tools {
+	margin-top: 20px;
 }
 
-.owl-start-page .owl-start-card {
-	display: grid;
-	min-height: 82px;
-	grid-template-columns: 22px minmax(0, 1fr);
-	align-content: center;
-	gap: 5px 10px;
-	padding: 14px;
-	border: 1px solid var(--owl-ui-border, var(--color-owl-sidebar-border));
-	border-radius: 10px;
-	background: var(--owl-ui-panel, var(--color-owl-panel));
-	color: var(--owl-ui-muted, var(--color-owl-muted));
-	text-align: left;
-	transition: background-color 120ms, border-color 120ms;
-}
-
-.owl-start-page .owl-start-card:hover:not(:disabled) {
-	border-color: color-mix(in srgb, var(--color-owl-accent) 55%, var(--owl-ui-border, var(--color-owl-sidebar-border)));
-	background: color-mix(in srgb, var(--color-owl-accent) 7%, var(--owl-ui-panel, var(--color-owl-panel)));
-}
-
-.owl-start-page .owl-start-card-icon {
-	display: inline-flex;
-	grid-row: span 2;
-	align-self: center;
-}
-
-.owl-start-page .owl-start-card-title {
-	color: var(--owl-ui-text, var(--color-owl-text));
-	font-size: 12px;
-	font-weight: 500;
-	line-height: 1.5;
-}
-
-.owl-start-page .owl-start-card-description {
-	grid-column: 2;
-	font-size: 11px;
-	line-height: 1.5;
-}
-
-.owl-start-page .owl-start-example-hint {
-	margin-top: 10px;
-	color: var(--owl-ui-muted, var(--color-owl-muted));
-	font-size: 11px;
-	line-height: 1.5;
-}
-
-.owl-start-page .owl-start-secondary-actions {
+.owl-start-secondary-actions {
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: center;
 	gap: 4px 8px;
-	margin-top: 14px;
 }
 
-.owl-start-page .owl-start-secondary-action {
+.owl-start-secondary-action {
 	display: inline-flex;
-	min-height: 30px;
-	align-items: center;
-	gap: 7px;
-	padding: 6px 9px;
-	border-radius: 7px;
-	color: var(--owl-ui-muted, var(--color-owl-muted));
-	font-size: 11px;
-	line-height: 1.5;
-	transition: background-color 120ms, color 120ms;
-}
-
-.owl-start-page .owl-start-secondary-action:hover {
-	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
-	color: var(--owl-ui-text, var(--color-owl-text));
-}
-
-.owl-start-page .owl-start-secondary-icon {
-	display: inline-flex;
-}
-
-.owl-start-page .owl-start-developer-action {
-	display: inline-flex;
-	min-height: 34px;
+	min-height: 32px;
+	max-width: 100%;
 	align-items: center;
 	justify-content: center;
-	flex-wrap: wrap;
 	gap: 7px;
-	margin-top: 9px;
-	padding: 6px 10px;
-	border-radius: 7px;
-	color: var(--owl-ui-text, var(--color-owl-text));
-	font-size: 11px;
+	padding: 6px 8px;
+	border-radius: 6px;
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 12px;
 	line-height: 1.5;
-	transition: background-color 120ms;
+	cursor: pointer;
+	transition: background-color 150ms ease, color 150ms ease;
 }
 
-.owl-start-page .owl-start-developer-action:hover:not(:disabled) {
-	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+.owl-start-project > button {
+	flex: none;
 }
 
-.owl-start-page .owl-start-card:disabled,
-.owl-start-page .owl-start-developer-action:disabled {
+.owl-start-secondary-icon {
+	display: inline-flex;
+	flex: none;
+}
+
+.owl-start-developer-action {
+	color: inherit;
+}
+
+.owl-start-page button:disabled {
 	cursor: default;
 	opacity: 0.5;
 }
 
-.owl-start-page .owl-start-developer-description {
-	margin-left: 4px;
+.owl-start-more-tools,
+.owl-start-usage {
 	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 12px;
+	line-height: 1.6;
 }
 
-.owl-start-page .owl-start-more-tools {
-	margin-top: 6px;
-	color: var(--owl-ui-muted, var(--color-owl-muted));
-	font-size: 11px;
-	line-height: 1.5;
+.owl-start-more-tools {
+	margin-top: 4px;
 }
 
-.owl-start-page .owl-start-more-tools > summary {
+.owl-start-more-tools > summary,
+.owl-start-usage > summary {
 	width: fit-content;
-	margin-inline: auto;
-	padding: 4px 8px;
-	border-radius: 7px;
+	padding: 7px 8px;
+	border-radius: 6px;
 	cursor: pointer;
 }
 
-.owl-start-page .owl-start-more-tools > summary:hover {
-	background: var(--owl-ui-hover, var(--color-owl-sidebar-hover));
+.owl-start-more-tools > summary:hover,
+.owl-start-usage > summary:hover {
+	background: var(--owl-ui-hover, var(--color-owl-hover));
 	color: var(--owl-ui-text, var(--color-owl-text));
 }
 
-.owl-start-page .owl-start-more-tools .owl-start-secondary-actions {
+.owl-start-more-tools .owl-start-secondary-actions {
 	margin-top: 4px;
+}
+
+.owl-start-usage {
+	margin-top: 20px;
+	padding-top: 10px;
+	border-top: 1px solid var(--owl-ui-border, var(--color-owl-border));
+}
+
+.owl-start-usage > .owl-usage {
+	margin-top: 12px;
 }
 
 .owl-start-page button:focus-visible,
@@ -186,45 +258,58 @@
 	outline-offset: 3px;
 }
 
-@media (max-height: 720px) {
-	.owl-start-page {
-		min-height: 0;
-		padding: 4px 0;
-	}
-
-	.owl-start-page .owl-start-mark {
-		width: 38px;
-		height: 38px;
-		margin-bottom: 12px;
-	}
-
-	.owl-start-page .owl-start-primary-actions {
-		margin-top: 20px;
-	}
-
-	.owl-start-page .owl-start-card {
-		min-height: 74px;
-		padding: 12px;
+@container owl-start (max-width: 520px) {
+	.owl-start-primary-actions {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 8px;
 	}
 }
 
-@media (max-width: 560px) {
-	.owl-start-page .owl-start-primary-actions {
-		grid-template-columns: minmax(0, 1fr);
-		max-width: 340px;
+@container owl-start (max-width: 440px) {
+	.owl-start-header {
+		gap: 10px;
 	}
 
-	.owl-start-page .owl-start-developer-description {
+	.owl-start-mark {
+		width: 32px;
+		height: 32px;
+	}
+
+	.owl-start-heading {
+		font-size: 22px;
+	}
+
+	.owl-start-project-label {
 		display: none;
 	}
-}
 
-@media (max-width: 880px) {
-	.owl-start-page .owl-start-card {
-		padding: 12px;
+	.owl-start-recent-task {
+		gap: 8px;
+		padding-inline: 4px;
 	}
 
-	.owl-start-page .owl-start-primary-actions {
+	.owl-start-example {
 		gap: 8px;
+	}
+}
+
+@media (max-height: 720px) {
+	.owl-start-page {
+		padding-top: 8px;
+	}
+
+	.owl-start-project,
+	.owl-start-recent,
+	.owl-start-examples,
+	.owl-start-tools,
+	.owl-start-usage {
+		margin-top: 16px;
+	}
+}
+
+@media (pointer: coarse) {
+	.owl-start-page button,
+	.owl-start-page summary {
+		min-height: 44px;
 	}
 }

@@ -1,11 +1,12 @@
 import type { RailView } from "./components/ActivityRail.tsx";
+import type { SettingsInitialTab } from "./components/SettingsPage.tsx";
 import { normPath } from "./utils/paths.ts";
 
 /** 用户所在的一屏：主区、设置页、当前会话、项目。 */
 export interface AppPlace {
 	rail: RailView;
 	settings: boolean;
-	settingsTab: "general" | "accounts" | "usage" | "models" | "diagnostics" | "about";
+	settingsTab: SettingsInitialTab;
 	chatSession?: string;
 	researchSession?: string;
 	workspace: string;

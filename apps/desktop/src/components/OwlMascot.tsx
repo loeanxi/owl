@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ChatActivity } from "./ChatStream.tsx";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { useT } from "../i18n/index.ts";
@@ -60,23 +60,77 @@ export function useSessionOwlPose(activity: ChatActivity, entries: ChatEntry[]):
 	return celebrating && activity === "idle" ? "party" : pose;
 }
 
-export function OwlMascot({ pose, inline = false, hidden = false }: { pose: OwlPose; inline?: boolean; hidden?: boolean }): React.JSX.Element {
+export function OwlMascot({
+	pose,
+	inline = false,
+	hidden = false,
+	title,
+	alert = false,
+	panel,
+	panelLabel,
+}: {
+	pose: OwlPose;
+	inline?: boolean;
+	hidden?: boolean;
+	/** 悬停提示；传了 panel 时用来概括当前设置。 */
+	title?: string;
+	/** 需要提醒的状态（如自动模式），眼睛转琥珀色并挂小角标。 */
+	alert?: boolean;
+	/** 点击弹出的面板内容；不传时点击只跳一下。 */
+	panel?: (close: () => void) => ReactNode;
+	panelLabel?: string;
+}): React.JSX.Element {
 	const t = useT();
 	const rawId = useId().replace(/:/g, "");
 	const haloId = `owl-halo-${rawId}`;
 	const pupilId = `owl-pupil-${rawId}`;
 	const [poked, setPoked] = useState(false);
+	const [open, setOpen] = useState(false);
+	const slotRef = useRef<HTMLDivElement>(null);
+	const concealed = hidden && !inline;
+	const panelOpen = open && Boolean(panel) && !concealed;
+
+	useEffect(() => {
+		if (!panelOpen) return;
+		const onPointerDown = (event: MouseEvent): void => {
+			if (!slotRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") setOpen(false);
+		};
+		document.addEventListener("mousedown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [panelOpen]);
+
 	return (
-		<div className={"owl-mascot-slot" + (inline ? " is-inline" : "") + (hidden && !inline ? " is-hidden" : "")} aria-hidden={hidden && !inline ? true : undefined}>
+		<div
+			ref={slotRef}
+			className={"owl-mascot-slot" + (inline ? " is-inline" : "") + (concealed ? " is-hidden" : "") + (panelOpen ? " is-open" : "")}
+			aria-hidden={concealed ? true : undefined}
+		>
+			{panelOpen && panel && (
+				<div className="owl-mascot-panel" role="dialog" aria-label={panelLabel}>
+					{panel(() => setOpen(false))}
+				</div>
+			)}
 			<button
 				type="button"
 				className={poked ? "owl-mascot poked" : "owl-mascot"}
 				data-pose={pose}
-				tabIndex={hidden && !inline ? -1 : 0}
-				aria-label={t("composer.owlHop")}
+				data-alert={alert || undefined}
+				tabIndex={concealed ? -1 : 0}
+				title={title}
+				aria-label={title ?? t("composer.owlHop")}
+				aria-haspopup={panel ? "dialog" : undefined}
+				aria-expanded={panel ? panelOpen : undefined}
 				onClick={() => {
 					setPoked(false);
 					requestAnimationFrame(() => setPoked(true));
+					if (panel) setOpen((value) => !value);
 				}}
 				onAnimationEnd={(event) => {
 					if (event.animationName === "owl-hop" && poked) setPoked(false);
@@ -85,6 +139,7 @@ export function OwlMascot({ pose, inline = false, hidden = false }: { pose: OwlP
 				<span className="owl-mascot-fx owl-mascot-bubbles" aria-hidden="true"><i>{"{}"}</i><i>{"</>"}</i><i>;</i></span>
 				<span className="owl-mascot-fx owl-mascot-thoughts" aria-hidden="true"><i /><i /><i /></span>
 				<span className="owl-mascot-fx owl-mascot-sparks" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
+				{alert && <span className="owl-mascot-alert" aria-hidden="true" />}
 				<svg viewBox="0 0 256 300" aria-hidden="true">
 					<defs>
 						<radialGradient id={haloId}>

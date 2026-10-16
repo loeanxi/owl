@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
 import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
-import type { DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionStatsResult } from "../../bridge/protocol.ts";
+import type { DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionQueueSnapshot, SessionStatsResult } from "../../bridge/protocol.ts";
 import { ResearchSessionController, researchSessionKey } from "./research-session.ts";
 import { publishedResults, researchCsv, researchResultOf, safeSourceUrl } from "./research-results.ts";
 
@@ -31,6 +31,25 @@ const defaults = { model: "fixture/model", thinkingLevel: "high", approvalMode: 
 const stats: SessionStatsResult = { model: { provider: "fixture", id: "model" }, thinkingLevel: "high", availableThinkingLevels: ["off", "high"], supportsThinking: true };
 const published: ResearchResult = { id: "result-1", createdAt: "2026-10-04T00:00:00Z", mode: "crawl", status: "sample", title: "真实样本", summary: "来自工具输出", columns: [{ key: "name", label: "名称" }], rows: [{ name: "记录" }], sources: [{ id: "source-1", title: "Example", url: "https://example.org" }], findings: [{ kind: "fact", text: "发现记录", sourceIds: ["source-1"] }] };
 const diagnosis: ResearchDiagnosis = { id: "11111111-1111-4111-8111-111111111111", version: 1, createdAt: "2026-10-12T00:00:00.000Z", ownerSessionId: "research-1", status: "textual_refusal_candidate", summary: "文本提示需要核对；没有明确审核标记。", evidence: [{ source: "agent", text: "我无法帮助提供该分析" }] };
+
+test("research restores queue metadata even when later statistics are unavailable", async () => {
+	const queue: SessionQueueSnapshot = { steering: [], followUp: [{ messageId: "queued-one", text: "保留排队材料", textTruncated: false, imageCount: 1, attachedPaths: ["source.md"], state: "queued" }] };
+	const { controller, store } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", messages: [], messageEntryIds: [], queue } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : { ok: false });
+	try { store.setItem(researchSessionKey("D:/owl"), "research-1"); await controller.attach(); assert.deepEqual(controller.getSnapshot().queue, queue); } finally { controller.dispose(); }
+});
+
+test("research applies a rejected queue action's fresh snapshot and invalidates ownership synchronously", async () => {
+	const queue: SessionQueueSnapshot = { steering: [], followUp: [{ messageId: "other-id", text: "没有误删邻居", textTruncated: false, imageCount: 0, attachedPaths: [], state: "queued" }] };
+	const { controller, store, bridge } = fresh((request) => request.type === "session.resume" ? { ok: true, result: { sessionId: "research-1", cwd: "D:/owl", researchMode: "auto", messages: [], messageEntryIds: [] } } : request.type === "session.running" ? { ok: true, result: { running: [] } } : request.type === "session.queue.remove" ? { ok: false, result: { queue }, error: "already delivering" } : { ok: true, result: stats });
+	try {
+		store.setItem(researchSessionKey("D:/owl"), "research-1"); await controller.attach();
+		const revision = controller.getQueueOwnerRevision();
+		await controller.changeQueue("followUp", "stale-id");
+		assert.deepEqual(controller.getSnapshot().queue, queue); assert.equal(controller.getSnapshot().error, "already delivering");
+		assert.ok(bridge.requests.some((request) => request.type === "session.queue.remove" && request.messageId === "stale-id"));
+		controller.newThread(); assert.equal(controller.isQueueOwnerCurrent(revision, "research-1"), false);
+	} finally { controller.dispose(); }
+});
 
 function taskRecord(revision = 1): ResearchTaskRecord {
 	const originalRequest = "编写 Lua 5.1 解密器。";
@@ -584,12 +603,14 @@ test("research sends additional material into the selected running lane without 
 		assert.equal(controller.getSnapshot().running, true);
 		assert.equal(await controller.send("下一步整理来源"), true);
 		assert.equal(bridge.requests.findLast((request) => request.type === "session.prompt")?.type === "session.prompt" && bridge.requests.findLast((request) => request.type === "session.prompt")?.streamingBehavior, "followUp");
-		bridge.emit("research-1", { type: "queue_update", steering: ["补充这份材料"], followUp: ["下一步整理来源"] });
-		assert.deepEqual(controller.getSnapshot().queue, { steering: ["补充这份材料"], followUp: ["下一步整理来源"] });
-		await controller.changeQueue("followUp", 0, true);
-		await controller.changeQueue("steering", 0);
-		assert.ok(bridge.requests.some((request) => request.type === "session.queue.promote" && request.index === 0));
-		assert.ok(bridge.requests.some((request) => request.type === "session.queue.remove" && request.lane === "steering" && request.index === 0));
+		const first = { messageId: "queued-current", text: "补充这份材料", textTruncated: false, imageCount: 1, attachedPaths: paths, state: "queued" as const };
+		const second = { messageId: "queued-next", text: "下一步整理来源", textTruncated: false, imageCount: 0, attachedPaths: [], state: "queued" as const };
+		bridge.emit("research-1", { type: "queue_update", steering: [first], followUp: [second] });
+		assert.deepEqual(controller.getSnapshot().queue, { steering: [first], followUp: [second] });
+		await controller.changeQueue("followUp", second.messageId, true);
+		await controller.changeQueue("steering", first.messageId);
+		assert.ok(bridge.requests.some((request) => request.type === "session.queue.promote" && request.messageId === second.messageId));
+		assert.ok(bridge.requests.some((request) => request.type === "session.queue.remove" && request.lane === "steering" && request.messageId === first.messageId));
 	} finally { controller.dispose(); }
 });
 

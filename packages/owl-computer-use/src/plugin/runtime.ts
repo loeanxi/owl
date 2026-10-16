@@ -49,7 +49,7 @@ export class ComputerUseRuntime {
 	private stoppedRun = false;
 	private currentTargetHwnd: number | undefined;
 	private foregroundAction: { generation: number; hwnd: number; interrupted: boolean } | undefined;
-	private activeAction: { generation: number; hwnd?: number; interrupted: boolean } | undefined;
+	private activeAction: { generation: number; hwnd?: number; interrupted: boolean; stopped: boolean } | undefined;
 	private pendingObservation: { generation: number; hwnd: number; invalidated: boolean } | undefined;
 	private generation = 0;
 	private readonly observations = new Map<string, ObservationLease>();
@@ -71,7 +71,9 @@ export class ComputerUseRuntime {
 		this.stoppedRun = false;
 	}
 
-	invalidateOwner(): void {
+	invalidateOwner(reason?: "user_stopped"): void {
+		if (reason === "user_stopped" && this.activeAction?.generation === this.generation)
+			this.activeAction.stopped = true;
 		this.generation++;
 		this.sessionId = undefined;
 		this.stoppedRun = true;
@@ -380,7 +382,7 @@ export class ComputerUseRuntime {
 			};
 		}
 		const generation = this.generation;
-		const action = { generation, hwnd: native.target?.hwnd, interrupted: false };
+		const action = { generation, hwnd: native.target?.hwnd, interrupted: false, stopped: false };
 		this.activeAction = action;
 		const foreground =
 			inputMode === "foreground" || (inputMode === "auto" && !backgroundCandidate)
@@ -393,8 +395,16 @@ export class ComputerUseRuntime {
 		} catch (error) {
 			result = {
 				status: "unknown",
-				code: signal?.aborted ? "cancelled" : "driver_error",
-				message: `${error instanceof Error ? error.message : String(error)}；输入结果未知，请观察后决定，勿重复提交动作。`,
+				code: action.stopped ? "user_stopped" : signal?.aborted ? "cancelled" : "driver_error",
+				message: action.stopped
+					? "用户已明确停止电脑控制；本次动作结果可能未知，等待新的用户指令，不要继续观察或重复输入。"
+					: `${error instanceof Error ? error.message : String(error)}；输入结果未知，请观察后决定，勿重复提交动作。`,
+				...(action.stopped
+					? {
+							retryable: false,
+							nextAction: "用户已明确停止电脑控制。不要继续观察或自动重试输入，等待新的用户指令。",
+						}
+					: {}),
 			};
 		} finally {
 			if (this.foregroundAction === foreground) this.foregroundAction = undefined;
@@ -411,6 +421,9 @@ export class ComputerUseRuntime {
 			...(result.executedMode === undefined ? {} : { executedMode: result.executedMode }),
 			...(result.executedAction === undefined ? {} : { executedAction: result.executedAction }),
 			...(result.fallbackReason === undefined ? {} : { fallbackReason: result.fallbackReason }),
+			...(result.idleWaitMs === undefined ? {} : { idleWaitMs: result.idleWaitMs }),
+			...(result.idleGrantedAtMs === undefined ? {} : { idleGrantedAtMs: result.idleGrantedAtMs }),
+			...(result.idleQuietForMs === undefined ? {} : { idleQuietForMs: result.idleQuietForMs }),
 			...(result.retryable === undefined ? {} : { retryable: result.retryable }),
 			...(result.retryAfterMs === undefined ? {} : { retryAfterMs: result.retryAfterMs }),
 			...(result.nextAction === undefined ? {} : { nextAction: result.nextAction }),

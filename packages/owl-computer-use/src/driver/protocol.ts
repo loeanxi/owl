@@ -96,6 +96,12 @@ export interface NativeActResult {
 	executedMode?: "background" | "foreground";
 	executedAction?: ComputerAction;
 	fallbackReason?: string;
+	/** Time spent waiting for foreground input to become idle. */
+	idleWaitMs?: number;
+	/** Unix timestamp in milliseconds when foreground idle permission was granted. */
+	idleGrantedAtMs?: number;
+	/** Observed input quiet duration at the last foreground idle check. */
+	idleQuietForMs?: number;
 	retryable?: boolean;
 	retryAfterMs?: number;
 	nextAction?: string;
