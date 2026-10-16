@@ -144,3 +144,20 @@ html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-menu-panel {
 	border-color: transparent;
 	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.45);
 }
+
+/*
+ * Genui 图表分类调色板（owl-genui client/genui-tokens.css 的 --dsw-static-* 8 色）：
+ * Claude 预设下把蓝紫主导的默认色板换成陶土暖色阶。语义状态色（success/warn/error）
+ * 不在此覆盖——它们表达对错而非分类。CSS 侧柱形/扇区直接生效；ECharts canvas
+ * 挂载时经 readToken 解析为字面量，切预设后已挂载的图表重渲染时更新。
+ */
+html[data-owl-preset="claude"] .owl-genui-root {
+	--dsw-static-deepseek-400: #d97757;        /* 陶土主色（第一序列） */
+	--dsw-static-deepseek-450: #a85b3e;        /* 深陶土（对比序列） */
+	--dsw-static-deepseek-300: #e8a98f;        /* 浅陶土 */
+	--dsw-static-green-400: #8ba888;           /* 灰绿 */
+	--dsw-static-amber-400: #d9a03c;           /* 暖金（原值已是暖色，沿用） */
+	--dsw-static-red-400: #c14b58;             /* 绛红（与陶土拉开色相） */
+	--dsw-static-blue-450: #8291b0;            /* 暖灰蓝（冷色平衡位） */
+	--dsw-static-neutral-bluish-400: #7ba39a;  /* 灰青 */
+}

@@ -356,6 +356,16 @@ export function IconBell({ className }: { className?: string }): React.JSX.Eleme
 	);
 }
 
+/** 设置页：动画（星芒） */
+export function IconSparkles({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z" />
+			<path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
+		</Svg>
+	);
+}
+
 /** 设置页：使用统计（Token 用量脉搏线） */
 export function IconActivity({ className }: { className?: string }): React.JSX.Element {
 	return (

@@ -72,14 +72,22 @@ export function estimateTokens(text: string): number {
 	return wide + (text.length - wide) / 4;
 }
 
-/** 单条回复每秒输出 tokens（起点取首个增量，跳过首字延迟）：结束且有用量用真实输出数，否则用流式估算；不足 1 秒不算。 */
+/**
+ * 单条回复每秒输出 tokens。流式中按首个增量到当前增量估算。
+ * 结束后的平均速度用真实输出数 ÷（结束时刻 − 响应开始时刻）：末尾一次性吐出的增量
+ * 窗口常常不足 1 秒，不能拿它把整段生成时间算没。不足 1 秒不算。
+ */
 export function outputRate(entry: AssistantEntry): { tps: number; estimated: boolean } | undefined {
+	const output = entry.endedAt !== undefined && (entry.usage?.output ?? 0) > 0 ? entry.usage!.output : undefined;
+	if (output !== undefined && entry.timestamp !== undefined) {
+		const seconds = (entry.endedAt! - entry.timestamp) / 1000;
+		if (seconds >= 1) return { tps: output / seconds, estimated: false };
+	}
 	const stream = entry.stream;
-	if (!stream) return undefined;
-	const output = entry.endedAt !== undefined ? entry.usage?.output : undefined;
-	const seconds = ((output ? entry.endedAt! : stream.lastAt) - stream.firstAt) / 1000;
+	if (!stream || stream.estTokens <= 0) return undefined;
+	const seconds = (stream.lastAt - stream.firstAt) / 1000;
 	if (seconds < 1) return undefined;
-	return output ? { tps: output / seconds, estimated: false } : { tps: stream.estTokens / seconds, estimated: true };
+	return { tps: stream.estTokens / seconds, estimated: true };
 }
 
 export type ChatEntry =
@@ -118,7 +126,7 @@ export type ChatEntry =
 			usage?: MessageUsage;
 			/** 产生本条回复的模型 id */
 			model?: string;
-			/** 流式输出统计（本地时钟，状态行 TPS 用）：快照重建不带，仅本次运行内的实时流才有 */
+			/** 流式输出统计（本地时钟，TPS 用）：按开始时间戳穿越本次进程内的权威重建。 */
 			stream?: StreamStats;
 	  }
 	/** 仅防御性保留：结果找不到所属工具卡时的兜底行（如会话恢复失败）。 */
@@ -145,15 +153,25 @@ export function currentRunStartIndex(entries: ChatEntry[]): number | undefined {
  * 的历史会话找不到回退为开始时刻。键冲突概率可忽略（单会话同时只有一条流）。
  */
 const assistantEndedAt = new Map<number, number>();
+/** 与结束时刻同一把键：回答结束后的权威重建不再自带流式统计，靠它找回平均速度。 */
+const assistantStream = new Map<number, StreamStats>();
 const ASSISTANT_ENDED_AT_MAX = 1000;
 
-function rememberAssistantEndedAt(startedAt: number, endedAt: number): void {
-	while (assistantEndedAt.size >= ASSISTANT_ENDED_AT_MAX) {
-		const oldest = assistantEndedAt.keys().next().value;
+function rememberCapped<T>(map: Map<number, T>, startedAt: number, value: T): void {
+	while (map.size >= ASSISTANT_ENDED_AT_MAX && !map.has(startedAt)) {
+		const oldest = map.keys().next().value;
 		if (oldest === undefined) break;
-		assistantEndedAt.delete(oldest);
+		map.delete(oldest);
 	}
-	assistantEndedAt.set(startedAt, Math.max(endedAt, assistantEndedAt.get(startedAt) ?? 0));
+	map.set(startedAt, value);
+}
+
+function rememberAssistantEndedAt(startedAt: number, endedAt: number): void {
+	rememberCapped(assistantEndedAt, startedAt, Math.max(endedAt, assistantEndedAt.get(startedAt) ?? 0));
+}
+
+function rememberAssistantStream(startedAt: number, stream: StreamStats): void {
+	rememberCapped(assistantStream, startedAt, stream);
 }
 
 /** 已落盘的用户消息才切开当前轮。排队中的跟进还没轮到，不能挡住正在写的回答。 */
@@ -516,6 +534,12 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 				const card = upsertTool(current, part.id, part.name, part.arguments ?? {});
 				if (card.status === "pending" && (message.stopReason === "error" || message.stopReason === "aborted")) card.status = message.stopReason === "aborted" ? "cancelled" : "error";
 			}
+			// A flooded tool-call batch is removed from the assistant message before this
+			// event. Drop the cards that were streamed and then discarded.
+			const keptToolIds = new Set(
+				(message.content ?? []).filter((part: AnyEvent) => part.type === "toolCall").map((part: AnyEvent) => part.id),
+			);
+			current.tools = current.tools.filter((tool) => keptToolIds.has(tool.id));
 			current.segments = segmentsOf(message.content);
 			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
 			// 用户暂停（stopReason=aborted）不算错误：红色报错换成一个 aborted 标记，
@@ -525,7 +549,10 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// wire 时间戳是响应开始时刻；此刻（本地）才是真实结束点，记下来供轮耗时用
 			const endedAt = Date.now();
 			const startedAt = timestampOf(message);
-			if (startedAt !== undefined) rememberAssistantEndedAt(startedAt, endedAt);
+			if (startedAt !== undefined) {
+				rememberAssistantEndedAt(startedAt, endedAt);
+				if (current.stream) rememberAssistantStream(startedAt, current.stream);
+			}
 			return [
 				...entries.slice(0, index),
 				{
@@ -606,7 +633,10 @@ export function rebuild(
 					status: message.stopReason === "aborted" ? "cancelled" as const : message.stopReason === "error" ? "error" as const : "pending" as const,
 				}));
 			const startedAt = timestampOf(message);
-			const endedAt = startedAt !== undefined ? assistantEndedAt.get(startedAt) : undefined;
+			const persistedAt = typeof message.persistedAt === "number" && Number.isFinite(message.persistedAt) ? message.persistedAt : undefined;
+			const endedAt = (startedAt !== undefined ? assistantEndedAt.get(startedAt) : undefined)
+				?? (persistedAt !== undefined && (startedAt === undefined || persistedAt > startedAt) ? persistedAt : undefined);
+			const stream = startedAt !== undefined ? assistantStream.get(startedAt) : undefined;
 			entries.push({
 				kind: "assistant",
 				text: textOf(message.content),
@@ -624,6 +654,7 @@ export function rebuild(
 				...(typeof entryId === "string" ? { entryId } : {}),
 				...(startedAt !== undefined ? { timestamp: startedAt } : {}),
 				...(endedAt !== undefined ? { endedAt } : {}),
+				...(stream !== undefined ? { stream } : {}),
 				...(usageOf(message) !== undefined ? { usage: usageOf(message) } : {}),
 				...(modelOf(message) !== undefined ? { model: modelOf(message) } : {}),
 			});

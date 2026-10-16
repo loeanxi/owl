@@ -6,7 +6,7 @@ import path from "path";
 import { type Static, Type } from "typebox";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { resolveToCwd } from "./path-utils.ts";
+import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
 	DEFAULT_MAX_BYTES,
@@ -121,7 +121,15 @@ export function createGrepToolDefinition(
 							return;
 						}
 
-						const searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						let searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						let pathNote = "";
+						if (!customOps && !(await pathExists(searchPath))) {
+							const corrected = await correctMissingPath(searchPath);
+							if (corrected !== searchPath) {
+								pathNote = `${pathCorrectionNote(searchPath, corrected)}\n`;
+								searchPath = corrected;
+							}
+						}
 						const ops = customOps ?? defaultGrepOperations;
 						let isDirectory: boolean;
 						try {
@@ -254,7 +262,10 @@ export function createGrepToolDefinition(
 							}
 							if (matchCount === 0) {
 								settle(() =>
-									resolve({ content: [{ type: "text", text: "No matches found" }], details: undefined }),
+									resolve({
+										content: [{ type: "text", text: `${pathNote}No matches found` }],
+										details: undefined,
+									}),
 								);
 								return;
 							}
@@ -302,7 +313,7 @@ export function createGrepToolDefinition(
 							if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
 							settle(() =>
 								resolve({
-									content: [{ type: "text", text: output }],
+									content: [{ type: "text", text: `${pathNote}${output}` }],
 									details: Object.keys(details).length > 0 ? details : undefined,
 								}),
 							);

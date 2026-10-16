@@ -68,6 +68,18 @@ describe("desktop agent instructions", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("专项能力尚未声明时，先用 tool_search");
 	});
 
+	it("keeps the UI quality discipline in the defaults", () => {
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("至多穿过一层闭合边框");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("严禁边框套边框");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("外层圆角等于内层圆角加内边距");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("动效单次不超过 300ms");
+	});
+
+	it("keeps the final-answer ordering discipline in the defaults", () => {
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("先完成全部工具调用（含执行异常补报）再作答");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("owl-ui 界面围栏这类交付物尤其要写在最终回答里");
+	});
+
 	it("discovers updated project append instructions on reload without duplicating defaults", async () => {
 		mkdirSync(join(cwd, ".owl"));
 		const appendPath = join(cwd, ".owl", "APPEND_SYSTEM.md");

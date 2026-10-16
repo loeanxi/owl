@@ -2195,3 +2195,126 @@ describe("runToolCall", () => {
 		expect(seen).toEqual([undefined, { value: "replaced" }, { value: "both" }, { value: "original" }]);
 	});
 });
+
+describe("tool call batch guard", () => {
+	const toolSchema = Type.Object({ value: Type.String() });
+
+	function echoTool(executed: string[]): AgentTool<typeof toolSchema> {
+		return {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				executed.push(params.value);
+				return { content: [{ type: "text", text: params.value }], details: {} };
+			},
+		};
+	}
+
+	function toolCall(id: string, name: string, value = id) {
+		return { type: "toolCall" as const, id, name, arguments: { value } };
+	}
+
+	async function runBatch(
+		content: AssistantMessage["content"],
+		tools: AgentTool<any>[],
+		_executed: string[],
+	): Promise<{ llmCalls: number; events: AgentEvent[]; messages: AgentMessage[] }> {
+		const context: AgentContext = { messages: [], tools };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		let llmCalls = 0;
+		const events: AgentEvent[] = [];
+		const stream = agentLoop([createUserMessage("go")], context, config, undefined, () => {
+			llmCalls++;
+			const response = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (llmCalls === 1) {
+					response.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage(content, "toolUse"),
+					});
+					return;
+				}
+				response.push({
+					type: "done",
+					reason: "stop",
+					message: createAssistantMessage([{ type: "text", text: "done" }]),
+				});
+			});
+			return response;
+		});
+		for await (const event of stream) events.push(event);
+		return { llmCalls, events, messages: await stream.result() };
+	}
+
+	it("keeps the first unknown name and still runs the real tool", async () => {
+		const executed: string[] = [];
+		const { llmCalls, events, messages } = await runBatch(
+			[
+				toolCall("missing-1", "refactor-baseline"),
+				toolCall("missing-2", "refactor-baseline"),
+				toolCall("echo-1", "echo", "kept"),
+			],
+			[echoTool(executed)],
+			executed,
+		);
+		expect(executed).toEqual(["kept"]);
+		expect(llmCalls).toBe(2);
+		const assistant = messages.find((message) => message.role === "assistant");
+		expect(
+			assistant?.role === "assistant" &&
+				assistant.content.filter((block) => block.type === "toolCall").map((block) => block.id),
+		).toEqual(["missing-1", "echo-1"]);
+		expect(events.filter((event) => event.type === "tool_execution_start").map((event) => event.toolCallId)).toEqual([
+			"missing-1",
+			"echo-1",
+		]);
+	});
+
+	it("refuses a batch larger than 16 without executing any call", async () => {
+		const executed: string[] = [];
+		const calls = Array.from({ length: 17 }, (_, index) => toolCall(`echo-${index}`, "echo", String(index)));
+		const { llmCalls, events, messages } = await runBatch(calls, [echoTool(executed)], executed);
+		expect(executed).toEqual([]);
+		expect(llmCalls).toBe(1);
+		expect(events.some((event) => event.type === "tool_execution_start")).toBe(false);
+		const assistant = messages.find((message) => message.role === "assistant");
+		expect(assistant?.role === "assistant" && assistant.stopReason).toBe("stop");
+		const text =
+			assistant?.role === "assistant" ? assistant.content.find((block) => block.type === "text") : undefined;
+		expect(text && "text" in text && text.text).toContain("17 tool calls, over the limit of 16");
+	});
+
+	it("refuses more than three unknown tool calls without executing the real tool", async () => {
+		const executed: string[] = [];
+		const { llmCalls, events, messages } = await runBatch(
+			[
+				toolCall("a", "missing-a"),
+				toolCall("b", "missing-b"),
+				toolCall("c", "missing-c"),
+				toolCall("d", "missing-d"),
+				toolCall("echo-1", "echo", "should-not-run"),
+			],
+			[echoTool(executed)],
+			executed,
+		);
+		expect(executed).toEqual([]);
+		expect(llmCalls).toBe(1);
+		expect(events.some((event) => event.type === "tool_execution_start")).toBe(false);
+		const assistant = messages.find((message) => message.role === "assistant");
+		const text =
+			assistant?.role === "assistant" ? assistant.content.find((block) => block.type === "text") : undefined;
+		expect(text && "text" in text && text.text).toContain("missing-a");
+		expect(text && "text" in text && text.text).toContain("None were executed");
+	});
+
+	it("runs a batch of exactly sixteen known tool calls", async () => {
+		const executed: string[] = [];
+		const calls = Array.from({ length: 16 }, (_, index) => toolCall(`echo-${index}`, "echo", String(index)));
+		const { llmCalls } = await runBatch(calls, [echoTool(executed)], executed);
+		expect(executed).toEqual(calls.map((call) => call.arguments.value));
+		expect(llmCalls).toBe(2);
+	});
+});

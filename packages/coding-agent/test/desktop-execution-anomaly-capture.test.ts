@@ -114,6 +114,77 @@ describe("execution anomaly capture", () => {
 		});
 	});
 
+	it("does not record cancellation or recoverable computer-control waits as execution anomalies", () => {
+		const log = store();
+		const recoverable = [
+			"Operation aborted",
+			'动作尚未执行，可继续。code=user_busy。\n{"status":"blocked","code":"user_busy","retryable":true,"nextAction":"wait, then reobserve"}',
+			'动作尚未执行，可继续。code=input_conflict。\n{"status":"blocked","requestedMode":"auto","code":"input_conflict","retryable":true}',
+			'动作尚未执行，可继续。code=background_backend_unavailable。\n{"status":"blocked","code":"background_backend_unavailable","retryable":true}',
+		];
+		for (const [index, text] of recoverable.entries()) {
+			captureExecutionAnomalyEvent(log, metadata, {
+				type: "tool_execution_end",
+				toolCallId: `desktop-${index}`,
+				toolName: "computer_act",
+				isError: true,
+				result: { content: [{ type: "text", text }] },
+			});
+		}
+		captureExecutionAnomalyMessages(log, metadata, [
+			result("aborted-history", "Operation aborted", true, "computer_act"),
+		]);
+		captureExecutionAnomalyEvent(log, metadata, {
+			type: "tool_execution_end",
+			toolCallId: "real",
+			toolName: "computer_act",
+			isError: true,
+			result: {
+				content: [
+					{
+						type: "text",
+						text: '动作状态：blocked\n{"status":"blocked","code":"driver_error","retryable":false}',
+					},
+				],
+			},
+		});
+		expect(log.list().records.map((item) => item.toolCallId)).toEqual(["real"]);
+	});
+
+	it("does not record safety-net blocks or retryable edit misses as execution anomalies", () => {
+		const log = store();
+		const expected = [
+			[
+				"stash",
+				"bash",
+				"BLOCKED by Owl Safety Net\n\nReason: `git stash` takes every uncommitted change out of this working tree.",
+			],
+			[
+				"edit",
+				"edit",
+				'🔄 RETRYABLE — Edit target not found\n\nedits[0].oldText ("import") was not found in the current file content.',
+			],
+		] as const;
+		for (const [id, toolName, text] of expected) {
+			captureExecutionAnomalyEvent(log, metadata, {
+				type: "tool_execution_end",
+				toolCallId: id,
+				toolName,
+				isError: true,
+				result: { content: [{ type: "text", text }] },
+			});
+			captureExecutionAnomalyMessages(log, metadata, [result(id, text, true, toolName)]);
+		}
+		captureExecutionAnomalyEvent(log, metadata, {
+			type: "tool_execution_end",
+			toolCallId: "real-edit",
+			toolName: "edit",
+			isError: true,
+			result: { content: [{ type: "text", text: "Could not edit file: disk full" }] },
+		});
+		expect(log.list().records.map((item) => item.toolCallId)).toEqual(["real-edit"]);
+	});
+
 	it("does not create anomalies from success prose, intermediate streaming, or report tool failures", () => {
 		const log = store();
 		captureExecutionAnomalyMessages(log, metadata, [

@@ -14,6 +14,7 @@ import { useStartRecentSessions } from "./hooks/use-start-recent-sessions.ts";
 import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
 import { settledRunStatus } from "./hooks/agent-settlement.ts";
 import { ActivityRail, type RailView } from "./components/ActivityRail.tsx";
+import { latestTurn } from "./components/follow-up-suggestion.ts";
 import { AccountProfilePage } from "./components/AccountProfilePage.tsx";
 import { MapWorkspace } from "./map/MapWorkspace.tsx";
 import { NewsPage } from "./features/news/NewsPage.tsx";
@@ -86,6 +87,8 @@ import { syncWindowGlass } from "./window-glass.ts";
 import { useStartupWindow } from "./startup-window.ts";
 import { applyChatAppearance, parseChatAppearance } from "./chat-appearance.ts";
 import { applyOwlWallpaper, parseOwlWallpaper, type OwlWallpaperSettings } from "./wallpaper.ts";
+import { applyOwlAnimation } from "./animation-settings.ts";
+import { AmbientBackground } from "./components/AmbientBackground.tsx";
 import { fetchInventory, passesRating, WallpaperLayer } from "./components/WallpaperLayer.tsx";
 import { parseUiLanguageSetting, setUiLanguageSetting, t, useT, type UiLanguageSetting } from "./i18n/index.ts";
 import { normPath, samePath, DEFAULT_WORKSPACE_DIR, isReservedDir, isValidationDir, loadAndScrubProjects } from "./utils/paths.ts";
@@ -475,6 +478,20 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(ZOOM_KEY, String(zoom));
 		void setWebviewZoom(zoom);
 	}, [zoom]);
+
+	// Ctrl/⌘+滚轮复用同一套挡位缩放，并拦掉 WebView 默认的整页缩放，
+	// 避免出现第二套不持久化、与应用缩放状态不同步的缩放。
+	const wheelZoomRef = useRef<(direction: 1 | -1) => void>(() => {});
+	wheelZoomRef.current = zoomStep;
+	useEffect(() => {
+		const onWheelZoom = (event: WheelEvent): void => {
+			if (!(event.ctrlKey || event.metaKey) || event.deltaY === 0) return;
+			event.preventDefault();
+			wheelZoomRef.current(event.deltaY < 0 ? 1 : -1);
+		};
+		window.addEventListener("wheel", onWheelZoom, { passive: false });
+		return () => window.removeEventListener("wheel", onWheelZoom);
+	}, []);
 
 	// 启动时对齐一次全屏状态（例如上次以全屏退出后重启）。
 	useEffect(() => {
@@ -1212,6 +1229,8 @@ export default function App(): React.JSX.Element {
 				const wallpaperSettings = parseOwlWallpaper(settings?.owlWallpaper);
 				applyOwlWallpaper(wallpaperSettings);
 				setWallpaper(wallpaperSettings);
+				// 动画设置（启动动画 + 背景动画）：模块级订阅存储，背景层与设置页各自订阅
+				applyOwlAnimation(settings?.owlAnimation);
 				setSidebarConfig(parseSidebarSettings(settings?.owlSidebar));
 				setFileIconTheme(parseFileIconTheme(settings?.fileIconTheme));
 				applyChatAppearance(parseChatAppearance(settings?.desktopChatAppearance));
@@ -2430,6 +2449,12 @@ export default function App(): React.JSX.Element {
 		<PendingResponsesContext.Provider value={pendingResponses}>
 		<div className="owl-desktop-shell font-sans text-owl-text">
 			<WallpaperLayer settings={wallpaper} />
+			{/* 背景动画（深色 + 未开壁纸时生效）：随 Agent 状态联动——等待授权/提问 > 工作中 > 空闲；完成/异常触发一次脉冲。 */}
+			<AmbientBackground
+				mood={permissions.length > 0 || questions.length > 0 ? "waiting" : runningSessions.size > 0 ? "working" : "idle"}
+				pulse={doneNotice && doneNotice.outcome !== "aborted" ? { seq: doneNotice.seq, kind: doneNotice.outcome === "error" ? "error" : "done" } : null}
+				wallpaperEnabled={wallpaper.enabled}
+			/>
 			{/* 媒体桥全局覆盖层（顶部歌词条 + 深背景）：各自有开关，默认都不渲染。 */}
 			<MediaOverlays />
 			<BuildConsistencyBanner client={client} connected={connected} />
@@ -2808,6 +2833,7 @@ export default function App(): React.JSX.Element {
 								queueProfile={profileReady ? agentDir : undefined}
 								queueOwnerRevision={sessionViewSeq.current}
 								queueIsCurrent={() => sessionIdRef.current === sessionId && agentDirRef.current === agentDir && workspaceRef.current === workspaceDir && sessionViewSeq.current === modelScopeRevision}
+								followUp={latestTurn(entries)}
 								onQueueChange={(queue) => { if (sessionId && sessionId === sessionIdRef.current && agentDir === agentDirRef.current) setPromptQueues((current) => ({ ...current, [promptQueueKey(agentDir, sessionId)]: queue })); }}
 								onAbort={() => void abort()}
 								onPause={pauseSession}

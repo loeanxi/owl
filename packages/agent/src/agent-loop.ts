@@ -443,6 +443,7 @@ async function streamAssistantResponse(
 			case "done":
 			case "error": {
 				const finalMessage = await result();
+				constrainAssistantToolCalls(finalMessage, context.tools);
 				if (addedPartial) {
 					context.messages[context.messages.length - 1] = finalMessage;
 				} else {
@@ -458,6 +459,7 @@ async function streamAssistantResponse(
 	}
 
 	const finalMessage = await result();
+	constrainAssistantToolCalls(finalMessage, context.tools);
 	if (addedPartial) {
 		context.messages[context.messages.length - 1] = finalMessage;
 	} else {
@@ -466,6 +468,56 @@ async function streamAssistantResponse(
 	}
 	await emit({ type: "message_end", message: finalMessage });
 	return finalMessage;
+}
+
+/** One assistant message may run at most this many tool calls. A larger batch is not executed. */
+const MAX_TOOL_CALLS_PER_MESSAGE = 16;
+/** Unknown tool names may appear at most this many times before the whole batch is refused. */
+const MAX_UNKNOWN_TOOL_CALLS_PER_MESSAGE = 3;
+
+/**
+ * Collapse a tool-call flood before the message is persisted or executed.
+ *
+ * Duplicate calls to the same unknown name keep the first one. A batch larger than
+ * {@link MAX_TOOL_CALLS_PER_MESSAGE}, or with more than {@link MAX_UNKNOWN_TOOL_CALLS_PER_MESSAGE}
+ * unknown calls, drops every tool call and records one explanation on the assistant
+ * message. That keeps the transcript from storing one full error per hallucinated call.
+ */
+function constrainAssistantToolCalls(message: AssistantMessage, tools: readonly AgentTool<any>[] | undefined): void {
+	if (message.stopReason === "error" || message.stopReason === "aborted") return;
+	const toolCalls = message.content.filter((block) => block.type === "toolCall");
+	if (toolCalls.length === 0) return;
+
+	const known = new Set((tools ?? []).map((tool) => tool.name));
+	const unknownCalls = toolCalls.filter((call) => !known.has(call.name));
+	if (toolCalls.length > MAX_TOOL_CALLS_PER_MESSAGE || unknownCalls.length > MAX_UNKNOWN_TOOL_CALLS_PER_MESSAGE) {
+		const unknownNames = [...new Set(unknownCalls.map((call) => call.name))];
+		const available = [...known].join(", ") || "(none)";
+		const reason =
+			toolCalls.length > MAX_TOOL_CALLS_PER_MESSAGE
+				? `This response contained ${toolCalls.length} tool calls, over the limit of ${MAX_TOOL_CALLS_PER_MESSAGE}. None were executed.`
+				: `This response contained ${unknownCalls.length} calls to tools that are not registered, over the limit of ${MAX_UNKNOWN_TOOL_CALLS_PER_MESSAGE}. None were executed.`;
+		const unknownNote = unknownNames.length > 0 ? ` Unknown names: ${unknownNames.join(", ")}.` : "";
+		message.content = [
+			...message.content.filter((block) => block.type !== "toolCall"),
+			{
+				type: "text",
+				text: `${reason}${unknownNote} Available tools: ${available}. Don't guess other tool names; search file content with bash (grep/rg) and locate files with bash (find/ls).`,
+			},
+		];
+		if (message.stopReason === "toolUse") message.stopReason = "stop";
+		return;
+	}
+
+	const seenUnknown = new Set<string>();
+	const dropped = new Set<(typeof toolCalls)[number]>();
+	for (const call of toolCalls) {
+		if (known.has(call.name)) continue;
+		if (seenUnknown.has(call.name)) dropped.add(call);
+		else seenUnknown.add(call.name);
+	}
+	if (dropped.size === 0) return;
+	message.content = message.content.filter((block) => block.type !== "toolCall" || !dropped.has(block));
 }
 
 /**

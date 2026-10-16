@@ -60,6 +60,12 @@ import { preloadToolsForUserText } from "../extensions/tool-search/tool.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
 import { normalizeToolResultImages } from "../utils/tool-result-images.ts";
+import {
+	exportSessionBranchToJsonl,
+	lastAssistantText,
+	sessionContextUsage,
+	sessionStats,
+} from "./agent-session-reporting.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import type { BashResult } from "./bash-executor.ts";
 import { generateBugReportSummary } from "./bug-report.ts";
@@ -116,7 +122,6 @@ import { NestedToolCallRunner } from "./nested-tool-calls.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { SessionBashController } from "./session-bash.ts";
-import { exportSessionToJsonl } from "./session-export.ts";
 import {
 	type BranchSummaryEntry,
 	type CompactionEntry,
@@ -133,11 +138,10 @@ import {
 	snapshotAgentQueue,
 } from "./session-queue.ts";
 import { isExplicitProviderRefusal, SessionRetryController } from "./session-retry.ts";
-import { computeContextUsage, computeSessionStats } from "./session-stats.ts";
 import { SessionTreeNavigationController } from "./session-tree.ts";
 import { type CacheWarmingMode, DEFAULT_TOOL_NAMES, type SettingsManager } from "./settings-manager.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
-import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath, type SourceInfo } from "./source-info.ts";
+import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath } from "./source-info.ts";
 import {
 	buildSystemPrompt,
 	buildSystemPromptSections,
@@ -145,6 +149,15 @@ import {
 	type NormalizedBuildSystemPromptOptions,
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
+import {
+	isActivatedOnRegistration,
+	isAllowedToolName,
+	isCallableExposure,
+	isDeclarableExposure,
+	isIndirectExposure,
+	type ToolDefinitionEntry,
+	toolExposureOf,
+} from "./tool-exposure.ts";
 import type { BashOperations } from "./tools/bash.ts";
 import { readPathKey, readResultEvidence } from "./tools/edit-read-gate.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
@@ -352,11 +365,6 @@ export interface SessionStats {
 	};
 	cost: number;
 	contextUsage?: ContextUsage;
-}
-
-interface ToolDefinitionEntry {
-	definition: ToolDefinition;
-	sourceInfo: SourceInfo;
 }
 
 function estimateMessagesTokens(messages: AgentMessage[]): number {
@@ -717,7 +725,7 @@ export class AgentSession {
 	}
 
 	/** The model whose limits apply to the conversation. */
-	private _limitsModel(): Model<any> | undefined {
+	limitsModel(): Model<any> | undefined {
 		return this.routedModel?.model ?? this.model;
 	}
 
@@ -803,7 +811,7 @@ export class AgentSession {
 
 		const content = hookResult?.content ?? result.content ?? [];
 		// Runs after the extension hook so images injected or replaced by extensions are normalized too.
-		const resizeOptions = this._limitsModel()?.inputLimits?.images?.resize;
+		const resizeOptions = this.limitsModel()?.inputLimits?.images?.resize;
 		const normalizedContent = await normalizeToolResultImages(content, {
 			autoResizeImages: this.settingsManager.getImageAutoResize(),
 			...(resizeOptions ? { resizeOptions } : {}),
@@ -1689,11 +1697,11 @@ export class AgentSession {
 	}
 
 	private _isAllowedTool(name: string): boolean {
-		return (!this._allowedToolNames || this._allowedToolNames.has(name)) && !this._excludedToolNames?.has(name);
+		return isAllowedToolName(name, this._allowedToolNames, this._excludedToolNames);
 	}
 
 	private _getToolExposure(name: string): ToolExposure {
-		return this._toolDefinitions.get(name)?.definition.exposure ?? "direct";
+		return toolExposureOf(this._toolDefinitions, name);
 	}
 
 	/**
@@ -1701,10 +1709,9 @@ export class AgentSession {
 	 * `codemode` or `deferred` tool.
 	 */
 	private _getCallableTools(active: ReadonlySet<string> = new Set(this.getActiveToolNames())): AgentTool[] {
-		return [...this._toolRegistry.values()].filter((tool) => {
-			const exposure = this._getToolExposure(tool.name);
-			return exposure === "codemode" || exposure === "deferred" || (exposure === "direct" && active.has(tool.name));
-		});
+		return [...this._toolRegistry.values()].filter((tool) =>
+			isCallableExposure(tool.name, this._getToolExposure(tool.name), active),
+		);
 	}
 
 	/**
@@ -2153,7 +2160,7 @@ export class AgentSession {
 		for (const image of images) {
 			const processed = await processImage(Buffer.from(image.data, "base64"), image.mimeType, {
 				autoResizeImages: this.settingsManager.getImageAutoResize(),
-				resizeOptions: this._limitsModel()?.inputLimits?.images?.resize,
+				resizeOptions: this.limitsModel()?.inputLimits?.images?.resize,
 			});
 			if (!processed.ok) {
 				hints.push(processed.message);
@@ -3956,8 +3963,7 @@ export class AgentSession {
 			!this.settingsManager.getDefaultToolsRaw()?.includes("-codemode") &&
 			[...this._toolRegistry.keys()].some((name) => {
 				if (name === CODEMODE_TOOL_NAME) return false;
-				const exposure = this._getToolExposure(name);
-				return exposure === "codemode" || exposure === "deferred";
+				return isIndirectExposure(this._getToolExposure(name));
 			})
 		) {
 			nextActiveToolNames.push(CODEMODE_TOOL_NAME);
@@ -3968,16 +3974,18 @@ export class AgentSession {
 
 	/** Whether activating the tool declares it to the model. */
 	private _isDeclarable(name: string): boolean {
-		const exposure = this._getToolExposure(name);
-		return exposure === "direct" || exposure === "model-only";
+		return isDeclarableExposure(this._getToolExposure(name));
 	}
 
 	/** Whether registering the tool activates it, which declares it to the model. */
 	private _isActivatedOnRegistration(name: string): boolean {
-		if (this._toolActivation === "on-demand") {
-			return this._isDeclarable(name) && (this._initialActiveToolNames ?? DEFAULT_TOOL_NAMES).includes(name);
-		}
-		return this._isDeclarable(name) && this._toolDefinitions.get(name)?.definition.defaultActive !== false;
+		return isActivatedOnRegistration({
+			name,
+			activation: this._toolActivation,
+			exposure: this._getToolExposure(name),
+			initialActiveToolNames: this._initialActiveToolNames ?? DEFAULT_TOOL_NAMES,
+			defaultActive: this._toolDefinitions.get(name)?.definition.defaultActive,
+		});
 	}
 
 	private _buildRuntime(options: {
@@ -4206,20 +4214,11 @@ export class AgentSession {
 	 * actually billed across the session.
 	 */
 	getSessionStats(): SessionStats {
-		return computeSessionStats({
-			entries: this.sessionManager.getEntries(),
-			sessionFile: this.sessionFile,
-			sessionId: this.sessionId,
-			contextUsage: this.getContextUsage(),
-		});
+		return sessionStats(this);
 	}
 
 	getContextUsage(): ContextUsage | undefined {
-		return computeContextUsage({
-			model: this._limitsModel(),
-			projection: this.sessionManager.buildSessionProjection(),
-			branch: this.sessionManager.getBranch(),
-		});
+		return sessionContextUsage(this);
 	}
 
 	/**
@@ -4229,7 +4228,7 @@ export class AgentSession {
 	 * @returns The resolved output file path.
 	 */
 	exportToJsonl(outputPath?: string): string {
-		return exportSessionToJsonl(this.sessionManager, outputPath);
+		return exportSessionBranchToJsonl(this, outputPath);
 	}
 
 	/**
@@ -4262,27 +4261,7 @@ export class AgentSession {
 	 * @returns Text content, or undefined if no assistant message exists
 	 */
 	getLastAssistantText(): string | undefined {
-		const lastAssistant = this.messages
-			.slice()
-			.reverse()
-			.find((m) => {
-				if (m.role !== "assistant") return false;
-				const msg = m as AssistantMessage;
-				// Skip aborted messages with no content
-				if (msg.stopReason === "aborted" && msg.content.length === 0) return false;
-				return true;
-			});
-
-		if (!lastAssistant) return undefined;
-
-		let text = "";
-		for (const content of (lastAssistant as AssistantMessage).content) {
-			if (content.type === "text") {
-				text += content.text;
-			}
-		}
-
-		return text.trim() || undefined;
+		return lastAssistantText(this.messages);
 	}
 
 	// =========================================================================

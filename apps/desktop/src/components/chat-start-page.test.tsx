@@ -20,19 +20,11 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("chat home-page wiring", () => {
-	it("passes project, account and callbacks through without mounting or prompting a session", () => {
+	it("opens the home page for an empty transcript without requesting a session", () => {
 		const request = vi.fn();
 		const client = { request } as unknown as BridgeClient;
-		const onResumeSession = vi.fn();
-		const onPromptExample = vi.fn();
-		const onQuickAction = vi.fn();
-		const onOpenDeveloper = vi.fn();
-		const recentSessions = [{ id: "recent", title: "当前项目任务", time: "2026-10-15T00:00:00Z" }];
-		renderToStaticMarkup(createElement(ChatStream, { entries: [], client, cwd: "D:/project", profile: "account-a", recentSessions, onResumeSession, onPromptExample, onQuickAction, onOpenDeveloper }));
-		expect(fixture.start).toEqual(expect.objectContaining({ client, cwd: "D:/project", profile: "account-a", recentSessions, onPrompt: onPromptExample, onAction: onQuickAction, onOpenDeveloper }));
-		fixture.start?.onResume?.("recent");
-		expect(onResumeSession).toHaveBeenCalledWith("recent");
-		expect(onPromptExample).not.toHaveBeenCalled();
+		renderToStaticMarkup(createElement(ChatStream, { entries: [], client, cwd: "D:/project", profile: "account-a" }));
+		expect(fixture.start).toEqual({ client, profile: "account-a" });
 		expect(request).not.toHaveBeenCalled();
 	});
 

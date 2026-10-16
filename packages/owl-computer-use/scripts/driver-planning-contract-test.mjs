@@ -264,8 +264,13 @@ Check ($result.code -eq 'user_intervened' -and $script:Calls.Count -eq 1 -and [O
 
 Reset
 $result = Invoke-Act (Request 'click' 'background')
-Check ($result.status -eq 'blocked' -and $result.requiresExclusive -eq $true -and $script:Calls.Count -eq 1) 'explicit background blocks an unverified provider before invocation'
-Check ([OwlComputerUse.DesktopGuard]::DesktopAcquires -eq 0 -and [OwlComputerUse.ControlOverlay]::Begins -eq 0) 'rejected background does not acquire foreground control or show HUD'
+Check ($result.status -eq 'confirmed' -and $result.requestedMode -eq 'background' -and $result.executedMode -eq 'foreground' -and $result.fallbackReason -eq 'background_backend_unavailable' -and $script:Calls.Count -eq 2 -and $script:Calls[1].exclusive -eq $true -and $script:Calls[1].action -eq 'invoke') 'explicit background on an unverified provider continues once through guarded foreground'
+Check ([OwlComputerUse.DesktopGuard]::DesktopAcquires -eq 1 -and [OwlComputerUse.Win32.WindowTools]::FocusCalls -eq 1) 'downgraded background acquires foreground only for that single planned action'
+
+Reset
+[OwlComputerUse.DesktopGuard]::QuietForMs = 100
+$result = Invoke-Act (Request 'click' 'background')
+Check ($result.code -eq 'user_busy' -and $result.requestedMode -eq 'background' -and $result.fallbackReason -eq 'background_backend_unavailable' -and $script:Calls.Count -eq 1 -and [OwlComputerUse.DesktopGuard]::DesktopAcquires -eq 0 -and [OwlComputerUse.ControlOverlay]::Begins -eq 0 -and [OwlComputerUse.Win32.WindowTools]::FocusCalls -eq 0) 'downgraded background still refuses a busy desktop before invocation'
 
 Reset $true
 [OwlComputerUse.DesktopGuard]::QuietForMs = 0

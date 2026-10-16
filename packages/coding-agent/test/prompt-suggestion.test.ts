@@ -15,6 +15,7 @@ import { streamSimple as responsesStreamSimple } from "../../ai/src/api/openai-r
 import type { ModelRuntime } from "../src/core/model-runtime.ts";
 import {
 	completePromptSuggestion,
+	fallbackPromptSuggestion,
 	PromptSuggestionService,
 	type PromptSuggestionSource,
 	selectPromptSuggestionBasis,
@@ -215,21 +216,53 @@ describe("prompt suggestion lifecycle", () => {
 		expect((await f.service.request({}, "session", "c")).suggestion).toBeTruthy();
 	});
 
-	it.each(["", "first\nsecond", "x".repeat(161), '{"suggestion":"yes"}'])(
-		"silently caches unusable output %j",
-		async (text) => {
-			const f = fixture();
-			f.complete.mockResolvedValue(prediction(text));
-			expect(await f.service.request({}, "session", "a")).toEqual({ basisEntryId: f.basisEntryId });
-			await f.service.request({}, "session", "b");
-			expect(f.complete).toHaveBeenCalledTimes(1);
-		},
-	);
+	it("keeps the first line when the model adds a label or a second line", async () => {
+		const f = fixture();
+		f.complete.mockResolvedValue(prediction("建议：先跑一遍示例\n再解释复杂度"));
+		expect((await f.service.request({}, "session", "a")).suggestion).toBe("先跑一遍示例");
+	});
+
+	it("suggests from a settled tool turn without sending tool payloads", async () => {
+		const f = fixture();
+		f.manager.appendMessage({ role: "user", content: "用这组数跑一下冒泡排序", timestamp: 2 });
+		f.manager.appendMessage(
+			fauxAssistantMessage([
+				fauxToolCall("bash", { command: "SECRET_COMMAND" }),
+				{ type: "text", text: "排序结果是 1, 2, 5, 5, 6, 9。" },
+			]),
+		);
+		f.manager.appendMessage({
+			role: "toolResult",
+			toolCallId: "tool-1",
+			toolName: "bash",
+			content: [{ type: "text", text: "SECRET_TOOL_RESULT" }],
+			isError: false,
+			timestamp: 3,
+		});
+		const basis = selectPromptSuggestionBasis(f.manager.getBranch(), { settled: true });
+		expect(basis?.conversation).toContain("用这组数跑一下冒泡排序");
+		expect(basis?.conversation).toContain("排序结果是 1, 2, 5, 5, 6, 9。");
+		expect(basis?.conversation).not.toContain("SECRET_");
+		expect(selectPromptSuggestionBasis(f.manager.getBranch())).toBeUndefined();
+		f.complete.mockResolvedValue(prediction("改成从大到小再跑一次"));
+		expect((await f.service.request({}, "session", "settled")).suggestion).toBe("改成从大到小再跑一次");
+		expect(f.complete.mock.calls[0][1].messages[0].content).not.toContain("SECRET_");
+	});
+
+	it.each(["", "x".repeat(161), '{"suggestion":"yes"}'])("silently caches unusable output %j", async (text) => {
+		const f = fixture();
+		f.complete.mockResolvedValue(prediction(text));
+		expect((await f.service.request({}, "session", "a")).suggestion).toBe(
+			fallbackPromptSuggestion("USER:\n把窗口图标调整得紧凑些\nASSISTANT:\n已调整图标，尚未构建。"),
+		);
+		await f.service.request({}, "session", "b");
+		expect(f.complete).toHaveBeenCalledTimes(1);
+	});
 
 	it("caches failures and prevents repeated charge attempts", async () => {
 		const f = fixture();
 		f.complete.mockRejectedValue(new Error("offline provider failed"));
-		expect(await f.service.request({}, "session", "a")).toEqual({ basisEntryId: f.basisEntryId });
+		expect((await f.service.request({}, "session", "a")).suggestion).toContain("把窗口图标调整得紧凑些");
 		await f.service.request({}, "session", "b");
 		expect(f.complete).toHaveBeenCalledTimes(1);
 		expect(f.recordUsage).not.toHaveBeenCalled();
@@ -242,7 +275,7 @@ describe("prompt suggestion lifecycle", () => {
 		f.complete.mockReturnValue(result.promise);
 		const request = f.service.request({}, "session", "a");
 		await vi.advanceTimersByTimeAsync(31);
-		expect(await request).toEqual({ basisEntryId: f.basisEntryId });
+		expect((await request).suggestion).toContain("把窗口图标调整得紧凑些");
 		expect(f.complete.mock.calls[0][2].signal?.aborted).toBe(true);
 		await f.service.request({}, "session", "b");
 		expect(f.complete).toHaveBeenCalledTimes(1);
@@ -426,7 +459,7 @@ describe("prediction provider payload budgets", () => {
 			expect(completeSimple.mock.calls[0][0].samplingParams).toBeUndefined();
 			expect(completeSimple.mock.calls[0][2]).toMatchObject({ maxTokens: 96, maxRetries: 0 });
 			const actual = JSON.stringify(captured);
-			expect(actual).toContain("Predict one short, natural next message");
+			expect(actual).toContain("Predict the single next message the user is most likely to type");
 			expect(actual).toContain("把窗口图标调整得紧凑些");
 			expect(actual).toContain("已调整图标，尚未构建。");
 			expect(actual).not.toContain("OVERRIDE_CONTEXT_");

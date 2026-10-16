@@ -890,6 +890,25 @@ html[data-owl-wallpaper="on"] .owl-composer-surface .rounded-xl {
 	backdrop-filter: blur(14px);
 }
 
+/* ---------------------------------------------------------------- 背景动画 ----
+ * 深空星云 + 星点 + 偶发流星（AmbientBackground.tsx，设置页「动画」分区控制）。
+ * 只用于毛玻璃系主题（liquid-glass / frost）：这两个预设自带半透明玻璃面板 + 极光底色，
+ * 画布铺在玻璃后面，光透过玻璃缓缓流动，不需要改任何面板样式。
+ * 画布与壁纸层同位（.owl-desktop-shell 的子元素，z:0，不接收指针）；开关经
+ * <html data-owl-ambient="on"> 门控——仅「毛玻璃主题 + 深色 + 未开动态壁纸 + 已开启」时由组件写入，
+ * 其余情况本块所有规则都不生效，外观与原来完全一致。 */
+.owl-ambient-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	display: none;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
+html[data-owl-ambient="on"] .owl-ambient-layer { display: block; }
+html[data-owl-ambient="on"] .owl-desktop-body { z-index: 1; }
+
 /* ---------------------------------------------------------------- 玻璃模式 ----
  * 开启动态壁纸即进入毛玻璃模式：锁定统一玻璃配色，不再跟随深色/浅色主题与主题预设
  * （本块在 index.css / 本文件各主题块之后加载，同特异性下后者胜出）。强调色

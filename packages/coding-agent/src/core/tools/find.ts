@@ -5,7 +5,7 @@ import path from "path";
 import { type Static, Type } from "typebox";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { pathExists, resolveToCwd } from "./path-utils.ts";
+import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -107,7 +107,15 @@ export function createFindToolDefinition(
 
 				(async () => {
 					try {
-						const searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						let searchPath = resolveToCwd(searchDir || ".", ctx?.cwd || cwd);
+						let pathNote = "";
+						if (!customOps && !(await pathExists(searchPath))) {
+							const corrected = await correctMissingPath(searchPath);
+							if (corrected !== searchPath) {
+								pathNote = `${pathCorrectionNote(searchPath, corrected)}\n`;
+								searchPath = corrected;
+							}
+						}
 						const effectiveLimit = limit ?? DEFAULT_LIMIT;
 						const ops = customOps ?? defaultFindOperations;
 
@@ -132,7 +140,7 @@ export function createFindToolDefinition(
 							if (results.length === 0) {
 								settle(() =>
 									resolve({
-										content: [{ type: "text", text: "No files found matching pattern" }],
+										content: [{ type: "text", text: `${pathNote}No files found matching pattern` }],
 										details: undefined,
 									}),
 								);
@@ -160,7 +168,7 @@ export function createFindToolDefinition(
 							}
 							settle(() =>
 								resolve({
-									content: [{ type: "text", text: resultOutput }],
+									content: [{ type: "text", text: `${pathNote}${resultOutput}` }],
 									details: Object.keys(details).length > 0 ? details : undefined,
 								}),
 							);
@@ -257,7 +265,7 @@ export function createFindToolDefinition(
 							if (!output) {
 								settle(() =>
 									resolve({
-										content: [{ type: "text", text: "No files found matching pattern" }],
+										content: [{ type: "text", text: `${pathNote}No files found matching pattern` }],
 										details: undefined,
 									}),
 								);
@@ -292,7 +300,7 @@ export function createFindToolDefinition(
 							}
 							settle(() =>
 								resolve({
-									content: [{ type: "text", text: resultOutput }],
+									content: [{ type: "text", text: `${pathNote}${resultOutput}` }],
 									details: Object.keys(details).length > 0 ? details : undefined,
 								}),
 							);

@@ -503,6 +503,7 @@ export function Composer({
 	queueOwnerRevision,
 	queueIsCurrent,
 	onQueueChange,
+	followUp,
 	hideMascot = false,
 }: {
 	client: BridgeClient;
@@ -525,6 +526,8 @@ export function Composer({
 	queueOwnerRevision?: string | number;
 	queueIsCurrent?: () => boolean;
 	onQueueChange?: (queue: SessionQueueSnapshot) => void;
+	/** Latest user and assistant text, so the next-prompt hint can follow this turn. */
+	followUp?: { user: string; assistant: string };
 	/** 输入框上方已经有排队或任务清单时，把沿口上的猫头鹰收起来。 */
 	hideMascot?: boolean;
 	onAbort: () => void;
@@ -1081,7 +1084,7 @@ export function Composer({
 	};
 	const prediction = usePromptSuggestion({
 		client, connected, sessionId: queueSessionId, profile: queueProfile, ownerRevision: queueOwnerRevision,
-		cwd: workspaceDir, model, running, paused, disabled, eligible: predictionEligible, isCurrent: isPredictionCurrent,
+		cwd: workspaceDir, model, running, paused, disabled, eligible: predictionEligible, followUp, isCurrent: isPredictionCurrent,
 	});
 	const suggestion = prediction.enabled && predictionEligible && !disabled && connected && !running && !paused ? prediction.suggestion : undefined;
 	const acceptSuggestion = (): boolean => {

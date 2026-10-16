@@ -128,6 +128,21 @@ export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 		}
 		case "todo":
 			return { summary: t("sum.todo") };
+		case "subagent": {
+			const action = str(a.action);
+			if (action) return { summary: `subagent ${action}` };
+			const workflow = a.workflow;
+			if (workflow === true) return { summary: "subagent workflow" };
+			if (typeof workflow === "string") {
+				const inline = workflow.includes("\n") || workflow.includes("\r")
+					|| /^(?:const|let|var|import|export|return|await|async)\b/.test(workflow.trim())
+					|| /\bruns\.(?:run|all|lanes)\b/.test(workflow);
+				if (inline) return { summary: "subagent workflow" };
+				return { summary: `subagent \`${clip(workflow, 48)}\`` };
+			}
+			const agent = str(a.agent);
+			return { summary: agent ? `subagent ${agent}` : "subagent" };
+		}
 		case "ask_user_question": {
 			const count = Array.isArray(a.questions) ? a.questions.length : 0;
 			return { summary: count > 0 ? t("sum.askCount", { n: count }) : t("sum.ask") };

@@ -9,6 +9,36 @@ export type ExecutionAnomalyMetadata = Pick<
 
 const REPORT_TOOL = "execution_anomaly_report";
 const REPORT_ALERT = "[owl execution anomaly]";
+const ABORT_TEXT = /^(?:Operation aborted|The operation was aborted(?:\.)?|AbortError:)/;
+/** Designed desktop waits. They already tell the model how to continue, so they are not defects. */
+const RECOVERABLE_COMPUTER_CODES = new Set([
+	"user_busy",
+	"input_conflict",
+	"background_backend_unavailable",
+	"exclusive_required",
+	"foreground_required",
+	"read_conflict",
+	"desktop_busy",
+	"target_busy",
+]);
+
+/** Cancellation, safety-net policy blocks, and retryable edit misses are not product defects. */
+const POLICY_BLOCK = /^BLOCKED by Owl Safety Net\b/;
+const RETRYABLE_EDIT = /^🔄 RETRYABLE —/;
+
+/** Cancellation and recoverable computer-control waits must not become execution anomalies. */
+export function isRecordedExecutionAnomaly(toolName: string, text: string): boolean {
+	const trimmed = text.trim();
+	if (ABORT_TEXT.test(trimmed) || POLICY_BLOCK.test(trimmed) || RETRYABLE_EDIT.test(trimmed)) return false;
+	if (toolName !== "computer_act" && toolName !== "computer_observe") return true;
+	const code = trimmed.match(/"code":"([^"]+)"/)?.[1];
+	return !(
+		/"status":"blocked"/.test(trimmed) &&
+		/"retryable":true/.test(trimmed) &&
+		code !== undefined &&
+		RECOVERABLE_COMPUTER_CODES.has(code)
+	);
+}
 
 function object(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -40,7 +70,7 @@ function captureTool(
 	text: string,
 	timestamp?: number,
 ): void {
-	if (toolName === REPORT_TOOL) return;
+	if (toolName === REPORT_TOOL || !isRecordedExecutionAnomaly(toolName, text)) return;
 	store.record({
 		...metadata,
 		toolCallId,

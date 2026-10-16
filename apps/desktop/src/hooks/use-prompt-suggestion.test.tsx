@@ -169,6 +169,17 @@ describe("composer prediction ownership and lifecycle", () => {
 		expect(api.suggestion).toBeUndefined();
 	});
 
+	it("shows a turn-specific hint immediately, then replaces it with the model line", async () => {
+		const pending = Promise.withResolvers<Response>();
+		request.mockImplementation(async (value: { type: string }) => value.type.endsWith(".cancel") ? { ok: true } : pending.promise);
+		await render({ followUp: { user: "can you speak english", assistant: "What can I help you with?" } });
+		expect(api.suggestion).toContain("can you speak english");
+		expect(api.suggestion).not.toContain("继续，把下一步说具体一点");
+		await settle();
+		await act(async () => pending.resolve({ ok: true, result: { basisEntryId: "answer-1", suggestion: "Summarize this chat in English" } }));
+		expect(api.suggestion).toBe("Summarize this chat in English");
+	});
+
 	it("does not start or accept work after its caller loses ownership", async () => {
 		let current = true;
 		await render({ isCurrent: () => current }); await settle();

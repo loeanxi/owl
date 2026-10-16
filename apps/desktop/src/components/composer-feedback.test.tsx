@@ -80,7 +80,10 @@ describe("compact composer feedback", () => {
 		expect(container.textContent).not.toContain("后续请求使用已确认");
 		expect(container.textContent).toContain("fixture/new");
 		await render(<ModelSelectionNotice feedback={{ ...feedback, status: "confirmed", target: "fixture/new", actual: "fixture/old", running: false }} providers={providers} />);
-		expect(container.querySelector(".owl-composer-notice-head")?.textContent).toContain("会话已确认选择 Previous model");
+		const confirmedHead = container.querySelector(".owl-composer-notice-head")!;
+		expect(confirmedHead.textContent).toContain("会话已确认选择 Previous model");
+		expect(confirmedHead.querySelector("details")).not.toBeNull();
+		expect(container.querySelector(".owl-model-selection.is-settled")).not.toBeNull();
 		expect(container.textContent).toContain("本次选择：fixture/new");
 		expect(container.textContent).toContain("会话已确认选择 fixture/old");
 	});

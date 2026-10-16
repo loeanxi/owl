@@ -77,6 +77,8 @@ function visibleText(scope: HTMLElement = host): string {
 	const clone = scope.cloneNode(true) as HTMLElement;
 	for (const hidden of clone.querySelectorAll("[hidden]")) hidden.remove();
 	for (const details of clone.querySelectorAll("details:not([open])")) for (const child of [...details.children]) if (child.tagName !== "SUMMARY") child.remove();
+	// grid 折叠体收起时内容仍在 DOM（overflow 裁切），按开关状态从文本快照剔除。
+	for (const body of clone.querySelectorAll(".owl-collapse-body:not([data-open])")) body.remove();
 	return clone.textContent ?? "";
 }
 
@@ -176,9 +178,9 @@ describe("working through a turn in the real conversation", () => {
 		), activity: "idle" });
 		expect(visibleText()).not.toContain("第一段工作思考");
 		await click(processToggle());
-		const thoughts = [...host.querySelectorAll<HTMLDetailsElement>("details")].filter((detail) => detail.querySelector("summary")?.textContent?.includes("查看思考原文"));
+		const thoughts = [...host.querySelectorAll<HTMLElement>(".owl-thinking")].filter((thought) => thought.querySelector("button")?.textContent?.includes("查看思考原文"));
 		expect(thoughts).toHaveLength(1);
-		expect(thoughts[0]!.hasAttribute("open")).toBe(false);
+		expect(thoughts[0]!.hasAttribute("data-open")).toBe(false);
 		expect(thoughts[0]!.querySelector("pre")?.textContent).toBe("第一段工作思考\n\n第二段工作思考");
 	});
 
@@ -229,5 +231,29 @@ describe("working through a turn in the real conversation", () => {
 		const answerRow = answer.closest(".owl-chat-row")!;
 		const timeline = [...processRow.parentElement!.children];
 		expect(timeline.indexOf(processRow)).toBeLessThan(timeline.indexOf(answerRow));
+	});
+
+	it("promotes a mid-turn owl-ui fence to the answer when the final text has none", async () => {
+		const fence = "```owl-ui\n{\"items\":[{\"type\":\"card\",\"title\":\"看板\",\"items\":[]}]}\n```";
+		await render({ entries: turn(
+			assistant("fence-entry", [readTool("probe", "src/a.ts")], { text: "看板如下：\n\n" + fence }),
+			assistant("final-entry", [], { text: "看板已生成，需要补报异常日志。" }),
+		), activity: "idle" });
+		// 带围栏的中间说明提升为答案行，不再藏进工作过程折叠区；末尾纯文本答案照常上屏
+		const promoted = host.querySelector('[data-entry-id="fence-entry"][data-owl-answer="true"]');
+		expect(promoted?.textContent).toContain("看板如下");
+		expect(host.querySelector('[data-entry-id="final-entry"][data-owl-answer="true"]')?.textContent).toContain("需要补报异常日志");
+	});
+
+	it("keeps intermediate notes folded when the final answer carries the owl-ui fence", async () => {
+		const fence = "```owl-ui\n{\"items\":[]}\n```";
+		await render({ entries: turn(
+			assistant("note-entry", [readTool("probe", "src/b.ts")], { text: "中间说明附看板草稿。\n\n" + fence }),
+			assistant("final-entry", [], { text: "最终回答：\n\n" + fence }),
+		), activity: "idle" });
+		// 最终答案已带围栏，中间说明不提升：无答案行标记，照常留在折叠区
+		expect(host.querySelector('[data-entry-id="note-entry"][data-owl-answer="true"]')).toBeNull();
+		await click(processToggle());
+		expect(host.querySelector(".owl-work-process-body")?.textContent).toContain("中间说明附看板草稿");
 	});
 });

@@ -62,7 +62,33 @@
 .owl-composer-feedback .owl-composer-notice-body li > div { min-width: 0; flex: 1 1 180px; }
 .owl-composer-feedback :is(button, summary, [tabindex]):focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 
+/* A settled model choice stays readable without a second status row under the composer. */
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	min-height: 0;
+	gap: 2px 12px;
+}
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-summary { display: block; min-width: 0; flex: 1 1 auto; }
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-summary strong {
+	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-weight: 400;
+}
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details { flex: 0 0 auto; margin-left: auto; }
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details > summary {
+	min-height: 0;
+	padding: 0;
+	list-style: none;
+}
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details > summary::-webkit-details-marker { display: none; }
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details > summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details[open] { flex: 1 0 100%; order: 1; }
+.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-body { padding: 2px 0 0; }
+.owl-composer-feedback:not(:empty):has(> .owl-model-selection.is-settled:only-child) { margin-top: 2px; }
+
 @media (pointer: coarse) {
 	.owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) button { min-height: 44px; }
 	.owl-composer-feedback .owl-composer-notice-details > summary { min-height: 36px; }
+	.owl-composer-feedback .owl-model-selection.is-settled .owl-composer-notice-details > summary { min-height: 0; padding: 6px 0; }
 }

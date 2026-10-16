@@ -1011,8 +1011,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			) {
 				runStartMessageIndex = messages.length;
 			}
+			const persistedAt = Date.parse(entry.sourceEntry.timestamp);
 			for (const message of entry.messages) {
-				messages.push(message);
+				// 会话条目时间是落盘时刻，约等于这条回复结束；消息自身的 timestamp 是响应开始。
+				// 只放进快照副本，不写回会话文件。重开后平均 tok/s 靠这两个时刻。
+				messages.push(
+					message.role === "assistant" && Number.isFinite(persistedAt) ? { ...message, persistedAt } : message,
+				);
 				messageEntryIds.push(entry.sourceEntry.id);
 			}
 		}

@@ -325,6 +325,14 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 		syncAccentText();
 		window.dispatchEvent(new Event("owl-appearance-change"));
 	}
+	// 启动镜像：index.html 的内联脚本在首帧前读取，主题与预设经 bridge 异步到达前不再闪旧色。
+	try {
+		localStorage.setItem("owl.bootAppearance", JSON.stringify({
+			theme: mode,
+			preset: colors.preset,
+			background: perMode.background || PRESET_DEFAULT_COLORS[colors.preset][mode].background,
+		}));
+	} catch { /* 存储不可用（首次启动/隐私模式）：启动回落默认底色。 */ }
 }
 
 /** 应用一整套外观设置：先存模块级副本（供主题切档时重放），再立即落变量与预设属性。 */

@@ -30,7 +30,7 @@ computer_act({
 computer_release({})
 ```
 
-自动模式会把有 Invoke / SelectionItem / Toggle 的普通左键单击匹配到对应语义动作，再在副作用前检查实际 backend：经过验证的非激活实现才能后台执行，其余提供方使用受用户空闲和前台互斥保护的路径。仅有 UIA pattern 不代表提供方不会抢焦点。`type` 默认保持插入语义；只有明确 `replace: true` 才允许使用 Value 替换整个字段。显式 `background` 对没有已验证非激活实现的动作在执行前返回 `background_backend_unavailable`，不能以此投递真实键鼠。
+自动模式会把有 Invoke / SelectionItem / Toggle 的普通左键单击匹配到对应语义动作，再在副作用前检查实际 backend：经过验证的非激活实现才能后台执行，其余提供方使用受用户空闲和前台互斥保护的路径。仅有 UIA pattern 不代表提供方不会抢焦点。`type` 默认保持插入语义；只有明确 `replace: true` 才允许使用 Value 替换整个字段。显式 `background` 如果没有已验证的非激活实现，不会失败返回；工具改走与 `auto` 相同的受保护前台，并在 `fallbackReason` 中保留 `background_backend_unavailable`。没有等价后台动作的真实键鼠（例如普通 `type`）仍会在执行前拦住，不能借 `background` 静默注入。
 
 需要真实 `click`、`type`、`key`、`scroll`、`focus`、`restore` 时，自动模式检查桌面输入静默、目标身份和互斥后切换前台。用户正使用键鼠时返回可恢复的 `user_busy`，模型按 `retryAfterMs` 等待、重新观察后再决定；不会把普通活动锁成永久停止。坐标 click/scroll 要求当前模型支持图片，并且该观察实际交付过窗口截图；坐标为该截图中的像素，不是屏幕绝对坐标。缺参数返回可复制的 JSON 模板。
 

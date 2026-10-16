@@ -748,9 +748,12 @@ function Invoke-ActCore($request, [string]$mode) {
 		}
 		$backgroundSafe = $plan.backgroundSafe
 		$uiaRequest.expectedBackend = $plan.backend
+		# Pattern presence is not a nonactivating backend. Models still pin
+		# inputMode=background; continue once on the auto route instead of
+		# failing the call. Idle and exclusive checks below still run first.
 		if ($mode -eq 'background' -and -not $backgroundSafe) {
-			$result = New-ActBlock 'background_backend_unavailable' 'This control has no verified nonactivating backend for the requested action.' 'use inputMode auto or foreground with fresh observation'
-			$result.requiresExclusive = $true; return $result
+			$mode = 'auto'
+			$script:Execution.fallbackReason = 'background_backend_unavailable'
 		}
 	}
 	# Pattern availability alone does not establish that a provider stays in the
@@ -759,7 +762,7 @@ function Invoke-ActCore($request, [string]$mode) {
 	$executedAction = $(if ($useUia) { $backgroundAction } else { $action })
 	$script:Execution.executedMode = $(if ($exclusive) { 'foreground' } else { 'background' })
 	$script:Execution.executedAction = $executedAction
-	if ($exclusive -and $mode -eq 'auto') {
+	if ($exclusive -and $mode -eq 'auto' -and -not $script:Execution.fallbackReason) {
 		$script:Execution.fallbackReason = $(if ($useUia) { 'background_backend_requires_foreground' } else { 'no_equivalent_background_pattern' })
 	}
 	if ([OwlComputerUse.DesktopGuard]::StopRequested) { return @{ status = 'blocked'; code = 'physical_escape'; retryable = $false } }

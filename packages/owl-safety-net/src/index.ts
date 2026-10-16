@@ -60,7 +60,7 @@ export default function createSafetyNetExtension(pi: ExtensionAPI): void {
 
 function handleToolCall(event: ToolCallEvent, ctx: ExtensionContext): ToolCallEventResult | undefined {
 	try {
-		return workingTreeStashBlock(event) ?? evaluateEvent(event, ctx);
+		return workingTreeStashBlock(event) ?? workingTreeRevisionOverwriteBlock(event) ?? evaluateEvent(event, ctx);
 	} catch (error) {
 		console.error("owl-safety-net error:", error);
 		// Fail closed: an engine crash must not wave the call through.
@@ -125,10 +125,38 @@ function workingTreeStashBlock(event: ToolCallEvent): ToolCallEventResult | unde
 		if (READ_ONLY_STASH_SUBCOMMANDS.has(match[1] ?? "")) continue;
 		return {
 			block: true,
-			reason: `BLOCKED by Owl Safety Net\n\nReason: \`git stash\` takes every uncommitted change out of this working tree, which other sessions or the user may be editing right now; a failed pop loses work.\n\nCommand: ${command}\n\nTo tell new test failures from old ones, compare against the repository's known-failures list (see AGENTS.md) instead of re-running a stashed baseline; to see original file content use \`git show HEAD:<path>\` or \`git diff\`. If the user explicitly wants a stash, ask them to run it themselves.`,
+			reason: `BLOCKED by Owl Safety Net\n\nReason: \`git stash\` takes every uncommitted change out of this working tree, which other sessions or the user may be editing right now; a failed pop loses work.\n\nCommand: ${command}\n\nTo tell new test failures from old ones, compare against the repository's known-failures list (see AGENTS.md). To inspect the committed file, run \`git diff -- <path>\` or \`git show HEAD:<path>\` and read this tool's output. Do not redirect that output onto the working tree file, and do not checkout or restore the file. If the user explicitly wants a stash, ask them to run it themselves.`,
 		};
 	}
 	return undefined;
+}
+
+/**
+ * `git show HEAD:path > path`, `git checkout -- path`, and `git restore path`
+ * replace the shared working tree with another revision. Agents did this after
+ * `git stash` was blocked, to manufacture a baseline while other sessions were
+ * editing the same file. Reading `git show` or `git diff` into the tool output
+ * is allowed.
+ */
+function workingTreeRevisionOverwriteBlock(event: ToolCallEvent): ToolCallEventResult | undefined {
+	if (!SHELL_PROFILES.has(event.toolName)) return undefined;
+	const command = (event.input as { command?: unknown } | undefined)?.command;
+	if (typeof command !== "string") return undefined;
+	const segments = command.split(/&&|\|\||;|\r?\n/);
+	const replaces = segments.some((segment) => {
+		if (
+			/\bgit(?:\.exe)?\s+show\b/i.test(segment) &&
+			/(?:^|[^&\d])>>?\s*\S+|\btee\b|\bOut-File\b|\bSet-Content\b/i.test(segment)
+		)
+			return true;
+		if (/\bgit(?:\.exe)?\s+checkout\b/i.test(segment) && /\s--\s+\S+/.test(segment)) return true;
+		return /\bgit(?:\.exe)?\s+restore\b/i.test(segment) && !/\s(?:-h|--help)\b/.test(segment);
+	});
+	if (!replaces) return undefined;
+	return {
+		block: true,
+		reason: `BLOCKED by Owl Safety Net\n\nReason: this command replaces a working tree file with another git revision. Other sessions or the user may be editing that file right now.\n\nCommand: ${command}\n\nTo inspect the committed file, run \`git diff -- <path>\` or \`git show HEAD:<path>\` and read this tool's output. Do not redirect that output onto the file.`,
+	};
 }
 
 /**

@@ -35,6 +35,20 @@ function started(): ChatEntry[] {
 	return entries;
 }
 
+test("message_end drops tool cards the assistant message no longer contains", () => {
+	let entries = started();
+	entries = event(entries, {
+		type: "message_end",
+		message: {
+			role: "assistant",
+			stopReason: "stop",
+			content: [{ type: "text", text: "This response contained 17 tool calls, over the limit of 16. None were executed." }],
+		},
+	});
+	assert.deepEqual(current(entries).tools, []);
+	assert.match(current(entries).text, /over the limit of 16/);
+});
+
 test("wire call ids survive argument generation without pretending execution completed", () => {
 	const entries = started();
 	assert.deepEqual(current(entries).tools.map(({ id, status }) => ({ id, status })), [
@@ -542,7 +556,39 @@ test("流式增量累计估算 TPS，message_end 带用量后改用真实输出�
 		type: "message_end",
 		message: { role: "assistant", content: [{ type: "text", text: "好的" }], stopReason: "stop", timestamp: 11_000, usage: { input: 10, output: 200 } },
 	});
-	assert.deepEqual(outputRate(current(entries)), { tps: 50, estimated: false });
+	assert.deepEqual(outputRate(current(entries)), { tps: 40, estimated: false });
+
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [{ role: "user", content: "写代码" }, { role: "assistant", content: [{ type: "text", text: "好的" }], stopReason: "stop", timestamp: 11_000, usage: { input: 10, output: 200 } }],
+	});
+	assert.deepEqual(current(entries).stream, { firstAt: 12_000, lastAt: 14_000, estTokens: 3 + 2 + estimateTokens("{\"path\":\"a.ts\"}") });
+	assert.deepEqual(outputRate(current(entries)), { tps: 40, estimated: false });
+	assert.deepEqual(outputRate({
+		kind: "assistant", text: "完成", thinking: "", tools: [],
+		timestamp: 1_000, endedAt: 4_450,
+		usage: { input: 34, output: 64, cacheRead: 13_588, cacheWrite: 0 },
+		stream: { firstAt: 4_200, lastAt: 4_400, estTokens: 64 },
+	}), { tps: 64 / 3.45, estimated: false });
+});
+
+test("没有流式统计时，用结束时刻与响应开始时刻算平均 TPS", () => {
+	const entry: Extract<ChatEntry, { kind: "assistant" }> = {
+		kind: "assistant", text: "完成", thinking: "", tools: [],
+		timestamp: 1_000, endedAt: 5_000,
+		usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0 },
+	};
+	assert.deepEqual(outputRate(entry), { tps: 10, estimated: false });
+	assert.equal(outputRate({ ...entry, endedAt: 1_500 }), undefined);
+	const restored = rebuild([{
+		role: "assistant",
+		content: [{ type: "text", text: "完成" }],
+		timestamp: 1_000,
+		persistedAt: 5_000,
+		usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0 },
+	}]);
+	assert.equal(current(restored).endedAt, 5_000);
+	assert.deepEqual(outputRate(current(restored)), { tps: 10, estimated: false });
 });
 
 test("estimateTokens：中日韩字符按 1 个，其余按 4 字符 1 个", () => {

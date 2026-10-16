@@ -51,6 +51,9 @@ const destructive = [
 	["bash", { command: "git -C /d/owl/owl-mono stash push -m baseline" }],
 	["bash", { command: "git stash pop" }],
 	["powershell", { command: "git stash --include-untracked" }],
+	["bash", { command: "git show HEAD:packages/coding-agent/src/core/agent-session.ts > packages/coding-agent/src/core/agent-session.ts" }],
+	["bash", { command: "git checkout HEAD -- packages/coding-agent/src/core/agent-session.ts" }],
+	["bash", { command: "git restore packages/coding-agent/src/core/agent-session.ts" }],
 ];
 for (const [toolName, input] of destructive) {
 	const result = toolCall(toolName, input);
@@ -75,6 +78,9 @@ const benign = [
 	["bash", { command: "git status" }],
 	["bash", { command: "git stash list | head -3" }],
 	["bash", { command: "git stash show -p stash@{0}" }],
+	["bash", { command: "git show HEAD:packages/coding-agent/src/core/agent-session.ts" }],
+	["bash", { command: "git show HEAD:packages/coding-agent/src/core/agent-session.ts 2>&1 | head -20" }],
+	["bash", { command: "git diff -- packages/coding-agent/src/core/agent-session.ts" }],
 	["bash", { command: "git worktree add ../_owl-baseline HEAD" }],
 	["bash", { command: "npm test" }],
 	[

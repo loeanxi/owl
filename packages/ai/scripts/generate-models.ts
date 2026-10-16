@@ -2398,6 +2398,41 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 			{ key: "minimax-cn", provider: "minimax-cn", baseUrl: "https://api.minimaxi.com/anthropic" },
 		] as const;
 
+		// models.dev lags MiniMax's own catalog: M2.1-highspeed shipped without an
+		// upstream entry and M3.1-Flash-Preview is preview-only. Mirror the stable
+		// siblings — highspeed uses the documented 2x M2 pay-as-you-go rates, the
+		// 1M-context flash preview uses M3 rates including its 512K tier. Entries
+		// are skipped once models.dev carries the id so the upstream row keeps
+		// priority in the catalog.
+		const minimaxSupplementModels: {
+			id: string;
+			input: ("text" | "image")[];
+			cost: ModelCost;
+			contextWindow: number;
+			maxTokens: number;
+		}[] = [
+			{
+				id: "MiniMax-M2.1-highspeed",
+				input: ["text"],
+				cost: { input: 0.6, output: 2.4, cacheRead: 0.03, cacheWrite: 0.375 },
+				contextWindow: 204800,
+				maxTokens: 131072,
+			},
+			{
+				id: "MiniMax-M3.1-Flash-Preview",
+				input: ["text", "image"],
+				cost: {
+					input: 0.3,
+					output: 1.2,
+					cacheRead: 0.06,
+					cacheWrite: 0,
+					tiers: [{ inputTokensAbove: 512000, input: 0.6, output: 2.4, cacheRead: 0.12, cacheWrite: 0 }],
+				},
+				contextWindow: 1000000,
+				maxTokens: 512000,
+			},
+		];
+
 		for (const { key, provider, baseUrl } of minimaxVariants) {
 			if (data[key]?.models) {
 				for (const [modelId, model] of Object.entries(data[key].models)) {
@@ -2424,6 +2459,24 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 					});
 					recordModelsDevReasoningOptions(provider, modelId, m);
 				}
+			}
+
+			const emittedIds = new Set(models.filter((model) => model.provider === provider).map((model) => model.id));
+			for (const supplement of minimaxSupplementModels) {
+				if (emittedIds.has(supplement.id)) continue;
+				models.push({
+					id: supplement.id,
+					name: supplement.id,
+					api: "anthropic-messages",
+					provider,
+					// MiniMax's Anthropic-compatible API - SDK appends /v1/messages
+					baseUrl,
+					reasoning: true,
+					input: [...supplement.input],
+					cost: { ...supplement.cost },
+					contextWindow: supplement.contextWindow,
+					maxTokens: supplement.maxTokens,
+				});
 			}
 		}
 
@@ -3184,7 +3237,20 @@ async function generateModels() {
 		}
 	}
 
-	const minimaxDirectSupportedIds = new Set(["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M3"]);
+	// MiniMax direct providers are limited to the current M-series lineup served on
+	// both Anthropic-compatible endpoints; anything else models.dev carries
+	// (retired or unannounced ids) stays out of the catalog.
+	const minimaxDirectSupportedIds = new Set([
+		"MiniMax-M2",
+		"MiniMax-M2.1",
+		"MiniMax-M2.1-highspeed",
+		"MiniMax-M2.5",
+		"MiniMax-M2.5-highspeed",
+		"MiniMax-M2.7",
+		"MiniMax-M2.7-highspeed",
+		"MiniMax-M3",
+		"MiniMax-M3.1-Flash-Preview",
+	]);
 
 	for (let i = allModels.length - 1; i >= 0; i--) {
 		const candidate = allModels[i];

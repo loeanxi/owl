@@ -13,24 +13,27 @@ export function ModelSelectionNotice({ feedback, providers, onRetry }: { feedbac
 	const name = entry?.name ?? model;
 	const error = feedback.error ?? text("unconfirmed");
 	const compactError = error.trim().split(/\r?\n/)[0].replace(/\s+/g, " ").trim();
-	return <div className={`owl-model-selection is-${feedback.status}`} role={feedback.status === "error" ? "alert" : "status"} aria-busy={feedback.status === "pending"}>
+	const settled = feedback.status === "confirmed" || feedback.status === "selected";
+	const details = <details className="owl-composer-notice-details" key={`${feedback.status}:${feedback.target}:${feedback.actual}`}>
+		<summary>{text("details")}</summary>
+		<div className="owl-composer-notice-body">
+			{feedback.status === "error" && <pre>{error}</pre>}
+			<p>{text("requested", { model: feedback.target })}</p>
+			{(feedback.status === "pending" || feedback.status === "error") && feedback.actual && <p>{text("previous", { model: feedback.actual })}</p>}
+			{feedback.status === "confirmed" && <p>{text("confirmed", { model: feedback.actual })}</p>}
+			{feedback.status !== "selected" && <p>{text(feedback.running ? "running" : "idle")}</p>}
+			{feedback.status !== "error" && entry && <p>{[entry.contextWindow ? text("capacity", { n: entry.contextWindow.toLocaleString() }) : undefined, entry.input ? text(entry.input.includes("image") ? "images" : "textOnly") : undefined].filter(Boolean).join(" · ")}</p>}
+		</div>
+	</details>;
+	return <div className={`owl-model-selection is-${feedback.status}${settled ? " is-settled" : ""}`} role={feedback.status === "error" ? "alert" : "status"} aria-busy={feedback.status === "pending"}>
 		<div className="owl-composer-notice-head">
 			<div className="owl-composer-notice-summary">
 				<strong>{feedback.status === "error" ? text("failed") : text(feedback.status, { model: name })}</strong>
 				{feedback.status === "error" && <span>{compactError.length > 120 ? `${compactError.slice(0, 120)}…` : compactError}</span>}
 			</div>
 			{feedback.status === "error" && onRetry && <div className="owl-composer-notice-actions"><button type="button" onClick={onRetry}>{text("retry")}</button></div>}
+			{settled && details}
 		</div>
-		<details className="owl-composer-notice-details" key={`${feedback.status}:${feedback.target}:${feedback.actual}`}>
-			<summary>{text("details")}</summary>
-			<div className="owl-composer-notice-body">
-				{feedback.status === "error" && <pre>{error}</pre>}
-				<p>{text("requested", { model: feedback.target })}</p>
-				{(feedback.status === "pending" || feedback.status === "error") && feedback.actual && <p>{text("previous", { model: feedback.actual })}</p>}
-				{feedback.status === "confirmed" && <p>{text("confirmed", { model: feedback.actual })}</p>}
-				{feedback.status !== "selected" && <p>{text(feedback.running ? "running" : "idle")}</p>}
-				{feedback.status !== "error" && entry && <p>{[entry.contextWindow ? text("capacity", { n: entry.contextWindow.toLocaleString() }) : undefined, entry.input ? text(entry.input.includes("image") ? "images" : "textOnly") : undefined].filter(Boolean).join(" · ")}</p>}
-			</div>
-		</details>
+		{!settled && details}
 	</div>;
 }

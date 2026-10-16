@@ -64,6 +64,27 @@ describe("chat work segment status", () => {
 		expect(parseHTML(render(entries, "waiting").html).document.querySelector(".owl-response-label")?.textContent).toBe("等待你的确认或回答");
 	});
 
+	it("keeps the same usage details on the completed answer actions, aligned to the right", () => {
+		const entries: ChatEntry[] = [
+			{ kind: "user", text: "test", timestamp: 1000 },
+			assistant([], {
+				text: "完成",
+				endedAt: 5000,
+				usage: { input: 100, output: 40, cacheRead: 60, cacheWrite: 0 },
+				stream: { firstAt: 1000, lastAt: 5000, estTokens: 40 },
+			}),
+		];
+		const { document } = parseHTML(render(entries, "idle").html);
+		expect(document.querySelector(".owl-response-activity")).toBeNull();
+		const footer = document.querySelector(".owl-msg-actions");
+		const details = footer?.querySelector("details.owl-response-details");
+		expect(details?.querySelector("summary")?.getAttribute("aria-label")).toBe("本轮累计 200 tok（含缓存） · 1 次调用");
+		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("输出 40 / 总 200 tokens");
+		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("10 tok/s");
+		expect(details?.querySelector(".owl-response-usage")?.textContent).toContain("未缓存输入 100 · 输出 40 · 缓存读 60 · 缓存写 0");
+		expect(footer?.lastElementChild).toBe(details);
+	});
+
 	it.each(["working", "waiting"] as const)("keeps one process while only its current segment owns the live timer during %s", (activity) => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },

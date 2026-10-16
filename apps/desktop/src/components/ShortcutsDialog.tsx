@@ -76,6 +76,7 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 				{ label: t("view.zoomIn"), keys: ["Ctrl", "Shift", "="] },
 				{ label: t("view.zoomOut"), keys: ["Ctrl", "-"] },
 				{ label: t("view.zoomReset"), keys: ["Ctrl", "0"] },
+				{ label: t("view.zoomWheel"), keys: ["Ctrl", t("view.wheelKey")] },
 				{ label: t("view.toggleFullscreen"), keys: ["F11"] },
 			],
 		},

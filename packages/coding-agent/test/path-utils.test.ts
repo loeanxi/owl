@@ -1,8 +1,8 @@
-import { mkdtempSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { expandPath, resolveReadPath, resolveToCwd } from "../src/core/tools/path-utils.ts";
+import { correctMissingPath, expandPath, resolveReadPath, resolveToCwd } from "../src/core/tools/path-utils.ts";
 
 describe("path-utils", () => {
 	describe("expandPath", () => {
@@ -170,5 +170,40 @@ describe("path-utils", () => {
 			// This works because tryMacOSScreenshotPath() uses case-insensitive matching
 			expect(result).toBe(join(tempDir, macosName));
 		});
+	});
+});
+
+describe("correctMissingPath", () => {
+	let root: string;
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "path-correct-"));
+	});
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("drops one invented directory when that is the only existing file", async () => {
+		const actual = join(root, "data", "skills", "usagereport");
+		mkdirSync(actual, { recursive: true });
+		writeFileSync(join(actual, "SKILL.md"), "skill");
+		const requested = join(root, "data", "owl", "skills", "usagereport", "SKILL.md");
+		await expect(correctMissingPath(requested)).resolves.toBe(join(actual, "SKILL.md"));
+	});
+
+	it("inserts one missing repository directory when that is the only existing directory", async () => {
+		const actual = join(root, "owl-re-v1", "owl-mono", "apps", "desktop", "src");
+		mkdirSync(actual, { recursive: true });
+		const requested = join(root, "owl-re-v1", "apps", "desktop", "src");
+		await expect(correctMissingPath(requested)).resolves.toBe(actual);
+	});
+
+	it("leaves an ambiguous or unrelated missing path unchanged", async () => {
+		mkdirSync(join(root, "a", "target"), { recursive: true });
+		mkdirSync(join(root, "b", "target"), { recursive: true });
+		const ambiguous = join(root, "target");
+		await expect(correctMissingPath(ambiguous)).resolves.toBe(resolve(ambiguous));
+		await expect(correctMissingPath(join(root, "missing", "file.txt"))).resolves.toBe(
+			resolve(join(root, "missing", "file.txt")),
+		);
 	});
 });

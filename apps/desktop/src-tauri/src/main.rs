@@ -25,6 +25,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Emitter, Manager};
 
 mod gps;
+mod window_state;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -1141,6 +1142,10 @@ fn main() {
     let url: tauri::Url = format!("http://127.0.0.1:{port}").parse().unwrap();
     let bridge_for_setup = bridge.clone();
     let pool_for_setup = pool.clone();
+    let window_state =
+        window_state::WindowStateStore::load(resolve_base_agent_dir().join("window-state.json"));
+    let window_state_for_setup = window_state.clone();
+    let window_state_for_exit = window_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1158,10 +1163,11 @@ fn main() {
         .manage(bridge.clone())
         .manage(MainWindowStartup::default())
         .setup(move |app| {
+            let restored = window_state_for_setup.geometry();
             let window =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
                     .title("owl")
-                    .inner_size(1280.0, 860.0)
+                    .inner_size(restored.width, restored.height)
                     .center()
                     .visible(false)
                     .focused(false)
@@ -1170,13 +1176,24 @@ fn main() {
                     // 液态玻璃要透出桌面，透明只能建窗时定；其余预设由页面铺满不透明底色。
                     .transparent(true)
                     .build()?;
+            if restored.maximized {
+                let _ = window.maximize();
+            }
 
-            // 拦截窗口关闭：隐藏到托盘，保持后台会话运行
+            // 拦截窗口关闭：隐藏到托盘，保持后台会话运行。尺寸在缩放和关闭时落盘。
             let window_for_close = window.clone();
+            let window_state_for_events = window_state_for_setup.clone();
             window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window_for_close.hide();
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        window_state_for_events.remember(&window_for_close);
+                        let _ = window_for_close.hide();
+                    }
+                    tauri::WindowEvent::Resized(_) => {
+                        window_state_for_events.remember(&window_for_close);
+                    }
+                    _ => {}
                 }
             });
 
@@ -1238,8 +1255,11 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building owl desktop shell")
-        .run(move |_app, event| {
+        .run(move |app, event| {
             if let tauri::RunEvent::Exit = event {
+                if let Some(window) = app.get_webview_window("main") {
+                    window_state_for_exit.remember(&window);
+                }
                 if let Ok(mut b) = bridge.lock() {
                     b.shutdown();
                 }

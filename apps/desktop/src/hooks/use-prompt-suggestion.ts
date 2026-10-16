@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionPromptSuggestionResult } from "../bridge/protocol.ts";
+import { dynamicFollowUp } from "../components/follow-up-suggestion.ts";
 
 const PREFERENCE_KEY = "owl.composer.predictions.enabled";
 const PREFERENCE_EVENT = "owl:composer-predictions-setting";
@@ -19,6 +20,7 @@ interface Options {
 	paused: boolean;
 	disabled: boolean;
 	eligible: boolean;
+	followUp?: { user: string; assistant: string };
 	isCurrent?: () => boolean;
 }
 
@@ -54,6 +56,7 @@ export function usePromptSuggestion(options: Options): {
 	const [revision, setRevision] = useState(0);
 	const [documentVisible, setDocumentVisible] = useState(() => document.visibilityState !== "hidden");
 	const [view, setView] = useState<{ key: string; result: SessionPromptSuggestionResult }>();
+	const [hiddenKey, setHiddenKey] = useState<string | undefined>();
 	const pending = useRef<Pending | undefined>(undefined);
 	const attempted = useRef(new Set<string>());
 	const runActive = useRef(false);
@@ -62,6 +65,8 @@ export function usePromptSuggestion(options: Options): {
 	const owner = JSON.stringify([connection.current.revision, options.profile, options.sessionId, options.cwd, options.ownerRevision, options.model]);
 	const basisOwner = JSON.stringify([options.profile, options.sessionId]);
 	const key = JSON.stringify([owner, revision]);
+	const keyRef = useRef(key);
+	keyRef.current = key;
 	const latest = useRef({ options, enabled, owner });
 	latest.current = { options, enabled, owner };
 	const canUse = enabled && documentVisible && options.connected && Boolean(options.sessionId) && Boolean(options.profile)
@@ -105,6 +110,7 @@ export function usePromptSuggestion(options: Options): {
 			if (event.type === "agent_start" || (event.type === "entry_appended" && event.entry?.message?.role === "user")) {
 				runActive.current = true;
 				cancelPending();
+				setHiddenKey(keyRef.current);
 				setView(undefined);
 			} else if (event.type === "agent_settled") {
 				runActive.current = false;
@@ -147,12 +153,17 @@ export function usePromptSuggestion(options: Options): {
 	}, [options.client, options.sessionId, canUse, key, owner, basisOwner, cancelPending]);
 
 	const result = view?.key === key ? view.result : undefined;
-	const suggestion = canUse && !runActive.current && options.isCurrent?.() !== false && result?.basisEntryId
+	const modelSuggestion = canUse && !runActive.current && options.isCurrent?.() !== false && result?.basisEntryId
 		&& !dismissed.has(JSON.stringify([basisOwner, result.basisEntryId])) ? result.suggestion : undefined;
+	const localSuggestion = options.followUp ? dynamicFollowUp(options.followUp.user, options.followUp.assistant) : undefined;
+	const suggestion = canUse && !runActive.current && options.isCurrent?.() !== false && hiddenKey !== key
+		? modelSuggestion ?? localSuggestion
+		: undefined;
 	const dismiss = (): void => {
 		if (result?.basisEntryId) remember(dismissed, JSON.stringify([basisOwner, result.basisEntryId]));
 		remember(attempted.current, key);
 		cancelPending();
+		setHiddenKey(key);
 		setView(undefined);
 	};
 	return {

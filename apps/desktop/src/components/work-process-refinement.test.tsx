@@ -97,6 +97,8 @@ function visibleText(scope: HTMLElement): string {
 	const clone = scope.cloneNode(true) as HTMLElement;
 	for (const hidden of clone.querySelectorAll("[hidden]")) hidden.remove();
 	for (const details of clone.querySelectorAll("details:not([open])")) for (const child of [...details.children]) if (child.tagName !== "SUMMARY") child.remove();
+	// grid 折叠体收起时内容仍在 DOM（overflow 裁切），按开关状态从文本快照剔除。
+	for (const body of clone.querySelectorAll(".owl-collapse-body:not([data-open])")) body.remove();
 	return clone.textContent ?? "";
 }
 
@@ -126,9 +128,9 @@ describe("One process for each delivered user turn", () => {
 		expect(visibleText(host)).not.toMatch(/0\s*项操作/);
 		expect(host.querySelectorAll(".owl-work-process").length).toBeLessThanOrEqual(1);
 		if (summary() && summary().getAttribute("aria-expanded") !== "true") await click(summary());
-		const original = host.querySelector<HTMLDetailsElement>("details.owl-thinking")!;
+		const original = host.querySelector<HTMLElement>(".owl-thinking")!;
 		expect(original).not.toBeNull();
-		expect(original.hasAttribute("open")).toBe(false);
+		expect(original.hasAttribute("data-open")).toBe(false);
 		expect(original.querySelector("pre")?.textContent).toBe(thinking);
 	});
 
@@ -159,9 +161,9 @@ describe("One process for each delivered user turn", () => {
 		expect(visibleText(host)).not.toContain("THINKING_ONLY_NEEDLE");
 		await render({ searchTarget: { sessionId: "work-refinement", entryId: "second-thinking-owner", query: "THINKING_ONLY_NEEDLE", requestId: 2 } });
 		await flush(); await flush();
-		const originals = host.querySelectorAll<HTMLDetailsElement>("details.owl-thinking");
+		const originals = host.querySelectorAll<HTMLElement>(".owl-thinking");
 		expect(originals).toHaveLength(1);
-		expect(originals[0]!.hasAttribute("open")).toBe(true);
+		expect(originals[0]!.hasAttribute("data-open")).toBe(true);
 		expect(originals[0]!.querySelector("pre")?.textContent).toBe("第一段原始思考\n\n第二段 THINKING_ONLY_NEEDLE 原文");
 		expect(visibleText(host)).toContain("THINKING_ONLY_NEEDLE");
 		expect([...highlights.get("owl-message-search") ?? []].map(String)).toContain("THINKING_ONLY_NEEDLE");

@@ -175,16 +175,20 @@ function ThinkingRow({ thinking, segments, searchTarget }: { thinking: string; s
 		[thinking],
 	);
 	return (
-		<details className="owl-thinking group" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-			<summary className="flex cursor-pointer select-none list-none items-center gap-1.5 py-0.5 [&::-webkit-details-marker]:hidden" data-message-action-ui="">
+		<div className="owl-thinking" data-open={open || undefined}>
+			<button type="button" className="flex w-full cursor-pointer select-none items-center gap-1.5 py-0.5 text-left" data-message-action-ui="" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
 				<IconLightbulb className="h-3.5 w-3.5" />
-				<IconChevron className="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" />
+				<IconChevron className="owl-thinking-chevron h-3 w-3 shrink-0 transition-transform" />
 				<span title={t("chat.thinkingLines", { n: lines })}>{workProcessText("thinkingOriginal")}</span>
-			</summary>
-			<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-owl-sidebar/50 px-3 py-2 text-[11px] leading-relaxed">
-				{segments ? segments.map((segment, index) => <span key={String(index) + ":" + segment.entryId} data-entry-id={segment.entryId}>{index > 0 ? "\n\n" : ""}{segment.text}</span>) : thinking}
-			</pre>
-		</details>
+			</button>
+			<div className="owl-collapse-body" data-open={open || undefined}>
+				<div>
+					<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-owl-sidebar/50 px-3 py-2 text-[11px] leading-relaxed">
+						{segments ? segments.map((segment, index) => <span key={String(index) + ":" + segment.entryId} data-entry-id={segment.entryId}>{index > 0 ? "\n\n" : ""}{segment.text}</span>) : thinking}
+					</pre>
+				</div>
+			</div>
+		</div>
 	);
 }
 
@@ -576,11 +580,43 @@ function OrphanResultRow({ entry }: { entry: Extract<ChatEntry, { kind: "toolRes
  * 重新生成 + 用量与时间元信息。一轮回答含多次 LLM 调用时只在最后一条下挂一条，
  * usage 传整轮聚合值。
  */
-function AssistantFooter({ entry, usage: usageOverride, requestCount, canRegenerate, onRegenerate, canBranch, onBranch }: {
+type OutputRate = ReturnType<typeof outputRate>;
+
+/** 三点展开：输出速度、总 token，以及输入/缓存明细。运行中与回答结束后共用同一块。 */
+function UsageDetails({ usage, requestCount, rate }: { usage?: MessageUsage; requestCount: number; rate?: OutputRate }): React.JSX.Element | null {
+	if (!usage && !rate) return null;
+	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
+	const usageTitle = usage
+		? t("chat.msgUsageTitle", {
+				calls: requestCount,
+				input: formatTokenCount(usage.input),
+				output: formatTokenCount(usage.output),
+				cacheRead: formatTokenCount(usage.cacheRead),
+				cacheWrite: formatTokenCount(usage.cacheWrite),
+			})
+		: undefined;
+	const summary = t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount });
+	return (
+		<details className="owl-response-details">
+			<summary aria-label={summary} title={summary}>
+				<IconMore className="h-3.5 w-3.5" />
+			</summary>
+			<div className="owl-response-metrics">
+				{totalTokens > 0 && <span>{t("chat.activityTokens", { output: formatTokenCount(usage!.output), n: formatTokenCount(totalTokens) })}</span>}
+				{rate && <span>{t(rate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: compactNumber(rate.tps) })}</span>}
+				{usageTitle && <p className="owl-response-usage">{usageTitle}</p>}
+			</div>
+		</details>
+	);
+}
+
+function AssistantFooter({ entry, usage: usageOverride, requestCount, rate, canRegenerate, onRegenerate, canBranch, onBranch }: {
 	entry: Extract<ChatEntry, { kind: "assistant" }>;
 	/** 整轮聚合用量；缺省退回本条消息自己的用量 */
 	usage?: MessageUsage;
 	requestCount: number;
+	/** 本轮最近一条可测速回复；结束后不再估算。 */
+	rate?: OutputRate;
 	canRegenerate: boolean;
 	onRegenerate?: () => void;
 	canBranch: boolean;
@@ -621,6 +657,7 @@ function AssistantFooter({ entry, usage: usageOverride, requestCount, canRegener
 						: t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })}
 				</span>
 			)}
+			<UsageDetails usage={usage} requestCount={requestCount} rate={rate} />
 		</div>
 	);
 }
@@ -812,12 +849,13 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		}
 	}
 	// 最后一条回答的操作栏：循环结束后若允许「重新生成」，换上带回调的版本
-	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }>; usage?: MessageUsage; requestCount: number } | undefined;
+	let lastFooter: { row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }>; usage?: MessageUsage; requestCount: number; rate?: OutputRate } | undefined;
 	// 轮内操作栏收集：一轮（两条用户消息之间）可能含多次 LLM 调用（中间说明 + 最终回答），
 	// 操作栏只保留轮内最后一条有正文的调用并把整轮用量聚到它身上，其余从行列表剔除
 	let turnFooters: Array<{ row: TimelineRow; index: number; entry: Extract<ChatEntry, { kind: "assistant" }> }> = [];
 	let turnUsage: MessageUsage | undefined;
 	let turnRequestCount = 0;
+	let turnRate: OutputRate;
 	// 流式中的进行轮（最后一条用户消息之后的条目）还没定型，整轮操作栏等 agent_end 重建后再出现
 	let lastUserIndex = -1;
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -844,25 +882,54 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		];
 		return segments.some((segment) => segment.kind === "text" && segment.text.trim() !== "");
 	};
+	// 中间说明是否携带 owl-ui 围栏（GenuiAnswerCard 只吃最终答案文本，判定与它同源）。
+	const assistantHasOwlUiFence = (entry: ChatEntry): boolean => {
+		if (entry.kind !== "assistant") return false;
+		const segments: AssistantSegment[] = entry.segments ?? [
+			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
+			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
+		];
+		return segments.some((segment) => segment.kind === "text" && segment.text.includes("```owl-ui"));
+	};
 	const answerEntries = new Set<number>();
-	let turnAnswerIndex = -1;
-	entries.forEach((entry, index) => {
-		if (entry.kind === "user") {
-			if (entry.queued) return;
-			if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
-			turnAnswerIndex = -1;
-			return;
-		}
-		if (assistantHasText(entry)) turnAnswerIndex = index;
-	});
-	if (turnAnswerIndex >= 0) answerEntries.add(turnAnswerIndex);
+	// 模型在出完 owl-ui 围栏后又调用工具（如执行异常补报）时，围栏所在的中间说明会被
+	// 折叠进工作过程，界面只剩末尾无围栏的纯文本。本轮最终答案不带围栏时，把带围栏的
+	// 中间说明提升为答案行，看板不再藏在折叠区里。
+	const promotedFenceEntries = new Set<number>();
+	{
+		let turnTextIndexes: number[] = [];
+		const commitTurn = (): void => {
+			const answer = turnTextIndexes.at(-1);
+			if (answer === undefined) return;
+			answerEntries.add(answer);
+			if (!assistantHasOwlUiFence(entries[answer]!)) {
+				for (const candidate of turnTextIndexes.slice(0, -1)) {
+					if (assistantHasOwlUiFence(entries[candidate]!)) {
+						promotedFenceEntries.add(candidate);
+						break;
+					}
+				}
+			}
+			turnTextIndexes = [];
+		};
+		entries.forEach((entry, index) => {
+			if (entry.kind === "user") {
+				if (entry.queued) return;
+				commitTurn();
+				return;
+			}
+			if (assistantHasText(entry)) turnTextIndexes.push(index);
+		});
+		commitTurn();
+	}
 	// 操作栏工厂：已落盘的历史回答随时可分支（会话正在跑也不收按钮，进行中的这一轮
 	// 本来就没有操作栏）；重新生成只在末条、且会话空闲时开启。
-	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number): React.JSX.Element => (
+	const assistantFooter = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, allowRegenerate: boolean, usage: MessageUsage | undefined, requestCount: number, rate: OutputRate): React.JSX.Element => (
 		<AssistantFooter
 			entry={entry}
 			usage={usage}
 			requestCount={requestCount}
+			rate={rate}
 			canRegenerate={allowRegenerate}
 			onRegenerate={allowRegenerate ? onRegenerate : undefined}
 			canBranch={entry.entryId !== undefined && onBranch !== undefined}
@@ -872,8 +939,10 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 	const finishTurnFooters = (): void => {
 		const totalUsage = turnUsage;
 		const requestCount = turnRequestCount;
+		const rate = turnRate;
 		turnUsage = undefined;
 		turnRequestCount = 0;
+		turnRate = undefined;
 		if (turnFooters.length === 0) return;
 		const keep = turnFooters[turnFooters.length - 1]!;
 		for (const item of turnFooters) {
@@ -882,8 +951,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			if (position >= 0) rows.splice(position, 1);
 		}
 		// 幸存的操作栏按整轮聚合用量重渲染（push 时的值可能缺其后纯工具调用的用量）
-		keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage, requestCount);
-		lastFooter = { ...keep, usage: totalUsage, requestCount };
+		keep.row.content = assistantFooter(keep.entry, keep.index, false, totalUsage, requestCount, rate);
+		lastFooter = { ...keep, usage: totalUsage, requestCount, rate };
 		turnFooters = [];
 	};
 	let turn = 0;
@@ -1042,6 +1111,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		// 整轮用量累计：纯工具调用的 LLM 轮没有正文、不上屏操作栏，但同样是整轮成本
 		turnUsage = addUsage(turnUsage, entry.usage);
 		turnRequestCount += 1;
+		const measured = outputRate(entry);
+		if (measured) turnRate = measured;
 		const segments: AssistantSegment[] = entry.segments ?? [
 			...(entry.thinking ? [{ kind: "thinking" as const, text: entry.thinking }] : []),
 			...(entry.text ? [{ kind: "text" as const, text: entry.text }] : []),
@@ -1106,8 +1177,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 				workRows.push({ key: "think-" + index + "-" + segmentIndex, entryId: entry.entryId, thinking: segment.text, content: <ThinkingRow thinking={segment.text} /> });
 				return;
 			}
-			if (!answerEntries.has(index)) {
-				// 中间说明（轮内非最终回答的正文）进折叠区
+			if (!answerEntries.has(index) && !promotedFenceEntries.has(index)) {
+				// 中间说明（轮内非最终回答的正文）进折叠区；带围栏被提升的除外（走下方答案路径）
 				flushWorkTools();
 				workSteps += 1;
 				recordWork(entry, index);
@@ -1152,7 +1223,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			const row: TimelineRow = {
 				key: "footer-" + index,
 				compact: true,
-				content: assistantFooter(entry, index, false, turnUsage, turnRequestCount),
+				content: assistantFooter(entry, index, false, turnUsage, turnRequestCount, turnRate),
 			};
 			rows.push(row);
 			turnFooters.push({ row, index, entry });
@@ -1180,8 +1251,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 	finishTurnFooters();
 	flushTurnArtifacts();
 	// 重新生成只出现在最后一条回答的操作栏上：对最后一条用户消息整轮「仅回退对话」后重发
-	if (lastFooter && canRegenerate && onRegenerate) {
-		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage, lastFooter.requestCount);
+		if (lastFooter && canRegenerate && onRegenerate) {
+		lastFooter.row.content = assistantFooter(lastFooter.entry, lastFooter.index, true, lastFooter.usage, lastFooter.requestCount, lastFooter.rate);
 	}
 	return rows;
 }
@@ -1290,34 +1361,13 @@ function ResponseActivity({ entries, activity, showStatus = true }: { entries: C
 	}
 	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
 	const elapsed = userTs !== undefined ? formatDuration(Math.max(0, now - userTs)) : undefined;
-	const totalTokens = usage ? usage.input + usage.output + usage.cacheRead + usage.cacheWrite : 0;
-	const usageTitle = usage
-		? t("chat.msgUsageTitle", {
-				calls: requestCount,
-				input: formatTokenCount(usage.input),
-				output: formatTokenCount(usage.output),
-				cacheRead: formatTokenCount(usage.cacheRead),
-				cacheWrite: formatTokenCount(usage.cacheWrite),
-			})
-		: undefined;
 	if (!showStatus && !usage && !rate) return null;
 	return (
 		<div className={"owl-response-activity" + (showStatus ? "" : " owl-response-activity-compact")} data-state={activity}>
 			{showStatus && <OwlMascot pose={pose} inline />}
 			{showStatus && <span className="owl-response-label" role="status" aria-live="polite" aria-atomic="true">{label}</span>}
 			{showStatus && elapsed && <span className="owl-response-timing">{elapsed}</span>}
-			{(usage || rate) && (
-				<details className="owl-response-details">
-					<summary aria-label={t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })} title={t("chat.msgUsage", { n: formatTokenCount(totalTokens), calls: requestCount })}>
-						<IconMore className="h-3.5 w-3.5" />
-					</summary>
-					<div className="owl-response-metrics">
-						{totalTokens > 0 && <span>{t("chat.activityTokens", { output: formatTokenCount(usage!.output), n: formatTokenCount(totalTokens) })}</span>}
-						{rate && <span>{t(rate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: compactNumber(rate.tps) })}</span>}
-						{usageTitle && <p className="owl-response-usage">{usageTitle}</p>}
-					</div>
-				</details>
-			)}
+			<UsageDetails usage={usage} requestCount={requestCount} rate={rate} />
 		</div>
 	);
 }
@@ -1378,11 +1428,6 @@ export function ChatStream({
 	sessionId,
 	profile,
 	startReady = true,
-	recentSessions,
-	onResumeSession,
-	onQuickAction,
-	onPromptExample,
-	onOpenDeveloper,
 	searchTarget,
 	deliveryRequest,
 	searchHistoryMessage,
@@ -1830,7 +1875,7 @@ export function ChatStream({
 							<p className="owl-chat-history-message-label">{historyLabel} · {historyMessage.message.role === "user" ? getUiLanguage() === "en" ? "You" : "你" : "Owl"}</p>
 							{historyMessage.message.role === "assistant" ? <MarkdownAnswer html={renderAnswerMarkdown(historyText)} /> : <div className="owl-chat-history-message-user">{historyText}</div>}
 						</section>}
-						{isStartPage && <StartPage client={startReady ? client : undefined} cwd={cwd} profile={startReady ? profile : undefined} recentSessions={recentSessions} onResume={onResumeSession} onAction={onQuickAction} onPrompt={onPromptExample} onOpenDeveloper={onOpenDeveloper} />}
+						{isStartPage && <StartPage client={startReady ? client : undefined} profile={startReady ? profile : undefined} />}
 						{rows.map((row) => <div key={row.key} data-entry-id={row.entryId} data-qidx={row.questionIndex} data-owl-answer={row.answer ? "true" : undefined} className={row.questionIndex ? "owl-chat-question" : row.quiet ? "owl-chat-row owl-chat-row-quiet" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
 						{artifacts != null && <div className="owl-chat-row owl-chat-row-quiet">{artifacts}</div>}
 						<ResponseActivity entries={entries} activity={activity} showStatus={!rows.some((row) => row.workRunning)} />

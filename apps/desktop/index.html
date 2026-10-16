@@ -6,8 +6,17 @@
 		<link rel="icon" type="image/svg+xml" href="/owl-fav.svg" />
 		<title>owl</title>
 	</head>
-	<body style="background-color: #262624">
+	<body style="background-color: #1e1e1e">
 		<div id="root"></div>
+		<script>
+			// 主题与预设经 bridge 异步到达，首帧前先用本地镜像恢复上次外观，避免启动闪色。
+			try {
+				var boot = JSON.parse(localStorage.getItem("owl.bootAppearance") || "{}");
+				if (boot.theme) document.documentElement.dataset.owlTheme = boot.theme;
+				if (boot.preset) document.documentElement.dataset.owlPreset = boot.preset;
+				if (boot.background) document.body.style.backgroundColor = boot.background;
+			} catch { /* 首次启动或存储不可用：保持默认底色。 */ }
+		</script>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>
 </html>

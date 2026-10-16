@@ -6,7 +6,7 @@ import { type Static, Type } from "typebox";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { resolveReadPathAsync } from "./path-utils.ts";
+import { correctMissingPath, pathCorrectionNote, resolveReadPathAsync } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -21,7 +21,7 @@ export const readToolSystemPromptContribution = {
 	guidelines: [
 		"Use read to examine files instead of cat or sed.",
 		"When the user supplies an exact file path, read it directly. List or search directories only when the path is unknown or that read fails.",
-		"A known path must come from the user or an actual tool result. Copy that path exactly, including every directory segment; do not reconstruct it from a basename or shorten a path returned by search.",
+		"A known path must come from the user or an actual tool result. Copy that path exactly, including every directory segment; do not reconstruct it from a basename, and do not insert or drop a directory segment from memory.",
 		"If a path still needs discovery, wait for the directory listing or file search result before reading it. Discovery and the read that depends on it are sequential; only independent, already known paths may be read in parallel.",
 		"Read independent known files, such as source and its test, together in one tool-call batch or with codemode Promise.all; avoid a separate model round trip for each file.",
 	],
@@ -114,10 +114,21 @@ export function createReadToolDefinition(
 
 					(async () => {
 						try {
-							const absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
+							let absolutePath = await resolveReadPathAsync(path, ctx?.cwd || cwd);
 							if (aborted) return;
-							// Check if file exists and is readable.
-							await ops.access(absolutePath);
+							let correctedFrom: string | undefined;
+							try {
+								await ops.access(absolutePath);
+							} catch (error: unknown) {
+								const code =
+									typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+								if (ops !== defaultReadOperations || (code !== "ENOENT" && code !== "ENOTDIR")) throw error;
+								const corrected = await correctMissingPath(absolutePath);
+								if (corrected === absolutePath) throw error;
+								correctedFrom = absolutePath;
+								absolutePath = corrected;
+								await ops.access(absolutePath);
+							}
 							if (aborted) return;
 							const entries = await ops.listDirectory?.(absolutePath);
 							if (aborted) return;
@@ -132,7 +143,8 @@ export function createReadToolDefinition(
 									next < entries.length
 										? `\n[More entries available. Use offset=${next + 1} to continue.]`
 										: "";
-								const text = `[Directory listing: ${absolutePath}]\n${listing.content || (entries.length === 0 ? "(empty directory)" : "(no entries selected)")}${remainder}\nRead a child file by its full path before editing its contents.`;
+								const note = correctedFrom ? `${pathCorrectionNote(correctedFrom, absolutePath)}\n` : "";
+								const text = `${note}[Directory listing: ${absolutePath}]\n${listing.content || (entries.length === 0 ? "(empty directory)" : "(no entries selected)")}${remainder}\nRead a child file by its full path before editing its contents.`;
 								signal?.removeEventListener("abort", onAbort);
 								resolve({
 									content: [{ type: "text", text }],
@@ -220,6 +232,12 @@ export function createReadToolDefinition(
 								content = [{ type: "text", text: outputText }];
 							}
 
+							if (correctedFrom) {
+								const note = pathCorrectionNote(correctedFrom, absolutePath);
+								const first = content[0];
+								if (first?.type === "text") content[0] = { type: "text", text: `${note}\n${first.text}` };
+								else content.unshift({ type: "text", text: note });
+							}
 							if (aborted) return;
 							signal?.removeEventListener("abort", onAbort);
 							resolve({ content, details });

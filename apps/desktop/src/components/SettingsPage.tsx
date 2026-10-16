@@ -30,7 +30,9 @@ import { getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, use
 import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconActivity, IconAlert, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSun, IconTrash } from "./icons.tsx";
+import { IconActivity, IconAlert, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSparkles, IconSun, IconTrash } from "./icons.tsx";
+import { AnimationSettings } from "./settings/AnimationSettings.tsx";
+import { applyOwlAnimation } from "../animation-settings.ts";
 import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
 import {
 	isModelMarkedInUse,
@@ -1344,6 +1346,7 @@ export function SettingsPage({
 						/>
 						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => selectSection("sidebar")} />
 						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => selectSection("appearance")} />
+						<NavItem icon={<IconSparkles />} label={t("settings.navAnimation")} active={section === "animation"} onClick={() => selectSection("animation")} />
 						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => selectSection("notifications")} />
 						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => selectSection("prompts")} />
 					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => selectSection("memory")} />
@@ -3405,6 +3408,9 @@ export function SettingsPage({
 						)}
 
 						{/* -------- 通知与提醒 -------- */}
+						{section === "animation" && (
+							<AnimationSettings busy={busy} onSave={(next) => { void saveSettings({ owlAnimation: next }); }} />
+						)}
 						{section === "notifications" && (
 							<>
 								<SectionHeader title={t("settings.notifications.title")} desc={t("settings.notifications.desc")} />
@@ -4367,7 +4373,8 @@ export function SettingsPage({
 											void (async () => {
 												try {
 													const values = JSON.parse(raw) as Record<string, unknown>;
-													await saveSettings(values);
+													// 手改 settings.json 里的 owlAnimation：保存成功后同步到即时生效的订阅存储
+													if (await saveSettings(values) && "owlAnimation" in values) applyOwlAnimation(values.owlAnimation);
 												} catch (error) {
 													setError(error instanceof Error ? error.message : String(error));
 												}

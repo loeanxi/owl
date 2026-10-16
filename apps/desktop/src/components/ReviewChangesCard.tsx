@@ -16,8 +16,7 @@ import { DiffView } from "../sidebar/DiffView.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { useT } from "../i18n/index.ts";
 import { Artifacts } from "./Artifacts.tsx";
-import { FileLanguageIcon, fileLanguageTitle } from "./file-language-icon.tsx";
-import { IconChevronDown, IconChevronRight, IconFile, IconLoader, IconPencil, IconUndo } from "../sidebar/icons.tsx";
+import { IconChevronDown, IconChevronRight, IconFile, IconLoader, IconUndo } from "../sidebar/icons.tsx";
 import { UndoReviewPanel } from "../sidebar/UndoReviewPanel.tsx";
 import { useUndoReview } from "../sidebar/use-undo-review.ts";
 import { useUndoCopy } from "../sidebar/undo-copy.ts";
@@ -39,35 +38,19 @@ function statsOf(entry: DiffApprovalFileSummary): { added: number; removed: numb
 	return { added: entry.added ?? 0, removed: entry.removed ?? 0 };
 }
 
-/** 扩展名 → 类型色系（.t-* 类，取中饱和度色相，深浅主题都落在 13% 底上）。 */
-const TYPE_FAMILIES: Record<string, string> = {
-	ts: "blue", tsx: "blue", mts: "blue", cts: "blue", ps1: "blue",
-	js: "amber", jsx: "amber", mjs: "amber", cjs: "amber", json: "amber",
-	vue: "green", xml: "green",
-	html: "orange", htm: "orange", rs: "orange",
-	css: "purple", scss: "purple", less: "purple", kt: "purple",
-	java: "red", c: "red", h: "red", cpp: "red", hpp: "red", cs: "red",
-	py: "cyan", go: "cyan", swift: "cyan", sql: "cyan",
-	md: "grey", txt: "grey", sh: "grey", yml: "grey", yaml: "grey", toml: "grey",
-};
-
-function fileTypeOf(path: string): { label: string; family: string; ext: string } {
+function fileTypeOf(path: string): { label: string } {
 	const name = path.split("/").at(-1) ?? path;
 	const dot = name.lastIndexOf(".");
 	const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-	if (ext === "" || ext.length > 5) return { label: "", family: "grey", ext };
-	return { label: ext.slice(0, 4).toUpperCase(), family: TYPE_FAMILIES[ext] ?? "grey", ext };
+	if (ext === "" || ext.length > 4) return { label: "" };
+	return { label: ext.toUpperCase() };
 }
 
-/** 双色 diff 比例条（GitHub 式）+ 加减行数；added/removed 全 0 时不渲染。 */
+/** 加减行数。Claude 差异工具栏只留等宽数字，不加比例条。全 0 时不渲染。 */
 function DiffStat({ added, removed, mini = false }: { added: number; removed: number; mini?: boolean }): React.JSX.Element | null {
 	if (added <= 0 && removed <= 0) return null;
 	return (
 		<span className={`owl-changes-sum${mini ? " is-mini" : ""}`}>
-			<span className="owl-changes-bar" aria-hidden="true">
-				{added > 0 && <span className="owl-changes-bar-add" style={{ flexGrow: added }} />}
-				{removed > 0 && <span className="owl-changes-bar-del" style={{ flexGrow: removed }} />}
-			</span>
 			<span className="owl-changes-num">
 				{added > 0 && <span className="add">+{added}</span>}
 				{removed > 0 && <span className="del">−{removed}</span>}
@@ -218,26 +201,25 @@ export function ReviewChangesCard({ files, cwd, client, sessionId, disabled = fa
 					onClick={() => setCollapsed((value) => !value)}
 				>
 					<IconChevronDown size={12} className="owl-changes-caret" />
-					<span className="owl-changes-head-icon" aria-hidden="true">
-						<IconPencil size={13} />
-					</span>
 					<span className="owl-changes-head-text">
 						<strong className="owl-changes-title">{t("chat.changesCount", { n: files.length })}</strong>
 						<DiffStat added={totals.added} removed={totals.removed} />
 					</span>
 				</button>
-				{tracked.some((row) => row.entry.status === "pending") && (
-					<button type="button" className="owl-changes-revert-all" disabled={busy} title={copy.turn} onClick={revertAll}>
-						{copy.turn}
-						<IconUndo size={11} />
-					</button>
-				)}
-				{tracked.length > 0 && (
-					<button type="button" className="owl-changes-workbench" onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}>
-						{t("chat.reviewInWorkbench")}
-						<IconChevronRight size={11} />
-					</button>
-				)}
+				<span className="owl-changes-head-actions">
+					{tracked.some((row) => row.entry.status === "pending") && (
+						<button type="button" className="owl-changes-revert-all" disabled={busy} title={copy.turn} onClick={revertAll}>
+							{copy.turn}
+							<IconUndo size={11} />
+						</button>
+					)}
+					{tracked.length > 0 && (
+						<button type="button" className="owl-changes-workbench" onClick={() => onOpenReview(tracked[0]!.entry.displayPath)}>
+							{t("chat.reviewInWorkbench")}
+							<IconChevronRight size={11} />
+						</button>
+					)}
+				</span>
 			</header>
 			{loadError && <div className="owl-undo-panel" role="alert">{copy.refreshing}: {loadError} <button type="button" onClick={refresh}>{t("common.retry")}</button></div>}
 			<UndoReviewPanel review={undo} disabled={disabled} />
@@ -255,25 +237,19 @@ export function ReviewChangesCard({ files, cwd, client, sessionId, disabled = fa
 								<div className="owl-changes-row">
 									{(() => {
 										const type = fileTypeOf(file.path);
-										const language = fileLanguageTitle(type.ext);
-										if (language !== undefined) {
-											return (
-												<span className="owl-changes-lang" title={language} aria-hidden="true">
-													<FileLanguageIcon ext={type.ext} />
-												</span>
-											);
-										}
 										return (
-											<span className={`owl-changes-type t-${type.family}`} aria-hidden="true">
-												{type.label === "" ? <IconFile size={10} /> : type.label}
+											<span className="owl-changes-type" aria-hidden="true">
+												{type.label === "" ? <IconFile size={11} /> : type.label}
 											</span>
 										);
 									})()}
 									<button type="button" className="owl-changes-file" title={entry?.path ?? file.path} onClick={() => openFileWithDiffContext(file, entry)}>
-										<span className="owl-changes-name">{name}</span>
-										{entry !== undefined && status === "pending" && entry.originalExisted === false && (
-											<span className="owl-changes-badge-new">{t("review.created")}</span>
-										)}
+										<span className="owl-changes-name-line">
+											<span className="owl-changes-name">{name}</span>
+											{entry !== undefined && status === "pending" && entry.originalExisted === false && (
+												<span className="owl-changes-badge-new">{t("review.created")}</span>
+											)}
+										</span>
 										{dir !== "" && <span className="owl-changes-dir">{dir}</span>}
 									</button>
 									{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}

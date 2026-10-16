@@ -1158,7 +1158,7 @@ export function SessionSidebar({
 					aria-expanded={!minimized}
 					onClick={onToggleMinimized}
 				>
-					<span>{sessionScope === "research" ? researchText.title : "owl"}</span>
+					<span className={sessionScope === "research" ? undefined : "owl-wordmark"}>{sessionScope === "research" ? researchText.title : "owl"}</span>
 				</button>
 				<div className="flex-1" data-tauri-drag-region="deep" />
 				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>

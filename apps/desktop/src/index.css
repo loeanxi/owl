@@ -65,6 +65,14 @@ html {
 }
 
 /*
+ * 全局排版细节（CDS 手册 1.5 的 typography 纪律，与主题预设无关）：
+ * 标题多行均衡断行避免末行孤词，正文消除末行孤字（中文长回答尤甚）。
+ * 纯渐进增强：不支持的引擎按默认断行，不影响布局。
+ */
+:is(h1, h2, h3, h4, h5, h6) { text-wrap: balance; }
+:is(p, li, dd, blockquote) { text-wrap: pretty; }
+
+/*
  * 猫头鹰绿预设（settings.json owlAppearance.preset = "owl-green"）：
  * 旧版默认的暖绿灰深色配色，整块从默认降级为可选预设。
  * 必须放在浅色覆盖之前——浅色块同优先级但更靠后，浅色 + 绿预设时浅色获胜。
@@ -839,6 +847,22 @@ html[data-owl-preset="quiet-light"] {
 	letter-spacing: -0.3px;
 }
 
+.owl-wordmark {
+	font-family: Georgia, "Palatino Linotype", "Times New Roman", serif;
+	font-style: italic;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	background-image: linear-gradient(
+		115deg,
+		var(--owl-ui-text, var(--color-owl-text)) 0%,
+		var(--color-owl-accent) 68%,
+		color-mix(in srgb, var(--color-owl-accent) 42%, var(--owl-ui-text, var(--color-owl-text))) 100%
+	);
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+}
+
 .owl-sidebar-search {
 	display: flex;
 	align-items: center;
@@ -1504,6 +1528,41 @@ html[data-owl-theme="light"] .owl-chat-surface {
 
 .owl-chat-layout { display: flex; height: 100%; min-width: 0; }
 .owl-chat-scroll { flex: 1; min-width: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 36px 32px 24px; }
+
+/*
+ * 滚动边缘渐隐遮罩（CDS 4.3 的纯 CSS 实现）：贴边硬裁切的内容在上下边缘做多档
+ * 非线性渐隐，滚动离开该边缘时遮罩出现、贴住该边缘时自动归零（内容完整可见）。
+ * 用 scroll() 滚动驱动动画驱动两个注册过的自定义属性，零 JS；WebView2/Chromium 生效，
+ * 不支持 scroll-timeline 的引擎（如 WKWebView）两条动画不跑，属性停在初始 0px，无遮罩降级。
+ * 通用类 .owl-scroll-fade 可挂到任意滚动容器；--owl-fade-size 控制渐隐带宽。
+ */
+@property --owl-fade-top { syntax: "<length>"; initial-value: 0px; inherits: false; }
+@property --owl-fade-bottom { syntax: "<length>"; initial-value: 0px; inherits: false; }
+
+/* 4 档缓出渐变：透明 → 42% → 78% → 实心，比两档线性更接近 CDS 的 7 档手感。 */
+.owl-scroll-fade,
+.owl-chat-scroll,
+.owl-sidebar-list {
+	--owl-fade-size: 28px;
+	mask-image: linear-gradient(
+		to bottom,
+		transparent 0,
+		rgb(0 0 0 / 42%) calc(var(--owl-fade-top) * 0.35),
+		rgb(0 0 0 / 78%) calc(var(--owl-fade-top) * 0.7),
+		#000 var(--owl-fade-top),
+		#000 calc(100% - var(--owl-fade-bottom)),
+		rgb(0 0 0 / 78%) calc(100% - var(--owl-fade-bottom) * 0.7),
+		rgb(0 0 0 / 42%) calc(100% - var(--owl-fade-bottom) * 0.35),
+		transparent 100%
+	);
+	animation: owl-fade-top linear both, owl-fade-bottom linear both;
+	animation-timeline: scroll(self), scroll(self);
+	animation-range: 0 var(--owl-fade-size), calc(100% - var(--owl-fade-size)) 100%;
+}
+
+@keyframes owl-fade-top { from { --owl-fade-top: 0px; } to { --owl-fade-top: var(--owl-fade-size); } }
+/* 底边相反：滚动到接近底部前一直有渐隐，最后一段行程内收敛为 0。 */
+@keyframes owl-fade-bottom { from { --owl-fade-bottom: var(--owl-fade-size); } to { --owl-fade-bottom: 0px; } }
 /* Keep the same column as the composer, with room for minimap marks and both scrollbar gutters. */
 .owl-chat-column { width: 100%; max-width: min(var(--owl-chat-width, 880px), calc(100cqw - 120px)); margin: 0 auto; }
 .owl-chat-empty { display: flex; flex-direction: column; align-items: center; gap: 20px; margin-top: clamp(48px, 16vh, 160px); padding: 24px 12px; text-align: center; }
@@ -1692,6 +1751,19 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-answer img { max-width: 100%; border-radius: 8px; }
 
 .owl-thinking { color: var(--owl-reading-muted); font-size: 12px; }
+.owl-thinking[data-open] .owl-thinking-chevron { transform: rotate(90deg); }
+
+/*
+ * 折叠体（CDS 3.2 的 0fr→1fr 方案）：grid 两行插值做展开动画，无需 JS 测高，
+ * 内容任意高度零抖动；收起时内容留在 DOM（overflow 裁切），切换不重排布局。
+ * 挂法：外层开关写 data-open，内容包一层 .owl-collapse-body > div。
+ */
+.owl-collapse-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 240ms cubic-bezier(0.32, 0.72, 0, 1); }
+.owl-collapse-body[data-open] { grid-template-rows: 1fr; }
+.owl-collapse-body > :first-child { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-collapse-body { transition: none; }
+}
 .owl-tool-inline-code { font: inherit; font-family: ui-monospace, Consolas, monospace; color: inherit; }
 /* 可点击的路径/URL 芯片：随链接配色 + 虚线下划线提示跳转。只限真正接了点击
  * 代理的容器（主聊天流 / 文档预览）；侧边栏任务行等没有跳转的地方保持普通芯片。 */
@@ -1741,6 +1813,9 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-response-details > summary:hover, .owl-response-details[open] > summary { background: var(--owl-reading-panel); color: var(--owl-reading-text); }
 .owl-response-details > summary:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
 .owl-response-metrics { position: absolute; z-index: 25; right: 0; bottom: calc(100% + 8px); display: flex; flex-wrap: wrap; gap: 6px 14px; width: min(380px, calc(100cqw - 64px)); padding: 12px 14px; border: 1px solid var(--owl-reading-border); border-radius: 10px; background: var(--owl-reading-panel); color: var(--owl-reading-muted); font-size: 12px; line-height: 1.65; font-variant-numeric: tabular-nums; }
+/* 用量弹层是绝对定位浮层（非内联折叠），入场走淡入上浮，不走 grid 折叠。 */
+.owl-response-details[open] .owl-response-metrics { animation: owl-pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes owl-pop-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .owl-response-usage { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 .owl-response-activity:is([data-state="waiting"], [data-state="disconnected"]) .owl-response-label { color: var(--color-owl-warning); font-weight: 500; }
 .owl-response-mark { width: 18px; height: 18px; opacity: .75; }
@@ -1979,6 +2054,11 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll { padding-right: 48px; padding-left: 48px; }
 .owl-chat-latest { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--owl-reading-border); border-radius: 20px; background: var(--owl-reading-panel); color: var(--owl-reading-text); font-size: 12px; box-shadow: 0 3px 14px #0002; }
 .owl-tool-summary:focus-visible, .owl-chat-latest:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+
+/* 对话内查找（CSS Custom Highlight API）：全部匹配柔和底，当前匹配用强调色加重。 */
+::highlight(owl-find) { background-color: color-mix(in srgb, var(--color-owl-accent) 30%, transparent); }
+::highlight(owl-find-current) { background-color: var(--color-owl-accent); color: var(--color-owl-on-accent); }
+.owl-find-count { flex: none; color: var(--color-owl-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 @container owl-chat (max-width: 700px) {
 	.owl-chat-scroll { padding: 24px 20px; }

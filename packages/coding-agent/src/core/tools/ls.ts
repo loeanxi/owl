@@ -3,7 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import nodePath from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { pathExists, resolveToCwd } from "./path-utils.ts";
+import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
@@ -79,7 +79,15 @@ export function createLsToolDefinition(
 
 				(async () => {
 					try {
-						const dirPath = resolveToCwd(path || ".", ctx?.cwd || cwd);
+						let dirPath = resolveToCwd(path || ".", ctx?.cwd || cwd);
+						let pathNote = "";
+						if (ops === defaultLsOperations && !(await pathExists(dirPath))) {
+							const corrected = await correctMissingPath(dirPath);
+							if (corrected !== dirPath) {
+								pathNote = `${pathCorrectionNote(dirPath, corrected)}\n`;
+								dirPath = corrected;
+							}
+						}
 						const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
 						// Check if path exists.
@@ -131,7 +139,7 @@ export function createLsToolDefinition(
 						signal?.removeEventListener("abort", onAbort);
 
 						if (results.length === 0) {
-							resolve({ content: [{ type: "text", text: "(empty directory)" }], details: undefined });
+							resolve({ content: [{ type: "text", text: `${pathNote}(empty directory)` }], details: undefined });
 							return;
 						}
 
@@ -155,7 +163,7 @@ export function createLsToolDefinition(
 						}
 
 						resolve({
-							content: [{ type: "text", text: output }],
+							content: [{ type: "text", text: `${pathNote}${output}` }],
 							details: Object.keys(details).length > 0 ? details : undefined,
 						});
 					} catch (e: any) {

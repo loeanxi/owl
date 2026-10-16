@@ -86,6 +86,10 @@
 .owl-message-copy-status[data-tone="success"] { color: var(--owl-reading-text); }
 .owl-message-copy-status[data-tone="error"] { color: var(--owl-ui-danger, var(--color-owl-danger, var(--owl-reading-text))); }
 
+/* 回答结束后的用量三点靠右，和运行中状态行右侧的那颗对齐。 */
+.owl-msg-actions .owl-response-details { margin-left: auto; }
+.owl-msg-actions .owl-response-details > summary { width: 32px; height: 32px; }
+
 .owl-msg-actions .owl-msg-meta {
 	min-width: 0;
 	max-width: 100%;

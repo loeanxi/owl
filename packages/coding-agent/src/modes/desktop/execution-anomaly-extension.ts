@@ -6,6 +6,7 @@ import type {
 	ExecutionAnomalyRecord,
 	ExecutionAnomalyStore,
 } from "./execution-anomalies.ts";
+import { isRecordedExecutionAnomaly } from "./execution-anomaly-capture.ts";
 
 export const EXECUTION_ANOMALY_REPORT_TOOL = "execution_anomaly_report";
 export const EXECUTION_ANOMALY_ALERT = "[owl execution anomaly]";
@@ -113,6 +114,7 @@ export function createExecutionAnomalyExtension(options: ExecutionAnomalyExtensi
 					.filter((part) => part.type === "text" && !part.text.startsWith(EXECUTION_ANOMALY_ALERT))
 					.map((part) => (part.type === "text" ? part.text : ""))
 					.join("\n");
+				if (!isRecordedExecutionAnomaly(event.toolName, text)) return;
 				let record: ExecutionAnomalyRecord;
 				try {
 					record = options.store.record({

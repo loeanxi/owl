@@ -11,12 +11,30 @@
 
 ## 2026-10-16
 
+### 新增
+
+- `desktop` 设置新增动画：启动动画可调速度与流星，深色液态玻璃下的背景动画可调强度、帧率并随 Agent 状态变化，失焦暂停且遵循系统减少动态效果
+
 ### 改进
 
 - `desktop` Claude 预设补上输入框与菜单双环质感，开始页改用吉祥物
+- `desktop` 关闭、缩放或退出时记住窗口尺寸与最大化，下次按上次几何打开
+- `desktop` 页内查找显示当前匹配序号与总数
+- `desktop` 回答结束后按真实输出时长计算平均速度，并为已结束的回复补一条贴着刚才内容的后续建议
+- `owl-computer-use` 指定后台但当前没有不抢焦点的后端时改走受保护前台并说明原因，不再把这次调用判失败
+
+### 修复
+
+- 单条回复工具调用超过 16 个、或未知工具超过 3 次时整批不执行，并说明可用工具，避免幻觉调用刷满记录
+- `coding-agent` 路径只差一段目录且能唯一对上时自动纠正，并提示按纠正后的路径照抄
+- `owl-safety-net` 拦截把 git show 重定向进工作区，以及 git checkout / restore 覆盖正在编辑的文件
+- `desktop` 取消、安全网拦截、可重试编辑，以及电脑操作里可继续的等待不再记成执行异常
 
 ### 维护
 
+- `coding-agent` AgentSession 的只读报告逻辑（会话统计、上下文用量、JSONL 导出、末条助手文本）抽出到 agent-session-reporting.ts，主类保留同名委托方法
+- `coding-agent` 工具暴露与激活判定抽为 tool-exposure.ts 的纯函数，并补 26 个单测覆盖 direct/model-only/codemode/deferred/hidden 五个暴露级别与 on-demand/eager 两种激活模式
+- `ai` MiniMax 目录补上 models.dev 尚未收录的 M2.1-highspeed 与 M3.1-Flash-Preview，直连只保留当前 M 系列
 - `repo` 本地验收记录、设计原型稿和个人笔记不再进入改动区
 
 ## 2026-10-15
