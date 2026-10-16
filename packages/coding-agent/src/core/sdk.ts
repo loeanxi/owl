@@ -290,10 +290,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		!options.noTools &&
 		!replacesDefaultTools
 	) {
-		// 发现/提问工具在 on-demand 下必须保持可达；只读搜索工具 grep/find 也默认声明——
-		// 模型高频凭习惯直接调用它们，未声明只会得到 not found 并浪费调用。
-		// 用户仍可用 defaultTools 里的 -grep / -find 显式关掉。
-		for (const name of ["tool_search", "skill_search", "ask_user_question", "grep", "find"]) {
+		// 发现/提问工具在 on-demand 下必须保持可达。只读的 grep/find/ls 也默认声明，
+		// 搜内容、找文件、列目录走这些工具，bash 留给必须执行的命令。
+		// 用户仍可用 defaultTools 里的 -grep / -find / -ls 显式关掉。
+		for (const name of ["tool_search", "skill_search", "ask_user_question", "grep", "find", "ls"]) {
 			if (
 				!initialActiveToolNames.includes(name) &&
 				!excludedToolNameSet?.has(name) &&

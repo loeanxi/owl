@@ -17,6 +17,14 @@ async function execute(command: string, output = notRepository, exitCode = 128) 
 	} as ExtensionToolContext);
 }
 
+describe("bash tool contract", () => {
+	it("keeps search on the read-only tools and leaves bash for commands that must run", () => {
+		const definition = createBashToolDefinition(process.cwd(), { exposeSessionEnvironment: false });
+		expect(definition.description).toContain("Search file contents with the grep tool");
+		expect(definition.promptSnippet).toContain("tests, git, builds, scripts");
+	});
+});
+
 describe("bash read-only Git query feedback", () => {
 	it.each([
 		"git -C /d/owl/Owl-def rev-parse --short HEAD",

@@ -66,6 +66,9 @@ describe("desktop agent instructions", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("只有当前已声明 tool_search 时");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("不能自行转成 Bash 查实现、读取自身日志或编写替代脚本");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("专项能力尚未声明时，先用 tool_search");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("搜文件内容用 grep，按名字找文件用 find，列目录用 ls");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("bash 只用来执行必须跑的命令");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("搜代码内容用 bash");
 	});
 
 	it("keeps the UI quality discipline in the defaults", () => {

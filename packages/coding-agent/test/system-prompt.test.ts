@@ -99,6 +99,21 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- write:");
 		});
 
+		test("sends content and file search to grep and find when those tools are available", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["read", "grep", "find", "ls", "bash"],
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain("Search file contents with the grep tool");
+			expect(prompt).toContain("find files by name with the find tool");
+			expect(prompt).toContain("list a directory with the ls tool");
+			expect(prompt).toContain("Use bash only for commands that must execute");
+			expect(prompt).not.toContain("Use bash for file operations like ls, rg, find");
+		});
+
 		test.each([
 			[["powershell"], "Use PowerShell for file operations"],
 			[["bash", "powershell"], "Use bash or PowerShell for file operations"],

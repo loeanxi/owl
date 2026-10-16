@@ -282,7 +282,7 @@ const bashSchema = Type.Object({
 export const BASH_PIPEFAIL_PREFIX = "set -o pipefail";
 
 export const bashToolSystemPromptContribution = {
-	snippet: "Execute bash commands (ls, grep, find, etc.)",
+	snippet: "Run commands that must execute (tests, git, builds, scripts)",
 	guidelines: [
 		"You can inspect PI_* environment variables for current model and session details.",
 		"Each bash call starts a new shell in the session working directory; a `cd` does not carry over to the next call. Use paths relative to the working directory or absolute paths, and prefix `cd <dir> &&` only when the command must run inside that directory (e.g. a package's npm or test scripts).",
@@ -550,7 +550,7 @@ export function createShellToolDefinition(
 	// 第一条命令就失败。powershell 工具共用本函数，不能注入这条提示。
 	const isBash = config.shellName === "bash";
 	const syntaxNote = isBash
-		? "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. Pipelines use pipefail so earlier failures are not hidden by head/tail. "
+		? "Commands run in bash (Git Bash on Windows): use POSIX syntax only; cmd/PowerShell forms like 'cd /d', 'dir' or %VAR% fail. Pipelines use pipefail so earlier failures are not hidden by head/tail. Search file contents with the grep tool, find files with the find tool, and list directories with the ls tool; do not shell out to grep, rg, find, or ls for that. "
 		: "";
 	return {
 		name: config.name,

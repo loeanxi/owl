@@ -98,7 +98,17 @@ function buildRules(
 	const hasFind = selectedTools.includes("find");
 	const hasLs = selectedTools.includes("ls");
 
-	if ((hasBash || hasPowerShell) && !hasGrep && !hasFind && !hasLs) {
+	if (hasGrep || hasFind || hasLs) {
+		const jobs = [
+			hasGrep ? "search file contents with the grep tool" : "",
+			hasFind ? "find files by name with the find tool" : "",
+			hasLs ? "list a directory with the ls tool" : "",
+		].filter((job) => job.length > 0);
+		const lead = jobs.join(", ");
+		addRule(
+			`${lead.charAt(0).toUpperCase()}${lead.slice(1)}. Do not run grep, rg, find, or ls inside bash for those jobs. Use bash only for commands that must execute, such as tests, git, builds, and scripts.`,
+		);
+	} else if (hasBash || hasPowerShell) {
 		if (hasBash && hasPowerShell) {
 			addRule("Use bash or PowerShell for file operations like listing, searching, and finding files");
 		} else if (hasPowerShell) {
@@ -152,7 +162,7 @@ export function buildSystemPromptSections(input: BuildSystemPromptOptions): Syst
 			"- 默认回答控制在 10 行以内：只给结论和用户需要知道的行为变化。不要逐文件复述你刚做的改动，不要贴回你编辑过的代码或文案原文，不要复述验证命令的完整输出；这些用户能在过程记录里看到。",
 			"- 遇到打招呼或闲聊时，用 1–3 句话热情回应，并询问对方想做什么；除非被要求，不要罗列能力清单。但用户点名工作区里的具体资源（工具、面板、指南、命令、文件、技能）时不算闲聊：先用检索或对应工具核实再回答，分不清闲聊还是指代就按指代处理。",
 			"- 多用具体的文件路径和代码，少用抽象描述。",
-			"- 控制调查规模：开放式问题（评价项目、找最大问题、分析原因）先看最相关的少量文件就给结论，不要为了回答去跑整套测试或通读整个仓库。连续二三十次工具调用仍没有收敛时，停下来汇报已确认的结论和下一步打算，问用户是否继续。",
+			"- 控制调查规模：开放式问题（评价项目、找最大问题、分析原因）先看最相关的少量文件就给结论，不要为了回答去跑整套测试或通读整个仓库。同一轮工具调用达到 32 次会强制停下来要求直接作答；同一个不存在的工具名、或同一组已经失败的参数，再调用一次也会被停掉。接近上限时就汇报已确认的结论和下一步，不要等着被打断。",
 			"- 回答要基于工作区里的真实文件和命令输出，不确定就去读代码确认，不要凭空猜测。",
 			"- 内容型回答要能区分检索所得与自己生成：检索不到就直说，不用生成内容冒充检索结果；不声称「已记住/已保存/已记录」或承诺未来行为，除非本轮对应工具调用已成功，先落盘再承诺。",
 		].join("\n");
