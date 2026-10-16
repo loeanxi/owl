@@ -23,13 +23,29 @@ const RECOVERABLE_COMPUTER_CODES = new Set([
 ]);
 
 /** Cancellation, safety-net policy blocks, and retryable edit misses are not product defects. */
-const POLICY_BLOCK = /^BLOCKED by Owl Safety Net\b/;
+const POLICY_BLOCK = /^BLOCKED by \S+ Safety Net\b/;
 const RETRYABLE_EDIT = /^🔄 RETRYABLE —/;
+/**
+ * The model guessed a tool, a path, or a schema, or the loop already stopped it.
+ * Those are corrected in the same turn. They are not execution anomalies, and they
+ * must not trigger an execution_anomaly_report reminder.
+ */
+const MODEL_MISS =
+	/^Tool \S+ not found\b|^ENOENT:|Error code: ENOENT\b|No such file or directory|Path not found|can't read |^Validation failed for tool |^Refusing to overwrite |^Structured single-child execution cannot be combined with workflow\b|^Failed to read workflow script\b|was not executed: the response hit the output token limit|本轮工具调用已达上限|已经确认不存在|没有再次执行|已经要求停止调用工具/;
+/** grep / git queries often exit 1 or 2 after printing a result. That is not a defect. */
+const QUERY_EXIT = /Command exited with code [12]\b/;
 
 /** Cancellation and recoverable computer-control waits must not become execution anomalies. */
 export function isRecordedExecutionAnomaly(toolName: string, text: string): boolean {
 	const trimmed = text.trim();
-	if (ABORT_TEXT.test(trimmed) || POLICY_BLOCK.test(trimmed) || RETRYABLE_EDIT.test(trimmed)) return false;
+	if (
+		ABORT_TEXT.test(trimmed) ||
+		POLICY_BLOCK.test(trimmed) ||
+		RETRYABLE_EDIT.test(trimmed) ||
+		MODEL_MISS.test(trimmed) ||
+		(QUERY_EXIT.test(trimmed) && trimmed.replace(/Command exited with code [12]\b/g, "").trim().length > 0)
+	)
+		return false;
 	if (toolName !== "computer_act" && toolName !== "computer_observe") return true;
 	const code = trimmed.match(/"code":"([^"]+)"/)?.[1];
 	return !(

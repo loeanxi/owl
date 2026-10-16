@@ -65,13 +65,13 @@ describe("execution anomaly capture", () => {
 			parentToolCallId: "parent",
 			toolName: "read",
 			isError: true,
-			result: { content: [{ type: "text", text: "ENOENT: missing file" }] },
+			result: { content: [{ type: "text", text: "EIO: read failed" }] },
 		});
 		const parent = result("parent", "Handled error and continued", false, "codemode");
 		parent.nestedCalls = {
 			complete: true,
 			calls: [
-				{ id: "parent:1", name: "read", status: "error", error: "ENOENT: missing file" },
+				{ id: "parent:1", name: "read", status: "error", error: "EIO: read failed" },
 				{ id: "parent:2", name: "bash", status: "error", error: "Process exited 2" },
 				{ id: "parent:3", name: "read", status: "ok" },
 				{ id: "parent:4", name: "bash", status: "unfinished" },
@@ -149,6 +149,62 @@ describe("execution anomaly capture", () => {
 			},
 		});
 		expect(log.list().records.map((item) => item.toolCallId)).toEqual(["real"]);
+	});
+
+	it("does not record model guesses or loop stops as execution anomalies", () => {
+		const log = store();
+		const misses = [
+			["guess-tool", "refactor-baseline", "Tool refactor-baseline not found. Available tools: read, bash."],
+			["guess-path", "read", "ENOENT: no such file or directory, access 'D:\\owl\\missing.ts'"],
+			["guess-edit", "edit", "Could not edit file: missing.ts. Error code: ENOENT."],
+			["guess-bash", "bash", "ls: cannot access 'src/missing/': No such file or directory"],
+			[
+				"guess-schema",
+				"subagent",
+				'Validation failed for tool "subagent": - preflight.version: must have required properties version',
+			],
+			[
+				"guess-write",
+				"write",
+				"Refusing to overwrite D:/owl/file.ts: no read of the whole current file is in context.",
+			],
+			["stopped", "bash", "本轮工具调用已达上限 32 次，这些调用没有执行。"],
+			["repeat", "bash", "与本轮已经失败的调用参数相同，没有再次执行。"],
+			[
+				"cc-net",
+				"bash",
+				"BLOCKED by CC Safety Net\n\nReason: CC Safety Net failed closed because command analysis failed unexpectedly.",
+			],
+			["workflow", "subagent", "Structured single-child execution cannot be combined with workflow."],
+			[
+				"workflow-path",
+				"subagent",
+				"Failed to read workflow script 'D:\\owl\\const jobs = []': ENOENT: no such file or directory",
+			],
+			[
+				"truncated",
+				"bash",
+				'Tool call "bash" was not executed: the response hit the output token limit, so its arguments may be truncated.',
+			],
+			["query-exit", "bash", "=== staged files ===\nCHANGELOG.md\n\nCommand exited with code 1"],
+		] as const;
+		for (const [id, toolName, text] of misses) {
+			captureExecutionAnomalyEvent(log, metadata, {
+				type: "tool_execution_end",
+				toolCallId: id,
+				toolName,
+				isError: true,
+				result: { content: [{ type: "text", text }] },
+			});
+		}
+		captureExecutionAnomalyEvent(log, metadata, {
+			type: "tool_execution_end",
+			toolCallId: "real-bash",
+			toolName: "bash",
+			isError: true,
+			result: { content: [{ type: "text", text: "Command exited with code 1" }] },
+		});
+		expect(log.list().records.map((item) => item.toolCallId)).toEqual(["real-bash"]);
 	});
 
 	it("does not record safety-net blocks or retryable edit misses as execution anomalies", () => {
