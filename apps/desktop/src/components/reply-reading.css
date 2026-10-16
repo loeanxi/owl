@@ -61,4 +61,11 @@
 .owl-answer-reading .owl-answer-table-scroll:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
 .owl-answer-reading .owl-answer-table-scroll table { display: table; width: max-content; min-width: 100%; max-width: none; overflow: visible; margin: 0; }
 .owl-answer-reading .owl-answer-table-scroll th { position: sticky; top: 0; z-index: 1; background: var(--owl-reading-panel); }
-.owl-answer-reading :is(pre, .owl-answer-table-scroll) { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--owl-reading-text) 30%, transparent) transparent; }
+/* 滚动条平时透明（仍占位，悬停不跳版），悬停/键盘聚焦才显形；宽表靠边缘渐隐提示还有列。 */
+.owl-answer-reading :is(pre, .owl-answer-table-scroll) { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.owl-answer-reading :is(pre, .owl-answer-table-scroll):is(:hover, :focus-visible) { scrollbar-color: color-mix(in srgb, var(--owl-reading-text) 30%, transparent) transparent; }
+.owl-answer-reading .owl-answer-table-scroll { --owl-table-fade: 36px; }
+.owl-answer-reading .owl-answer-table-scroll[data-answer-overflow="right"] { mask-image: linear-gradient(to right, #000 calc(100% - var(--owl-table-fade)), transparent); }
+.owl-answer-reading .owl-answer-table-scroll[data-answer-overflow="left"] { mask-image: linear-gradient(to left, #000 calc(100% - var(--owl-table-fade)), transparent); }
+.owl-answer-reading .owl-answer-table-scroll[data-answer-overflow="both"] { mask-image: linear-gradient(to right, transparent, #000 var(--owl-table-fade), #000 calc(100% - var(--owl-table-fade)), transparent); }
+.owl-answer-reading .owl-answer-table-scroll:is(:hover, :focus-visible) { mask-image: none; }

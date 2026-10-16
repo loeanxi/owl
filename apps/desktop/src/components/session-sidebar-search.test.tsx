@@ -117,6 +117,7 @@ describe("SessionSidebar search and project entry points", () => {
 		expect(container.querySelector(".owl-sidebar-search-input")).toBeNull();
 		const projectToggle = container.querySelector<HTMLButtonElement>("#projects .owl-sidebar-section-toggle")!;
 		expect(projectToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(projectToggle.querySelector(".owl-sidebar-section-label")?.nextElementSibling?.tagName.toLowerCase()).toBe("svg");
 		await act(async () => container.querySelector<HTMLButtonElement>(".owl-sidebar-search-trigger")!.click());
 		const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
 		expect(dialog).not.toBeNull();
@@ -172,16 +173,23 @@ describe("SessionSidebar search and project entry points", () => {
 		expect(document.querySelector(".owl-session-search-dialog")).toBeNull();
 	});
 
-	it("selects the current project by name while its chevron alone toggles the list", async () => {
+	it("expands or collapses from the project name as well as the folder icon", async () => {
 		await render();
 		const group = container.querySelector<HTMLElement>('[data-project-path="d:/alpha"]')!;
 		const toggle = group.querySelector<HTMLButtonElement>(".owl-sidebar-project-toggle")!;
+		const name = group.querySelector<HTMLButtonElement>(".owl-sidebar-project-row .owl-sidebar-row-main")!;
 		expect(toggle.getAttribute("aria-expanded")).toBe("true");
-		await act(async () => group.querySelector<HTMLButtonElement>(".owl-sidebar-project-row .owl-sidebar-row-main")!.click());
+		expect(name.getAttribute("aria-expanded")).toBe("true");
+		expect(toggle.dataset.icon).toBe("folder-open");
+		expect(toggle.querySelector("svg")).not.toBeNull();
+		expect(name.querySelector("svg")).toBeNull();
+		await act(async () => name.click());
 		expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith("D:/alpha");
-		expect(toggle.getAttribute("aria-expanded")).toBe("true");
-		await act(async () => toggle.click());
 		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		expect(name.getAttribute("aria-expanded")).toBe("false");
+		expect(toggle.dataset.icon).toBe("folder");
+		await act(async () => toggle.click());
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
 		expect(props.onSelectProject).toHaveBeenCalledTimes(1);
 	});
 

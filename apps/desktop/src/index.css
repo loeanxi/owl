@@ -940,9 +940,9 @@ html[data-owl-preset="quiet-light"] {
 	display: inline-flex;
 	min-width: 0;
 	height: 24px;
-	flex: 1;
+	flex: 0 1 auto;
 	align-items: center;
-	gap: 5px;
+	gap: 4px;
 	border-radius: 5px;
 	color: var(--color-owl-sidebar-faint);
 }
@@ -1081,9 +1081,9 @@ html[data-owl-preset="quiet-light"] {
 
 .owl-sidebar-project-toggle {
 	display: inline-flex;
-	width: 16px;
+	width: 18px;
 	height: 24px;
-	flex: 0 0 16px;
+	flex: 0 0 18px;
 	align-items: center;
 	justify-content: center;
 	border-radius: 4px;
@@ -1124,11 +1124,12 @@ html[data-owl-preset="quiet-light"] {
 	user-select: none;
 }
 
-/* 会话状态点：看过的灰点、运行中绿点闪烁（带外扩光圈）、跑完未看实心绿点 */
+/* 会话状态点：标题在左，点固定靠行尾。看过的灰点、运行中绿点闪烁、跑完未看实心绿点。 */
 .owl-sidebar-session-dot {
 	width: 7px;
 	height: 7px;
 	flex: 0 0 7px;
+	margin-left: auto;
 	border-radius: 50%;
 	background: var(--color-owl-sidebar-faint);
 	opacity: 0.6;
@@ -1338,9 +1339,13 @@ html[data-owl-preset="quiet-light"] {
 	transition: background-color 160ms ease;
 }
 button.owl-context-gauge:hover { background: var(--color-owl-hover); }
-.owl-context-gauge.is-capacity { color: var(--owl-ui-muted); opacity: 0.75; }
+.owl-context-gauge { gap: 4px; }
+.owl-context-ring { width: 12px; height: 12px; flex: none; }
+.owl-context-ring circle:last-child { transition: stroke-dasharray 300ms ease; }
+.owl-context-gauge__capacity { opacity: 0.6; }
+.owl-context-gauge__percent { font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
-	.owl-context-tank__liquid { transition: none; }
+	.owl-context-tank__liquid, .owl-context-ring circle { transition: none; }
 	.owl-context-tank__wave { animation: none; }
 }
 /* 任务清单入口：浮在对话区右上角（避开滚动条），清单面板宽度跟随对话区收缩。 */
@@ -1509,8 +1514,8 @@ button.owl-context-gauge:hover { background: var(--color-owl-hover); }
 	--owl-reading-muted: var(--color-owl-muted);
 	--owl-reading-border: var(--color-owl-border);
 	--owl-reading-panel: var(--color-owl-panel);
-	/* inline code 与项目强调色同色：跟随 --color-owl-accent 自动随主题档/自定义 accent 切换 */
-	--owl-reading-code: var(--color-owl-accent);
+	/* inline code 以正文色为主、只混一点强调色：一段里多个芯片也不抢读；可点击路径另走链接色 */
+	--owl-reading-code: color-mix(in srgb, var(--color-owl-text) 82%, var(--color-owl-accent));
 	--owl-reading-link: #8bc4ed;
 	position: relative;
 	flex: 1;
@@ -2040,7 +2045,8 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 	0%, 100% { transform: rotate(2deg); }
 	50% { transform: rotate(24deg); }
 }
-.owl-chat-minimap { position: absolute; z-index: 22; top: 16px; bottom: 16px; left: 8px; display: flex; align-items: center; width: 32px; }
+.owl-chat-minimap { position: absolute; z-index: 22; top: 16px; bottom: 16px; left: 8px; display: flex; flex-direction: column; justify-content: center; width: 32px; }
+.owl-chat-minimap-count { margin-top: 4px; padding-left: 4px; color: var(--owl-reading-muted); font-size: 10px; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: .75; pointer-events: none; }
 .owl-chat-minimap-marks { position: relative; width: 32px; max-height: min(320px, 100%); overflow-y: auto; scrollbar-width: none; padding: 4px 0; }
 .owl-chat-minimap-marks::-webkit-scrollbar { display: none; }
 .owl-chat-minimap-marks button { display: flex; align-items: center; width: 32px; height: 16px; border-radius: 4px; padding-left: 4px; }

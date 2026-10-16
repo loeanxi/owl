@@ -116,6 +116,10 @@
 		left: 2px;
 	}
 
+	.owl-desktop-shell .owl-chat-minimap-count {
+		display: none;
+	}
+
 	.owl-desktop-shell .owl-chat-minimap-preview {
 		left: 24px;
 	}

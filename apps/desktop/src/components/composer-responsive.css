@@ -242,6 +242,10 @@
 	.owl-composer-responsive .owl-composer-environment-accessory {
 		flex-basis: 100%;
 	}
+
+	.owl-composer-responsive .owl-context-gauge__capacity {
+		display: none;
+	}
 }
 
 @container owl-conversation (max-width: 520px) {

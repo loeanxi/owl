@@ -207,7 +207,7 @@ describe("reading position ownership", () => {
 		expect(container.querySelector(".owl-chat-latest")).toBeNull();
 		expect(surface.dataset.owlSearchNavigation).toBe("start");
 		await render({ entries: [user("first-question", "开始检查项目")] });
-		expect(surface.scrollTop).toBe(surface.scrollHeight);
+		expect(surface.scrollTop).toBe(surface.scrollHeight - surface.clientHeight);
 		expect(surface.hasAttribute("data-owl-search-navigation")).toBe(false);
 	});
 
@@ -253,6 +253,36 @@ describe("reading position ownership", () => {
 		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
 		expect(surface.scrollTop).toBe(520);
 		expect(container.querySelector(".owl-chat-latest")).not.toBeNull();
+	});
+
+	it("keeps the latest button hidden while followed output grows, and steady while reading earlier content", async () => {
+		await render({ entries: [user("question", "run")], activity: "working" });
+		const surface = scrollSurface();
+		await workspaceRestored(surface, 2000);
+		expect(container.querySelector(".owl-chat-latest")).toBeNull();
+		for (const height of [2800, 3200]) {
+			Object.defineProperty(surface, "scrollHeight", { configurable: true, value: height });
+			await act(async () => {
+				surface.dispatchEvent(new Event("scroll"));
+				for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+			});
+			expect(surface.scrollTop).toBe(height - surface.clientHeight);
+			expect(container.querySelector(".owl-chat-latest")).toBeNull();
+		}
+		surface.scrollTop = 520;
+		Object.defineProperty(surface, "scrollHeight", { configurable: true, value: 3200 });
+		await act(async () => surface.dispatchEvent(new Event("scroll")));
+		expect(surface.scrollTop).toBe(520);
+		expect(container.querySelector(".owl-chat-latest")?.textContent).toContain("有新进展");
+		for (const height of [3600, 4000]) {
+			Object.defineProperty(surface, "scrollHeight", { configurable: true, value: height });
+			await act(async () => {
+				surface.dispatchEvent(new Event("scroll"));
+				for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+			});
+			expect(surface.scrollTop).toBe(520);
+			expect(container.querySelector(".owl-chat-latest")).not.toBeNull();
+		}
 	});
 
 	it("resets pending scroll ownership when the profile or session changes on a reused DOM", async () => {

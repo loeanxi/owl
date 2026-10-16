@@ -144,8 +144,10 @@ describe("One process for each delivered user turn", () => {
 		expect(host.querySelector(".owl-work-process")?.getAttribute("data-state")).toBe("finished");
 		expect(host.querySelector(".owl-work-primary")?.textContent).toBe(text("process"));
 		expect(host.querySelector('.owl-work-primary[role="status"]')).toBeNull();
-		await render({ entries: turn(assistant("current", [tool("read-now", "src/missing.ts", "error", "ENOENT")], { endedAt: 5000 })) });
+		await render({ entries: turn(assistant("current", [tool("read-now", "src/missing.ts", "error", "EIO: read failed")], { endedAt: 5000 })) });
 		expect(visibleText(host)).toContain(text("issueCount", { n: 1 }));
+		await render({ entries: turn(assistant("current", [tool("edit-missing", "ghost.txt", "error", "Could not edit file: ghost.txt. Error code: ENOENT."), tool("blocked", "bash", "error", "BLOCKED by CC Safety Net\n\nReason: command analysis failed unexpectedly.")], { endedAt: 5000 })) });
+		expect(visibleText(host)).not.toContain("执行异常");
 		expect(host.querySelector(".owl-work-issues")).toBeNull();
 	});
 
@@ -200,16 +202,17 @@ describe("Readable tool records without losing evidence", () => {
 		await render({ entries: turn(assistant("active", [tool("now", "src/now.ts", "running")])), activity: "working" });
 		expect(host.querySelector('.owl-work-primary[role="status"]')).not.toBeNull();
 		expect(host.querySelector(".owl-response-activity")).toBeNull();
-		expect(host.querySelector("[data-test-response-mascot]")).toBeNull();
+		expect(host.querySelector(".owl-response-mark")).toBeNull();
 		await render({ entries: turn(assistant("active", [tool("now", "src/now.ts", "running")], { usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 } })) });
 		const metrics = host.querySelector<HTMLElement>(".owl-response-activity")!;
 		expect(metrics).not.toBeNull();
 		expect(metrics.querySelector(".owl-response-details")).not.toBeNull();
-		expect(metrics.querySelector(".owl-response-label, [data-test-response-mascot]")).toBeNull();
+		expect(metrics.querySelector(".owl-response-label, .owl-response-mark")).toBeNull();
 		await render({ entries: turn(assistant("generating-only", [])), activity: "working" });
 		expect(host.querySelector(".owl-work-process")).toBeNull();
 		expect(host.querySelector(".owl-response-label")?.textContent).toBeTruthy();
-		expect(host.querySelector("[data-test-response-mascot]")).not.toBeNull();
+		expect(host.querySelector(".owl-response-mark")).not.toBeNull();
+		expect(host.querySelector("[data-test-response-mascot]")).toBeNull();
 	});
 
 	it("shows the final sixteen output lines first, preserves full original text and copies command/output separately", async () => {

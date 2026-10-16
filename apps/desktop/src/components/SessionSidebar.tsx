@@ -22,6 +22,7 @@ import {
 	IconChevron,
 	IconCompose,
 	IconFolder,
+	IconFolderOpen,
 	IconGrip,
 	IconMore,
 	IconPanelLeft,
@@ -208,10 +209,10 @@ function Section({
 					aria-label={t("sidebar.sectionToggleAria", { action: open ? t("common.collapse") : t("common.expand"), label })}
 					aria-expanded={open}
 				>
+					<span className="owl-sidebar-section-label">{label}</span>
 					<IconChevron
 						className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${open ? "rotate-90" : ""}`}
 					/>
-					<span className="owl-sidebar-section-label">{label}</span>
 				</button>
 				{actions && (
 					<div data-menu-root className="owl-sidebar-section-actions">
@@ -381,11 +382,11 @@ export function SessionSidebar({
 		scope: sessionScope,
 		counts: { ...(current.scope === sessionScope ? current.counts : {}), [key]: count },
 	}));
-	const listControls = (key: string, total: number, label: string): React.ReactNode => {
+	const listControls = (key: string, total: number, label: string, moreKey: "showMoreSessions" | "showMoreProjects" = "showMoreSessions"): React.ReactNode => {
 		if (total <= SESSION_PAGE_SIZE) return null;
 		const count = Math.min(visibleCount(key), total);
 		const more = Math.min(SESSION_PAGE_SIZE, total - count);
-		const moreLabel = pt("showMoreSessions").replace("{n}", String(more));
+		const moreLabel = pt(moreKey).replace("{n}", String(more));
 		return <div className="owl-sidebar-list-controls" data-sidebar-list={key} role="group" aria-label={label}>
 			{more > 0 && <button type="button" className="owl-sidebar-list-more" aria-label={label + "：" + moreLabel} onClick={() => setVisibleCount(key, count + SESSION_PAGE_SIZE)}>{moreLabel}</button>}
 			{count > SESSION_PAGE_SIZE && <button type="button" className="owl-sidebar-list-collapse" aria-label={label + "：" + pt("collapseSessions")} onClick={() => setVisibleCount(key, SESSION_PAGE_SIZE)}>{pt("collapseSessions")}</button>}
@@ -860,7 +861,7 @@ export function SessionSidebar({
 	};
 
 	/**
-	 * 会话行（单行紧凑式）：状态点 + 标题。运行中绿点闪烁，跑完未看为实心绿点，看过后变浅灰。
+	 * 会话行（单行紧凑式）：标题在左，状态点靠右。运行中绿点闪烁，跑完未看为实心绿点，看过后变浅灰。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
 	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string): React.JSX.Element => {
@@ -913,12 +914,12 @@ export function SessionSidebar({
 					aria-current={id === activeId ? "page" : undefined}
 					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); if (drawerMode) setDrawerOpen(false); } }}
 				>
+					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
+					{time && <span className="owl-sidebar-row-time">{time}</span>}
 					<span
 						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
 						title={isRunning ? t("sidebar.runningTip") : unread ? t("sidebar.unreadTip") : t("sidebar.readTip")}
 					/>
-					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
-					{time && <span className="owl-sidebar-row-time">{time}</span>}
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
 				{id && (
@@ -978,8 +979,8 @@ export function SessionSidebar({
 		const visibleRows = rows.slice(0, visibleCount(windowKey));
 		return <div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
 			<div className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}>
-				<button type="button" className="owl-sidebar-project-toggle" aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path)}><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /></button>
-				<button type="button" className="owl-sidebar-row-main" title={path} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => { onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}><IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /><span className="owl-sidebar-row-label">{name}</span></button>
+				<button type="button" className="owl-sidebar-project-toggle" data-icon={expanded ? "folder-open" : "folder"} aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path)}>{expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}</button>
+				<button type="button" className="owl-sidebar-row-main" title={path} aria-expanded={expanded} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => { toggleProjectGroup(path); onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}><span className="owl-sidebar-row-label">{name}</span></button>
 				<div data-menu-root className="owl-sidebar-row-actions">
 					<button type="button" className="owl-sidebar-action" title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActionsAria", { project: name })} aria-haspopup="menu" aria-expanded={openMenu === menuId} aria-controls={openMenu === menuId ? projectMenuId : undefined} onClick={(event) => {
 						if (openMenu === menuId) closeProjectPopup();
@@ -1025,7 +1026,15 @@ export function SessionSidebar({
 		</div>;
 	};
 	const renderProjectContents = (paths: string[], location: string): React.ReactNode => {
-		if (projectPreferences.view === "projects") return paths.map(projectRow);
+		if (projectPreferences.view === "projects") {
+			// 当前项目即使排在窗口外也常驻显示，且不计入「再显示 N 个」。
+			const windowKey = "projects:" + location;
+			const limit = visibleCount(windowKey);
+			const activeIndex = paths.findIndex((path) => samePath(path, activeProject));
+			const activeOutside = activeIndex >= limit;
+			const shown = activeOutside ? [...paths.slice(0, limit), paths[activeIndex]!] : paths.slice(0, limit);
+			return <>{shown.map(projectRow)}{listControls(windowKey, paths.length - (activeOutside ? 1 : 0), pt("defaultSection"), "showMoreProjects")}</>;
+		}
 		const pathsSet = new Set(paths.map(normPath));
 		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd))).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
 		const windowKey = "merged:" + location;
@@ -1055,9 +1064,8 @@ export function SessionSidebar({
 			const expanded = isOpen(key);
 			const name = group.path ? projectLabel(group.path) : pt("standalone");
 			return <div key={key} className="owl-sidebar-project-group" data-recent-project={pathKey || "standalone"}>
-				<div className="owl-sidebar-row"><button type="button" className="owl-sidebar-row-main" title={group.path ?? name} aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} onClick={() => toggleSection(key)}>
-					<IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} />
-					{group.path ? <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}
+				<div className="owl-sidebar-row"><button type="button" className="owl-sidebar-row-main" title={group.path ?? name} aria-expanded={expanded} data-icon={group.path ? (expanded ? "folder-open" : "folder") : undefined} aria-label={t("sidebar.projectToggleAria", { project: name })} onClick={() => toggleSection(key)}>
+					{group.path ? (expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />) : <><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /><IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /></>}
 					<span className="owl-sidebar-row-label">{name}</span>
 				</button></div>
 				{expanded && <div className="owl-sidebar-project-sessions">{renderRecentRows(group.rows, key)}</div>}

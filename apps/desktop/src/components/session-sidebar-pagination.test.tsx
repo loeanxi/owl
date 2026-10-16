@@ -240,6 +240,22 @@ describe("sidebar lists revealed in batches", () => {
 		expect(visibleRows(recent)).toHaveLength(5);
 	});
 
+	it("reveals projects five at a time while the current project stays visible outside the window", async () => {
+		sessions = Array.from({ length: 9 }, (_, index) => {
+			const time = new Date(2026, 9, 15, 11, 59 - index).toISOString();
+			return { id: `p${index}`, name: `项目会话 ${index}`, scope: "chat" as const, created: time, modified: time, cwd: `D:/p${index}` };
+		});
+		await render({ activeProject: "D:/p8" });
+		const groups = (): string[] => [...section("projects").querySelectorAll<HTMLElement>(".owl-sidebar-project-group")].map((node) => node.dataset.projectPath!);
+		expect(groups()).toEqual(["d:/p0", "d:/p1", "d:/p2", "d:/p3", "d:/p4", "d:/p8"]);
+		const more = controls("projects:merged-default").querySelector<HTMLButtonElement>(".owl-sidebar-list-more")!;
+		expect(more.textContent).toMatch(/再显示\s*3\s*个项目/);
+		await click(more);
+		expect(groups()).toEqual(Array.from({ length: 9 }, (_, index) => `d:/p${index}`));
+		await collapse("projects:merged-default");
+		expect(groups()).toHaveLength(6);
+	});
+
 	it("omits pagination controls for lists containing five or fewer sessions", async () => {
 		const pins = rows("pin", 3);
 		sessions = [...pins, ...rows("owl", 5, "D:/owl")];

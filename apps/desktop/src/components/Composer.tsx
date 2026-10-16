@@ -85,7 +85,18 @@ function contextTone(percent: number | null): string {
 	if (percent === null) return "text-owl-faint";
 	if (percent >= 85) return "text-owl-danger";
 	if (percent >= 60) return "text-owl-warning";
-	return "text-owl-success";
+	return "text-owl-muted";
+}
+
+/** 上下文占用小圆环：弧长 = 占用比例，颜色跟随按钮文字色（平时中性，将满转警示）。 */
+function ContextRing({ percent }: { percent: number | null }): React.JSX.Element {
+	const level = Math.min(100, Math.max(0, percent ?? 0));
+	return (
+		<svg viewBox="0 0 16 16" className="owl-context-ring" aria-hidden="true">
+			<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+			{level > 0 && <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" pathLength={100} strokeDasharray={`${level} 100`} transform="rotate(-90 8 8)" />}
+		</svg>
+	);
 }
 
 /** 上下文用量鱼缸：铺在输入框底层，液面高度 = 上下文占用比例。 */
@@ -1682,10 +1693,15 @@ export function Composer({
 					<div className="owl-composer-input-row relative flex items-end gap-1.5 px-1.5 py-1">
 						<Menu
 							triggerClassName={`owl-context-gauge ${contextTone(percent)}`}
-							triggerTitle={t("composer.viewContext")}
+							triggerTitle={t("composer.viewContext") + (percent !== null ? ` · ${Math.round(percent)}%` : "")}
 							panelClassName="owl-composer-menu left-0 w-72"
 							trigger={
-								contextTokens !== null ? formatTokens(contextTokens) : sessionInfo?.contextUsage ? "—" : "0"
+								<>
+									<ContextRing percent={percent} />
+									<span>{contextTokens !== null ? formatTokens(contextTokens) : sessionInfo?.contextUsage ? "—" : "0"}</span>
+									{contextWindow ? <span className="owl-context-gauge__capacity">/ {formatTokens(contextWindow)}</span> : null}
+									{percent !== null && percent >= 60 ? <span className="owl-context-gauge__percent">{Math.round(percent)}%</span> : null}
+								</>
 							}
 						>
 							{contextDetails}
@@ -1820,11 +1836,6 @@ export function Composer({
 									{settingsPanel()}
 								</Menu>
 							)}
-							{contextWindow ? (
-								<span className="owl-context-gauge is-capacity" title={t("composer.contextWindow")}>
-									{formatTokens(contextWindow)}
-								</span>
-							) : null}
 						</div>
 						<button
 							type="button"

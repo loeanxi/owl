@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
+import { isRecordedExecutionAnomaly } from "../../../../packages/coding-agent/src/modes/desktop/execution-anomaly-capture.ts";
 import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconCompose, IconLightbulb, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
@@ -17,7 +18,6 @@ import { DeliverySummary } from "./DeliverySummary.tsx";
 import { deliveryChecklist } from "../hooks/delivery.ts";
 import { StartPage } from "./StartPage.tsx";
 import type { StartRecentSession } from "../hooks/use-start-recent-sessions.ts";
-import { OwlMascot, useSessionOwlPose } from "./OwlMascot.tsx";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionSearchMessageResult } from "../bridge/protocol.ts";
 import { ScheduleDeliveryCard } from "../features/automation/ScheduleDeliveryCard.tsx";
@@ -467,7 +467,8 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const searchFocus = useMemo(() => searchedAction ? { toolId: searchedAction.card.id, ownerIndex: searchedAction.ownerIndex } : undefined, [searchedAction?.card.id, searchedAction?.ownerIndex, searchTarget?.requestId]);
 	const current = activeScope ? workActionFacts(actions.filter((action) => action.scope === activeScope.id)).current : undefined;
 	const primary = running ? waiting ? copy("waiting") : current ? workActionTitle(current.card) : copy("generating") : actions.length || !thinkingSegments.length ? copy("process") : copy("thinking");
-	const issueKind = facts.issues.some(({ card }) => isHardFailure(card)) ? "failed" : facts.issues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
+	const anomalyIssues = facts.issues.filter(({ card }) => isRecordedExecutionAnomaly(card.name, card.output?.text ?? ""));
+	const issueKind = anomalyIssues.some(({ card }) => isHardFailure(card)) ? "failed" : anomalyIssues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
 	const hasOrdinaryItems = items.some((item) => !item.interactive);
 	useEffect(() => {
 		if (!open || !focusedTool) return;
@@ -514,11 +515,11 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 					<span className="owl-work-metadata">{[elapsed !== undefined ? formatDuration(elapsed) : undefined, actions.length ? copy("stepCount", { n: actions.length }) : undefined, facts.recovered.length ? copy("recoveredCount", { n: facts.recovered.length }) : undefined].filter(Boolean).join(" · ")}</span>
 					<IconChevron className={"owl-work-summary-chevron h-3 w-3 shrink-0 transition-transform " + (open ? "rotate-90" : "")} />
 				</button>
-				{facts.issues.length > 0 && <button type="button" className="owl-work-issue-link" data-error-kind={issueKind} data-work-reading="" title={copy("issueHint")} onClick={() => {
-					const issue = facts.issues[issueCursor.current++ % facts.issues.length]!;
+				{anomalyIssues.length > 0 && <button type="button" className="owl-work-issue-link" data-error-kind={issueKind} data-work-reading="" title={copy("issueHint")} onClick={() => {
+					const issue = anomalyIssues[issueCursor.current++ % anomalyIssues.length]!;
 					setProcessOpen(true);
 					setFocusedTool({ toolId: issue.card.id, ownerIndex: issue.ownerIndex });
-				}}><IconAlert className="h-3 w-3" />{copy("issueCount", { n: facts.issues.length })}</button>}
+				}}><IconAlert className="h-3 w-3" />{copy("issueCount", { n: anomalyIssues.length })}</button>}
 			</div>}
 			{activeScope?.subagents.some((card) => card.status === "running" || card.status === "pending") && <div className="owl-work-delegations">{activeScope.subagents.filter((card) => card.status === "running" || card.status === "pending").map((card) => <SubagentLiveLine key={card.id} card={card} onOpen={() => onOpenSubagent ? onOpenSubagent(card) : setProcessOpen(true)} />)}</div>}
 			<div id={panelId} className="owl-tool-group-body owl-work-process-body" data-open={open}>
@@ -1317,6 +1318,7 @@ function QuestionMinimap({ questions, active, onJump }: {
 					</button>
 				))}
 			</div>
+			{active > 0 && <span className="owl-chat-minimap-count" aria-hidden="true">{active}/{questions.length}</span>}
 			{question && preview && (
 				<div className="owl-chat-minimap-preview" style={{ top: preview.top }} aria-hidden="true">
 					<span className="owl-chat-minimap-preview-label">{t("chat.questionFallback", { n: question.n })}</span>
@@ -1334,7 +1336,6 @@ function ResponseActivity({ entries, activity, showStatus = true }: { entries: C
 	// 时长从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示），tokens 为本轮
 	// 已回传用量之和；末尾的 tok/s 取本轮最近一条可测速回复（流式中为估算，带 ~）。
 	// 每秒更新耗时，主状态独立通知，避免辅助指标反复触发读屏播报。
-	const pose = useSessionOwlPose(activity, entries);
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -1364,7 +1365,7 @@ function ResponseActivity({ entries, activity, showStatus = true }: { entries: C
 	if (!showStatus && !usage && !rate) return null;
 	return (
 		<div className={"owl-response-activity" + (showStatus ? "" : " owl-response-activity-compact")} data-state={activity}>
-			{showStatus && <OwlMascot pose={pose} inline />}
+			{showStatus && <img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" />}
 			{showStatus && <span className="owl-response-label" role="status" aria-live="polite" aria-atomic="true">{label}</span>}
 			{showStatus && elapsed && <span className="owl-response-timing">{elapsed}</span>}
 			<UsageDetails usage={usage} requestCount={requestCount} rate={rate} />
@@ -1505,6 +1506,24 @@ export function ChatStream({
 	const navigationTarget = useRef<number | null>(null);
 	const prevEntries = useRef<ChatEntry[]>([]);
 	const [showLatest, setShowLatest] = useState(false);
+	// 上一帧的滚动度量。用来区分「人往上翻」和「流式内容把页面撑高」。
+	const scrollMetrics = useRef({ top: 0, height: 0 });
+	const pinning = useRef(false);
+	const pinToBottom = (el: HTMLElement): void => {
+		const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+		if (Math.abs(el.scrollTop - bottom) > 1) {
+			pinning.current = true;
+			el.scrollTop = bottom;
+			pinning.current = false;
+		}
+		scrollMetrics.current = { top: el.scrollTop, height: el.scrollHeight };
+	};
+	// 离开底部超过 48px 才挂上按钮，回到 24px 内才摘掉。阈值之间保持原状，
+	// 避免流式增高在贴底线附近把「有新进展」一帧挂上、下一帧摘掉。
+	const publishLatest = (el: HTMLElement): void => {
+		const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+		setShowLatest((shown) => (stick.current || gap < 24 ? false : shown || gap >= 48));
+	};
 	const handledSearch = useRef<string | undefined>(undefined);
 	const handledDelivery = useRef<number | undefined>(undefined);
 	const activeSearch = searchTarget?.sessionId === sessionId ? searchTarget : undefined;
@@ -1521,6 +1540,7 @@ export function ChatStream({
 		readingProcess.current = false;
 		workReadAnchor.current = undefined;
 		navigationTarget.current = null;
+		scrollMetrics.current = { top: 0, height: 0 };
 		handledSearch.current = undefined;
 		prevEntries.current = entries;
 		container.current?.removeAttribute("data-owl-search-navigation");
@@ -1568,7 +1588,10 @@ export function ChatStream({
 		if (!stick.current && !userJustSent) return;
 		// 直接设 scrollTop：瞬时定位，不与用户滚动抢平滑动画队列。
 		const el = container.current;
-		if (el) el.scrollTop = el.scrollHeight;
+		if (el) {
+			pinToBottom(el);
+			publishLatest(el);
+		}
 	}, [entries, isStartPage]);
 
 	const [expandedTools, setExpandedTools] = useState(() => document.documentElement.dataset.owlToolRecords === "expanded");
@@ -1651,7 +1674,9 @@ export function ChatStream({
 		const el = container.current;
 		if (!el || stick.current || !readingProcess.current) return;
 		restoreWorkReading();
-		setShowLatest(el.scrollHeight - el.scrollTop - el.clientHeight >= 24);
+		// 锚定阅读位置会改 scrollTop，先记成当前帧，避免被当成用户往上翻。
+		scrollMetrics.current = { top: el.scrollTop, height: el.scrollHeight };
+		publishLatest(el);
 	}, [rows]);
 	useEffect(() => {
 		const el = container.current;
@@ -1756,10 +1781,12 @@ export function ChatStream({
 		setActiveQuestion(n);
 		const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
 		const top = Math.max(0, Math.min(maxTop, node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 16));
+		const landingGap = maxTop - top;
 		navigationTarget.current = Math.abs(el.scrollTop - top) > 1 ? top : null;
-		if (navigationTarget.current === null) stick.current = maxTop - top < 24;
+		if (navigationTarget.current === null) stick.current = landingGap < 24;
+		scrollMetrics.current = { top, height: el.scrollHeight };
 		el.scrollTo({ top, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-		setShowLatest(maxTop - top >= 24);
+		setShowLatest((shown) => (stick.current || landingGap < 24 ? false : shown || landingGap >= 48));
 	};
 
 	// 会话切换/恢复后立即校准高亮，不等首次滚动
@@ -1775,18 +1802,39 @@ export function ChatStream({
 			setShowLatest(false);
 			return;
 		}
-		if (el.dataset.owlScrollRestoring === "true") return;
+		if (el.dataset.owlScrollRestoring === "true" || pinning.current) return;
 		// 平滑跳转第一帧仍靠近底部，抵达目标前不能重新开启贴底跟随。
+		let navigationArrived = false;
 		if (navigationTarget.current !== null) {
 			if (Math.abs(el.scrollTop - navigationTarget.current) > 1) return;
 			navigationTarget.current = null;
+			scrollMetrics.current = { top: el.scrollTop, height: el.scrollHeight };
+			navigationArrived = true;
 		}
-		// 离开底部（任何手段：滚动条拖动、键盘、触摸）即停跟随；回到贴底（<4px）才恢复。
-		const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-		stick.current = nearBottom && (!readingProcess.current || explicitScroll.current);
+		const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+		const heightDelta = el.scrollHeight - scrollMetrics.current.height;
+		const topDelta = el.scrollTop - scrollMetrics.current.top;
+		// 只有视口真的往上走（滚动条、滚轮、键盘）才停跟随。内容变高时 scrollHeight 增大，
+		// 不能当成用户离开，否则跟随中的每一段输出都会把「有新进展」点亮再熄灭。
+		const movedUp = topDelta < -1 && heightDelta > -1;
+		if (navigationArrived && gap < 24 && !(readingProcess.current && !explicitScroll.current)) {
+			stick.current = true;
+			readingProcess.current = false;
+			workReadAnchor.current = undefined;
+			pinToBottom(el);
+		} else if (movedUp) stick.current = false;
+		else if (readingProcess.current && !explicitScroll.current) stick.current = false;
+		else if (stick.current) pinToBottom(el);
+		else if (gap < 4 || (explicitScroll.current && gap < 24)) {
+			stick.current = true;
+			readingProcess.current = false;
+			workReadAnchor.current = undefined;
+			pinToBottom(el);
+		}
 		if (stick.current) { readingProcess.current = false; workReadAnchor.current = undefined; }
 		explicitScroll.current = false;
-		setShowLatest(!stick.current);
+		publishLatest(el);
+		scrollMetrics.current = { top: el.scrollTop, height: el.scrollHeight };
 		rememberWorkReading();
 		updateActiveQuestion();
 	};
@@ -1800,10 +1848,8 @@ export function ChatStream({
 			if (el.dataset.owlScrollRestoring === "true" || (searchRequest && handledSearch.current !== searchRequest)) return;
 			restoreWorkReading();
 			// 提问卡展开或收起会改变聊天视口：贴底时跟随，翻历史或导航时保留位置。
-			const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
-			if (stick.current && navigationTarget.current === null && Math.abs(el.scrollTop - bottom) > 1) {
-				el.scrollTop = bottom;
-			}
+			// 跟随中的增高在这里一次性钉到底，不把「暂时离开 24px」交给按钮状态。
+			if (stick.current && navigationTarget.current === null && !readingProcess.current) pinToBottom(el);
 			onScrollWithTracking();
 		});
 		observer.observe(el);

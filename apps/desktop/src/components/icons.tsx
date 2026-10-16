@@ -35,11 +35,21 @@ export function IconHome({ className }: { className?: string }): React.JSX.Eleme
 	);
 }
 
-/** rail：项目 */
+/** rail：项目。闭合文件夹表示列表收起。 */
 export function IconFolder({ className }: { className?: string }): React.JSX.Element {
 	return (
 		<Svg className={className}>
 			<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+		</Svg>
+	);
+}
+
+/** 项目列表已展开：开口文件夹，和闭合图标成对使用。 */
+export function IconFolderOpen({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M3 8.2V6.5A1.5 1.5 0 0 1 4.5 5H8l2 2h8.2A1.8 1.8 0 0 1 20 8.8v.4" />
+			<path d="M3.2 10.2h15.7a1.6 1.6 0 0 1 1.55 2l-1.35 5.2a1.8 1.8 0 0 1-1.74 1.4H6.1a1.8 1.8 0 0 1-1.75-1.4L2.7 12a1.7 1.7 0 0 1 1.65-2.1" />
 		</Svg>
 	);
 }
