@@ -5,6 +5,7 @@ import { isTabKindEnabled, useSidebarConfig } from "../sidebar/config.ts";
 import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
 import { isReservedDir, projectLabel } from "../utils/paths.ts";
 import { IconChevron, IconCode, IconFolder } from "./icons.tsx";
+import { OwlMascot } from "./OwlMascot.tsx";
 import { useStartPageText } from "./start-page-copy.ts";
 import { UsageOverview } from "./UsageOverview.tsx";
 import "./start-page.css";
@@ -78,7 +79,7 @@ export function StartPage({ client, cwd, profile, recentSessions = [], onResume,
 
 	return <section className="owl-start-page" aria-labelledby={headingId}>
 		<header className="owl-start-header">
-			<img src="/owl.svg" alt="" className="owl-start-mark" draggable={false} />
+			<OwlMascot pose="idle" inline />
 			<div>
 				<h1 id={headingId} className="owl-start-heading">{t("start.heading")}</h1>
 				<p className="owl-start-description">{t("start.description")}</p>

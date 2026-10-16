@@ -81,3 +81,66 @@ html[data-owl-preset="claude"][data-owl-theme="light"] .owl-desktop-shell {
 	--owl-ui-hover: #f0f0ee;
 	--owl-ui-menu-hover: #e7e5e0;
 }
+
+/* ==========================================================================
+   质感增强层（第二期）：CDS 的圆角矩阵、输入框三态双环投影、
+   浮层双环阴影（深色档换内高光倒角）与拖拽吸附陶土辉光。
+   全部作用域在 claude 预设选择器下，只覆盖观感，不改组件布局；
+   原有 border 保留占位（颜色透明化），由 inset 环替代描线，零抖动。
+   ========================================================================== */
+
+/* 用户消息气泡：CDS 气泡圆角 18px（owl 基线 16px）。 */
+html[data-owl-preset="claude"] .owl-user-bubble {
+	border-radius: 18px;
+}
+
+/* 聊天输入卡：20px 圆角 + 常态/悬停/聚焦三态双环投影，边线改走 inset 环。 */
+html[data-owl-preset="claude"] .owl-composer-input {
+	border-radius: 20px;
+	border-color: transparent;
+	transition: box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms ease, color 150ms ease, border-color 220ms ease;
+}
+
+html[data-owl-preset="claude"] .owl-composer-input:focus-within {
+	border-color: transparent;
+}
+
+html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-composer-input {
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 0 1px hsla(0, 0%, 100%, 0.09);
+}
+html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-composer-input:hover {
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55), inset 0 0 0 1px hsla(0, 0%, 100%, 0.18);
+}
+html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-composer-input:focus-within {
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+/* 拖文件悬停吸附：陶土内辉光 + 2px 吸附圈（CDS drop glow）。 */
+html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-composer-input.border-owl-accent {
+	box-shadow: inset 0 0 24px -2px rgba(217, 119, 87, 0.3), inset 0 0 0 2px #d97757;
+}
+
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-composer-input {
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px hsla(0, 0%, 8%, 0.1);
+}
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-composer-input:hover {
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 0 0 1px hsla(0, 0%, 8%, 0.2);
+}
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-composer-input:focus-within {
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), inset 0 0 0 1px hsla(0, 0%, 8%, 0.2), 0 0 0 1px hsla(0, 0%, 8%, 0.2);
+}
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-composer-input.border-owl-accent {
+	box-shadow: inset 0 0 24px -2px rgba(217, 119, 87, 0.2), inset 0 0 0 2px #d97757;
+}
+
+/*
+ * 浮层菜单双环（下拉/补全/飞出菜单）：浅色保留细边框 + 换 CDS 双层弥散投影；
+ * 深色档做物理倒角逆转——外边框退场，改 1px 内高光勾轮廓 + 深漫反射。
+ */
+html[data-owl-preset="claude"][data-owl-theme="light"] .owl-menu-panel {
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+html[data-owl-preset="claude"][data-owl-theme="dark"] .owl-menu-panel {
+	border-color: transparent;
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 28px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.45);
+}

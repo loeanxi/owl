@@ -28,7 +28,7 @@ packages/ai/src/providers/.model-generation-*/
 .npm/
 coverage/
 .owl/research/
-.validation/research-decompilation/native-fixture/
+.validation/
 .nyc_output/
 .pi_config/
 tui-debug.log
@@ -55,6 +55,8 @@ apps/desktop/src-tauri/gen/schemas/
 .tmp-*
 *.prototype.html
 apps/desktop/prototype/
+apps/desktop/prototype-*.html
+owlowl-re-v1dataowl/
 
 # Unpacked third-party drops kept beside the package for reference
 packages/ai/.vendor-*/

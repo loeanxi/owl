@@ -52,7 +52,7 @@ export function Menu({
 			</button>
 			{open && (
 				<div
-					className={`absolute z-20 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50 ${direction === "down" ? "top-full mt-2" : "bottom-full mb-2"} ${panelClassName ?? "left-0"}`}
+					className={`owl-menu-panel absolute z-20 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50 ${direction === "down" ? "top-full mt-2" : "bottom-full mb-2"} ${panelClassName ?? "left-0"}`}
 				>
 					{typeof children === "function" ? children(() => setOpen(false)) : children}
 				</div>

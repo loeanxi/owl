@@ -356,7 +356,7 @@ function ModelPickerBody({
 			{/* 挂到 body：吉祥物槽位带 transform，会把 fixed 定位改成相对槽位 */}
 			{flyout && createPortal(
 				<div
-					className="fixed z-50 w-32 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
+					className="owl-menu-panel fixed z-50 w-32 rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
 					style={{ left: flyout.x, top: flyout.y }}
 					onMouseEnter={keepFlyout}
 					onMouseLeave={scheduleFlyoutClose}
@@ -1609,7 +1609,7 @@ export function Composer({
 					{slashExec !== null && (
 						<div
 							ref={slashMenuRef}
-							className="absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
+							className="owl-menu-panel absolute bottom-full left-2 right-2 z-20 mb-2 max-h-64 overflow-y-auto rounded-xl border border-owl-border bg-owl-panel py-1 shadow-xl shadow-black/50"
 						>
 							{slashOpen ? (
 								slashItems.map((entry, index) => (
