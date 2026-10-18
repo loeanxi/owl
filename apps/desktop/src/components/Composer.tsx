@@ -1806,6 +1806,9 @@ export function Composer({
 								}}
 							/>
 							{suggestion && (
+								<span className="owl-composer-prediction-ghost" aria-hidden="true">{suggestion}</span>
+							)}
+							{suggestion && (
 								<button
 									type="button"
 									className="owl-composer-prediction-accept"

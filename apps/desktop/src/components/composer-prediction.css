@@ -6,8 +6,24 @@
 	padding-inline-end: 82px;
 }
 
-.owl-composer-editor[data-prediction]:empty::before {
+/* 聚焦后 contenteditable 会塞进 <br>，:empty::before 画不出字。推荐词单独铺一层。 */
+.owl-composer-editor[data-prediction]::before {
+	content: none;
+}
+
+.owl-composer-prediction-ghost {
+	position: absolute;
+	z-index: 1;
+	inset-block-start: 4px;
+	inset-inline: 2px 86px;
+	overflow: hidden;
 	color: var(--owl-ui-muted, var(--color-owl-muted));
+	font-size: 15px;
+	line-height: 24px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	pointer-events: none;
+	user-select: none;
 }
 
 .owl-composer-prediction-accept {

@@ -80,6 +80,7 @@ describe("Composer next prompt suggestion", () => {
 	it("renders a ghost suggestion without treating it as the draft, and Tab accepts without sending", async () => {
 		await render();
 		expect(editor().getAttribute("data-placeholder")).toBe(nextPrompt);
+		expect(container.querySelector(".owl-composer-prediction-ghost")?.textContent).toBe(nextPrompt);
 		expect(editor().textContent).toBe("");
 		expect(container.querySelector<HTMLButtonElement>('[aria-label="' + t("composer.send") + '"]')?.disabled).toBe(true);
 		expect((await key("Tab")).defaultPrevented).toBe(true);
