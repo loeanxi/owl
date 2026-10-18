@@ -47,6 +47,9 @@ export class BridgeProtocol {
           const checkinToken=credentials.checkinToken??token;
           if(checkinToken!==undefined&&(typeof checkinToken!=='string'||!checkinToken.trim()))throw new BridgeError('INVALID_CREDENTIAL','签到凭证必须是非空字符串');
           this.qoderCheckinToken=checkinToken?.trim();
+          // 模型对话仍走 qodercli 登录。目录同步在隔离目录没有登录文件时，
+          // 只用这枚个人令牌拉一次目录，不写入进程环境，避免改掉登录状态。
+          this.runtime.qoderCatalogToken=this.qoderCheckinToken;
         }
         if(this.providerPromise)await(await this.providerPromise).close();this.providerPromise=undefined;
         send({event:'result',data:{initialized:true,protocolVersion:1,workspace:'isolated'}});

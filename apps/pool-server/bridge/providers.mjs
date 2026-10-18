@@ -4,10 +4,37 @@ import { mkdir, rm } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { AsyncQueue, BridgeError } from './runtime.mjs';
+import { spawn } from 'node:child_process';
+import { AsyncQueue, BridgeError, packageRoot } from './runtime.mjs';
 import { imageBlocks, nativeToolResult } from './content.mjs';
 import { memberMcpServer } from './mcp-tools.mjs';
 import { runLogin, runCopilotDeviceFlow } from './login.mjs';
+
+const LOOPBACK_PROXY_KEYS=['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy'];
+function isLoopbackProxy(value){
+  if(typeof value!=='string'||!value.trim())return false;
+  try{const host=new URL(value).hostname;return host==='127.0.0.1'||host==='localhost'||host==='::1';}
+  catch{return false;}
+}
+function hasLoopbackProxy(env){return LOOPBACK_PROXY_KEYS.some(key=>isLoopbackProxy(env?.[key]));}
+function withoutLoopbackProxy(env){
+  const next={...env};
+  for(const key of LOOPBACK_PROXY_KEYS)if(isLoopbackProxy(next[key]))delete next[key];
+  return next;
+}
+async function ensureQoderWorker(){
+  const root=packageRoot('@qodercn-ai/qodercn-agent-sdk');
+  const entry=path.join(root,'dist','_worker','qoder-worker-runtime.obf.mjs');
+  const plain=path.join(root,'dist','_worker','qoder-worker-runtime.mjs');
+  if(existsSync(entry)||existsSync(plain))return;
+  const script=path.join(root,'scripts','postinstall.cjs');
+  await new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,[script],{stdio:'ignore'});
+    child.once('error',reject);
+    child.once('exit',code=>code===0?resolve():reject(new BridgeError('QODER_CLI_UNAVAILABLE','Qoder CN 运行组件未安装')));
+  });
+  if(!existsSync(entry)&&!existsSync(plain))throw new BridgeError('QODER_CLI_UNAVAILABLE','Qoder CN 运行组件未安装');
+}
 
 const imports={CURSOR:()=>import('@cursor/sdk'),COPILOT:()=>import('@github/copilot-sdk'),QODER:()=>import('@qodercn-ai/qodercn-agent-sdk')};
 function modelRow(id,name,extra={}) {return {id,name:name??id,supportsImages:null,supportsTools:null,reasoningEfforts:null,defaultReasoningEffort:null,contextWindow:null,maxOutputTokens:null,...extra};}
@@ -288,31 +315,50 @@ export class CopilotProvider {
 export class QueryProvider {
   constructor(platform,runtime,sdk){this.platform=platform;this.rt=runtime;this.sdk=sdk;}
   options(ctx,extra={}) {
+    const {auth:authOverride,...rest}=extra;
     const common=/** @satisfies {Partial<import('@qodercn-ai/qodercn-agent-sdk').Options>} */ ({cwd:this.rt.cwd,env:{...this.rt.env},settingSources:[],settings:{},tools:[],allowedTools:[],mcpServers:{},strictMcpConfig:true,plugins:[],skills:[],agents:{},
       includePartialMessages:true,persistSession:false,enableFileCheckpointing:false,permissionMode:'default',abortController:ctx.abortController,stderr:()=>{},
-      canUseTool:async()=>({behavior:'deny',message:'Server-side tools are disabled'}),...extra});
-    return /** @satisfies {import('@qodercn-ai/qodercn-agent-sdk').Options} */ ({...common,auth:this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN?this.sdk.accessToken(this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN):this.sdk.qodercliAuth(),
+      canUseTool:async()=>({behavior:'deny',message:'Server-side tools are disabled'}),...rest});
+    const auth=authOverride??(this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN?this.sdk.accessToken(this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN):this.sdk.qodercliAuth());
+    return /** @satisfies {import('@qodercn-ai/qodercn-agent-sdk').Options} */ ({...common,auth,
       // The CN Agent SDK starts its own pinned Worker runtime. It never resolves a
       // qoder/qoderclicn executable from PATH or a developer's global install.
       extensions:[],memory:{},evolution:{skill:{mode:'custom',generation:{enabled:false}}},promptSuggestions:false});
   }
-  async control(fn){
+  /** 隔离目录没有 qodercli 登录文件时，目录同步改用账号自己的个人令牌。对话请求不走这里。 */
+  catalogAuth(){
+    if(this.platform!=='QODER'||this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN)return {};
+    const token=typeof this.rt.qoderCatalogToken==='string'?this.rt.qoderCatalogToken.trim():'';
+    if(!token||existsSync(path.join(this.rt.authHome,'.qoder-cn','.auth','user')))return {};
+    return {auth:this.sdk.accessToken(token),env:{...this.rt.env,QODERCN_PERSONAL_ACCESS_TOKEN:token}};
+  }
+  async control(fn,extra){
     const queue=new AsyncQueue();const abortController=new AbortController();
-    const q=this.sdk.query({prompt:queue,options:this.options({abortController})});
+    const q=this.sdk.query({prompt:queue,options:this.options({abortController},extra)});
     const timer=setTimeout(()=>abortController.abort(),30000);
     try {return await fn(q);} finally {clearTimeout(timer);queue.close();await q.close();}
   }
   async status(){try{return await this.control(async q=>{const a=await q.accountInfo();const authenticated=Boolean(a.email||a.userId||a.subscriptionType||a.tokenSource&&a.tokenSource!=='none');return {authenticated,label:a.email??a.name??a.userId??'',message:authenticated?`${this.platform} account available`:`${this.platform} sign-in required`};});}
   catch(error){if(this.platform==='QODER'&&/transport closed/i.test(String(error?.message??'')))return {authenticated:false,label:'',message:'Qoder CN sign-in required'};throw error;}}
   async login(ctx){await runLogin(this.platform,this.rt,ctx);await this.rt.refreshAuth();delete this.rt.env.QODERCN_PERSONAL_ACCESS_TOKEN;delete process.env.QODERCN_PERSONAL_ACCESS_TOKEN;return {...await this.status(),credentialSource:'ACCOUNT_HOME'};}
-  async catalog(){return this.control(async q=>{
+  async loadCatalog(extra){return this.control(async q=>{
     const models=this.platform==='QODER'?await q.getAvailableModels({fetchStrategy:'live'}):await q.supportedModels();
     if(this.platform==='QODER'){
       const seen=new Set();
       return models.filter(model=>qoderBuiltIn(model)&&!seen.has(model.value)&&seen.add(model.value)).map(qoderModelRow);
     }
     return models.filter(m=>m.isEnabled!==false).map(m=>modelRow(m.resolvedModel??m.modelId??m.value,m.displayName,{supportsImages:this.platform==='QODER'?(m.isVl??null):null,reasoningEfforts:m.efforts??m.supportedEffortLevels??(m.supportsEffort===false||m.isReasoning===false?[]:null),defaultReasoningEffort:m.defaultEffort??null,contextWindow:m.defaultContextWindow??null,maxOutputTokens:m.maxOutputTokens??null}));
-  });}
+  },extra);}
+  async catalog(){
+    if(this.platform==='QODER')await ensureQoderWorker();
+    const extra=this.catalogAuth();
+    try{return await this.loadCatalog(extra);}
+    catch(error){
+      const env=extra.env??this.rt.env;
+      if(!hasLoopbackProxy(env))throw error;
+      return await this.loadCatalog({...extra,env:withoutLoopbackProxy(env)});
+    }
+  }
   async quota(){if(this.platform!=='QODER')return {source:'UNAVAILABLE'};
     return this.control(async q=>{const usage=await q.getUsageInfo();if(!usage)throw new BridgeError('QUOTA_UNAVAILABLE','Qoder account quota is unavailable');return usage;});}
   async chat(p,ctx){
