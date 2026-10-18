@@ -66,4 +66,55 @@ describe("discovered models", () => {
 		expect(verified.verificationStatus).toBe("VERIFIED");
 		expect(verified.modelVersion).toBe("20250929");
 	});
+
+	it("raises a published narrow window to a later full upstream and enables that route", () => {
+		replacePlatformSnapshot(db, "TRAE", [
+			{
+				upstreamModel: "step-5-preview",
+				name: "Step-5-Preview",
+				catalogSource: "trae_live",
+				contextWindow: 200_000,
+				maxOutputTokens: 32_000,
+				supportsImages: true,
+				supportsTools: true,
+				reasoningEfforts: ["high"],
+			},
+		]);
+		const drafts = backfillDiscoveredDrafts(db, catalog, [account("TRAE")]);
+		const published = batchPublish(catalog, [drafts[0]!.id]);
+		expect(published[0]?.contextWindow).toBe(200_000);
+
+		replacePlatformSnapshot(db, "WORKBUDDY", [
+			{
+				upstreamModel: "step-5-preview",
+				name: "Step-5-Preview",
+				catalogSource: "workbuddy_ui",
+				contextWindow: 1_000_000,
+				maxOutputTokens: 64_000,
+				supportsImages: true,
+				supportsTools: true,
+			},
+		]);
+		expect(backfillDiscoveredDrafts(db, catalog, [account("TRAE"), account("WORKBUDDY")])).toEqual([]);
+		const model = catalog.findPublishedByPublicId("step-5-preview");
+		expect(model?.contextWindow).toBe(1_000_000);
+		expect(model?.maxOutputTokens).toBe(64_000);
+		const workbuddy = catalog.routesOf(model!.id).find((route) => route.platform === "WORKBUDDY");
+		expect(workbuddy?.priority).toBe(0);
+		expect(workbuddy?.enabled).toBe(true);
+		expect(catalog.routesOf(model!.id).find((route) => route.platform === "TRAE")?.priority).toBe(0);
+		expect(workbuddy?.reasoningEfforts).toEqual(["high"]);
+	});
 });
+
+function account(platform: "TRAE" | "WORKBUDDY") {
+	return {
+		id: platform,
+		name: platform,
+		platform,
+		credentials: {},
+		enabled: true,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+}

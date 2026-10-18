@@ -926,6 +926,9 @@ function ensureDraft(
 		catalog.findPublishedByPublicId(upstream) ?? catalog.listModels().find((model) => model.publicId === upstream);
 	const images = Number(row.supports_images) === 1;
 	const tools = Number(row.supports_tools) === 1;
+	const discoveredWindow = numberOrNull(row.context_window);
+	const discoveredOutput = numberOrNull(row.max_output_tokens);
+	const discoveredEfforts = jsonList(row.reasoning_efforts);
 	if (existing === undefined) {
 		const model: PublishedModel = {
 			id: randomUUID(),
@@ -933,13 +936,13 @@ function ensureDraft(
 			name,
 			description: null,
 			modelVersion: textOrNull(row.model_version),
-			contextWindow: numberOrNull(row.context_window),
-			defaultContextWindow: numberOrNull(row.context_window),
+			contextWindow: discoveredWindow,
+			defaultContextWindow: discoveredWindow,
 			defaultReasoningEffort: textOrNull(row.default_reasoning_effort),
-			maxOutputTokens: numberOrNull(row.max_output_tokens),
+			maxOutputTokens: discoveredOutput,
 			supportsImages: images,
 			supportsTools: tools,
-			reasoningEfforts: jsonList(row.reasoning_efforts),
+			reasoningEfforts: discoveredEfforts,
 			published: false,
 			sortOrder: 0,
 			updatedAt: Date.now(),
@@ -958,18 +961,41 @@ function ensureDraft(
 		});
 		return model;
 	}
-	const routes = catalog.routesOf(existing.id);
-	if (!routes.some((route) => route.platform === platform && route.upstreamModel === upstream)) {
+	// 已上架窗口只升不降：后拉到的满血上游（例如 WorkBuddy 1M）盖过先入草稿的窄窗口（Trae 200k）。
+	const raisedWindow =
+		discoveredWindow !== null && (existing.contextWindow === null || discoveredWindow > existing.contextWindow);
+	const raisedOutput =
+		discoveredOutput !== null && (existing.maxOutputTokens === null || discoveredOutput > existing.maxOutputTokens);
+	let current = existing;
+	if (raisedWindow || raisedOutput) {
+		current = {
+			...existing,
+			...(raisedWindow ? { contextWindow: discoveredWindow } : {}),
+			...(raisedOutput ? { maxOutputTokens: discoveredOutput } : {}),
+			updatedAt: Date.now(),
+		};
+		catalog.saveModel(current);
+	}
+	const efforts = discoveredEfforts.length > 0 ? discoveredEfforts : current.reasoningEfforts;
+	const routes = catalog.routesOf(current.id);
+	const route = routes.find((item) => item.platform === platform && item.upstreamModel === upstream);
+	if (route === undefined) {
 		catalog.saveRoute({
 			id: randomUUID(),
-			modelId: existing.id,
+			modelId: current.id,
 			platform,
 			upstreamModel: upstream,
-			priority: routes.length,
-			enabled: !existing.published,
+			priority: raisedWindow ? 0 : routes.length,
+			enabled: !current.published || raisedWindow,
 			supportsImages: images,
 			supportsTools: tools,
-			reasoningEfforts: jsonList(row.reasoning_efforts),
+			reasoningEfforts: efforts,
+		});
+	} else if (raisedWindow && !route.enabled) {
+		catalog.saveRoute({
+			...route,
+			enabled: true,
+			reasoningEfforts: efforts.length > 0 ? efforts : route.reasoningEfforts,
 		});
 	}
 	return null;
