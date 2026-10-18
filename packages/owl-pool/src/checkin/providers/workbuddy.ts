@@ -36,6 +36,8 @@ export interface WorkBuddyProviderOptions {
 	 */
 	authFileRoots?: string[];
 	fetchImpl?: typeof fetch;
+	/** accessToken 被上游拒绝时换一张新票。返回新的 accessToken，由调用方负责落盘。 */
+	renewAccessToken?(account: Account): Promise<string>;
 }
 
 /** 查询今日签到状态（只读）。 */
@@ -162,9 +164,11 @@ function ensureAllowedLocation(path: string, authFileRoots: string[]): void {
 
 export class WorkBuddyCheckInProvider implements CheckInProvider {
 	readonly #options: ResolvedOptions;
+	readonly #renew: ((account: Account) => Promise<string>) | undefined;
 
 	constructor(options: WorkBuddyProviderOptions = {}) {
 		this.#options = resolveOptions(options);
+		this.#renew = options.renewAccessToken;
 	}
 
 	supports(): Platform {
@@ -175,6 +179,10 @@ export class WorkBuddyCheckInProvider implements CheckInProvider {
 		const credentials = parseCredentials(account);
 		const direct = asString(credentials.accessToken);
 		if (direct && direct.trim().length > 0 && !direct.startsWith("$")) {
+			return true;
+		}
+		const refresh = asString(credentials.refreshToken);
+		if (refresh && refresh.trim().length > 0 && !refresh.startsWith("$")) {
 			return true;
 		}
 		const file = asString(credentials.authFile);
@@ -193,10 +201,37 @@ export class WorkBuddyCheckInProvider implements CheckInProvider {
 
 	async checkIn(account: Account): Promise<CheckInResult> {
 		const credentials = parseCredentials(account);
-		const accessToken = this.resolveAccessToken(credentials);
+		let accessToken = this.resolveAccessToken(credentials);
+		if (!accessToken && this.#renew !== undefined) {
+			accessToken = await this.renew(account);
+		}
 		if (!accessToken) {
 			return checkInAuthError("无法解析 accessToken（文件缺失、加密信封不支持或字段为空）");
 		}
+		const first = await this.checkInWithToken(accessToken);
+		if (this.#renew === undefined || !needsRenew(first)) {
+			return first;
+		}
+		const next = await this.renew(account);
+		if (next === null || next === accessToken) {
+			return first;
+		}
+		return this.checkInWithToken(next);
+	}
+
+	private async renew(account: Account): Promise<string | null> {
+		if (this.#renew === undefined) {
+			return null;
+		}
+		try {
+			const next = (await this.#renew(account)).trim();
+			return next.length > 0 ? next : null;
+		} catch {
+			return null;
+		}
+	}
+
+	private async checkInWithToken(accessToken: string): Promise<CheckInResult> {
 		try {
 			const status = await checkinStatus(this.#options, accessToken);
 			if (isAuthError(status)) {
@@ -242,6 +277,14 @@ export class WorkBuddyCheckInProvider implements CheckInProvider {
 		}
 		return null;
 	}
+}
+
+function needsRenew(result: CheckInResult): boolean {
+	if (result.status === "AUTH_ERROR") {
+		return true;
+	}
+	const message = `${result.message ?? ""} ${result.detail ?? ""}`;
+	return result.status === "FAILED" && (message.includes("401") || message.includes("403"));
 }
 
 /** 401，或 403 且整体文本带鉴权关键字（移植 Java 的 401 || 403&&hasText 优先级）。 */

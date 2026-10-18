@@ -39,6 +39,8 @@ export interface WorkBuddyClientOptions {
 	authFileRoots?: string[];
 	/** 账号模型快照。返回 false 表示该账号目录里没有这个模型。 */
 	supportsModel?(account: Account, model: string): boolean;
+	/** accessToken 被拒时换新票。返回新的 accessToken。 */
+	renewAccessToken?(account: Account): Promise<string>;
 }
 
 export class WorkBuddyChatClient implements UpstreamChatClient {
@@ -46,12 +48,14 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 	readonly #fetchImpl: typeof fetch;
 	readonly #authFileRoots: string[];
 	readonly #supportsModel: ((account: Account, model: string) => boolean) | undefined;
+	readonly #renew: ((account: Account) => Promise<string>) | undefined;
 
 	constructor(options: WorkBuddyClientOptions) {
 		this.#config = options.config;
 		this.#fetchImpl = options.fetchImpl ?? fetch;
 		this.#authFileRoots = options.authFileRoots ?? [];
 		this.#supportsModel = options.supportsModel;
+		this.#renew = options.renewAccessToken;
 	}
 
 	platform(): Platform {
@@ -79,13 +83,18 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 			throw new UpstreamException("BAD_REQUEST", "WorkBuddy 账号不支持该模型或目录尚未同步");
 		}
 		let accessToken: string;
+		let renewed = false;
 		try {
 			accessToken = workBuddyToken(account, this.#authFileRoots);
 		} catch (error) {
-			throw new UpstreamException(
-				"AUTH",
-				error instanceof Error ? error.message : "WorkBuddy accessToken 缺失或为加密信封",
-			);
+			if (this.#renew === undefined) {
+				throw new UpstreamException(
+					"AUTH",
+					error instanceof Error ? error.message : "WorkBuddy accessToken 缺失或为加密信封",
+				);
+			}
+			accessToken = await this.#renew(account);
+			renewed = true;
 		}
 		const body = normalizeWorkBuddyPayload(payload);
 		// 上游只认 stream:true
@@ -114,6 +123,17 @@ export class WorkBuddyChatClient implements UpstreamChatClient {
 					attempt < 3
 				) {
 					await delay(Math.round(500 * 2 ** (attempt - 1)), signal);
+					continue;
+				}
+				if (
+					error instanceof UpstreamException &&
+					error.kind === "AUTH" &&
+					!emitted &&
+					!renewed &&
+					this.#renew !== undefined
+				) {
+					accessToken = await this.#renew(account);
+					renewed = true;
 					continue;
 				}
 				if (error instanceof UpstreamException || error instanceof GatewayFault) {

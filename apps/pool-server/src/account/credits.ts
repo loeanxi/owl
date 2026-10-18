@@ -52,6 +52,8 @@ export interface CreditHooks {
 	sdkQuota?(account: Account): Promise<Record<string, unknown>>;
 	claudeUsage?(account: Account): Promise<Record<string, unknown> | null>;
 	probe?(account: Account): Promise<{ ok: boolean; message: string }>;
+	/** accessToken 被拒时用 refreshToken 换新票。 */
+	refreshWorkBuddy?(account: Account): Promise<string>;
 }
 
 const inflight = new Map<string, Promise<Account>>();
@@ -224,28 +226,47 @@ async function queryWorkBuddy(account: Account, hooks: CreditHooks): Promise<Cre
 	try {
 		token = workBuddyToken(account, hooks.workbuddyAuthRoots);
 	} catch (error) {
-		return fail(error instanceof Error ? error.message : "无法解析 accessToken");
-	}
-	const fetchImpl = hooks.fetchImpl ?? fetch;
-	const base = hooks.workbuddyBaseUrl.replace(/\/+$/, "");
-	try {
-		const summary = extractResourceSummary(
-			await postWorkBuddy(fetchImpl, base, "/billing/meter/get-user-resource-summary", token),
-		);
-		// summary 没有到期时间；按包明细只给选号排序用，取不到时余额仍以 summary 为准
-		let resource: unknown = null;
+		if (hooks.refreshWorkBuddy === undefined) {
+			return fail(error instanceof Error ? error.message : "无法解析 accessToken");
+		}
 		try {
-			resource = await postWorkBuddy(fetchImpl, base, "/v2/billing/meter/get-user-resource", token);
-		} catch (error) {
-			if (!summary.ok) {
-				throw error;
+			token = await hooks.refreshWorkBuddy(account);
+		} catch (refreshError) {
+			return fail(refreshError instanceof Error ? refreshError.message : "无法解析 accessToken");
+		}
+	}
+	try {
+		return await queryWorkBuddyWithToken(hooks, token);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "unknown";
+		if (hooks.refreshWorkBuddy !== undefined && /HTTP 401|HTTP 403/.test(message)) {
+			try {
+				return await queryWorkBuddyWithToken(hooks, await hooks.refreshWorkBuddy(account));
+			} catch (refreshError) {
+				return fail(`WorkBuddy 积分查询失败: ${refreshError instanceof Error ? refreshError.message : message}`);
 			}
 		}
-		const snapshot = summary.ok ? summary : extractUserResource(resource);
-		return snapshot.ok ? { ...snapshot, expiry: extractCreditExpiry(resource) } : snapshot;
-	} catch (error) {
-		return fail(`WorkBuddy 积分查询失败: ${error instanceof Error ? error.message : "unknown"}`);
+		return fail(`WorkBuddy 积分查询失败: ${message}`);
 	}
+}
+
+async function queryWorkBuddyWithToken(hooks: CreditHooks, token: string): Promise<CreditSnapshot> {
+	const fetchImpl = hooks.fetchImpl ?? fetch;
+	const base = hooks.workbuddyBaseUrl.replace(/\/+$/, "");
+	const summary = extractResourceSummary(
+		await postWorkBuddy(fetchImpl, base, "/billing/meter/get-user-resource-summary", token),
+	);
+	// summary 没有到期时间；按包明细只给选号排序用，取不到时余额仍以 summary 为准
+	let resource: unknown = null;
+	try {
+		resource = await postWorkBuddy(fetchImpl, base, "/v2/billing/meter/get-user-resource", token);
+	} catch (error) {
+		if (!summary.ok) {
+			throw error;
+		}
+	}
+	const snapshot = summary.ok ? summary : extractUserResource(resource);
+	return snapshot.ok ? { ...snapshot, expiry: extractCreditExpiry(resource) } : snapshot;
 }
 
 async function queryQoder(account: Account, hooks: CreditHooks): Promise<CreditSnapshot> {

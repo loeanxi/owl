@@ -18,6 +18,8 @@ export interface PingHooks {
 	mimoPing?(account: Account): Promise<string>;
 	sdkStatus?(account: Account): Promise<Record<string, unknown>>;
 	claudePing?(account: Account): Promise<string>;
+	/** accessToken 被拒时用 refreshToken 换新票。 */
+	refreshWorkBuddy?(account: Account): Promise<string>;
 }
 
 export async function pingAccount(account: Account, hooks: PingHooks): Promise<Record<string, unknown>> {
@@ -62,22 +64,13 @@ async function messageFor(account: Account, hooks: PingHooks): Promise<string> {
 }
 
 async function pingWorkBuddy(account: Account, hooks: PingHooks): Promise<string> {
-	const token = workBuddyToken(account, hooks.workbuddyAuthRoots);
 	const fetchImpl = hooks.fetchImpl ?? fetch;
-	const response = await fetchImpl(
-		`${hooks.workbuddyBaseUrl.replace(/\/+$/, "")}/v2/billing/meter/get-user-resource`,
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${token}`,
-				Accept: "application/json",
-				"Content-Type": "application/json",
-				"User-Agent": "ManagerCheckIn/0.1",
-			},
-			body: "{}",
-			signal: AbortSignal.timeout(20_000),
-		},
-	);
+	let token = await workBuddyAccessToken(account, hooks);
+	let response = await postResource(fetchImpl, hooks.workbuddyBaseUrl, token);
+	if ((response.status === 401 || response.status === 403) && hooks.refreshWorkBuddy !== undefined) {
+		token = await hooks.refreshWorkBuddy(account);
+		response = await postResource(fetchImpl, hooks.workbuddyBaseUrl, token);
+	}
 	const node = (await response.json().catch(() => null)) as Record<string, unknown> | null;
 	const code = node !== null && typeof node.code === "number" ? node.code : -1;
 	if (code !== 0 && code !== 200) {
@@ -90,6 +83,31 @@ async function pingWorkBuddy(account: Account, hooks: PingHooks): Promise<string
 		throw new Error(msg);
 	}
 	return "get-user-resource OK";
+}
+
+async function workBuddyAccessToken(account: Account, hooks: PingHooks): Promise<string> {
+	try {
+		return workBuddyToken(account, hooks.workbuddyAuthRoots);
+	} catch (error) {
+		if (hooks.refreshWorkBuddy === undefined) {
+			throw error;
+		}
+		return hooks.refreshWorkBuddy(account);
+	}
+}
+
+function postResource(fetchImpl: typeof fetch, baseUrl: string, token: string): Promise<Response> {
+	return fetchImpl(`${baseUrl.replace(/\/+$/, "")}/v2/billing/meter/get-user-resource`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${token}`,
+			Accept: "application/json",
+			"Content-Type": "application/json",
+			"User-Agent": "ManagerCheckIn/0.1",
+		},
+		body: "{}",
+		signal: AbortSignal.timeout(20_000),
+	});
 }
 
 async function pingTrae(account: Account, hooks: PingHooks): Promise<string> {

@@ -25,6 +25,7 @@ import { AccountLoginService } from "./account/login.ts";
 import { pingAccount } from "./account/ping.ts";
 import { QoderCheckInProvider } from "./account/qoder-checkin.ts";
 import { TraeTokenService } from "./account/trae-auth.ts";
+import { WorkBuddyTokenService } from "./account/workbuddy-refresh.ts";
 import { probeAccount, traeAccountFunction, workBuddyAccountAllows } from "./catalog/discovery.ts";
 import { loadConfig } from "./config.ts";
 import { AnthropicCompatibleClient } from "./gateway/anthropic-compatible.ts";
@@ -153,6 +154,13 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		...config.gateway.upstreamDeadline,
 	});
 	upstreams.set(claude.platform(), claude);
+	const workbuddyTokens = new WorkBuddyTokenService({
+		accounts,
+		baseUrl: config.gateway.workbuddy.baseUrl,
+		userAgent: config.gateway.workbuddy.userAgent,
+		origin: config.gateway.workbuddy.origin,
+		referer: config.gateway.workbuddy.referer,
+	});
 	const workbuddy = new WorkBuddyChatClient({
 		config: {
 			baseUrl: config.gateway.workbuddy.baseUrl,
@@ -166,6 +174,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 		},
 		authFileRoots: config.workbuddyAuthFileRoots,
 		supportsModel: (account, model) => workBuddyAccountAllows(db, account.id, model),
+		renewAccessToken: (account) => workbuddyTokens.refresh(account),
 	});
 	upstreams.set(workbuddy.platform(), workbuddy);
 	const traeTokens = new TraeTokenService({ accounts });
@@ -214,6 +223,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			new WorkBuddyCheckInProvider({
 				baseUrl: config.workbuddyBaseUrl,
 				authFileRoots: config.workbuddyAuthFileRoots,
+				renewAccessToken: (account) => workbuddyTokens.refresh(account),
 			}),
 			new TraeCheckInProvider({
 				baseUrl: config.traeBaseUrl,
@@ -267,6 +277,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			const probed = await probeAccount(account);
 			return { ok: probed.ok === true, message: typeof probed.message === "string" ? probed.message : "" };
 		},
+		refreshWorkBuddy: (account: Parameters<typeof workbuddyTokens.refresh>[0]) => workbuddyTokens.refresh(account),
 	};
 	const pingHooks = {
 		workbuddyBaseUrl: config.gateway.workbuddy.baseUrl,
@@ -279,6 +290,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
 			const client = await bridgeManager.clientFor(account);
 			return client.request("auth_status", {}, 20_000);
 		},
+		refreshWorkBuddy: (account: Parameters<typeof workbuddyTokens.refresh>[0]) => workbuddyTokens.refresh(account),
 	};
 	const generation = new RouteGeneration({
 		accounts,

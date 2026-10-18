@@ -1,7 +1,8 @@
 /**
  * 账号聚合根 —— 移植自 manager `account/Account`（实体）。
  * credentials 是按平台解释的灵活 JSON：
- * - WORKBUDDY：{"accessToken":"..."} 或 {"authFile":"C:/path/workbuddy-desktop.info"}
+ * - WORKBUDDY：{"accessToken":"...","refreshToken":"..."} 或 {"authFile":"C:/path/workbuddy-desktop.info"}
+ *   refreshToken 用于 accessToken 被上游拒绝后续期（见 pool-server account/workbuddy-refresh.ts）
  * - TRAE：{"session":"<X-Cloudide-Session>","deviceId":"<16位数字，可选>"}
  *   或 Trae CN IDE 导出的 {"token","refreshToken","userId","host","expiredAt"}（token 优先，
  *   临期自动用 refreshToken 续期；见 pool-server account/trae-auth.ts）

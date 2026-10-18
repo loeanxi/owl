@@ -50,6 +50,7 @@ const state = {
 const CRED_FIELDS = {
   WORKBUDDY: [
     { name: "accessToken", labelKey: "admin.cred.accessToken.label", type: "password", placeholderKey: "admin.cred.accessToken.ph" },
+    { name: "refreshToken", labelKey: "admin.cred.workbuddyRefresh.label", type: "password", placeholderKey: "admin.cred.workbuddyRefresh.ph" },
     { name: "authFile", labelKey: "admin.cred.authFile.label", type: "text", placeholderKey: "admin.cred.authFile.ph" },
   ],
   TRAE: [
@@ -2786,7 +2787,10 @@ function renderCredFields(platform, values = {}) {
   $("#pool-account-hint").textContent = t(platform === "TRAE" ? "pool.traeAccountHint" : "pool.accountHint");
   $("#btn-save-authorize").hidden = !supportsLogin;
   const fields = CRED_FIELDS[platform] || [];
-  $("#cred-fields").innerHTML = fields.map((f) => {
+  const importJson = platform === "WORKBUDDY"
+    ? `<label>${escapeHtml(t("admin.cred.importJson"))}<textarea id="wb-json-input" rows="4" spellcheck="false" autocomplete="off" placeholder="${escapeHtml(t("admin.cred.importJson.ph"))}"></textarea></label><div class="row"><button type="button" id="btn-import-wb-json" class="btn">${escapeHtml(t("admin.cred.importJsonFile"))}</button><input id="file-import-wb-json" type="file" accept="application/json,.json" hidden /></div>`
+    : "";
+  $("#cred-fields").innerHTML = importJson + fields.map((f) => {
     const field = f.type === "select"
       ? `<select name="cred_${f.name}">${f.options.map((option) =>
           `<option value="${escapeHtml(option.value)}" ${values[f.name] === option.value ? "selected" : ""}>${escapeHtml(option.labelKey ? t(option.labelKey) : option.label)}</option>`
@@ -2799,6 +2803,7 @@ function renderCredFields(platform, values = {}) {
     return platform === "TRAE" && (f.name === "session" || f.name === "deviceId")
       ? `<details><summary>${escapeHtml(t("pool.traeManualAdvanced"))}</summary>${row}</details>` : row;
   }).join("");
+  bindWorkBuddyJsonImport();
 }
 
 function openAccountDialog(account = null) {
@@ -2843,6 +2848,82 @@ function autoFillTraeJson() {
   toast(t("pool.traePasteFilled"), "ok");
 }
 
+function credentialText(record, keys) {
+  if (record === null || typeof record !== "object") return "";
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return "";
+}
+
+/* WorkBuddy 凭据 JSON：顶层或 auth 下的 accessToken / refreshToken。
+   粘贴整段 JSON，或用「导入 JSON」选解密器写出的文件。 */
+function applyWorkBuddyCredentialJson(text, quiet = false) {
+  const container = document.getElementById("cred-fields");
+  const raw = String(text || "").trim();
+  if (!raw.startsWith("{")) {
+    if (!quiet) toast(t("pool.workbuddyPasteBad"), "err");
+    return false;
+  }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch {
+    if (!quiet) toast(t("pool.workbuddyPasteBad"), "err");
+    return false;
+  }
+  const nested = parsed !== null && typeof parsed.auth === "object" ? parsed.auth : null;
+  const accessToken = credentialText(parsed, ["accessToken", "access_token"]) || credentialText(nested, ["accessToken", "access_token"]);
+  const refreshToken = credentialText(parsed, ["refreshToken", "refresh_token"]) || credentialText(nested, ["refreshToken", "refresh_token"]);
+  if (!accessToken && !refreshToken) {
+    if (!quiet) toast(t("pool.workbuddyPasteEmpty"), "err");
+    return false;
+  }
+  const set = (name, value) => {
+    const el = container?.querySelector(`[name="cred_${name}"]`);
+    if (el && value) el.value = value;
+  };
+  set("accessToken", accessToken);
+  set("refreshToken", refreshToken);
+  toast(t("pool.workbuddyPasteFilled"), "ok");
+  return true;
+}
+
+function autoFillWorkBuddyJson() {
+  const container = document.getElementById("cred-fields");
+  const access = container?.querySelector('[name="cred_accessToken"]');
+  if (!access) return;
+  const candidates = [access, container.querySelector('[name="cred_refreshToken"]')];
+  const raw = candidates.map((el) => String(el?.value || "").trim()).find((value) => value.startsWith("{"));
+  if (!raw) return;
+  applyWorkBuddyCredentialJson(raw);
+}
+
+function bindWorkBuddyJsonImport() {
+  const box = document.getElementById("wb-json-input");
+  const button = document.getElementById("btn-import-wb-json");
+  const file = document.getElementById("file-import-wb-json");
+  if (box) {
+    const take = (quiet) => {
+      if (!applyWorkBuddyCredentialJson(box.value, quiet)) return;
+      box.value = "";
+    };
+    box.addEventListener("input", () => take(true));
+    box.addEventListener("blur", () => {
+      if (box.value.trim()) take(false);
+    });
+  }
+  if (!button || !file) return;
+  button.addEventListener("click", () => file.click());
+  file.addEventListener("change", () => {
+    const picked = file.files && file.files[0];
+    if (!picked) return;
+    const reader = new FileReader();
+    reader.onload = () => applyWorkBuddyCredentialJson(String(reader.result || ""));
+    reader.readAsText(picked);
+    file.value = "";
+  });
+}
+
 async function submitAccount(event) {
   event.preventDefault();
   if (event.submitter?.value === "cancel" || event.submitter?.dataset?.closeDlg !== undefined) {
@@ -2857,6 +2938,7 @@ async function submitAccount(event) {
     const current = state.accounts.find(a => a.id === state.editingId);
     const unchangedDirectory = f.name === "runtimeHome" && current?.platform === platform && value === current.credentialsMasked?.runtimeHome;
     if (value && !unchangedDirectory) credentials[f.name] = value;
+    else if (state.editingId && f.type === "password" && current?.credentialsMasked?.[f.name]) credentials[f.name] = "***";
   }
   if (!Object.keys(credentials).length && !state.editingId && !accountAuthSupported(platform)) {
     toast(t("admin.accounts.err.needCredential"), "err");
@@ -3200,8 +3282,14 @@ function bind() {
   $("#sel-platform").addEventListener("change", (e) => renderCredFields(e.target.value));
   $("#form-account").addEventListener("submit", submitAccount);
   /* Trae token 框支持整段凭据 JSON 粘贴：识别后自动分字段填充 */
-  document.getElementById("cred-fields")?.addEventListener("paste", () => setTimeout(autoFillTraeJson, 0));
-  document.getElementById("cred-fields")?.addEventListener("change", autoFillTraeJson);
+  document.getElementById("cred-fields")?.addEventListener("paste", () => setTimeout(() => {
+    autoFillTraeJson();
+    autoFillWorkBuddyJson();
+  }, 0));
+  document.getElementById("cred-fields")?.addEventListener("change", () => {
+    autoFillTraeJson();
+    autoFillWorkBuddyJson();
+  });
   $("#form-key").addEventListener("submit", submitKey);
 
   $("#account-category-filters").addEventListener("click", (e) => {

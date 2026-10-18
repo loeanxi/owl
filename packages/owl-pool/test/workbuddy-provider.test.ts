@@ -184,6 +184,28 @@ describe("WorkBuddyCheckInProvider", () => {
 		);
 		expect(encrypted.status).toBe("AUTH_ERROR");
 	});
+
+	it("上游 401 时用 refreshToken 换票后重试", async () => {
+		let calls = 0;
+		const fetchImpl = (async (input: string | URL) => {
+			calls += 1;
+			const url = String(input);
+			if (calls === 1) {
+				return new Response("<html><title>401 Authorization Required</title></html>", { status: 401 });
+			}
+			const body = url.includes("checkin-activity-status")
+				? JSON.stringify({ code: 10001, message: "今日已签到" })
+				: "{}";
+			return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
+		}) as typeof fetch;
+		const provider = new WorkBuddyCheckInProvider({
+			fetchImpl,
+			renewAccessToken: async () => "tok-renewed",
+		});
+		const result = await provider.checkIn(makeAccount({ accessToken: "tok-dead", refreshToken: "rt-1" }));
+		expect(result.status).toBe("ALREADY");
+		expect(calls).toBe(2);
+	});
 });
 
 describe("readAccessTokenFromFile（authFile 白名单）", () => {
