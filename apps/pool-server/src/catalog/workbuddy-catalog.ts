@@ -277,7 +277,7 @@ function contextWindow(model: Record<string, unknown>): number | null {
 		positiveLong(model.maxInputTokens),
 		positiveLong(model.maxAllowedSize),
 	].filter((value): value is number => value !== null);
-	return values.length === 0 ? null : Math.min(...values);
+	return values.length === 0 ? null : Math.max(...values);
 }
 
 function firstText(node: Record<string, unknown>, ...keys: string[]): string | null {

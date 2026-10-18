@@ -2,8 +2,8 @@
  * 网关换号执行 —— 移植自 manager `gateway/GatewayChatDispatcher.route` 的核心语义。
  * 逐 RouteTarget：sticky 优先 → 积分加权选号（单目标最多换 maxRotate 次）→
  * 转发规范化（剥 sticky/能力内部字段、模型改上游名、档位收敛写回）→ 调上游。
- * 失败：AUTH/BAD_REQUEST 不换号直接抛；平台级拒绝（upstream_channel_rejected）不冷却、
- * 跳到下一路由目标；其余冷却落库 + 换号；
+ * 失败：BAD_REQUEST 不换号直接抛；AUTH 冷却该号后换号，本平台没有号再跳下一路由；
+ * 平台级拒绝（upstream_channel_rejected）不冷却、跳到下一路由目标；其余冷却落库 + 换号；
  * gateway_busy 不耗换号预算（本地槽位未打上游）；已产出 chunk 后失败不重试。
  */
 
@@ -202,8 +202,10 @@ export class RouteGeneration {
 				forwarded.reasoning = { ...(forwarded.reasoning as Record<string, unknown>), effort };
 			}
 		}
-		// 固定窗口路由上 context_window 是准入语义，不是上游旋钮
-		delete forwarded.context_window;
+		// 多数平台只把 context_window 当准入条件。Qoder 要把它当作上游窗口档位转发。
+		if (target.platform !== "QODER") {
+			delete forwarded.context_window;
+		}
 		// 适配器执行不了调用方输出上限：准入已按已发现容量放过，转发前丢掉
 		if (dropsCallerOutputCap(target.platform)) {
 			delete forwarded.max_tokens;
@@ -224,7 +226,7 @@ function isPlatformRejection(failure: Error): boolean {
 	return failure instanceof GatewayFault && failure.code === "upstream_channel_rejected";
 }
 
-/** AUTH/BAD_REQUEST 属于请求性失败：换号无意义，直接抛给客户端。 */
+/** 请求本身有问题或上游超时：换号无意义，直接抛给客户端。登录失效只属于当前账号，不走这里。 */
 function isRequestFailure(failure: Error): boolean {
 	if (
 		failure instanceof GatewayFault &&
@@ -232,7 +234,7 @@ function isRequestFailure(failure: Error): boolean {
 	)
 		return true;
 	if (failure instanceof UpstreamException) {
-		return failure.kind === "AUTH" || failure.kind === "BAD_REQUEST";
+		return failure.kind === "BAD_REQUEST";
 	}
 	return false;
 }

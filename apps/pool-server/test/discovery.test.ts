@@ -7,6 +7,7 @@ import {
 	batchPublish,
 	listDiscovered,
 	replacePlatformSnapshot,
+	syncDiscovered,
 	verifyDiscovered,
 } from "../src/catalog/discovery.ts";
 import { openDb } from "../src/store/db.ts";
@@ -99,13 +100,163 @@ describe("discovered models", () => {
 		const model = catalog.findPublishedByPublicId("step-5-preview");
 		expect(model?.contextWindow).toBe(1_000_000);
 		expect(model?.maxOutputTokens).toBe(64_000);
-		const workbuddy = catalog.routesOf(model!.id).find((route) => route.platform === "WORKBUDDY");
-		expect(workbuddy?.priority).toBe(0);
-		expect(workbuddy?.enabled).toBe(true);
-		expect(catalog.routesOf(model!.id).find((route) => route.platform === "TRAE")?.priority).toBe(0);
-		expect(workbuddy?.reasoningEfforts).toEqual(["high"]);
+		const routes = catalog.routesOf(model!.id);
+		expect(routes.map((route) => [route.platform, route.priority])).toEqual([
+			["WORKBUDDY", 0],
+			["TRAE", 1],
+		]);
+		expect(routes.find((route) => route.platform === "WORKBUDDY")?.enabled).toBe(true);
+		expect(routes.find((route) => route.platform === "WORKBUDDY")?.reasoningEfforts).toEqual(["high"]);
+	});
+
+	it("keeps a discovered full window when a later snapshot is narrower", () => {
+		replacePlatformSnapshot(db, "WORKBUDDY", [
+			{
+				upstreamModel: "window-hold",
+				name: "Window Hold",
+				catalogSource: "workbuddy_ui",
+				contextWindow: 1_000_000,
+				maxOutputTokens: 64_000,
+			},
+		]);
+		replacePlatformSnapshot(db, "WORKBUDDY", [
+			{
+				upstreamModel: "window-hold",
+				name: "Window Hold",
+				catalogSource: "workbuddy_ui",
+				contextWindow: 200_000,
+				maxOutputTokens: 8_000,
+			},
+		]);
+		const row = listDiscovered(db).find((item) => item.upstreamModel === "window-hold");
+		expect(row?.contextWindow).toBe(1_000_000);
+		expect(row?.maxOutputTokens).toBe(64_000);
+	});
+
+	it("adds image support found by a later upstream onto the existing model and route", () => {
+		replacePlatformSnapshot(db, "TRAE", [
+			{
+				upstreamModel: "vision-preview",
+				name: "Vision",
+				catalogSource: "trae_live",
+				contextWindow: 200_000,
+				supportsImages: false,
+				supportsTools: true,
+			},
+		]);
+		const drafts = backfillDiscoveredDrafts(db, catalog, [account("TRAE")]);
+		expect(drafts[0]?.supportsImages).toBe(false);
+
+		replacePlatformSnapshot(db, "WORKBUDDY", [
+			{
+				upstreamModel: "vision-preview",
+				name: "Vision",
+				catalogSource: "workbuddy_ui",
+				contextWindow: 200_000,
+				supportsImages: true,
+				supportsTools: true,
+			},
+		]);
+		expect(backfillDiscoveredDrafts(db, catalog, [account("TRAE"), account("WORKBUDDY")])).toEqual([]);
+		const model = catalog.findPublishedByPublicId("vision-preview");
+		expect(model?.supportsImages).toBe(true);
+		expect(catalog.routesOf(model!.id).find((route) => route.platform === "WORKBUDDY")?.supportsImages).toBe(true);
+	});
+
+	it("adds reasoning efforts found later onto the model and the existing route", () => {
+		replacePlatformSnapshot(db, "TRAE", [
+			{
+				upstreamModel: "think-preview",
+				name: "Think",
+				catalogSource: "trae_live",
+				contextWindow: 200_000,
+				reasoningEfforts: [],
+			},
+		]);
+		backfillDiscoveredDrafts(db, catalog, [account("TRAE")]);
+		replacePlatformSnapshot(db, "TRAE", [
+			{
+				upstreamModel: "think-preview",
+				name: "Think",
+				catalogSource: "trae_live",
+				contextWindow: 200_000,
+				reasoningEfforts: ["low", "high"],
+			},
+		]);
+		expect(backfillDiscoveredDrafts(db, catalog, [account("TRAE")])).toEqual([]);
+		const model = catalog.findPublishedByPublicId("think-preview");
+		expect(model?.reasoningEfforts).toEqual(["low", "high"]);
+		expect(catalog.routesOf(model!.id).find((route) => route.platform === "TRAE")?.reasoningEfforts).toEqual([
+			"low",
+			"high",
+		]);
+		replacePlatformSnapshot(db, "TRAE", [
+			{
+				upstreamModel: "think-preview",
+				name: "Think",
+				catalogSource: "trae_live",
+				contextWindow: 200_000,
+				reasoningEfforts: ["low"],
+			},
+		]);
+		backfillDiscoveredDrafts(db, catalog, [account("TRAE")]);
+		expect(catalog.findPublishedByPublicId("think-preview")?.reasoningEfforts).toEqual(["low", "high"]);
+	});
+
+	it("uses the largest Qoder window and does not let a later account shrink it", async () => {
+		const localDir = mkdtempSync(join(tmpdir(), "owl-qoder-window-"));
+		const localDb = openDb(join(localDir, "pool.db"));
+		try {
+			await syncDiscovered(localDb, [qoderAccount("small"), qoderAccount("full")], {
+				sdkCatalog: async (account) =>
+					account.id === "small"
+						? [{ id: "qwen", name: "Qwen", contextWindow: 128_000 }]
+						: [
+								{
+									id: "qwen",
+									name: "Qwen",
+									contextWindow: 200_000,
+									availableContextWindows: [200_000, 1_000_000],
+								},
+							],
+			});
+			expect(listDiscovered(localDb).find((item) => item.upstreamModel === "qwen")?.contextWindow).toBe(1_000_000);
+			await syncDiscovered(localDb, [qoderAccount("vision"), qoderAccount("plain")], {
+				sdkCatalog: async (account) =>
+					account.id === "vision"
+						? [
+								{
+									id: "qwen",
+									name: "Qwen",
+									supportsImages: true,
+									supportsTools: true,
+									reasoningEfforts: ["high"],
+								},
+							]
+						: [{ id: "qwen", name: "Qwen", supportsImages: false, supportsTools: false, reasoningEfforts: [] }],
+			});
+			const kept = listDiscovered(localDb).find((item) => item.upstreamModel === "qwen");
+			expect(kept?.supportsImages).toBe(true);
+			expect(kept?.supportsTools).toBe(true);
+			expect(kept?.reasoningEfforts).toEqual(["high"]);
+		} finally {
+			localDb.close();
+			rmSync(localDir, { recursive: true, force: true });
+		}
 	});
 });
+
+function qoderAccount(id: string) {
+	return {
+		id,
+		name: id,
+		platform: "QODER" as const,
+		credentials: { accessToken: id },
+		enabled: true,
+		createdAt: 1,
+		updatedAt: 1,
+	};
+}
 
 function account(platform: "TRAE" | "WORKBUDDY") {
 	return {

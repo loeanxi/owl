@@ -8,6 +8,7 @@ import { workBuddyToken } from "../catalog/workbuddy-catalog.ts";
 import { queryMimoQuota } from "./mimo-quota.ts";
 import { qoderQuotaPersonalToken, queryQoderQuota } from "./qoder-quota.ts";
 import { traeIdeRefreshable } from "./trae-auth.ts";
+import { traeDeviceId } from "./trae-device.ts";
 import { queryZcodeQuota } from "./zcode-quota.ts";
 
 export const UNLIMITED_NOTE = "积分池不限量";
@@ -112,6 +113,16 @@ export async function query(account: Account, hooks: CreditHooks): Promise<Credi
 	}
 }
 
+function expiryPatch(snapshot: CreditSnapshot): { creditsExpiry?: string | null } {
+	if (snapshot.expiry === undefined) {
+		return {};
+	}
+	return {
+		creditsExpiry:
+			snapshot.ok && snapshot.expiry !== null && snapshot.expiry.length > 0 ? JSON.stringify(snapshot.expiry) : null,
+	};
+}
+
 function persist(accounts: AccountStore, account: Account, snapshot: CreditSnapshot): Account {
 	const message = snapshot.message.slice(0, 255);
 	return accounts.patchState(account.id, {
@@ -121,8 +132,7 @@ function persist(accounts: AccountStore, account: Account, snapshot: CreditSnaps
 		creditsMessage: message,
 		creditsDetails: snapshot.buckets.length > 0 ? JSON.stringify(snapshot.buckets) : null,
 		creditsUpdatedAt: Date.now(),
-		creditsExpiry:
-			snapshot.ok && snapshot.expiry && snapshot.expiry.length > 0 ? JSON.stringify(snapshot.expiry) : null,
+		...expiryPatch(snapshot),
 		...(snapshot.authRejected
 			? { credentialStatus: "EXPIRED" as const, credentialMessage: message, credentialCheckedAt: Date.now() }
 			: {}),
@@ -177,7 +187,7 @@ async function queryTrae(account: Account, hooks: CreditHooks): Promise<CreditSn
 			headers: {
 				Authorization: `Cloud-IDE-JWT ${token}`,
 				"X-User-Region": "cn",
-				"x-device-id": text(credentials.deviceId) ?? randomDeviceId(),
+				"x-device-id": traeDeviceId(credentials, account.id),
 				"Content-Type": "application/json",
 				Accept: "application/json",
 				"User-Agent": "ManagerCheckIn/0.1",
@@ -208,6 +218,10 @@ async function queryTrae(account: Account, hooks: CreditHooks): Promise<CreditSn
 			if (response.status === 401 || response.status === 403) {
 				return authRejected("Trae 登录已失效，请点击「重新登录」完成授权");
 			}
+			if (!response.ok) {
+				last = await traeFailure(response);
+				continue;
+			}
 			const body: unknown = await response.json();
 			const snapshot = extractEntitlementUsage(body);
 			if (snapshot.ok) {
@@ -215,7 +229,7 @@ async function queryTrae(account: Account, hooks: CreditHooks): Promise<CreditSn
 			}
 			last = snapshot.message;
 		} catch (error) {
-			last = error instanceof Error ? error.name : "Error";
+			last = error instanceof Error && error.message.length > 0 ? error.message : "请求失败";
 		}
 	}
 	return fail(`Trae 积分查询失败: ${last.slice(0, 200)}`);
@@ -232,7 +246,7 @@ async function queryWorkBuddy(account: Account, hooks: CreditHooks): Promise<Cre
 		try {
 			token = await hooks.refreshWorkBuddy(account);
 		} catch (refreshError) {
-			return fail(refreshError instanceof Error ? refreshError.message : "无法解析 accessToken");
+			return workBuddyAuthOrFail(refreshError, "无法解析 accessToken");
 		}
 	}
 	try {
@@ -243,11 +257,25 @@ async function queryWorkBuddy(account: Account, hooks: CreditHooks): Promise<Cre
 			try {
 				return await queryWorkBuddyWithToken(hooks, await hooks.refreshWorkBuddy(account));
 			} catch (refreshError) {
-				return fail(`WorkBuddy 积分查询失败: ${refreshError instanceof Error ? refreshError.message : message}`);
+				return workBuddyAuthOrFail(refreshError, message);
 			}
+		}
+		if (/HTTP 401|HTTP 403/.test(message)) {
+			return authRejected(message);
 		}
 		return fail(`WorkBuddy 积分查询失败: ${message}`);
 	}
+}
+
+function workBuddyAuthOrFail(error: unknown, fallback: string): CreditSnapshot {
+	if (error instanceof UpstreamException && error.kind === "AUTH") {
+		return authRejected(error.message);
+	}
+	const message = error instanceof Error && error.message.length > 0 ? error.message : fallback;
+	if (/HTTP 401|HTTP 403/.test(message)) {
+		return authRejected(message);
+	}
+	return fail(message.startsWith("WorkBuddy") ? message : `WorkBuddy 积分查询失败: ${message}`);
 }
 
 async function queryWorkBuddyWithToken(hooks: CreditHooks, token: string): Promise<CreditSnapshot> {
@@ -258,15 +286,26 @@ async function queryWorkBuddyWithToken(hooks: CreditHooks, token: string): Promi
 	);
 	// summary 没有到期时间；按包明细只给选号排序用，取不到时余额仍以 summary 为准
 	let resource: unknown = null;
+	let detailMissing = false;
 	try {
 		resource = await postWorkBuddy(fetchImpl, base, "/v2/billing/meter/get-user-resource", token);
 	} catch (error) {
 		if (!summary.ok) {
 			throw error;
 		}
+		detailMissing = true;
 	}
 	const snapshot = summary.ok ? summary : extractUserResource(resource);
-	return snapshot.ok ? { ...snapshot, expiry: extractCreditExpiry(resource) } : snapshot;
+	if (!snapshot.ok || detailMissing) {
+		return snapshot;
+	}
+	return { ...snapshot, expiry: extractCreditExpiry(resource) };
+}
+
+async function traeFailure(response: Response): Promise<string> {
+	const text = await response.text().catch(() => "");
+	const body = text.trim().replace(/\s+/g, " ").slice(0, 160);
+	return body.length > 0 ? `HTTP ${response.status}: ${body}` : `HTTP ${response.status}`;
 }
 
 async function queryQoder(account: Account, hooks: CreditHooks): Promise<CreditSnapshot> {
@@ -308,7 +347,7 @@ async function queryClaude(account: Account, hooks: CreditHooks): Promise<Credit
 			}
 		} catch (error) {
 			if (error instanceof UpstreamException && error.kind === "AUTH") {
-				return fail(error.message);
+				return authRejected(error.message);
 			}
 		}
 	}
@@ -762,6 +801,14 @@ async function postWorkBuddy(fetchImpl: typeof fetch, base: string, path: string
 		signal: AbortSignal.timeout(20_000),
 	});
 	const body: unknown = await response.json().catch(() => null);
+	// 登录票被拒时上游仍可能带回 JSON。必须抛出带状态码的错误，外层才会用 refreshToken 续期。
+	if (response.status === 401 || response.status === 403) {
+		throw new Error(`WorkBuddy HTTP ${response.status}`);
+	}
+	const code = isRecord(body) ? numberOf(body.code) : null;
+	if (code === 401 || code === 403) {
+		throw new Error(`WorkBuddy HTTP ${code}`);
+	}
 	if (body === null) {
 		throw new Error(`WorkBuddy HTTP ${response.status}`);
 	}
@@ -798,14 +845,6 @@ function bucket(
 
 function sessionOf(account: Account): string | null {
 	return text(parseCredentials(account).session);
-}
-
-function randomDeviceId(): string {
-	let value = "";
-	for (let i = 0; i < 16; i++) {
-		value += Math.floor(Math.random() * 10).toString();
-	}
-	return value;
 }
 
 function expired(pack: Record<string, unknown>): boolean {

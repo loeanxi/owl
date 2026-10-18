@@ -421,6 +421,14 @@ describe("转发前适配", () => {
 		expect(forwarded.model).toBe("star-a");
 	});
 
+	it("Qoder 保留调用方上下文窗口，其他平台只拿它做准入", () => {
+		const payload = { model: "star-lm", context_window: 1_000_000, messages: [] };
+		expect(generation.forwardedPayload(payload, target("QODER"), resolution(null)).context_window).toBe(1_000_000);
+		expect(
+			generation.forwardedPayload(payload, target("WORKBUDDY"), resolution(null)).context_window,
+		).toBeUndefined();
+	});
+
 	it("能执行输出上限的通道保留 max_tokens", () => {
 		const forwarded = generation.forwardedPayload(
 			{ model: "star-lm", max_tokens: 16_384, messages: [] },

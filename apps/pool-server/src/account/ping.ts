@@ -67,12 +67,14 @@ async function pingWorkBuddy(account: Account, hooks: PingHooks): Promise<string
 	const fetchImpl = hooks.fetchImpl ?? fetch;
 	let token = await workBuddyAccessToken(account, hooks);
 	let response = await postResource(fetchImpl, hooks.workbuddyBaseUrl, token);
-	if ((response.status === 401 || response.status === 403) && hooks.refreshWorkBuddy !== undefined) {
+	let node = await readJson(response);
+	// 登录票被拒时上游仍可能返回 HTTP 200，正文 code 才是 401/403。这种情况也要续期后再探一次。
+	if (workBuddyRejected(response, node) && hooks.refreshWorkBuddy !== undefined) {
 		token = await hooks.refreshWorkBuddy(account);
 		response = await postResource(fetchImpl, hooks.workbuddyBaseUrl, token);
+		node = await readJson(response);
 	}
-	const node = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-	const code = node !== null && typeof node.code === "number" ? node.code : -1;
+	const code = statusCode(node);
 	if (code !== 0 && code !== 200) {
 		const msg =
 			typeof node?.msg === "string"
@@ -83,6 +85,33 @@ async function pingWorkBuddy(account: Account, hooks: PingHooks): Promise<string
 		throw new Error(msg);
 	}
 	return "get-user-resource OK";
+}
+
+function workBuddyRejected(response: Response, node: Record<string, unknown> | null): boolean {
+	if (response.status === 401 || response.status === 403) {
+		return true;
+	}
+	const code = statusCode(node);
+	return code === 401 || code === 403;
+}
+
+async function readJson(response: Response): Promise<Record<string, unknown> | null> {
+	const body: unknown = await response.json().catch(() => null);
+	return body !== null && typeof body === "object" && !Array.isArray(body) ? body : null;
+}
+
+function statusCode(node: Record<string, unknown> | null): number {
+	const code = node?.code;
+	if (typeof code === "number" && Number.isFinite(code)) {
+		return code;
+	}
+	if (typeof code === "string" && code.trim().length > 0) {
+		const parsed = Number(code);
+		if (Number.isFinite(parsed)) {
+			return parsed;
+		}
+	}
+	return -1;
 }
 
 async function workBuddyAccessToken(account: Account, hooks: PingHooks): Promise<string> {

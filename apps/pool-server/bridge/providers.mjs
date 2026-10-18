@@ -169,6 +169,8 @@ function qoderBuiltIn(model){
 function qoderModelRow(model){
   const contexts=model.availableContextWindows??(model.context_config?Object.values(model.context_config).map(item=>item.token_count):null);
   const defaultContext=model.defaultContextWindow??Object.values(model.context_config??{}).find(item=>item.is_default)?.token_count??null;
+  const windows=[...(Array.isArray(contexts)?contexts:[]),defaultContext].map(Number).filter(value=>Number.isFinite(value)&&value>0);
+  const contextWindow=windows.length?Math.max(...windows):null;
   const effortEntries=model.thinking_config?.enabled?.efforts;
   const advertisedEfforts=model.efforts??(effortEntries?Object.keys(effortEntries):model.isReasoning===false?[]:null);
   const supportsDisabled=model.supportsDisabled===true||Boolean(model.thinking_config?.disabled)||advertisedEfforts?.includes('none')===true;
@@ -178,7 +180,7 @@ function qoderModelRow(model){
   return modelRow(model.value,model.displayName,{
     supportsImages:model.isVl??null,reasoningEfforts:efforts,defaultReasoningEffort:defaultEffort,
     supportsDisabledReasoning:disabledKnown?supportsDisabled:null,
-    availableContextWindows:contexts,contextWindow:defaultContext,maxOutputTokens:model.maxOutputTokens??null,
+    availableContextWindows:contexts,contextWindow,maxOutputTokens:model.maxOutputTokens??null,
   });
 }
 

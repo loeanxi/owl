@@ -105,14 +105,13 @@ export class WorkBuddyTokenService {
 			next.expiresAt = expiresAt;
 		}
 		this.#accounts.updateFields(current.id, { credentials: next }, this.#now());
-		if (expiresAt !== null) {
-			this.#accounts.patchState(current.id, {
-				credentialExpiresAt: expiresAt,
-				credentialStatus: "OK",
-				credentialMessage: "已用 refreshToken 续期",
-				credentialCheckedAt: this.#now(),
-			});
-		}
+		// 换到新票即可用。没有数字型过期时间时也要清掉 EXPIRED，否则选号会一直跳过这个账号。
+		this.#accounts.patchState(current.id, {
+			...(expiresAt !== null ? { credentialExpiresAt: expiresAt } : {}),
+			credentialStatus: "OK",
+			credentialMessage: "已用 refreshToken 续期",
+			credentialCheckedAt: this.#now(),
+		});
 		return accessToken;
 	}
 }
@@ -150,13 +149,34 @@ function authPayload(body: unknown): Record<string, unknown> | null {
 }
 
 function expiryOf(payload: Record<string, unknown>, now: number): number | null {
-	const direct = payload.expiresAt;
-	if (typeof direct === "number" && Number.isFinite(direct) && direct > 0) {
-		return direct > 1e12 ? direct : direct * 1000;
+	const direct = epochMillis(payload.expiresAt);
+	if (direct !== null) {
+		return direct;
 	}
-	const seconds = payload.expiresIn;
-	if (typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0) {
-		return now + seconds * 1000;
+	const seconds = positiveNumber(payload.expiresIn);
+	return seconds === null ? null : now + seconds * 1000;
+}
+
+function epochMillis(value: unknown): number | null {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (trimmed.length === 0) {
+			return null;
+		}
+		const numeric = Number(trimmed);
+		if (Number.isFinite(numeric) && numeric > 0) {
+			return numeric > 1e12 ? numeric : numeric * 1000;
+		}
+		const parsed = Date.parse(trimmed);
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+	}
+	if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+		return value > 1e12 ? value : value * 1000;
 	}
 	return null;
+}
+
+function positiveNumber(value: unknown): number | null {
+	const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : Number.NaN;
+	return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }

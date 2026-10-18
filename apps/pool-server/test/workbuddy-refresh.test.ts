@@ -51,6 +51,28 @@ describe("WorkBuddyTokenService", () => {
 		expect(saved.credentials.accessToken).toBe("new-access");
 		expect(saved.credentials.refreshToken).toBe("new-refresh");
 		expect(saved.credentialExpiresAt).toBe(2_000 + 3_600_000);
+		expect(saved.credentialStatus).toBe("OK");
+	});
+
+	it("把字符串形式的 expiresIn 算进到期时间", async () => {
+		const fetchImpl = (async () =>
+			new Response(JSON.stringify({ data: { accessToken: "new-access", expiresIn: "3600" } }), {
+				status: 200,
+			})) as typeof fetch;
+		const { accounts, tokens, created } = service(fetchImpl);
+		await tokens.refresh(created);
+		expect(accounts.require(created.id).credentialExpiresAt).toBe(2_000 + 3_600_000);
+	});
+
+	it("续期成功但没有过期时间时仍把凭证标成可用", async () => {
+		const fetchImpl = (async () =>
+			new Response(JSON.stringify({ data: { accessToken: "new-access" } }), { status: 200 })) as typeof fetch;
+		const { accounts, tokens, created } = service(fetchImpl);
+		accounts.patchState(created.id, { credentialStatus: "EXPIRED", credentialMessage: "登录已失效" });
+		await tokens.refresh(created);
+		const saved = accounts.require(created.id);
+		expect(saved.credentials.accessToken).toBe("new-access");
+		expect(saved.credentialStatus).toBe("OK");
 	});
 
 	it("没有 refreshToken 时拒绝续期", async () => {

@@ -22,6 +22,14 @@
 - `pool-server` 目录窗口只升不降，满血上游优先
 - `pool-server` 无登录文件时用个人令牌拉目录
 - `pool-server` 编辑模型时一并保存平台路由
+- `pool-server` WorkBuddy 积分在登录票被拒时续期
+- `pool-server` 更大上下文的 WorkBuddy 路由排在前面
+- `pool-server` Trae 查积分沿用与对话相同的设备号
+- `pool-server` 已发现窗口只升不降，WorkBuddy 保留更大上下文，后发现的识图能力补到已有模型
+- `pool-server` Trae 与 Qoder 目录保留更大窗口，Claude 登录被拒时标成失效
+- `pool-server` WorkBuddy 连通性检查在正文 401 时续期，后发现的思考档位补到已有模型，续期成功即标为可用
+- 登录失效改试下一个号，目录合并不再盖掉识图和思考档位，WorkBuddy 续期失败标成失效
+- Qoder 转发保留上下文窗口，积分明细失败时保留到期时间，Trae 查积分失败带上原因
 
 
 ## 2026-10-16

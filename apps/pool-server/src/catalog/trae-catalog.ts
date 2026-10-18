@@ -101,17 +101,11 @@ export function mergeTraeCatalog(
 				continue;
 			}
 			const display = text(recordOf(config.display_config)?.display_name);
-			const modelDetail = Array.isArray(config.model_detail_list) ? config.model_detail_list[0] : undefined;
-			const detailRecord = isRecord(modelDetail) ? modelDetail : {};
-			const wire: Wire = {
-				id,
-				functionName,
-				contextWindow: positiveLong(detailRecord.prompt_max_tokens),
-				maxOutputTokens: positiveInt(detailRecord.max_tokens),
-			};
-			byId.set(key(id), wire);
+			const wire = wireFromDetails(id, functionName, config.model_detail_list);
+			const merged = rememberWiderWire(byId.get(key(id)), wire);
+			byId.set(key(id), merged);
 			if (display !== null) {
-				byName.set(key(display), wire);
+				byName.set(key(display), merged);
 			}
 		}
 	}
@@ -144,8 +138,7 @@ export function mergeTraeCatalog(
 				continue;
 			}
 			const multimodal = typeof candidate.multimodal === "boolean" ? candidate.multimodal : null;
-			const reported = positiveLong(recordOf(candidate.context_window_tokens)?.dev);
-			const contextWindow = reported ?? wire.contextWindow;
+			const contextWindow = wider(widestTokenMap(recordOf(candidate.context_window_tokens)), wire.contextWindow);
 			const preferred = mode === wireMode(wire.functionName);
 			let model = found.get(key(wire.id));
 			if (model === undefined) {
@@ -160,12 +153,23 @@ export function mergeTraeCatalog(
 					modes: new Set<string>(),
 				};
 				found.set(key(wire.id), model);
-			} else if (preferred && !model.preferred) {
-				model.name = display ?? visibleId;
-				model.contextWindow = contextWindow;
-				model.upstreamMultimodal = multimodal;
-				model.preferred = true;
-				model.functionName = wire.functionName;
+			} else {
+				const fuller = (contextWindow ?? -1) > (model.contextWindow ?? -1);
+				model.contextWindow = wider(model.contextWindow, contextWindow);
+				model.maxOutputTokens = wider(model.maxOutputTokens, wire.maxOutputTokens);
+				if (multimodal === true) {
+					model.upstreamMultimodal = true;
+				}
+				if (fuller) {
+					model.functionName = wire.functionName;
+				}
+				if (preferred && !model.preferred) {
+					model.name = display ?? visibleId;
+					model.preferred = true;
+					if ((contextWindow ?? -1) >= (model.contextWindow ?? -1)) {
+						model.functionName = wire.functionName;
+					}
+				}
 			}
 			model.modes.add(mode);
 		}
@@ -267,6 +271,55 @@ function key(value: string): string {
 
 function text(value: unknown): string | null {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function wireFromDetails(id: string, functionName: string, list: unknown): Wire {
+	const items = Array.isArray(list) ? list : [];
+	let contextWindow: number | null = null;
+	let maxOutputTokens: number | null = null;
+	for (const item of items) {
+		if (!isRecord(item)) {
+			continue;
+		}
+		contextWindow = wider(contextWindow, positiveLong(item.prompt_max_tokens));
+		maxOutputTokens = wider(maxOutputTokens, positiveInt(item.max_tokens));
+	}
+	return { id, functionName, contextWindow, maxOutputTokens };
+}
+
+/** 同一个模型在多个 function 里出现时留下更大的窗口，并改用提供该窗口的 function。 */
+function rememberWiderWire(current: Wire | undefined, next: Wire): Wire {
+	if (current === undefined) {
+		return next;
+	}
+	const fuller = (next.contextWindow ?? -1) > (current.contextWindow ?? -1);
+	return {
+		id: current.id,
+		functionName: fuller ? next.functionName : current.functionName,
+		contextWindow: wider(current.contextWindow, next.contextWindow),
+		maxOutputTokens: wider(current.maxOutputTokens, next.maxOutputTokens),
+	};
+}
+
+function widestTokenMap(node: Record<string, unknown> | undefined): number | null {
+	if (node === undefined) {
+		return null;
+	}
+	let best: number | null = null;
+	for (const value of Object.values(node)) {
+		best = wider(best, positiveLong(value));
+	}
+	return best;
+}
+
+function wider(first: number | null | undefined, second: number | null): number | null {
+	if (first === undefined || first === null) {
+		return second;
+	}
+	if (second === null) {
+		return first;
+	}
+	return Math.max(first, second);
 }
 
 function positiveLong(value: unknown): number | null {

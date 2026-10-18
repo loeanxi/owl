@@ -6,7 +6,14 @@
  */
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { type Account, BusinessError, type Platform, type PublishedModel, parseCredentials } from "owl-pool";
+import {
+	type Account,
+	BusinessError,
+	type ModelRoute,
+	type Platform,
+	type PublishedModel,
+	parseCredentials,
+} from "owl-pool";
 import type { SqliteCatalogStore } from "../store/gateway-stores.ts";
 import { fetchTraeCatalog, type TraeCatalogModel } from "./trae-catalog.ts";
 import {
@@ -349,6 +356,7 @@ async function discoverTrae(db: DatabaseSync, accounts: Account[], live: LiveDis
 					catalogSource: "trae_live",
 					contextWindow: wider(existing?.contextWindow, model.contextWindow),
 					maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
+					supportsImages: eitherTrue(existing?.supportsImages, model.upstreamMultimodal),
 					upstreamMultimodal: model.upstreamMultimodal,
 					availableModes: [...new Set([...(existing?.availableModes ?? []), ...model.modes])],
 				});
@@ -389,10 +397,10 @@ async function discoverWorkBuddy(
 					modelVersion: model.modelVersion,
 					contextWindow: wider(existing?.contextWindow, model.contextWindow),
 					maxOutputTokens: wider(existing?.maxOutputTokens, model.maxOutputTokens),
-					supportsImages: model.supportsImages,
-					supportsTools: model.supportsTools,
-					reasoningEfforts: model.reasoningEfforts,
-					defaultReasoningEffort: model.defaultReasoningEffort,
+					supportsImages: eitherTrue(existing?.supportsImages, model.supportsImages),
+					supportsTools: eitherTrue(existing?.supportsTools, model.supportsTools),
+					reasoningEfforts: unionEfforts(existing?.reasoningEfforts, model.reasoningEfforts),
+					defaultReasoningEffort: existing?.defaultReasoningEffort ?? model.defaultReasoningEffort,
 				});
 			}
 		} catch (error) {
@@ -425,20 +433,31 @@ async function discoverSdk(
 					continue;
 				}
 				const id = row.id.trim();
+				const previous = found.get(id);
 				found.set(id, {
 					upstreamModel: id,
 					name: typeof row.name === "string" && row.name.trim().length > 0 ? row.name.trim() : id,
 					catalogSource: account.platform === "QODER" ? "qoder_builtin_live" : "provider_catalog",
 					modelVersion: typeof row.modelVersion === "string" ? row.modelVersion : null,
-					contextWindow: positive(row.contextWindow),
-					maxOutputTokens: positive(row.maxOutputTokens),
-					supportsImages: typeof row.supportsImages === "boolean" ? row.supportsImages : null,
-					supportsTools: typeof row.supportsTools === "boolean" ? row.supportsTools : null,
-					reasoningEfforts: Array.isArray(row.reasoningEfforts)
-						? row.reasoningEfforts.filter((item): item is string => typeof item === "string")
-						: null,
+					contextWindow: wider(previous?.contextWindow, advertisedWindow(row)),
+					maxOutputTokens: wider(previous?.maxOutputTokens, positive(row.maxOutputTokens)),
+					supportsImages: eitherTrue(
+						previous?.supportsImages,
+						typeof row.supportsImages === "boolean" ? row.supportsImages : null,
+					),
+					supportsTools: eitherTrue(
+						previous?.supportsTools,
+						typeof row.supportsTools === "boolean" ? row.supportsTools : null,
+					),
+					reasoningEfforts: unionEfforts(
+						previous?.reasoningEfforts,
+						Array.isArray(row.reasoningEfforts)
+							? row.reasoningEfforts.filter((item): item is string => typeof item === "string")
+							: null,
+					),
 					defaultReasoningEffort:
-						typeof row.defaultReasoningEffort === "string" ? row.defaultReasoningEffort : null,
+						previous?.defaultReasoningEffort ??
+						(typeof row.defaultReasoningEffort === "string" ? row.defaultReasoningEffort : null),
 				});
 			}
 			if (found.size === before) {
@@ -452,6 +471,17 @@ async function discoverSdk(
 		throw new Error(accountErrors.join("；") || emptyMessage);
 	}
 	return { descriptors: [...found.values()], accountErrors };
+}
+
+/** 默认档往往只是可选项里较小的一个。准入窗口取 contextWindow 和 availableContextWindows 中的最大正数。 */
+function advertisedWindow(row: Record<string, unknown>): number | null {
+	let best = positive(row.contextWindow);
+	if (Array.isArray(row.availableContextWindows)) {
+		for (const item of row.availableContextWindows) {
+			best = wider(best, positive(item));
+		}
+	}
+	return best;
 }
 
 function hasCatalogCredential(account: Account): boolean {
@@ -643,6 +673,32 @@ function affectedPublic(db: DatabaseSync, platform: Platform, unavailable: strin
 		.all(platform) as Array<{ public_id: string; upstream_model: string }>;
 	const blocked = new Set(unavailable);
 	return [...new Set(routeRows.filter((row) => blocked.has(row.upstream_model)).map((row) => row.public_id))].sort();
+}
+
+/** 任一来源明确支持就保留 true；都没说才是 null，避免后一个账号把识图能力抹掉。 */
+function eitherTrue(current: boolean | null | undefined, next: boolean | null | undefined): boolean | null {
+	if (current === true || next === true) {
+		return true;
+	}
+	if (current === false || next === false) {
+		return false;
+	}
+	return null;
+}
+
+/** 新快照没表态时保留库里的 0/1。明确 false 仍可关闭。 */
+function keptFlag(previous: unknown, next: boolean | null | undefined): number | null {
+	if (next === true) {
+		return 1;
+	}
+	if (next === false) {
+		return 0;
+	}
+	if (previous === null || previous === undefined) {
+		return null;
+	}
+	const parsed = Number(previous);
+	return parsed === 0 || parsed === 1 ? parsed : null;
 }
 
 function wider(first: number | null | undefined, second: number | null): number | null {
@@ -879,6 +935,9 @@ function upsertDiscovered(
 	now: number,
 ): void {
 	const id = previous === undefined || textOrNull(previous.id) === null ? randomUUID() : String(previous.id);
+	// 已发现容量只升不降。后一次较窄的目录不能把准入用的窗口改小，否则上架模型仍公布 1M、请求却被拒。
+	const contextWindow = wider(numberOrNull(previous?.context_window), descriptor.contextWindow ?? null);
+	const maxOutputTokens = wider(numberOrNull(previous?.max_output_tokens), descriptor.maxOutputTokens ?? null);
 	db.prepare(`
 		INSERT INTO discovered_models (
 			platform, upstream_model, available, context_window, max_output_tokens, updated_at,
@@ -896,17 +955,17 @@ function upsertDiscovered(
 	`).run(
 		platform,
 		upstream,
-		descriptor.contextWindow ?? null,
-		descriptor.maxOutputTokens ?? null,
+		contextWindow,
+		maxOutputTokens,
 		now,
 		id,
 		descriptor.name,
 		descriptor.catalogSource,
 		descriptor.modelVersion ?? null,
 		order,
-		boolOrNull(descriptor.supportsImages),
-		boolOrNull(descriptor.supportsTools),
-		JSON.stringify(descriptor.reasoningEfforts ?? []),
+		keptFlag(previous?.supports_images, descriptor.supportsImages),
+		keptFlag(previous?.supports_tools, descriptor.supportsTools),
+		JSON.stringify(unionEfforts(jsonList(previous?.reasoning_efforts), descriptor.reasoningEfforts ?? [])),
 		JSON.stringify(descriptor.availableModes ?? []),
 		boolOrNull(descriptor.upstreamMultimodal),
 		descriptor.defaultReasoningEffort ?? null,
@@ -966,12 +1025,19 @@ function ensureDraft(
 		discoveredWindow !== null && (existing.contextWindow === null || discoveredWindow > existing.contextWindow);
 	const raisedOutput =
 		discoveredOutput !== null && (existing.maxOutputTokens === null || discoveredOutput > existing.maxOutputTokens);
+	const gainedImages = images && !existing.supportsImages;
+	const gainedTools = tools && !existing.supportsTools;
+	const mergedEfforts = unionEfforts(existing.reasoningEfforts, discoveredEfforts);
+	const gainedEfforts = mergedEfforts.length > existing.reasoningEfforts.length;
 	let current = existing;
-	if (raisedWindow || raisedOutput) {
+	if (raisedWindow || raisedOutput || gainedImages || gainedTools || gainedEfforts) {
 		current = {
 			...existing,
 			...(raisedWindow ? { contextWindow: discoveredWindow } : {}),
 			...(raisedOutput ? { maxOutputTokens: discoveredOutput } : {}),
+			...(gainedImages ? { supportsImages: true } : {}),
+			...(gainedTools ? { supportsTools: true } : {}),
+			...(gainedEfforts ? { reasoningEfforts: mergedEfforts } : {}),
 			updatedAt: Date.now(),
 		};
 		catalog.saveModel(current);
@@ -980,7 +1046,7 @@ function ensureDraft(
 	const routes = catalog.routesOf(current.id);
 	const route = routes.find((item) => item.platform === platform && item.upstreamModel === upstream);
 	if (route === undefined) {
-		catalog.saveRoute({
+		const created: ModelRoute = {
 			id: randomUUID(),
 			modelId: current.id,
 			platform,
@@ -990,15 +1056,46 @@ function ensureDraft(
 			supportsImages: images,
 			supportsTools: tools,
 			reasoningEfforts: efforts,
-		});
-	} else if (raisedWindow && !route.enabled) {
-		catalog.saveRoute({
-			...route,
-			enabled: true,
-			reasoningEfforts: efforts.length > 0 ? efforts : route.reasoningEfforts,
-		});
+		};
+		if (raisedWindow) {
+			placeRouteFirst(catalog, created);
+		} else {
+			catalog.saveRoute(created);
+		}
+	} else {
+		const routeEfforts = unionEfforts(route.reasoningEfforts, discoveredEfforts);
+		const gainedRouteEfforts = routeEfforts.length > route.reasoningEfforts.length;
+		if (raisedWindow || (images && !route.supportsImages) || (tools && !route.supportsTools) || gainedRouteEfforts) {
+			const updated: ModelRoute = {
+				...route,
+				enabled: route.enabled || raisedWindow,
+				supportsImages: route.supportsImages || images,
+				supportsTools: route.supportsTools || tools,
+				reasoningEfforts: routeEfforts,
+			};
+			if (raisedWindow) {
+				placeRouteFirst(catalog, updated);
+			} else {
+				catalog.saveRoute(updated);
+			}
+		}
 	}
 	return null;
+}
+
+/** 把刚抬高窗口的路由放到最前。其余路由整体后移，避免和旧的 0 优先级打成平局后按平台名排回 Trae。 */
+function placeRouteFirst(catalog: SqliteCatalogStore, route: ModelRoute): void {
+	const others = catalog.routesOf(route.modelId).filter((item) => item.id !== route.id);
+	const min = others.reduce((lowest, item) => Math.min(lowest, item.priority), Number.POSITIVE_INFINITY);
+	if (!Number.isFinite(min) || route.priority < min) {
+		catalog.saveRoute({ ...route, priority: Number.isFinite(min) ? route.priority : 0 });
+		return;
+	}
+	const shift = 0 - min + 1;
+	for (const other of others) {
+		catalog.saveRoute({ ...other, priority: other.priority + shift });
+	}
+	catalog.saveRoute({ ...route, priority: 0 });
 }
 
 function discoveredView(db: DatabaseSync, row: Record<string, unknown>): Record<string, unknown> {
@@ -1071,6 +1168,25 @@ function numberOrNull(value: unknown): number | null {
 
 function boolOrNull(value: boolean | null | undefined): number | null {
 	return value === undefined || value === null ? null : value ? 1 : 0;
+}
+
+function unionEfforts(
+	current: readonly string[] | null | undefined,
+	incoming: readonly string[] | null | undefined,
+): string[] {
+	const base = current === null || current === undefined ? [] : [...current];
+	if (incoming === null || incoming === undefined || incoming.length === 0) {
+		return base;
+	}
+	const seen = new Set(base);
+	const merged = base;
+	for (const item of incoming) {
+		if (!seen.has(item)) {
+			seen.add(item);
+			merged.push(item);
+		}
+	}
+	return merged;
 }
 
 function jsonList(value: unknown): string[] {

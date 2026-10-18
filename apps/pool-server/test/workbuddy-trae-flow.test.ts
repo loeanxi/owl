@@ -12,6 +12,7 @@ import {
 	resolveModel,
 	StickySessionService,
 	type UpstreamChatClient,
+	UpstreamException,
 } from "owl-pool";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
@@ -438,6 +439,55 @@ describe("渠道拒绝的路由处理", () => {
 		);
 		expect(result).toBe("ok");
 		expect(tried).toEqual(["WORKBUDDY", "GROK"]);
+		for (const id of workBuddyIds) {
+			expect(router.isCooling(id)).toBe(false);
+		}
+	});
+
+	it("登录失效会冷却该号，同平台换号后再试下一路由", async () => {
+		const { generation, router, workBuddyIds } = fixture();
+		const tried: string[] = [];
+		const result = await generation.route(
+			{
+				key: { id: "k" } as never,
+				payload: { model: "star-lm", messages: [] },
+				resolution: resolution([target("WORKBUDDY"), target("GROK")]),
+				sessionId: null,
+			},
+			async (selected) => {
+				tried.push(selected.platform);
+				if (selected.platform === "WORKBUDDY") {
+					throw new UpstreamException("AUTH", "ticket expired");
+				}
+				return "ok";
+			},
+		);
+		expect(result).toBe("ok");
+		expect(tried.filter((platform) => platform === "WORKBUDDY")).toHaveLength(workBuddyIds.length);
+		expect(tried.at(-1)).toBe("GROK");
+		for (const id of workBuddyIds) {
+			expect(router.isCooling(id)).toBe(true);
+		}
+	});
+
+	it("BAD_REQUEST 仍直接抛出，不换号也不冷却", async () => {
+		const { generation, router, workBuddyIds } = fixture();
+		let calls = 0;
+		await expect(
+			generation.route(
+				{
+					key: { id: "k" } as never,
+					payload: { model: "star-lm", messages: [] },
+					resolution: resolution([target("WORKBUDDY"), target("GROK")]),
+					sessionId: null,
+				},
+				async () => {
+					calls += 1;
+					throw new UpstreamException("BAD_REQUEST", "bad payload");
+				},
+			),
+		).rejects.toMatchObject({ kind: "BAD_REQUEST" });
+		expect(calls).toBe(1);
 		for (const id of workBuddyIds) {
 			expect(router.isCooling(id)).toBe(false);
 		}

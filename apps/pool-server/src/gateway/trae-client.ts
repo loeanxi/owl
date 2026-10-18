@@ -20,6 +20,7 @@ import {
 	type UpstreamChatClient,
 	UpstreamException,
 } from "owl-pool";
+import { traeDeviceId } from "../account/trae-device.ts";
 import { aggregateStreamToCompletion } from "./aggregate.ts";
 import { UpstreamDeadline, type UpstreamDeadlineConfig } from "./stream-deadline.ts";
 
@@ -207,7 +208,7 @@ export class TraeChatClient implements UpstreamChatClient {
 			"x-plugin-channel": "icube-ai",
 			"x-app-id": this.#config.appId,
 			"x-machine-id": sha256Hex(`trae-manager:${identity}`),
-			"x-device-id": deviceId(credentials, identity),
+			"x-device-id": traeDeviceId(credentials, identity),
 			"x-device-type": "windows",
 			"x-app-version": this.#config.appVersion ?? "0.1.69",
 			"x-ide-version": this.#config.ideVersion,
@@ -455,17 +456,6 @@ function parseEvent(data: string): Record<string, unknown> {
 	} catch {
 		throw new IncompleteUpstreamStreamException();
 	}
-}
-
-function deviceId(credentials: Record<string, unknown>, identity: string): string {
-	const supplied = credentials.deviceId;
-	if (typeof supplied === "string" && supplied.length > 0) {
-		return supplied;
-	}
-	// sha256("trae-device:"+id) → [1e15, 1e16) 十六进制取模（对齐 Java）
-	const hash = sha256Hex(`trae-device:${identity}`);
-	const value = (BigInt(`0x${hash}`) % BigInt("9000000000000000")) + BigInt("1000000000000000");
-	return value.toString();
 }
 
 function truncate(text: string): string {
