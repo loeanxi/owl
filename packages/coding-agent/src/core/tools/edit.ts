@@ -44,6 +44,7 @@ export const editToolSystemPromptContribution = {
 	guidelines: [
 		"Use edit for precise changes (edits[].oldText must match exactly)",
 		"When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+		"The top-level path applies to every edits[] entry in a call. Group replacements by file and use separate edit calls for different file paths.",
 		"Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
 		"Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
 		"Copy edits[].oldText from file content you have seen (read, cat/sed -n output, your own write or edits), not from memory. Your own successful edits are already applied, so consecutive edits of one file need no re-read.",

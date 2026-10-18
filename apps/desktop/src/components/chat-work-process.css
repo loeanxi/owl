@@ -97,6 +97,49 @@
 .owl-work-process .owl-work-process-body > .owl-work-process-item + .owl-work-process-item { margin-top: 8px; }
 .owl-work-process .owl-work-process-item:is([data-work-kind="thinking"], [data-work-kind="note"]) { padding: 6px 0 6px var(--owl-work-text-inset); }
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-answer { font-size: 13px; line-height: 1.6; }
+.owl-work-process .owl-work-process-item[data-work-kind="note"] { padding: 6px 0; color: var(--owl-reading-text); }
+.owl-work-process .owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer { color: var(--owl-reading-text); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); }
+
+.owl-work-process .owl-work-latest-state,
+.owl-work-process .owl-work-latest-toolbar {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 4px 8px;
+	color: var(--owl-reading-muted);
+	font-size: 12px;
+	line-height: 1.6;
+}
+.owl-work-process .owl-work-latest-state { padding: 4px 0 4px var(--owl-work-text-inset); }
+.owl-work-process .owl-work-latest-state > svg { width: 14px; height: 14px; flex: none; }
+.owl-work-process .owl-work-latest-title { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.owl-work-process .owl-work-latest-state[data-status="error"] { color: var(--color-owl-warning); }
+.owl-work-process .owl-work-latest-output { min-width: 0; margin: 6px 0 8px var(--owl-work-text-inset); padding: 8px 12px; border-radius: 7px; background: var(--owl-reading-panel); }
+.owl-work-process .owl-work-latest-toolbar > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.owl-work-process .owl-work-latest-output pre { margin: 4px 0 0; color: var(--owl-reading-text); font-family: var(--font-mono); font-size: var(--owl-chat-code-font-size, 13px); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.owl-work-process .owl-work-latest-toolbar button,
+.owl-work-process .owl-work-inspect,
+.owl-work-process .owl-work-history-toggle {
+	display: inline-flex;
+	min-height: 32px;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 6px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--owl-reading-muted);
+	font: inherit;
+	font-size: 12px;
+	line-height: 1.6;
+	text-align: left;
+	cursor: pointer;
+}
+.owl-work-process .owl-work-inspect { flex: none; min-width: 32px; justify-content: center; }
+.owl-work-process .owl-work-history-toggle { padding-left: 0; }
+.owl-work-process :is(.owl-work-latest-toolbar button, .owl-work-inspect, .owl-work-history-toggle):hover { background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent); color: var(--owl-reading-text); }
+.owl-work-process :is(.owl-work-latest-toolbar button, .owl-work-inspect, .owl-work-history-toggle):focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
 
 /* Every record uses a 16px icon slot followed by the same 8px gap. */
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-row > div > .owl-tool-summary {

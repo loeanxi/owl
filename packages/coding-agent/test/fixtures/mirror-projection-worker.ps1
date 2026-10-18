@@ -1,10 +1,22 @@
-﻿param([Parameter(Mandatory = $true)][string]$WorkerPath)
+﻿param(
+  [Parameter(Mandatory = $true)][string]$WorkerPath,
+  [ValidateSet('unaware', 'per-monitor-v2')][string]$DpiAwareness = 'per-monitor-v2'
+)
 $ErrorActionPreference = 'Stop'
 $evidencePath = $env:OWL_MIRROR_GUARD_DIAGNOSTIC
+if ($evidencePath) { $evidencePath = $evidencePath.Replace('{dpi}', $DpiAwareness) }
 Add-Type -AssemblyName System.Windows.Forms
 $source = [IO.File]::ReadAllText($WorkerPath)
 $interop = [regex]::Match($source, "(?s)\`$user32 = @'\r?\n(.*?)\r?\n'@").Groups[1].Value
 Add-Type -TypeDefinition $interop
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class OwlProjectionFixtureDpi {
+  [DllImport("user32.dll")] public static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
+  [DllImport("user32.dll")] public static extern bool AreDpiAwarenessContextsEqual(IntPtr first, IntPtr second);
+}
+'@
 [OwlMirrorWin32]::SetThreadDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $directory = Join-Path ([IO.Path]::GetTempPath()) ('owl-projection-test-' + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $directory | Out-Null
@@ -16,6 +28,7 @@ using System.Windows.Forms;
 using System.Drawing;
 public sealed class Fixture : Form {
   [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   readonly string events;
   Fixture(string info, string events) {
     this.events = events;
@@ -37,7 +50,17 @@ public sealed class Fixture : Form {
       File.AppendAllText(events, m.Msg + ":" + ((short)((m.WParam.ToInt64() >> 16) & 0xffff)) + "\n");
     base.WndProc(ref m);
   }
-  [STAThread] public static void Main(string[] args) { Application.Run(new Fixture(args[0], args[1])); }
+  [STAThread] public static void Main(string[] args) {
+    if (SetThreadDpiAwarenessContext(new IntPtr(args[2] == "unaware" ? -1 : -4)) == IntPtr.Zero)
+      throw new Exception("Fixture DPI awareness was rejected");
+    // A separate, same-DPI control measures native positioning without moving
+    // the lifecycle target while its projection/lease assertions are active.
+    using (var calibration = new Fixture(args[0] + ".calibration", args[1] + ".calibration")) {
+      calibration.Text = "Projection calibration";
+      calibration.Show();
+      Application.Run(new Fixture(args[0], args[1]));
+    }
+  }
 }
 '@
 $executable = Join-Path $directory 'Androws.exe'
@@ -50,7 +73,7 @@ $errPath = Join-Path $directory 'worker-error.txt'
 $geometryId = [Guid]::NewGuid().ToString()
 [IO.File]::WriteAllText($eventsPath, '')
 [IO.File]::WriteAllText($controlPath, '')
-$app = Start-Process -FilePath $executable -ArgumentList @($infoPath, $eventsPath) -WindowStyle Hidden -PassThru
+$app = Start-Process -FilePath $executable -ArgumentList @($infoPath, $eventsPath, $DpiAwareness) -WindowStyle Hidden -PassThru
 $owner = New-Object System.Windows.Forms.Form
 $owner.FormBorderStyle = 'None'
 $owner.StartPosition = 'Manual'
@@ -97,10 +120,30 @@ function Assert-RestoreSnapshot {
     throw ('Projection replaced the original restore snapshot: ' + (@{ expected = $restoreSnapshot; actual = $current } | ConvertTo-Json -Depth 6 -Compress))
   }
 }
+function Measure-NativeRestore([IntPtr]$window, $rect) {
+  # Direct Win32 positioning is the independent control. Do not call the
+  # production restore helper or touch the projection's lifecycle HWND here.
+  if (-not [OwlMirrorWin32]::SetWindowPos($window, [IntPtr]::Zero, $rect.x, $rect.y, $rect.width, $rect.height, 0x4 -bor 0x10 -bor 0x20)) {
+    throw 'Native restore calibration failed'
+  }
+  $actual = New-Object OwlMirrorWin32+RECT
+  if (-not [OwlMirrorWin32]::GetWindowRect($window, [ref]$actual)) { throw 'Native restore calibration bounds were unavailable' }
+  return @{ x = $actual.Left; y = $actual.Top; width = $actual.Right - $actual.Left; height = $actual.Bottom - $actual.Top }
+}
 try {
   Wait-Until { Test-Path -LiteralPath $infoPath } 'Fixture did not start'
   $targetHandle = [IntPtr]([long][IO.File]::ReadAllText($infoPath))
+  Wait-Until { Test-Path -LiteralPath ($infoPath + '.calibration') } 'Calibration fixture did not start'
+  $calibrationHandle = [IntPtr]([long][IO.File]::ReadAllText($infoPath + '.calibration'))
+  $expectedDpiContext = if ($DpiAwareness -eq 'unaware') { [IntPtr](-1) } else { [IntPtr](-4) }
+  foreach ($fixtureHandle in @($targetHandle, $calibrationHandle)) {
+    $actualDpiContext = [OwlProjectionFixtureDpi]::GetWindowDpiAwarenessContext($fixtureHandle)
+    if (-not [OwlProjectionFixtureDpi]::AreDpiAwarenessContextsEqual($actualDpiContext, $expectedDpiContext)) {
+      throw "Fixture window does not use the requested $DpiAwareness DPI awareness"
+    }
+  }
   if (-not [OwlMirrorWin32]::IsCloaked($targetHandle)) { throw 'Fixture window was not cloaked from Owl enumeration' }
+  if (-not [OwlMirrorWin32]::IsCloaked($calibrationHandle)) { throw 'Calibration window was not cloaked from Owl enumeration' }
   $listed = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $WorkerPath list
   foreach ($line in $listed) {
     $row = $line | ConvertFrom-Json
@@ -110,7 +153,22 @@ try {
   Wait-Until { (Test-Path -LiteralPath $outPath) -and (Read-Shared $outPath).Contains('"event":"embedded"') } 'Projection did not start'
   $ready = (Read-Shared $outPath).Split("`n") | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.event -eq 'embedded' } | Select-Object -Last 1
   $restoreSnapshot = $ready
-  if ($ready.geometry.crop.width -ne 843 -or $ready.geometry.crop.height -ne 472) { throw 'Incorrect projection crop' }
+  $expectedRestore = Measure-NativeRestore $calibrationHandle $restoreSnapshot.originalRect
+  if ($DpiAwareness -eq 'per-monitor-v2' -and (
+      $expectedRestore.x -ne $restoreSnapshot.originalRect.x -or $expectedRestore.y -ne $restoreSnapshot.originalRect.y -or
+      $expectedRestore.width -ne $restoreSnapshot.originalRect.width -or $expectedRestore.height -ne $restoreSnapshot.originalRect.height)) {
+    throw 'DPI-aware native positioning changed an exact physical rectangle'
+  }
+  # A measured physical rectangle is representable even when the synthesized
+  # fallback intent was not. Replaying it must preserve all four values exactly.
+  $replayedRestore = Measure-NativeRestore $calibrationHandle $expectedRestore
+  if ($replayedRestore.x -ne $expectedRestore.x -or $replayedRestore.y -ne $expectedRestore.y -or
+      $replayedRestore.width -ne $expectedRestore.width -or $replayedRestore.height -ne $expectedRestore.height) {
+    throw 'Native positioning failed to preserve an actual physical rectangle'
+  }
+  $scale = [Math]::Max(96, [OwlMirrorWin32]::GetDpiForWindow($targetHandle)) / 96.0
+  if ($ready.geometry.crop.width -ne [int][Math]::Round(843 * $scale) -or
+      $ready.geometry.crop.height -ne [int][Math]::Round(472 * $scale)) { throw 'Incorrect projection crop' }
   $bounds = New-Object OwlMirrorWin32+RECT
   [OwlMirrorWin32]::GetWindowRect($targetHandle, [ref]$bounds) | Out-Null
   if ($bounds.Left -gt -10000 -or -not [OwlMirrorWin32]::IsWindowVisible($targetHandle)) { throw 'Projection did not preserve an offscreen visible surface' }
@@ -176,8 +234,8 @@ try {
   Wait-Until { $worker.HasExited } 'Owner loss did not stop projection'
   [OwlMirrorWin32]::GetWindowRect($targetHandle, [ref]$bounds) | Out-Null
   if ($bounds.Left -lt -10000 -or -not [OwlMirrorWin32]::IsWindowVisible($targetHandle) -or
-      $bounds.Left -ne $restoreSnapshot.originalRect.x -or $bounds.Top -ne $restoreSnapshot.originalRect.y -or
-      $bounds.Right - $bounds.Left -ne $restoreSnapshot.originalRect.width -or $bounds.Bottom - $bounds.Top -ne $restoreSnapshot.originalRect.height) {
+      $bounds.Left -ne $expectedRestore.x -or $bounds.Top -ne $expectedRestore.y -or
+      $bounds.Right - $bounds.Left -ne $expectedRestore.width -or $bounds.Bottom - $bounds.Top -ne $expectedRestore.height) {
     $currentPid = [uint32]0
     [OwlMirrorWin32]::GetWindowThreadProcessId($targetHandle, [ref]$currentPid) | Out-Null
     $failure = @{
@@ -186,6 +244,7 @@ try {
       x = $bounds.Left; y = $bounds.Top; width = $bounds.Right - $bounds.Left; height = $bounds.Bottom - $bounds.Top
       hwnd = $targetHandle.ToInt64(); targetPid = $currentPid; appExited = $app.HasExited; workerExit = $worker.ExitCode
       lease = [OwlMirrorWin32]::GetProp($targetHandle, 'OwlMirrorProjectionLease').ToInt64()
+      dpiAwareness = $DpiAwareness; expectedRestore = $expectedRestore; replayedRestore = $replayedRestore
       stdout = Read-Shared $outPath; stderr = Read-Shared $errPath
     } | ConvertTo-Json -Depth 5
     if ($evidencePath) { [IO.File]::WriteAllText($evidencePath, $failure) }
@@ -194,7 +253,10 @@ try {
   if (-not [OwlMirrorWin32]::IsCloaked($targetHandle)) { throw 'Restoring the fixture leaked it into Owl enumeration' }
   if ($evidencePath) {
     [IO.File]::WriteAllText($evidencePath, (@{
-      result = 'projection-worker-ok'; restoreSnapshot = $restoreSnapshot
+      result = 'projection-worker-ok'; restoreSnapshot = $restoreSnapshot; dpiAwareness = $DpiAwareness
+      targetAndCalibrationAwarenessVerified = $true
+      targetDpi = [OwlMirrorWin32]::GetDpiForWindow($targetHandle)
+      nativeCalibratedRestoreRect = $expectedRestore; replayedRestoreRect = $replayedRestore
       restoredRect = @{ x = $bounds.Left; y = $bounds.Top; width = $bounds.Right - $bounds.Left; height = $bounds.Bottom - $bounds.Top }
       wheelEvents = $wheelEvents
       fixtureCloaked = [OwlMirrorWin32]::IsCloaked($targetHandle)

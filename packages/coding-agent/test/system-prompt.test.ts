@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
-import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+import { buildSystemPrompt, buildSystemPromptSections } from "../src/core/system-prompt.ts";
 
 const testSkill: Skill = {
 	name: "test-skill",
@@ -59,6 +59,57 @@ describe("buildSystemPrompt", () => {
 
 		test("preserves an exact forced prompt without sections", () => {
 			expect(buildSystemPrompt({ forceSystemPrompt: "exact", cwd: "/tmp" })).toBe("exact");
+		});
+
+		test("instructs short factual public progress and keeps authorized tool work moving after updates", () => {
+			const prompt = buildSystemPrompt({
+				cwd: "/tmp",
+				selectedTools: ["read", "edit", "bash"],
+				contextFiles: [],
+				skills: [],
+			});
+			expect(prompt).toContain("在同一条助手回复里先用公开文本给 1–2 句简短的可见说明，再发出工具调用");
+			expect(prompt).toContain("确认重要发现、调整方案、遇到阻塞或完成验证时");
+			expect(prompt).toContain("已确认的结果和下一步");
+			expect(prompt).toContain("行动、证据和进展");
+			expect(prompt).toContain("不暴露内部推理");
+			expect(prompt).toContain("不编造成功、百分比或剩余时间");
+			expect(prompt).toContain("没有新事实时不要重复");
+			expect(prompt).toContain("发出说明后继续执行已授权的工具操作");
+			expect(prompt).toContain("不要停下来等待用户再次催促");
+			expect(prompt).toContain("thinking 中的计划不算公开说明");
+			expect(prompt).toContain("只输出 JSON、只输出代码");
+			expect(prompt).toContain("优先满足用户指定的格式");
+			expect(prompt).toContain("不要为了说明额外结束一轮");
+			expect(prompt).toContain("默认最终回答控制在 10 行以内");
+			expect(prompt).toContain("这不限制执行中的必要进展说明");
+		});
+
+		test("does not inject default progress rules into custom or exact forced prompts", () => {
+			const customPrompt = "Custom instructions.\n\nKeep this wording verbatim.";
+			const sections = buildSystemPromptSections({
+				customPrompt,
+				cwd: "/tmp",
+				selectedTools: ["read"],
+				contextFiles: [],
+				skills: [],
+			});
+			expect(sections.preamble).toBe(customPrompt);
+			expect(buildSystemPrompt({ customPrompt, cwd: "/tmp", contextFiles: [], skills: [] })).not.toContain(
+				"过程说明不是最终回答",
+			);
+			const forced = "  Exact forced prompt.\n\nDo not append anything.  ";
+			expect(
+				buildSystemPrompt({
+					forceSystemPrompt: forced,
+					customPrompt,
+					appendSystemPrompt: "ignored addendum",
+					contextFiles: [{ path: "/tmp/AGENTS.md", content: "ignored project context" }],
+					selectedTools: ["read"],
+					toolSnippets: { read: "ignored tool snippet" },
+					cwd: "/tmp",
+				}),
+			).toBe(forced);
 		});
 
 		test("maps appended instructions and project context to stable sections", () => {

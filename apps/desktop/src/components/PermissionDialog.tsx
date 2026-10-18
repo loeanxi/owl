@@ -110,6 +110,7 @@ export function PermissionDialog({
 				</div>
 				<footer className="owl-permission-foot">
 					{onLater && <button type="button" className="owl-permission-action later" onClick={onLater}>{copy.later}</button>}
+					{busy && <button type="button" disabled className="owl-permission-action sending">{copy.sending}</button>}
 					<button
 						type="button"
 						disabled={busy}

@@ -65,6 +65,16 @@ export function workActionTitle(card: ToolCard): string {
 	return card.summary || card.name;
 }
 
+/** These are execution outcomes, never an inferred verdict on the user's task. */
+export function workActionStatus(card: ToolCard): string {
+	return workProcessText(card.status === "ok" ? "succeeded" : card.status === "error" ? "failed" : card.status === "cancelled" ? "cancelled" : card.status === "pending" ? "pending" : "working");
+}
+
+/** Prefer the current action's real output, otherwise retain the latest received result. */
+export function workLatestOutput(actions: readonly WorkAction[], current?: WorkAction): WorkAction | undefined {
+	return current?.card.output?.text.trim() ? current : actions.findLast(({ card }) => Boolean(card.output?.text.trim()));
+}
+
 /** Facts are scoped to the supplied work segment; prose and unrelated successes never resolve failures. */
 export function workActionFacts(actions: readonly WorkAction[]): {
 	current?: WorkAction;

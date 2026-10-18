@@ -6,7 +6,7 @@ import type { SessionQueueSnapshot } from "./bridge/protocol.ts";
 import { applyPermissionQueueEvent, approvalModeFromEvent } from "./bridge/permission-state.ts";
 import { PendingResponses, PendingResponsesContext } from "./bridge/pending-responses.ts";
 import { describeToolInput } from "./hooks/summarize.ts";
-import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen } from "./bridge/native.ts";
+import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen, startDebugRebuild } from "./bridge/native.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
 import { useSubagents } from "./hooks/use-subagents.ts";
@@ -41,6 +41,10 @@ import { presentLife } from "./features/life-monitor/present.ts";
 import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity, type MessageSearchTarget } from "./components/ChatStream.tsx";
+import { ExecutionToolbar } from "./components/ExecutionToolbar.tsx";
+import { isExecutionView, nextExecutionView, type ExecutionView } from "./components/execution-view.ts";
+import { executionText } from "./components/execution-copy.ts";
+import { APP_KEYBINDINGS_KEY, DEFAULT_APP_KEYBINDINGS, loadAppKeybindings, matchingAppAction, type AppKeybindingAction } from "./app-keybindings.ts";
 import type { SessionSearchHit, SessionSearchMessageResult } from "./bridge/protocol.ts";
 import { rememberProjectSession, resolveProjectSession } from "./project-session-memory.ts";
 import { AgentConversation } from "./components/AgentConversation.tsx";
@@ -101,6 +105,8 @@ import { getSidebarConfig, isTabKindEnabled, parseSidebarSettings, setSidebarCon
 import { createSidebarApi, fileUrlOf } from "./sidebar/api.ts";
 import { isIabPageBound, boundTabIdFor, encodeIabPath, parseIabPath, agentPageForSession } from "./sidebar/iab-bound.ts";
 import { BrowserSessionContext } from "./sidebar/registry.ts";
+import { ExecutionContext, type ExecutionContextValue } from "./sidebar/execution-context.tsx";
+import type { GitStatusResult } from "./bridge/protocol.ts";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -120,6 +126,7 @@ const THINKING_KEY = "owl.thinkingLevel";
 const APPROVAL_KEY = "owl.approvalMode";
 /** 暂存的 Agent 预设 id：新会话创建时带上（DSH 的 staged-selection 语义）。 */
 const PRESET_KEY = "owl.agentPreset";
+const ACTIVITY_RAIL_COLLAPSED_KEY = "owl.activityRailCollapsed";
 const SIDEBAR_MINIMIZED_KEY = "owl.sidebar.minimized";
 const NEWS_SIDEBAR_MINIMIZED_KEY = "owl.news.sidebar.minimized";
 
@@ -133,6 +140,7 @@ const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const TERMINAL_OPEN_KEY = "owl.terminal.open";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
+const EXECUTION_VIEW_KEY = "owl.execution.view";
 const RESEARCH_CONVERSATION_VIEW_KEY = "owl.research.conversation.view";
 const ZOOM_KEY = "owl.ui.zoom";
 /** 缩放挡位（对照浏览器 Ctrl+- / Ctrl+Shift+= / Ctrl+0），实际大小 = 1。 */
@@ -234,6 +242,16 @@ export default function App(): React.JSX.Element {
 	const deliverySequence = useRef(0);
 	const [projectRestoring, setProjectRestoring] = useState<{ scope: "chat" | "research"; path: string; token: number }>();
 	const [projectNotice, setProjectNotice] = useState<string>();
+	const [activityRailCollapsed, setActivityRailCollapsed] = useState(() => {
+		try { return localStorage.getItem(ACTIVITY_RAIL_COLLAPSED_KEY) === "1"; } catch { return false; }
+	});
+	const toggleActivityRail = (): void => {
+		setActivityRailCollapsed((current) => {
+			const next = !current;
+			try { localStorage.setItem(ACTIVITY_RAIL_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* Keep the rail toggle usable without local storage. */ }
+			return next;
+		});
+	};
 	const [sidebarMinimized, setSidebarMinimized] = useState(
 		() => localStorage.getItem(SIDEBAR_MINIMIZED_KEY) === "1",
 	);
@@ -428,6 +446,25 @@ export default function App(): React.JSX.Element {
 	const [conversationView, setConversationView] = useState<ConversationView>(() =>
 		localStorage.getItem(CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
+	// Display preference is global; it never carries task or output data between sessions.
+	const [executionView, setExecutionView] = useState<ExecutionView>(() => {
+		try { const stored = localStorage.getItem(EXECUTION_VIEW_KEY); return isExecutionView(stored) ? stored : "normal"; } catch { return "normal"; }
+	});
+	const setExecutionViewPersisted = (view: ExecutionView): void => {
+		setExecutionView(view);
+		try { localStorage.setItem(EXECUTION_VIEW_KEY, view); } catch { /* Display remains usable without persistence. */ }
+	};
+	const [appKeybindings, setAppKeybindings] = useState(() => loadAppKeybindings(localStorage));
+	const appKeybindingsRef = useRef(appKeybindings);
+	appKeybindingsRef.current = appKeybindings;
+	const setExecutionShortcut = (binding: string | undefined): boolean => {
+		const next = binding ? [binding] : [...DEFAULT_APP_KEYBINDINGS.cycleExecutionView];
+		if ((Object.keys(appKeybindings) as AppKeybindingAction[]).some((action) => action !== "cycleExecutionView" && appKeybindings[action].some((existing) => next.includes(existing)))) return false;
+		const updated = { ...appKeybindings, cycleExecutionView: next };
+		setAppKeybindings(updated);
+		try { localStorage.setItem(APP_KEYBINDINGS_KEY, JSON.stringify(updated)); } catch { /* The current binding still takes effect. */ }
+		return true;
+	};
 	const [researchConversationView, setResearchConversationView] = useState<ConversationView>(() =>
 		localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
@@ -510,6 +547,9 @@ export default function App(): React.JSX.Element {
 		return store;
 	}, [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 	const terminalStore = useMemo(() => new SidebarStore(workspaceDir, "owl.terminal.state"), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	const [workbenchGit, setWorkbenchGit] = useState<{ cwd: string; profile?: string; status?: GitStatusResult }>();
+	const onWorkbenchGitStatus = useCallback((cwd: string, profile: string | undefined, status: GitStatusResult | undefined): void => setWorkbenchGit({ cwd, profile, status }), []);
+	const changeCount = connected && workbenchGit?.cwd === workspaceDir && workbenchGit.profile === agentDir && workbenchGit.status?.repo ? workbenchGit.status.entries.length : undefined;
 	useEffect(() => {
 		const unregister = registerEditorExitGuard({ prepare: () => workbenchStore.prepareToLeave(), needsWarning: () => workbenchStore.hasUnprotectedEdits() });
 		const stopUnloadGuard = listenForUnprotectedEditorUnload(window);
@@ -650,6 +690,13 @@ export default function App(): React.JSX.Element {
 			return;
 		}
 		openQuickAction(workbenchStore, kind);
+		setSidebarOpenPersisted(true);
+	};
+	const openExecution = (mode: "tasks" | "tool", card?: ToolCard, ownerIndex?: number): void => {
+		if (!sessionId) return;
+		const path = JSON.stringify({ sessionId, profile: agentDir, mode, ...(card ? { toolId: card.id } : {}), ...(ownerIndex !== undefined ? { ownerIndex } : {}) });
+		workbenchStore.openFileTab("execution", path, executionText(mode === "tasks" ? "tasks" : "toolOutput"));
+		setDeveloperLayoutPersisted(false);
 		setSidebarOpenPersisted(true);
 	};
 
@@ -803,8 +850,12 @@ export default function App(): React.JSX.Element {
 	// 两者都是「仅回退对话」到目标用户消息再重发：不动文件，模型看到的历史回到该条之前。
 	const rewindConversation = async (entryId: string): Promise<RewindExecuteResult | undefined> => {
 		if (!sessionIdRef.current || !connected || running || submitInFlight.current) return undefined;
+		// 回退完成前就占住提交，避免编辑和重新生成再开一次。
+		submitInFlight.current = true;
+		setSubmitting(true);
 		const origin = sessionIdRef.current;
 		const viewSeq = sessionViewSeq.current;
+		let handoff = false;
 		try {
 			const response = await client.request<RewindExecuteResult>({
 				type: "rewind.execute",
@@ -813,34 +864,56 @@ export default function App(): React.JSX.Element {
 				mode: "conversation",
 			});
 			if (origin !== sessionIdRef.current || viewSeq !== sessionViewSeq.current) return undefined;
-			if (response.ok && response.result) return response.result;
+			if (response.ok && response.result) {
+				handoff = true;
+				return response.result;
+			}
 		} catch {
 			// 回退失败（会话已卸载等）：放弃本次操作，转录保持原样
+		} finally {
+			if (!handoff) {
+				submitInFlight.current = false;
+				setSubmitting(false);
+			}
 		}
 		return undefined;
 	};
 
-	const handleEditMessage = async (entryId: string, text: string, images?: { data: string; mimeType: string }[]): Promise<void> => {
+	const reportRewindFailure = (origin: string | undefined): void => {
+		if (origin && origin === sessionIdRef.current) setProjectNotice(t("rewind.failed"));
+	};
+
+	const handleEditMessage = async (entryId: string, text: string, images?: { data: string; mimeType: string }[]): Promise<boolean> => {
+		const origin = sessionIdRef.current;
 		const original = entries.find((entry) => entry.kind === "user" && entry.entryId === entryId);
-		if (original?.kind !== "user") return;
+		if (original?.kind !== "user") return false;
 		const input = messageInputOf({ ...original, images: images ?? original.images }, text);
 		const result = await rewindConversation(entryId);
-		if (!result) return;
+		if (!result) {
+			reportRewindFailure(origin);
+			return false;
+		}
 		applyRewindSnapshot(result);
-		if (!(await sendPrompt(input.text, input.images, input.attachedPaths))) setDraftRequest({ id: ++draftSequence.current, ...input });
+		if (!(await sendPrompt(input.text, input.images, input.attachedPaths, undefined, true))) setDraftRequest({ id: ++draftSequence.current, ...input });
+		return true;
 	};
 
 	const handleRegenerate = async (): Promise<void> => {
 		for (let index = entries.length - 1; index >= 0; index--) {
 			const entry = entries[index]!;
-			if (entry.kind !== "user") continue;
+			// 排队跟进还没成为这一轮的用户消息，不能挡住对上一条已送达消息的重新生成。
+			if (entry.kind !== "user" || entry.queued) continue;
 			// 目标用户消息没有 entryId（旧桥/异常流）就无从回退，直接放弃
 			if (!entry.entryId) return;
+			const origin = sessionIdRef.current;
 			const result = await rewindConversation(entry.entryId);
-			if (!result) return;
+			if (!result) {
+				reportRewindFailure(origin);
+				return;
+			}
 			const input = messageInputOf(entry, result.editorText ?? entry.text);
 			applyRewindSnapshot(result);
-			if (!(await sendPrompt(input.text, input.images, input.attachedPaths))) setDraftRequest({ id: ++draftSequence.current, ...input });
+			if (!(await sendPrompt(input.text, input.images, input.attachedPaths, undefined, true))) setDraftRequest({ id: ++draftSequence.current, ...input });
 			return;
 		}
 	};
@@ -1082,48 +1155,10 @@ export default function App(): React.JSX.Element {
 		useEffect(() => {
 			const onKey = (event: KeyboardEvent): void => {
 				if ((event.target as HTMLElement | null)?.closest?.("[data-iab-capture]")) return;
-				const actions = shortcutsRef.current;
-				// Alt+Ctrl+B：对话 / 上下文 tab 切换
-				if (event.ctrlKey && event.altKey && (event.key === "b" || event.key === "B")) {
-					event.preventDefault();
-					actions.toggleChatContext();
-					return;
-				}
-				const mod = event.ctrlKey && !event.altKey;
-				if (mod && event.shiftKey) {
-					switch (event.key) {
-						case "S": case "s": event.preventDefault(); actions.toggleSidebar(); return;
-						case "E": case "e": event.preventDefault(); actions.toggleRightPanel(); return;
-						case "[": event.preventDefault(); actions.prevSession(); return;
-						case "]": event.preventDefault(); actions.nextSession(); return;
-					}
-				}
-				if (!mod) {
-					if (event.key === "F11") {
-						event.preventDefault();
-						actions.toggleFullscreen();
-					}
-					return;
-				}
-				switch (event.key) {
-					case "n": case "N": event.preventDefault(); actions.newChat(); return;
-					case "o": case "O": event.preventDefault(); actions.openProject(); return;
-					case "w": case "W": event.preventDefault(); actions.closeWindow(); return;
-					case "q": case "Q": event.preventDefault(); actions.quit(); return;
-					case ",": event.preventDefault(); actions.openSettings(); return;
-					case "/": event.preventDefault(); actions.showShortcuts(); return;
-					case "f": case "F": event.preventDefault(); actions.find(); return;
-					case "j": case "J": event.preventDefault(); actions.toggleBottomPanel(); return;
-					case "`": case "~": event.preventDefault(); actions.openTerminal(); return;
-					case "t": case "T": event.preventDefault(); actions.openBrowserTab(); return;
-					case "[": event.preventDefault(); actions.historyBack(); return;
-					case "]": event.preventDefault(); actions.historyForward(); return;
-					case "-": case "_": event.preventDefault(); actions.zoomOut(); return;
-					case "=": case "+": event.preventDefault(); actions.zoomIn(); return;
-					case "0": event.preventDefault(); actions.zoomReset(); return;
-					case ".": event.preventDefault(); actions.openIsland(); return;
-					default: return;
-				}
+				const action = matchingAppAction(event, appKeybindingsRef.current);
+				if (!action) return;
+				event.preventDefault();
+				shortcutsRef.current[action]();
 			};
 			window.addEventListener("keydown", onKey);
 			return () => window.removeEventListener("keydown", onKey);
@@ -1672,11 +1707,8 @@ export default function App(): React.JSX.Element {
 		if (!response.ok || !response.result) {
 			console.error("session.resume failed:", response.error);
 			if (options?.canApply) throw new Error(response.error ?? t("app.sessionRestoreFailed"));
-			if (!options?.silent) {
-				setEntries([
-					{ kind: "toolResult", toolName: t("app.sessionRestoreFailed"), ok: false, brief: response.error ?? t("app.unknownError") },
-				]);
-			}
+			// 还没切换会话：失败只出提示，不能用一条错误替换当前对话。
+			if (!options?.silent) setProjectNotice(response.error ? `${t("app.sessionRestoreFailed")}：${response.error}` : t("app.sessionRestoreFailed"));
 			return;
 		}
 		const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
@@ -1998,12 +2030,16 @@ export default function App(): React.JSX.Element {
 			case "compact": {
 				const target = await ensureSession();
 				if (!target) return true;
+				const viewSeq = sessionViewSeq.current;
+				const stillHere = (): boolean => target === sessionIdRef.current && viewSeq === sessionViewSeq.current;
+				if (!stillHere()) return true;
 				setEntries((current) => [
 					...current,
 					{ kind: "toolResult", toolName: t("app.compactTool"), ok: true, brief: t("app.compactStarted") },
 				]);
 				try {
 					const response = await client.request<SessionStatsResult>({ type: "session.compact", sessionId: target });
+					if (!stillHere()) return true;
 					setEntries((current) => [
 						...current,
 						response.ok
@@ -2012,6 +2048,7 @@ export default function App(): React.JSX.Element {
 					]);
 					if (response.ok && response.result) setSessionInfo(response.result);
 				} catch (error) {
+					if (!stillHere()) return true;
 					setEntries((current) => [
 						...current,
 						{
@@ -2029,12 +2066,21 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
-	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> => {
+	const sendPrompt = async (message: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer", handoff = false): Promise<boolean> => {
 		const hasImages = (images?.length ?? 0) > 0;
 		const hasAttachments = (attachedPaths?.length ?? 0) > 0;
 		const queueing = running;
 		const viewSeq = sessionViewSeq.current;
-		if (!connected || submitInFlight.current || (!message.trim() && !hasImages && !hasAttachments)) return false;
+		const sourceProfile = agentDirRef.current;
+		const releaseHandoff = (): void => {
+			if (!handoff) return;
+			submitInFlight.current = false;
+			setSubmitting(false);
+		};
+		if (!connected || (!handoff && submitInFlight.current) || (!message.trim() && !hasImages && !hasAttachments)) {
+			releaseHandoff();
+			return false;
+		}
 		submitInFlight.current = true;
 		setSubmitting(true);
 		let target: string | undefined;
@@ -2050,7 +2096,7 @@ export default function App(): React.JSX.Element {
 			if (entry?.kind === "builtin" && (await executeBuiltinCommand(name, args ?? ""))) return true;
 		}
 		target = await ensureSession();
-		if (!target || viewSeq !== sessionViewSeq.current || target !== sessionIdRef.current) return false;
+		if (!target || viewSeq !== sessionViewSeq.current || target !== sessionIdRef.current || sourceProfile !== agentDirRef.current) return false;
 		// 新消息接管会话：若该会话此前被暂停，解除暂停态（按钮回到发送/暂停的常规轮转）。
 		setPausedSessions((current) => {
 			if (!current.has(target!)) return current;
@@ -2115,6 +2161,27 @@ export default function App(): React.JSX.Element {
 		}
 	};
 
+	const sendPromptRef = useRef(sendPrompt);
+	sendPromptRef.current = sendPrompt;
+	const executionOwnerRevision = sessionViewSeq.current;
+	const executionContext: ExecutionContextValue = {
+		sessionId: railView === "research" ? undefined : sessionId,
+		profile: agentDir,
+		entries: railView === "research" ? [] : entries,
+		subagents: railView === "research" ? [] : subagents.runs,
+		onOpenSubagent: openSubagent,
+		onRefreshSubagents: subagents.refresh,
+		onOpenSession: (id) => { setRailView("chat"); setShowSettings(false); void openSession(id); },
+		onSubmitFeedback: async (text) => {
+			const ownsSession = (): boolean => Boolean(sessionId) && sessionIdRef.current === sessionId && agentDirRef.current === agentDir && sessionViewSeq.current === executionOwnerRevision && railViewRef.current === "chat";
+			if (!connected || !profileReady || !ownsSession()) return false;
+			// Reviews keep their original owner while delivery uses the current run state.
+			// sendPrompt omits streamingBehavior for idle sessions and steers active ones.
+			const accepted = await sendPromptRef.current(text, undefined, undefined, "steer");
+			return accepted && ownsSession();
+		},
+	};
+
 	const replyToSession = (target: string, message: string): void => {
 		const text = message.trim();
 		if (!connected || !text) return;
@@ -2125,8 +2192,10 @@ export default function App(): React.JSX.Element {
 			next.delete(target);
 			return next;
 		});
+		let optimisticEntry: ChatEntry | undefined;
 		if (target === sessionIdRef.current && !queueing) {
-			setEntries((current) => [...current, { kind: "user", text, timestamp: Date.now() }]);
+			optimisticEntry = { kind: "user", text, timestamp: Date.now() };
+			setEntries((current) => [...current, optimisticEntry!]);
 			setRetryStatus(null);
 		}
 		if (!queueing) setPendingPrompts((current) => new Set(current).add(target));
@@ -2140,7 +2209,7 @@ export default function App(): React.JSX.Element {
 				return next;
 			});
 			if (target === sessionIdRef.current) {
-				setEntries((current) => [...current, {
+				setEntries((current) => [...current.filter((entry) => entry !== optimisticEntry), {
 					kind: "toolResult", toolName: t("app.sendFailed"), ok: false, brief: error instanceof Error ? error.message : String(error),
 				}]);
 			}
@@ -2361,8 +2430,30 @@ export default function App(): React.JSX.Element {
 			if (railView !== "research") setRailView("chat");
 			setShowProjectDialog(true);
 		},
+		cycleExecutionView: (): void => {
+			if (railView !== "chat" || showSettings || visibleSubagent) return;
+			setExecutionViewPersisted(nextExecutionView(executionView));
+		},
 		closeWindow: (): void => { void closeMainWindow(); },
 		quit: (): void => { void quitDesktopApp(); },
+		debugUpdate: (): void => {
+			// 键盘入口与左下角菜单「调试更新」同一条路：确认后 Owl 退出、全量重建、自动重启。
+			// 非桌面壳（浏览器模式）startDebugRebuild 直接返回 false，这里给出同样提示。
+			if (!window.confirm(t("rail.debugUpdateConfirm"))) return;
+			void (async () => {
+				try {
+					if (await startDebugRebuild()) return;
+					window.alert(t("rail.updateDesktopOnly"));
+				} catch (error) {
+					const message = error instanceof Error && error.message.trim()
+						? error.message.trim()
+						: typeof error === "string" && error.trim()
+							? error.trim()
+							: String(error || "unknown");
+					window.alert(t("rail.debugUpdateFailed", { message }));
+				}
+			})();
+		},
 		openSettings: (): void => openSettings("general"),
 		openAbout: (): void => openSettings("about"),
 		showShortcuts: (): void => setHelpSection("shortcuts"),
@@ -2447,7 +2538,7 @@ export default function App(): React.JSX.Element {
 
 	return (
 		<PendingResponsesContext.Provider value={pendingResponses}>
-		<div className="owl-desktop-shell font-sans text-owl-text">
+		<div className={`owl-desktop-shell font-sans text-owl-text${activityRailCollapsed ? " is-activity-rail-collapsed" : ""}`}>
 			<WallpaperLayer settings={wallpaper} />
 			{/* 背景动画（深色 + 未开壁纸时生效）：随 Agent 状态联动——等待授权/提问 > 工作中 > 空闲；完成/异常触发一次脉冲。 */}
 			<AmbientBackground
@@ -2460,6 +2551,8 @@ export default function App(): React.JSX.Element {
 			<BuildConsistencyBanner client={client} connected={connected} />
 			<DesktopTitlebar
 				connected={connected}
+				activityRailCollapsed={activityRailCollapsed}
+				onToggleActivityRail={toggleActivityRail}
 				sidebarCollapsed={railView === "news" && !showSettings ? newsSidebarMinimized : sidebarMinimized || showSettings}
 				sidebarView={railView === "media" ? "chat" : railView}
 				sidebarToggleRef={sidebarToggleRef}
@@ -2492,6 +2585,7 @@ export default function App(): React.JSX.Element {
 				onZoomOut={shortcuts.zoomOut}
 				onZoomReset={shortcuts.zoomReset}
 				onToggleFullscreen={shortcuts.toggleFullscreen}
+				onDebugUpdate={shortcuts.debugUpdate}
 				onOpenGuide={shortcuts.openGuide}
 				onShowShortcuts={shortcuts.showShortcuts}
 				onOpenEvaluation={() => {
@@ -2561,6 +2655,7 @@ export default function App(): React.JSX.Element {
 			<div className="owl-desktop-body">
 			<ActivityRail
 				client={client}
+				collapsed={activityRailCollapsed}
 				view={railView}
 				settingsOpen={showSettings}
 				onHome={() => {
@@ -2788,6 +2883,7 @@ export default function App(): React.JSX.Element {
 						</div>}
 						<AgentConversation
 							hidden={railView === "research" || Boolean(visibleSubagent)}
+							header={conversationView === "chat" && entries.length > 0 ? <ExecutionToolbar view={executionView} onView={setExecutionViewPersisted} shortcut={appKeybindings.cycleExecutionView[0]} onShortcut={setExecutionShortcut} onTerminal={toggleTerminalPanel} onTasks={() => openExecution("tasks")} onChanges={() => requestOpenKind("changes")} terminalOpen={terminalOpen} changeCount={changeCount} plan={<TodoPin entries={entries} presentation="summary" />} /> : undefined}
 							view={conversationView}
 							trajectory={(
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
@@ -2797,12 +2893,12 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={(entryId, text, images) => void handleEditMessage(entryId, text, images)} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream executionView={executionView} onInspectTool={(card, ownerIndex) => openExecution("tool", card, ownerIndex)} key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={handleEditMessage} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 							)}
-							overlay={<div className="owl-conversation-pins"><TodoPin entries={entries} /><SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} /></div>}
+							overlay={<div className="owl-conversation-pins">{conversationView !== "chat" && <TodoPin entries={entries} />}<SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} /></div>}
 							beforeComposer={(
 							<>
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
@@ -2882,6 +2978,7 @@ export default function App(): React.JSX.Element {
 					</BrowserSessionContext.Provider>
 					</div>
 					{/* 工具侧栏：右列（宽度拖拽），装除终端外的全部工作 tab */}
+					<ExecutionContext.Provider value={executionContext}>
 					<BrowserSessionContext.Provider value={railView === "research" ? researchSessionId : sessionId}>
 						<Workbench
 							client={client}
@@ -2889,6 +2986,7 @@ export default function App(): React.JSX.Element {
 							profile={agentDir}
 							connected={connected && profileReady}
 							store={workbenchStore}
+							onGitStatusChange={onWorkbenchGitStatus}
 							open={sidebarOpen}
 							onSetOpen={setSidebarOpenPersisted}
 							dock="right"
@@ -2896,6 +2994,7 @@ export default function App(): React.JSX.Element {
 							onToChat={sendWorkbenchTextToChat}
 						/>
 					</BrowserSessionContext.Provider>
+					</ExecutionContext.Provider>
 				</div>
 			{showSettings && (
 				<SettingsPage

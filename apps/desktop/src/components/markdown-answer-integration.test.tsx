@@ -195,4 +195,27 @@ describe("Markdown answers in the real chat timeline", () => {
 		expect(link.getAttribute("href")).toBe("https://example.test/source");
 		expect(path.textContent).toBe("D:/project/source.ts");
 	});
+
+	it("opens a workspace link that carries both a line and a column", async () => {
+		await render({ entries: [assistant("[位置](src/App.tsx:10:4)")] });
+		const link = host.querySelector<HTMLAnchorElement>(".owl-answer a")!;
+		const click = new window.Event("click", { bubbles: true, cancelable: true });
+		await act(async () => link.dispatchEvent(click));
+		expect(click.defaultPrevented).toBe(true);
+		expect(props.onOpenFile).toHaveBeenCalledExactlyOnceWith("src/App.tsx");
+	});
+
+	it("opens protocol-relative links in the sidebar and does not follow other schemes", async () => {
+		await render({ entries: [assistant("[站](//example.test/docs) 和 [信](mailto:owl@example.test)")] });
+		const [web, mail] = [...host.querySelectorAll<HTMLAnchorElement>(".owl-answer a")];
+		const webClick = new window.Event("click", { bubbles: true, cancelable: true });
+		await act(async () => web!.dispatchEvent(webClick));
+		expect(webClick.defaultPrevented).toBe(true);
+		expect(props.onOpenUrl).toHaveBeenCalledExactlyOnceWith("https://example.test/docs");
+		const mailClick = new window.Event("click", { bubbles: true, cancelable: true });
+		await act(async () => mail!.dispatchEvent(mailClick));
+		expect(mailClick.defaultPrevented).toBe(true);
+		expect(props.onOpenUrl).toHaveBeenCalledOnce();
+		expect(props.onOpenFile).not.toHaveBeenCalled();
+	});
 });

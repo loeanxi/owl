@@ -41,7 +41,7 @@ import {
 	nextEnabledModelsAfterToggle,
 	parseEnabledModels,
 } from "../utils/enabled-models.ts";
-import { NOTIFICATION_SOUNDS, playChime, type NotificationSound } from "../utils/sound.ts";
+import { NOTIFICATION_SOUNDS, previewChime, type NotificationSound } from "../utils/sound.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { FILE_ICON_THEMES, parseFileIconTheme, setFileIconTheme, type FileIconThemeId } from "../file-icons/file-icon-theme.ts";
 import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
@@ -3448,7 +3448,7 @@ export function SettingsPage({
 											className={btn}
 											disabled={busy}
 											title={t("settings.notifications.previewTitle")}
-											onClick={() => playChime(notifPrefs.soundKind, Math.max(notifPrefs.volume, 40), false)}
+											onClick={() => previewChime(notifPrefs.soundKind, Math.max(notifPrefs.volume, 40))}
 										>
 											{t("settings.notifications.preview")}
 										</button>
@@ -3462,7 +3462,7 @@ export function SettingsPage({
 												if (!NOTIFICATION_SOUNDS.includes(next as NotificationSound)) return;
 												saveNotifications({ ...notifPrefs, soundKind: next as NotificationSound });
 												// 选完即试听，省一次找按钮（音量过低的兜底到 40，保证听得见）
-												playChime(next as NotificationSound, Math.max(notifPrefs.volume, 40), false);
+												previewChime(next as NotificationSound, Math.max(notifPrefs.volume, 40));
 											}}
 										>
 											{NOTIFICATION_SOUNDS.map((value) => (
@@ -3491,9 +3491,15 @@ export function SettingsPage({
 											const volume = event.currentTarget.valueAsNumber;
 											setNotifPrefs((current) => ({ ...current, volume }));
 										}}
-										// 拖动结束才落盘（onPointerUp / 键盘 / 失焦），避免滑动过程频繁写 settings.json
-										onPointerUp={() => saveNotifications({ ...notifPrefsRef.current })}
-										onKeyUp={() => saveNotifications({ ...notifPrefsRef.current })}
+										// 拖动结束才落盘（onPointerUp / 键盘 / 失焦），避免滑动过程频繁写 settings.json；松手即试听新音量
+										onPointerUp={() => {
+											saveNotifications({ ...notifPrefsRef.current });
+											previewChime(notifPrefsRef.current.soundKind, notifPrefsRef.current.volume);
+										}}
+										onKeyUp={() => {
+											saveNotifications({ ...notifPrefsRef.current });
+											previewChime(notifPrefsRef.current.soundKind, notifPrefsRef.current.volume);
+										}}
 										onBlur={() => saveNotifications({ ...notifPrefsRef.current })}
 									/>
 								</SettingRow>

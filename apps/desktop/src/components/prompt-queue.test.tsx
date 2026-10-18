@@ -5,7 +5,7 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionQueueInput, SessionQueueItem, SessionQueueReturnedInput, SessionQueueReturnedSummary, SessionQueueSnapshot } from "../bridge/protocol.ts";
-import { setUiLanguage, t } from "../i18n/index.ts";
+import { setUiLanguage } from "../i18n/index.ts";
 import { Composer } from "./Composer.tsx";
 import { promptQueueText as text } from "./prompt-queue-copy.ts";
 
@@ -64,6 +64,13 @@ async function render(patch: Partial<Props> = {}): Promise<void> { props = { ...
 function button(label: string): HTMLButtonElement { const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent?.trim() === label || element.getAttribute("aria-label") === label); if (!found) throw new Error(`Missing ${label}`); return found; }
 async function click(label: string): Promise<void> { await act(async () => button(label).click()); }
 const editor = (): HTMLElement => container.querySelector<HTMLElement>('[role="textbox"]')!;
+async function enter(): Promise<void> {
+	await act(async () => {
+		const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(event, { key: "Enter", code: "Enter", ctrlKey: false, isComposing: false });
+		editor().dispatchEvent(event);
+	});
+}
 
 describe("queue materials and durable retrieval", () => {
 	it.each(["remove", "promote", "take", "preview"] as const)("ignores a late %s acknowledgement when synchronous navigation starts before a render", async (action) => {
@@ -110,8 +117,8 @@ describe("queue materials and durable retrieval", () => {
 		await click(text("take")); expect(editor().textContent).toBe("已有草稿"); expect(receipts).toHaveLength(1);
 		await click(text("append")); expect(editor().textContent).toBe(`已有草稿\n\n${fullText}`);
 		expect(receipts).toHaveLength(1); expect(request.mock.calls.some(([payload]) => payload.type === "session.queue.returned.remove")).toBe(false);
-		await click(t("composer.sendNextTurn"));
-		expect(props.onSend).toHaveBeenCalledWith(`已有草稿\n\n${fullText.trimEnd()}`, [{ ...image, data: "existing-image" }, image], ["D:/current-project/existing.md", "D:/source-project/notes/reference.md"], "queue");
+		await enter();
+		expect(props.onSend).toHaveBeenCalledWith(`已有草稿\n\n${fullText.trimEnd()}`, [{ ...image, data: "existing-image" }, image], ["D:/current-project/existing.md", "D:/source-project/notes/reference.md"], "steer");
 	});
 
 	it("uses the same durable operation ID when a take acknowledgement fails and is retried", async () => {

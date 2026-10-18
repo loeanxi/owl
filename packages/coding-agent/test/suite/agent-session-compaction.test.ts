@@ -489,7 +489,8 @@ describe("AgentSession compaction characterization", () => {
 			const order: string[] = [];
 			const observedSettings: unknown[] = [];
 			const harness = await createHarness({
-				models: [{ id: "faux-1", contextWindow: 2600, maxTokens: 100 }],
+				// Leave room for the retained tool result after compaction, below the next threshold.
+				models: [{ id: "faux-1", contextWindow: 3200, maxTokens: 100 }],
 				settings: {
 					compaction: modelOverride
 						? {
@@ -539,10 +540,12 @@ describe("AgentSession compaction characterization", () => {
 			expect(order.slice(0, 2)).toEqual(["compaction", "provider"]);
 			expect(observedSettings[0]).toEqual({ enabled: true, reserveTokens: 400, keepRecentTokens: 1750 });
 			expect(harness.eventsOfType("agent_start")).toHaveLength(agentStartsBefore + 1);
-			expect(harness.eventsOfType("compaction_start").at(-1)).toEqual({
-				type: "compaction_start",
-				reason: "threshold",
-			});
+			expect(harness.eventsOfType("compaction_start")).toEqual([
+				{
+					type: "compaction_start",
+					reason: "threshold",
+				},
+			]);
 			expect(resumedRequest).toContain("compacted history");
 			expect(resumedRequest).toContain("large-tool-result");
 			expect(harness.session.getLastAssistantText()).toBe("finished after compaction");

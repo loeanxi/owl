@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "vitest";
 import { deliveryText, type ScheduleRun, ScheduleService, type ScheduleTask } from "./schedule-service.ts";
 
 /** 可手拨的假时钟 + 录制型投递器。 */

@@ -123,7 +123,8 @@ describe("working through a turn in the real conversation", () => {
 		expect(process.textContent).not.toContain("第一项的完整输出");
 		await click(process.querySelector<HTMLButtonElement>('[data-tool-id="first"] .owl-tool-summary')!);
 		expect(process.textContent).toContain("第一项的完整输出");
-		expect(process.textContent).not.toContain("第二项的完整输出");
+		expect(process.querySelector('[data-tool-id="second"] .owl-tool-output')).toBeNull();
+		expect(process.querySelector(".owl-work-latest-output")?.textContent).toContain("第二项的完整输出");
 		expect(process.querySelector('[data-tool-id="second"] .owl-tool-summary')?.getAttribute("aria-expanded")).toBe("false");
 	});
 

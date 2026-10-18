@@ -125,6 +125,73 @@ test("text/tool/text order stays explicit through message finalization and repla
 	assert.deepEqual(current(entries).segments, current(rebuild([user, message])).segments);
 });
 
+test("live text signatures preserve public commentary and final-answer phases without merging them", () => {
+	const commentary = JSON.stringify({ v: 1, id: "progress-message", phase: "commentary" });
+	const finalAnswer = JSON.stringify({ v: 1, id: "answer-message", phase: "final_answer" });
+	let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
+	for (const [contentIndex, delta, textSignature] of [
+		[0, "先读取源码，", commentary],
+		[0, "再核对调用。", commentary],
+		[1, "核对已完成。", finalAnswer],
+		[2, "附加未标记内容。", undefined],
+	] as const) {
+		const content = Array.from({ length: contentIndex + 1 }, () => ({ type: "text", text: "", textSignature: undefined as string | undefined }));
+		content[contentIndex] = { type: "text", text: delta, textSignature };
+		entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex, delta, partial: { role: "assistant", content } } });
+	}
+	assert.deepEqual(current(entries).segments, [
+		{ kind: "text", text: "先读取源码，再核对调用。", phase: "commentary" },
+		{ kind: "text", text: "核对已完成。", phase: "final_answer" },
+		{ kind: "text", text: "附加未标记内容。" },
+	]);
+});
+
+test("authoritative message_end backfills phases omitted by live events and replay keeps the same segment order", () => {
+	const message = { role: "assistant", content: [
+		{ type: "text", text: "发现根因，接着修复。", textSignature: JSON.stringify({ v: 1, id: "commentary-owner", phase: "commentary" }) },
+		calls[0],
+		{ type: "text", text: "修复和核对已完成。", textSignature: JSON.stringify({ v: 1, id: "final-owner", phase: "final_answer" }) },
+	], stopReason: "stop" };
+	let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "未带签名的旧流式内容" } });
+	entries = event(entries, { type: "message_end", message });
+	const expected = [
+		{ kind: "text", text: "发现根因，接着修复。", phase: "commentary" },
+		{ kind: "tool", toolId: "read-1" },
+		{ kind: "text", text: "修复和核对已完成。", phase: "final_answer" },
+	];
+	assert.deepEqual(current(entries).segments, expected);
+	entries = event(entries, { type: "agent_end", messages: [user, message] });
+	assert.deepEqual(current(entries).segments, expected);
+	assert.deepEqual(current(rebuild([user, message])).segments, expected);
+});
+
+test("invalid or unsupported text signatures never invent phases in live events, finalization or replay", () => {
+	const invalidSignatures: unknown[] = [
+		undefined,
+		"opaque-provider-signature",
+		"{invalid json",
+		JSON.stringify({ v: 2, id: "message", phase: "commentary" }),
+		JSON.stringify({ v: "1", id: "message", phase: "final_answer" }),
+		JSON.stringify({ id: "message", phase: "commentary" }),
+		JSON.stringify({ v: 1, phase: "commentary" }),
+		JSON.stringify({ v: 1, id: 1, phase: "final_answer" }),
+		JSON.stringify({ v: 1, id: "message", phase: "analysis" }),
+		JSON.stringify({ v: 1, id: "message" }),
+		{ v: 1, id: "message", phase: "commentary" },
+	];
+	for (const textSignature of invalidSignatures) {
+		const message = { role: "assistant", content: [{ type: "text", text: "原始公开内容", textSignature }] };
+		let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
+		entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "原始公开内容", partial: message } });
+		const expected = [{ kind: "text", text: "原始公开内容" }];
+		assert.deepEqual(current(entries).segments, expected, `live: ${String(textSignature)}`);
+		entries = event(entries, { type: "message_end", message });
+		assert.deepEqual(current(entries).segments, expected, `message_end: ${String(textSignature)}`);
+		assert.deepEqual(current(rebuild([user, message])).segments, expected, `replay: ${String(textSignature)}`);
+	}
+});
+
 test("agent_end handles leading system patches and user-less continuation runs", () => {
 	const entries = started();
 	const withPatch = event(entries, { type: "agent_end", messages: [

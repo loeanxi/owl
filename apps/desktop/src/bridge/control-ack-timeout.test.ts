@@ -30,6 +30,10 @@ afterEach(() => {
 });
 
 const controls: DesktopClientRequestWithoutId[] = [
+	{ type: "process.list", sessionId: "chat" },
+	{ type: "process.get", sessionId: "chat", processId: 1 },
+	{ type: "process.kill", sessionId: "chat", processId: 1 },
+	{ type: "subagent.interrupt", sessionId: "chat", runId: "delegation" },
 	{ type: "session.setModel", sessionId: "chat", provider: "test", model: "next" },
 	{ type: "session.setThinkingLevel", sessionId: "chat", level: "high" },
 	{ type: "permission.response", requestId: "approval", approved: true },

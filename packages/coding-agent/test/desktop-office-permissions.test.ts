@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { isReadOnlyDesktopTool } from "../src/modes/desktop/browser-permissions.ts";
 
 test("Office plan mode permits inspection but rejects document and output mutations", () => {

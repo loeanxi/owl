@@ -5,6 +5,10 @@ import { playChime } from "./sound.ts";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** 同类提醒的提示音冷却：agent 连续触发审批/提问时不再连环轰炸；Toast 不受影响（各自携带可操作信息）。 */
+const NOTIFY_CHIME_COOLDOWN_MS = 1500;
+const lastChimeAt = new Map<string, number>();
+
 /** 提醒类别：设置页可按类关闭；不传视为总是提醒。 */
 export type NotificationCategory = "permission" | "question" | "done";
 
@@ -52,9 +56,14 @@ export async function notifyAgentStatus(options: NotifyOptions): Promise<void> {
 		return;
 	}
 
-	// 1. 提示音
+	// 1. 提示音（同类 1.5s 内只响一次）
 	if (prefs.sound) {
-		playChime(prefs.soundKind, prefs.volume, options.critical === true);
+		const key = options.category ?? "*";
+		const now = Date.now();
+		if (now - (lastChimeAt.get(key) ?? 0) >= NOTIFY_CHIME_COOLDOWN_MS) {
+			lastChimeAt.set(key, now);
+			playChime(prefs.soundKind, prefs.volume, options.critical === true);
+		}
 	}
 
 	// 2. 闪烁 Windows 任务栏

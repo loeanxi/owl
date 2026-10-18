@@ -92,7 +92,9 @@ describe("AgentSession virtual models", () => {
 		expect(reasons()).toEqual(["user", "retry", "continuation"]);
 		expect(requests[1].failed?.message.errorMessage).toBe("overloaded_error");
 		expect(requests[2].previous?.model.id).toBe("large");
-		expect(dispatched()).toEqual(["faux/large:high", "faux/large:high"]);
+		// The physical model's 4k output ceiling fits low thinking; the virtual selection stays high.
+		expect(requests[0].thinkingLevel).toBe("high");
+		expect(dispatched()).toEqual(["faux/large:low", "faux/large:low"]);
 		expect(harness.session.model).toMatchObject({ provider: "router", id: "auto" });
 		expect(harness.session.thinkingLevel).toBe("high");
 		// Limits come from the physical model that produced the latest response, not the virtual model.
@@ -118,7 +120,9 @@ describe("AgentSession virtual models", () => {
 		// The retry reports the failed request on large next to the small response of the previous turn.
 		expect(requests[2].failed?.model.id).toBe("large");
 		expect(requests[2].previous?.model.id).toBe("small");
-		expect(dispatched()).toEqual(["faux/small:off", "faux/large:high"]);
+		expect(requests[1].thinkingLevel).toBe("high");
+		expect(requests[2].failed?.thinkingLevel).toBe("low");
+		expect(dispatched()).toEqual(["faux/small:off", "faux/large:low"]);
 	});
 
 	it("routes the compact-and-retry after a truncated response as a retry", async () => {
@@ -285,7 +289,8 @@ describe("AgentSession virtual models", () => {
 
 		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["threshold"]);
 		expect(compactedBeforeSmall).toBe(true);
-		expect(dispatched()).toEqual(["faux/large:high", "faux/small:off"]);
+		expect(dispatched()).toEqual(["faux/large:low", "faux/small:off"]);
+		expect(harness.session.thinkingLevel).toBe("high");
 	});
 
 	it("projects the session once per request under a virtual selection", async () => {

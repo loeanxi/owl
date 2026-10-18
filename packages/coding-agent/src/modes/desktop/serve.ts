@@ -170,6 +170,7 @@ import { callNewsModel } from "./news-model.ts";
 import { createNewsTools } from "./news-tools.ts";
 import { DesktopPermissionQueue } from "./permission-queue.ts";
 import { createPiBashTool, piResourceLoaderOptions } from "./pi-runtime.ts";
+import { getDesktopProcess, killDesktopProcess, listDesktopProcesses } from "./processes.ts";
 import { streamingBehaviorForPrompt } from "./prompt-delivery.ts";
 import type {
 	CommandsListResult,
@@ -208,6 +209,7 @@ import {
 	setSkillEnabled,
 	updateSkill,
 } from "./skills-center.ts";
+import { interruptDesktopSubagent } from "./subagent-interrupt.ts";
 import { getDesktopSubagent, listDesktopSubagents } from "./subagents.ts";
 import {
 	desktopComputerCapabilityError,
@@ -3207,7 +3209,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				await handlePromptSuggestionRequest(ws, request, { service: promptSuggestions, reply });
 				return;
 			case "subagent.list":
-			case "subagent.get": {
+			case "subagent.get":
+			case "subagent.interrupt": {
 				const mounted = sessions.get(request.sessionId);
 				const parentFile =
 					mounted?.runtime.session.sessionManager.getSessionFile() ?? (await findSessionFile(request.sessionId));
@@ -3221,10 +3224,35 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						details,
 					})),
 				};
+				let result: unknown;
+				if (request.type === "subagent.list") {
+					result = await listDesktopSubagents(source, { toolCallId: request.toolCallId, cwd: request.cwd });
+				} else if (request.type === "subagent.interrupt") {
+					if (!mounted) throw new Error("Delegation runtime is no longer mounted");
+					result = await interruptDesktopSubagent(
+						source,
+						request.runId,
+						mounted.runtime.session.extensionRunner,
+						request.id,
+					);
+				} else {
+					result = await getDesktopSubagent(source, request.runId, request.childIndex);
+				}
+				reply(ws, request.id, { ok: true, result });
+				return;
+			}
+			case "process.list":
+			case "process.get":
+			case "process.kill": {
+				const mounted = sessions.get(request.sessionId);
+				if (!mounted && !(await findSessionFile(request.sessionId)))
+					throw new Error(`Unknown session: ${request.sessionId}`);
 				const result =
-					request.type === "subagent.list"
-						? await listDesktopSubagents(source, { toolCallId: request.toolCallId, cwd: request.cwd })
-						: await getDesktopSubagent(source, request.runId, request.childIndex);
+					request.type === "process.list"
+						? listDesktopProcesses(request.sessionId)
+						: request.type === "process.get"
+							? getDesktopProcess(request.sessionId, request.processId)
+							: await killDesktopProcess(request.sessionId, request.processId);
 				reply(ws, request.id, { ok: true, result });
 				return;
 			}

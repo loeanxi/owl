@@ -12,6 +12,8 @@ import { setThemePreference } from "../theme.ts";
 import { registerTab, type TabDefinition } from "./registry.ts";
 import { BrowserTab } from "./tabs/BrowserTab.tsx";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
+import { ExecutionTab } from "./tabs/ExecutionTab.tsx";
+import { executionText } from "./execution-copy.ts";
 import { FilesTab } from "./tabs/FilesTab.tsx";
 import { ImageTab } from "./tabs/ImageTab.tsx";
 import { DocumentTab } from "./tabs/DocumentTab.tsx";
@@ -37,6 +39,12 @@ function quickIcon(kind: string): TabDefinition["icon"] {
 }
 
 const DEFINITIONS: TabDefinition[] = [
+	{
+		kind: "execution",
+		get title() { return executionText().title; },
+		icon: (size) => <svg width={size ?? 14} height={size ?? 14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="m5 6 2 2-2 2m4 0h2" /></svg>,
+		component: ExecutionTab,
+	},
 	{
 		kind: "document",
 		get title() { return t("settings.sidecards.filePreview"); },

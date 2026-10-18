@@ -1,5 +1,13 @@
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ExtensionFactory, InlineExtension } from "../../core/extensions/types.ts";
+import {
+	type CommandProof,
+	claimsGeneratedArtifact,
+	commandClaimText,
+	commandEvidenceError,
+	commandProofFromResult,
+	looksLikeCommandVerification,
+} from "./command-proof.ts";
 import { TaskLoopGuard, TaskTurnBudget } from "./loop-guard.ts";
 
 const STATE_TYPE = "owl-task-check";
@@ -11,6 +19,12 @@ const criterionSchema = Type.Object({
 	),
 	toolCallId: Type.Optional(
 		Type.String({ description: "Optional successful tool call from this user turn supporting the evidence." }),
+	),
+	evidenceKind: Type.Optional(
+		Type.Literal("command", {
+			description:
+				"Test execution only: requires toolCallId for a completed exit-0 Bash call with full untruncated Vitest output. Supports literal npx vitest run <one exact .test/.spec file>, optionally cd <directory> &&; no flags or pipelines. Mutation/read/generated-artifact claims keep their original evidence requirements.",
+		}),
 	),
 });
 const parameters = Type.Object({
@@ -60,7 +74,8 @@ function restoreState(ctx: ExtensionContext): TaskState | null {
 				typeof item.criterion !== "string" ||
 				!["pending", "verified", "blocked"].includes(item.status) ||
 				(item.evidence !== undefined && typeof item.evidence !== "string") ||
-				(item.toolCallId !== undefined && typeof item.toolCallId !== "string")
+				(item.toolCallId !== undefined && typeof item.toolCallId !== "string") ||
+				(item.evidenceKind !== undefined && item.evidenceKind !== "command")
 			)
 				return null;
 			criteria.push({
@@ -68,6 +83,7 @@ function restoreState(ctx: ExtensionContext): TaskState | null {
 				status: item.status,
 				evidence: item.evidence,
 				toolCallId: item.toolCallId,
+				evidenceKind: item.evidenceKind,
 			});
 		}
 		return { version: 1, goal: data.goal, criteria };
@@ -77,7 +93,7 @@ function restoreState(ctx: ExtensionContext): TaskState | null {
 
 interface HostCommand {
 	command: string;
-	exitCode: number;
+	exitCode: number | undefined;
 }
 
 const FILE_PATH = /(?:^|[\s`'"])((?:[\w.@-]+[\\/])+[\w.@-]+\.[A-Za-z0-9]{1,8})/g;
@@ -92,7 +108,14 @@ function samePath(written: string, mentioned: string): boolean {
 	return have === wanted || have.endsWith(`/${wanted}`) || wanted.endsWith(`/${have}`);
 }
 
-function exitCodeOf(structured: unknown, isError: boolean): number {
+function exitCodeOf(structured: unknown, isError: boolean): number | undefined {
+	if (
+		typeof structured === "object" &&
+		structured !== null &&
+		"status" in structured &&
+		structured.status === "running"
+	)
+		return undefined;
 	if (typeof structured === "object" && structured !== null && "exit_code" in structured) {
 		const code = (structured as { exit_code?: unknown }).exit_code;
 		if (typeof code === "number" && Number.isFinite(code)) return code;
@@ -106,7 +129,8 @@ export function formatHostObservations(writes: readonly string[], commands: read
 	const wrote = uniqueWrites.length > 0 ? `Wrote ${uniqueWrites.join(", ")}.` : "No successful edit or write.";
 	if (commands.length === 0) return `Host observations from this turn: ${wrote} No command exited 0.`;
 	const succeeded = commands.filter((command) => command.exitCode === 0);
-	const failed = commands.filter((command) => command.exitCode !== 0);
+	const failed = commands.filter((command) => command.exitCode !== undefined && command.exitCode !== 0);
+	const running = commands.filter((command) => command.exitCode === undefined);
 	const parts = [
 		wrote,
 		succeeded.length > 0
@@ -114,6 +138,9 @@ export function formatHostObservations(writes: readonly string[], commands: read
 			: "No command exited 0.",
 		failed.length > 0
 			? `Commands that failed: ${failed.map((command) => `${command.command} (${command.exitCode})`).join("; ")}.`
+			: "",
+		running.length > 0
+			? `Commands without a completed exit code: ${running.map((command) => command.command).join("; ")}.`
 			: "",
 	].filter(Boolean);
 	return `Host observations from this turn: ${parts.join(" ")}`;
@@ -127,6 +154,7 @@ export function createTaskCheckExtension(): ExtensionFactory {
 		let reminded = false;
 		const successfulCalls = new Set<string>();
 		const successfulReads = new Map<string, { path: string; afterSuccessfulCommand: boolean }>();
+		const commandProofs = new Map<string, CommandProof>();
 		const loopGuard = new TaskLoopGuard();
 		const turnBudget = new TaskTurnBudget();
 		let stopped = false;
@@ -137,6 +165,7 @@ export function createTaskCheckExtension(): ExtensionFactory {
 			reminded = false;
 			successfulCalls.clear();
 			successfulReads.clear();
+			commandProofs.clear();
 			loopGuard.reset();
 			turnBudget.reset(pi.getSettings().agentMaxTurns);
 			stopped = false;
@@ -165,10 +194,12 @@ export function createTaskCheckExtension(): ExtensionFactory {
 			defaultActive: false,
 			executionMode: "sequential",
 			description:
-				"Track acceptance criteria for authorized multi-step implementation work. Use todo for the plan. Register a goal and full criteria list only while doing that work, not for chat, explanations, or read-only discussion. Mark verified only with concrete observed evidence; blocked requires a reason. An optional toolCallId must refer to a successful call in this user turn. Omit fields to inspect without resuming. A pending checklist can prompt one extra work turn; it does not prove completion or authorize actions.",
+				"Track acceptance criteria for authorized multi-step implementation work. Use todo for the plan. Register a goal and full criteria list only while doing that work, not for chat, explanations, or read-only discussion. Mark verified only with concrete observed evidence; blocked requires a reason. An optional toolCallId must refer to a successful call in this user turn. For test execution without editing the test file, use evidenceKind=command and toolCallId: only literal npx vitest run <one exact .test/.spec file>, optionally cd <directory> &&, with explicit exit 0 and complete untruncated Vitest file/test passed summaries; no flags, pipelines or other runners. Name that exact selector path. Command proof cannot replace mutation, read/preserved or generated-artifact evidence. Omit fields to inspect without resuming. A pending checklist can prompt one extra work turn; it does not prove completion or authorize actions.",
 			promptSnippet: "记录多步实作的验收项、验证证据与阻塞原因；闲聊和只读讨论无需使用",
 			parameters,
 			async execute(_id, input, _signal, _onUpdate, ctx) {
+				const commandTemplate =
+					'标准格式：{"goal":"<授权任务目标>","criteria":[{"criterion":"运行 test/example.test.ts 的测试通过","status":"verified","evidenceKind":"command","toolCallId":"<本轮已成功退出且输出完整的 Bash Vitest 调用 ID>","evidence":"<真实 Test Files 与 Tests passed 摘要>"}]}。仅支持 npx vitest run <精确测试文件>，可有一个 cd <目录> && 前缀；不接受 flag、pipeline、其他 runner 或改写文件的声明。';
 				const fail = (text: string) => ({
 					isError: true,
 					content: [{ type: "text" as const, text }],
@@ -185,6 +216,10 @@ export function createTaskCheckExtension(): ExtensionFactory {
 						return fail("A concrete goal is required when registering acceptance criteria.");
 					for (const item of input.criteria) {
 						if (!item.criterion.trim()) return fail("Acceptance criteria cannot be blank.");
+						if (item.evidenceKind && item.status !== "verified")
+							return fail(
+								"evidenceKind=command requires status=verified; omit it for pending/blocked criteria.",
+							);
 						if (item.status !== "pending") {
 							const evidence = item.evidence?.trim() ?? "";
 							if (
@@ -215,6 +250,28 @@ export function createTaskCheckExtension(): ExtensionFactory {
 									),
 								);
 							const generatedClaim = /\b(?:generated|produced|exported)\b|生成|导出|命令产物/iu.test(claim);
+							if (item.evidenceKind === "command") {
+								if (!item.toolCallId)
+									return fail(`evidenceKind=command requires toolCallId. ${commandTemplate}`);
+								const proof = commandProofs.get(item.toolCallId);
+								if (!proof)
+									return fail(
+										`toolCallId must identify this turn's completed Bash result with numeric exit_code=0, isError=false and full untruncated output. ${commandTemplate}`,
+									);
+								const error = commandEvidenceError(proof, claim);
+								if (error) return fail(`${error} ${commandTemplate}`);
+								const prose = commandClaimText(claim);
+								if (
+									/\b(?:updat(?:e|ed)|modif(?:y|ied)|edit(?:ed)?|chang(?:e|ed)|implement(?:ed)?|writ(?:e|ten)|wrote|creat(?:e|ed)|read|inspect|preserv(?:e|ed))\b|修改|编辑|改动|更新|实现|写入|创建|新增|修复|只读|读取|读回|查看|保留/iu.test(
+										prose,
+									) ||
+									claimsGeneratedArtifact(prose)
+								)
+									return fail(
+										"Command evidence proves test execution only. Mutation claims still require edit/write; read/preserved and generated artifacts must keep their matching read/command evidence. Remove evidenceKind=command for those claims.",
+									);
+								continue;
+							}
 							const canUseRead =
 								proof && readClaim && !mutationClaim && (!generatedClaim || proof.afterSuccessfulCommand);
 							const missing = mentionedPaths(claim).filter(
@@ -223,6 +280,10 @@ export function createTaskCheckExtension(): ExtensionFactory {
 									!(canUseRead && samePath(proof.path, path)),
 							);
 							if (missing.length > 0) {
+								if (!mutationClaim && !claimsGeneratedArtifact(claim) && looksLikeCommandVerification(claim))
+									return fail(
+										`This is a command-verification claim, not proof that the test file was edited. Link a supported command result instead of rewriting the test file. ${commandTemplate}`,
+									);
 								return fail(
 									`Host did not observe a successful edit or write for ${missing.join(", ")}. ${formatHostObservations(writes, commands)}`,
 								);
@@ -258,7 +319,12 @@ export function createTaskCheckExtension(): ExtensionFactory {
 				};
 			},
 		});
-		pi.on("tool_result", (event) => {
+		pi.on("tool_result", (event, ctx) => {
+			const commandProof = commandProofFromResult(event, ctx.cwd);
+			if (commandProof) {
+				commandProofs.set(event.toolCallId, commandProof);
+				if (commandProofs.size > 128) commandProofs.delete(commandProofs.keys().next().value!);
+			}
 			if (event.toolName === "read" && !event.isError && typeof event.input.path === "string") {
 				successfulReads.set(event.toolCallId, {
 					path: event.input.path.trim(),

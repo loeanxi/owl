@@ -193,6 +193,23 @@ describe("SessionSidebar search and project entry points", () => {
 		expect(props.onSelectProject).toHaveBeenCalledTimes(1);
 	});
 
+	it("opens a new chat after archiving the current session and shows an archive failure", async () => {
+		await render();
+		const actions = container.querySelector<HTMLButtonElement>('[aria-label="会话操作：普通会话"]')!;
+		await act(async () => actions.click());
+		const archive = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')].find((button) => button.textContent === t("sidebar.archive"))!;
+		const request = vi.mocked(props.client.request);
+		request.mockImplementation(async (value: { type: string }) => value.type === "session.archive" ? { ok: false, error: "disk full" } : { ok: true, result: [] });
+		await act(async () => archive.click());
+		expect(props.onNewChat).not.toHaveBeenCalled();
+		expect(container.querySelector(".owl-sidebar-notice")?.textContent).toContain("disk full");
+		request.mockImplementation(async (value: { type: string }) => value.type === "session.archive" ? { ok: true, result: {} } : { ok: true, result: [] });
+		await act(async () => actions.click());
+		const retry = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')].find((button) => button.textContent === t("sidebar.archive"))!;
+		await act(async () => retry.click());
+		expect(props.onNewChat).toHaveBeenCalledOnce();
+	});
+
 	it("preserves explicit new-chat controls for the selected project", async () => {
 		await render();
 		const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.getAttribute("aria-label") === t("sidebar.newChatInProjectAria", { project: "alpha" }))!;

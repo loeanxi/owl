@@ -4,7 +4,7 @@
 	min-width: 0;
 	max-width: 100%;
 	flex-wrap: wrap;
-	gap: 4px 6px;
+	gap: 4px;
 	margin-top: 6px;
 	overflow: visible;
 }
@@ -35,6 +35,11 @@
 
 .owl-msg-actions .owl-msg-action > svg,
 .owl-user-actions :is(.owl-user-quick, .owl-rewind-trigger) > svg { flex: none; }
+
+.owl-msg-actions .owl-msg-action {
+	width: 32px;
+	padding: 0;
+}
 
 .owl-msg-actions .owl-msg-action:hover:not(:disabled),
 .owl-user-actions :is(.owl-user-quick, .owl-rewind-trigger):hover:not(:disabled),
@@ -86,19 +91,21 @@
 .owl-message-copy-status[data-tone="success"] { color: var(--owl-reading-text); }
 .owl-message-copy-status[data-tone="error"] { color: var(--owl-ui-danger, var(--color-owl-danger, var(--owl-reading-text))); }
 
+/* 成功由勾号反馈，播报文字不挤开图标；失败仍显示原因。 */
+.owl-msg-actions .owl-message-copy-status:not([data-tone="error"]) {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 /* 回答结束后的用量三点靠右，和运行中状态行右侧的那颗对齐。 */
 .owl-msg-actions .owl-response-details { margin-left: auto; }
 .owl-msg-actions .owl-response-details > summary { width: 32px; height: 32px; }
-
-.owl-msg-actions .owl-msg-meta {
-	min-width: 0;
-	max-width: 100%;
-	margin-left: 6px;
-	line-height: 1.5;
-	white-space: normal;
-	overflow-wrap: anywhere;
-	opacity: 1;
-}
 
 .owl-message-more { position: relative; display: inline-flex; flex: none; }
 /* Align with the message column, so the first controls cannot open a menu beyond its left edge. */

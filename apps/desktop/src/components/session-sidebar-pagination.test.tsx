@@ -138,7 +138,7 @@ describe("sidebar lists revealed in batches", () => {
 		sessions = rows("pin", 12);
 		const pinnedIds = sessions.map((row) => row.id);
 		localStorage.setItem("owl.pinnedSessions", JSON.stringify(pinnedIds));
-		await render({ activeProject: "", activeId: "pin-11" });
+		await render({ activeProject: "", activeId: "pin-0" });
 		expect(visibleRows(section("pinned"))).toHaveLength(5);
 		expect(controls("pinned").querySelector(".owl-sidebar-list-collapse")).toBeNull();
 		await showMore("pinned", 5);
@@ -191,7 +191,7 @@ describe("sidebar lists revealed in batches", () => {
 
 	it("limits the recent list to five sessions in total before inserting date headings", async () => {
 		sessions = datedRows();
-		await render({ activeProject: "", activeId: "recent-11" });
+		await render({ activeProject: "", activeId: "recent-0" });
 		const recent = section("recent");
 		expect(visibleRows(recent)).toHaveLength(5);
 		expect(recent.querySelectorAll('[data-session-period="today"] .owl-sidebar-session-row')).toHaveLength(2);
@@ -254,6 +254,61 @@ describe("sidebar lists revealed in batches", () => {
 		expect(groups()).toEqual(Array.from({ length: 9 }, (_, index) => `d:/p${index}`));
 		await collapse("projects:merged-default");
 		expect(groups()).toHaveLength(6);
+	});
+
+	it("labels yesterday from the calendar day instead of a 48-hour window", async () => {
+		const earlier = new Date(2026, 9, 13, 20).toISOString();
+		const yesterday = new Date(2026, 9, 14, 6).toISOString();
+		sessions = [
+			{ id: "yesterday-session", name: "昨天的会话", scope: "chat", created: yesterday, modified: yesterday },
+			{ id: "earlier-session", name: "更早的会话", scope: "chat", created: earlier, modified: earlier },
+		];
+		await render({ activeProject: "" });
+		const recent = section("recent");
+		const row = (name: string): HTMLElement => [...recent.querySelectorAll<HTMLElement>(".owl-sidebar-session-row")].find((item) => item.textContent?.includes(name))!;
+		expect(row("昨天的会话").closest("[data-session-period]")?.getAttribute("data-session-period")).toBe("yesterday");
+		expect(row("昨天的会话").querySelector(".owl-sidebar-row-time")?.textContent).toBe("昨天");
+		expect(row("更早的会话").closest("[data-session-period]")?.getAttribute("data-session-period")).toBe("earlier");
+		expect(row("更早的会话").querySelector(".owl-sidebar-row-time")?.textContent).not.toContain("昨天");
+	});
+
+	it("keeps sessions that share an activity time in id order", async () => {
+		const time = new Date(2026, 9, 15, 11).toISOString();
+		sessions = [
+			{ id: "session-b", name: "后一条", scope: "chat", created: time, modified: time },
+			{ id: "session-a", name: "前一条", scope: "chat", created: time, modified: time },
+		];
+		await render({ activeProject: "" });
+		const labels = () => visibleRows(section("recent")).map((row) => row.textContent);
+		expect(labels()[0]).toContain("前一条");
+		expect(labels()[1]).toContain("后一条");
+		await render({ refreshKey: "again" });
+		expect(labels()[0]).toContain("前一条");
+		expect(labels()[1]).toContain("后一条");
+	});
+
+	it("keeps the active session visible when it sits past the first page", async () => {
+		sessions = rows("pin", 12);
+		localStorage.setItem("owl.pinnedSessions", JSON.stringify(sessions.map((row) => row.id)));
+		await render({ activeProject: "", activeId: "pin-11" });
+		const pinned = visibleRows(section("pinned"));
+		expect(pinned).toHaveLength(6);
+		expect(pinned.at(-1)?.querySelector("[aria-current='page']")).not.toBeNull();
+		expect(pinned.at(-1)?.textContent).toContain("pin 会话 12");
+		expect(controls("pinned").querySelector(".owl-sidebar-list-more")?.textContent).toMatch(/再显示\s*5\s*条/);
+
+		sessions = rows("owl", 12, "D:/owl");
+		await render({ activeProject: "D:/owl", activeId: "owl-11", refreshKey: "project-window" });
+		const projectRows = visibleRows(project("d:/owl"));
+		expect(projectRows).toHaveLength(6);
+		expect(projectRows.at(-1)?.querySelector("[aria-current='page']")).not.toBeNull();
+		expect(projectRows.at(-1)?.getAttribute("data-sidebar-window-overflow")).toBe("true");
+
+		sessions = datedRows();
+		await render({ activeProject: "", activeId: "recent-11", refreshKey: "recent-window" });
+		const recent = section("recent");
+		expect(visibleRows(recent)).toHaveLength(6);
+		expect(recent.querySelector('[data-session-period="earlier"] [aria-current="page"]')?.textContent).toContain("recent 会话 12");
 	});
 
 	it("omits pagination controls for lists containing five or fewer sessions", async () => {

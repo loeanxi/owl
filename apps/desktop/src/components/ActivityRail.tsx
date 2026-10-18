@@ -10,6 +10,7 @@ import { IconFolder, IconHome, IconNews, IconPin, IconSelf, IconSettings } from 
 import { loadRailPins, RAIL_PINNABLE_VIEWS, saveRailPins, toggleRailPin } from "./rail-pins.ts";
 import type { SettingsInitialTab } from "./SettingsPage.tsx";
 import "./navigation-design.css";
+import "./activity-rail-collapse.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
 export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "bagu" | "market" | "account";
@@ -237,6 +238,7 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
  */
 export function ActivityRail({
 	view,
+	collapsed = false,
 	settingsOpen = false,
 	onSelect,
 	onHome,
@@ -247,6 +249,7 @@ export function ActivityRail({
 	client,
 }: {
 	view: RailView;
+	collapsed?: boolean;
 	settingsOpen?: boolean;
 	/** 切换主导航视图，保留各视图当前内容。 */
 	onSelect: (view: RailView) => void;
@@ -322,7 +325,8 @@ export function ActivityRail({
 	useEffect(() => {
 		setMenuOpen(false);
 		setToolsOpen(false);
-	}, [view, settingsOpen]);
+		setSwitcherOpen(false);
+	}, [view, settingsOpen, collapsed]);
 
 	const togglePin = (view: RailView): void => {
 		setPins((current) => {
@@ -507,7 +511,7 @@ export function ActivityRail({
 	const drawerRest = RAIL_TOOLS.filter((tool) => !pins.includes(tool.view));
 
 	return (
-		<nav className="owl-activity-rail" data-tauri-drag-region="deep" aria-label={t("rail.aria")}>
+		<nav id="owl-activity-rail" className="owl-activity-rail" hidden={collapsed} data-tauri-drag-region="deep" aria-label={t("rail.aria")}>
 			<button
 				type="button"
 				className="owl-rail-brand"

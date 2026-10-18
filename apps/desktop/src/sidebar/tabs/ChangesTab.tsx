@@ -7,12 +7,13 @@
  * "本轮 AI 改动"视角（会话事件折叠）依赖 owl 会话事件索引，后续接入。
  * 头部「变动 / 历史」切换到提交历史视图（HistoryView）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
 import type { GitStatusEntry } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
-import { DiffView } from "../DiffView.tsx";
-import { IconGitBranch, IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
+import { DiffReview } from "../DiffReview.tsx";
+import { ExecutionContext } from "../execution-context.tsx";
+import { IconGitBranch, IconLoader, IconRefresh, IconTrash, IconUndo } from "../icons.tsx";
 import { HistoryView, repoDisplayName } from "./HistoryView.tsx";
 
 const MODE_KEY = "owl.changes.mode";
@@ -43,8 +44,9 @@ function statusLetter(entry: GitStatusEntry): string {
 	return letter === " " ? "M" : letter;
 }
 
-export function ChangesTab({ api, cwd, gitStatus, onGitRefresh, onToChat }: TabComponentProps): React.JSX.Element {
+export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToChat, onOpenFile }: TabComponentProps): React.JSX.Element {
 	const t = useT();
+	const execution = useContext(ExecutionContext);
 	const [mode, setMode] = useState<ChangesMode>(() => (localStorage.getItem(MODE_KEY) === "history" ? "history" : "changes"));
 	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
@@ -58,6 +60,13 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh, onToChat }: TabC
 	const [repoFilter, setRepoFilter] = useState<string>("");
 	// diff 请求序号：慢响应晚到时不得覆盖后点的文件（FilesTab searchSeq 同款守卫）
 	const diffSeq = useRef(0);
+	useEffect(() => {
+		diffSeq.current += 1;
+		setSelected(undefined);
+		setDiff(undefined);
+		setDiffLoading(false);
+		setDiffError(undefined);
+	}, [cwd, profile]);
 
 	const repos = gitStatus?.repos ?? [];
 	const multiRepo = repos.length > 1;
@@ -320,41 +329,7 @@ export function ChangesTab({ api, cwd, gitStatus, onGitRefresh, onToChat }: TabC
 				)}
 			</div>
 
-			{/* diff 预览面板（可展开为独占视图） */}
-			{selected !== undefined && (
-				<div className={`${expandedDiff ? "h-[78%]" : "h-[45%]"} flex shrink-0 flex-col border-t border-owl-border/60`}>
-					<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1">
-						<IconPencil size={11} className="shrink-0 text-owl-faint" />
-						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted" title={selected.path}>
-							{selected.path}
-							{selected.staged && <span className="ml-1.5 text-emerald-300/80">{t("changes.stagedBadge")}</span>}
-						</span>
-						<button type="button" title={expandedDiff ? t("common.collapse") : t("common.expand")} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
-							{expandedDiff ? "▾" : "▴"}
-						</button>
-						<button
-							type="button"
-							title={t("window.close")}
-							className="rounded p-1 text-owl-muted hover:text-owl-text"
-							onClick={() => {
-								setSelected(undefined);
-								setDiff(undefined);
-							}}
-						>
-							<IconX size={12} />
-						</button>
-					</div>
-					<div className="min-h-0 flex-1 overflow-auto">
-						{diffLoading && (
-							<div className="flex items-center gap-2 px-3 py-2 text-xs text-owl-faint">
-								<IconLoader size={13} className="animate-spin" /> {t("changes.readingDiff")}
-							</div>
-						)}
-						{diffError !== undefined && <div className="px-3 py-2 text-xs text-red-300">{diffError}</div>}
-						{!diffLoading && diffError === undefined && diff !== undefined && <DiffView text={diff} />}
-					</div>
-				</div>
-			)}
+			<DiffReview key={JSON.stringify([cwd, profile, execution.sessionId])} api={api} cwd={cwd} selected={selected} diff={diff} loading={diffLoading} error={diffError} expanded={expandedDiff} onExpand={() => setExpandedDiff((value) => !value)} onClose={() => { diffSeq.current += 1; setSelected(undefined); setDiff(undefined); setDiffLoading(false); }} onOpenFile={onOpenFile} />
 
 			{/* 吸底提交条 */}
 			{(staged.length > 0 || message !== "") && (

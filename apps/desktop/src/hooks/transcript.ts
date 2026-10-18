@@ -12,7 +12,7 @@ export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
 
 /** 原始消息内容的时间顺序；不从文字猜测进度或最终回答的模型通道。 */
 export type AssistantSegment =
-	| { kind: "text"; text: string }
+	| { kind: "text"; text: string; phase?: "commentary" | "final_answer" }
 	| { kind: "thinking"; text: string }
 	| { kind: "tool"; toolId: string };
 
@@ -244,20 +244,35 @@ function resultStatus(result: AnyEvent, isError: boolean): ToolStatus {
 	return isError ? "error" : "ok";
 }
 
+function assistantTextPhase(signature: unknown): "commentary" | "final_answer" | undefined {
+	if (typeof signature !== "string" || !signature.startsWith("{")) return undefined;
+	try {
+		const value: unknown = JSON.parse(signature);
+		if (value === null || typeof value !== "object" || !("v" in value) || value.v !== 1 || !("id" in value) || typeof value.id !== "string" || !("phase" in value)) return undefined;
+		return value.phase === "commentary" || value.phase === "final_answer" ? value.phase : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function segmentsOf(content: unknown): AssistantSegment[] {
 	if (!Array.isArray(content)) return typeof content === "string" ? [{ kind: "text", text: content }] : [];
 	return content.flatMap((part): AssistantSegment[] => {
-		if (part.type === "text") return [{ kind: "text", text: part.text ?? "" }];
+		if (part.type === "text") {
+			const phase = assistantTextPhase(part.textSignature);
+			return [{ kind: "text", text: part.text ?? "", ...(phase ? { phase } : {}) }];
+		}
 		if (part.type === "thinking") return [{ kind: "thinking", text: part.thinking ?? "" }];
 		if (part.type === "toolCall") return [{ kind: "tool", toolId: part.id }];
 		return [];
 	});
 }
 
-function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string): void {
+function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string, phase?: "commentary" | "final_answer"): void {
 	const segments = (entry.segments ??= []);
 	const last = segments.at(-1);
-	if (last?.kind === kind) last.text += text;
+	if (last?.kind === kind && (last.kind !== "text" || last.phase === phase)) last.text += text;
+	else if (kind === "text") segments.push({ kind, text, ...(phase ? { phase } : {}) });
 	else segments.push({ kind, text });
 }
 
@@ -471,7 +486,7 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			switch (ae.type) {
 				case "text_delta":
 					current.text += ae.delta ?? "";
-					appendSegment(current, "text", ae.delta ?? "");
+					appendSegment(current, "text", ae.delta ?? "", assistantTextPhase(ae.partial?.content?.[ae.contentIndex]?.textSignature));
 					break;
 				case "thinking_delta":
 					current.thinking += ae.delta ?? "";
@@ -693,6 +708,7 @@ function userEntryOf(message: AnyEvent, entryId?: string): Extract<ChatEntry, { 
 	return {
 		kind: "user",
 		text: parsed.body,
+		...(message.queued === true ? { queued: true as const } : {}),
 		...(typeof entryId === "string" ? { entryId } : {}),
 		...(images.length > 0 ? { images } : {}),
 		...(parsed.attachedPaths.length > 0 ? { attachedPaths: parsed.attachedPaths } : {}),

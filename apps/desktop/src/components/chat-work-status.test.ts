@@ -69,9 +69,10 @@ describe("chat work segment status", () => {
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([], {
 				text: "完成",
-				endedAt: 5000,
+				endedAt: 6000,
 				usage: { input: 100, output: 40, cacheRead: 60, cacheWrite: 0 },
-				stream: { firstAt: 1000, lastAt: 5000, estTokens: 40 },
+				// 响应 2000 开始、6000 结束：40 输出 ÷ 4s = 10 tok/s；流式窗口落在响应窗口内
+				stream: { firstAt: 2000, lastAt: 5000, estTokens: 40 },
 			}),
 		];
 		const { document } = parseHTML(render(entries, "idle").html);

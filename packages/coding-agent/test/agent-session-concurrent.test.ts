@@ -187,7 +187,7 @@ describe("AgentSession concurrent prompt guard", () => {
 
 	it("should queue extension-origin steering messages while streaming", async () => {
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
-		let abortSignal: AbortSignal | undefined;
+		let finishFirstResponse: (() => void) | undefined;
 		let sawSteeringMessage = false;
 		let lastInputSource: string | undefined;
 		const queueEvents: Array<{ steering: readonly string[]; followUp: readonly string[] }> = [];
@@ -200,7 +200,6 @@ describe("AgentSession concurrent prompt guard", () => {
 				tools: [],
 			},
 			streamFn: (_model, context, options) => {
-				abortSignal = options?.signal;
 				const stream = new MockAssistantStream();
 				queueMicrotask(() => {
 					const userTexts = context.messages
@@ -224,14 +223,14 @@ describe("AgentSession concurrent prompt guard", () => {
 					}
 
 					stream.push({ type: "start", partial: createAssistantMessage("") });
-					const checkAbort = () => {
-						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
-						} else {
-							setTimeout(checkAbort, 5);
-						}
+					finishFirstResponse = () => {
+						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("First response") });
 					};
-					checkAbort();
+					options?.signal?.addEventListener(
+						"abort",
+						() => stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") }),
+						{ once: true },
+					);
 				});
 				return stream;
 			},
@@ -269,7 +268,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		});
 
 		const firstPrompt = session.prompt("First message");
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await expect.poll(() => finishFirstResponse !== undefined).toBe(true);
 		expect(session.isStreaming).toBe(true);
 
 		const pi = (
@@ -282,15 +281,17 @@ describe("AgentSession concurrent prompt guard", () => {
 		expect(pi).toBeDefined();
 
 		pi!.sendUserMessage("Steer from extension", { deliverAs: "steer" });
-		await new Promise((resolve) => setTimeout(resolve, 25));
+		await expect.poll(() => session.pendingMessageCount).toBe(1);
 
 		expect(session.pendingMessageCount).toBe(1);
 		expect(session.getSteeringMessages()).toContain("Steer from extension");
 		expect(lastInputSource).toBe("extension");
 		expect(queueEvents.some((event) => event.steering.includes("Steer from extension"))).toBe(true);
 
-		await session.abort();
-		await firstPrompt.catch(() => {});
+		// Steering is consumed after a completed response. Aborting the run must
+		// not be used to release this fixture: abort deliberately stops new turns.
+		finishFirstResponse!();
+		await firstPrompt;
 
 		expect(sawSteeringMessage).toBe(true);
 	});

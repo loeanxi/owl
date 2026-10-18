@@ -7,6 +7,7 @@ import type { BridgeClient } from "../bridge/client.ts";
 import { t } from "../i18n/index.ts";
 import { Composer, type ComposerImage } from "./Composer.tsx";
 import { composerMaterialsText } from "./composer-materials-copy.ts";
+import { executionText } from "./execution-copy.ts";
 
 vi.mock("../bridge/native.ts", () => ({
 	listenForOsFileDrop: async () => () => {},
@@ -64,6 +65,13 @@ function editor(): HTMLElement {
 	return container.querySelector<HTMLElement>('[role="textbox"]')!;
 }
 
+function expectNoDeliveryControls(): void {
+	expect(container.querySelector(".owl-composer-delivery")).toBeNull();
+	const labels = [...container.querySelectorAll("button")].map((item) => item.getAttribute("aria-label") ?? item.textContent?.trim());
+	expect(labels).not.toContain(t("composer.sendNextTurn"));
+	expect(labels).not.toContain(t("composer.steerCurrent"));
+}
+
 async function click(label: string): Promise<void> {
 	await act(async () => button(label).click());
 }
@@ -96,26 +104,38 @@ describe("Composer task control", () => {
 	it("keeps pause available while a running task's model switch is pending", async () => {
 		const onPause = vi.fn();
 		await render({ running: true, initialDraft: "调整要求", onPause, modelSelection: { status: "pending", target: "fixture/next", actual: "fixture/model", running: true } });
+		expectNoDeliveryControls();
+		expect(button(t("composer.pause")).disabled).toBe(false);
 		await click(t("composer.pause")); expect(onPause).toHaveBeenCalledOnce();
-		expect(button(t("composer.sendNextTurn")).disabled).toBe(true);
+		await enter(); expect(props.onSend).not.toHaveBeenCalled();
 		await enter(true); expect(props.onSend).not.toHaveBeenCalled();
 	});
-	it("keeps pause available with a draft and exposes distinct current/next-turn delivery", async () => {
+	it("keeps the pause button with a draft and steers at the next action boundary on Enter", async () => {
 		const onSend = vi.fn(() => false);
 		const onPause = vi.fn();
 		await render({ running: true, initialDraft: "先检查实际报错", onSend, onPause });
+		expectNoDeliveryControls();
+		expect(button(t("composer.pause")).disabled).toBe(false);
 		await click(t("composer.pause"));
 		expect(onPause).toHaveBeenCalledOnce();
 		expect(onSend).not.toHaveBeenCalled();
 		expect(editor().textContent).toBe("先检查实际报错");
-		await click(t("composer.sendNextTurn"));
-		expect(onSend).toHaveBeenLastCalledWith("先检查实际报错", undefined, undefined, "queue");
-		await click(t("composer.steerCurrent"));
-		expect(onSend).toHaveBeenLastCalledWith("先检查实际报错", undefined, undefined, "steer");
 		await enter();
-		expect(onSend).toHaveBeenLastCalledWith("先检查实际报错", undefined, undefined, "queue");
+		expect(onSend).toHaveBeenLastCalledWith("先检查实际报错", undefined, undefined, "steer");
 		await enter(true);
 		expect(onSend).toHaveBeenLastCalledWith("先检查实际报错", undefined, undefined, "steer");
+		expect(onSend).toHaveBeenCalledTimes(2);
+	});
+	it("keeps explicit next-turn queue delivery without aborting and preserves failed materials", async () => {
+		const onSend = vi.fn(() => false);
+		await render({ running: true, onSend, draftRequest: { id: 1, text: "下一轮再检查", images: [screenshot], attachedPaths: ["D:/owl/main.ts"], replace: true } });
+		const delivery = container.querySelector<HTMLButtonElement>(`button[title="${executionText("delivery")}"]`)!;
+		await act(async () => delivery.click());
+		await click(executionText("queue"));
+		expect(onSend).toHaveBeenCalledWith("下一轮再检查", [screenshot], ["D:/owl/main.ts"], "queue");
+		expect(props.onAbort).not.toHaveBeenCalled();
+		expect(editor().textContent).toBe("下一轮再检查");
+		expect(container.querySelector('img[src="data:image/png;base64,first-image"]')).not.toBeNull();
 	});
 
 	it("sends a paused draft with both mouse and Enter; only an empty draft resumes the old task", async () => {
@@ -161,18 +181,20 @@ describe("Composer complete draft delivery", () => {
 		const onSend = vi.fn(() => pending.promise);
 		const onPause = vi.fn();
 		await render({ running: true, initialDraft: "原来的指令", onSend, onPause });
-		await click(t("composer.sendNextTurn"));
-		expect(button(t("composer.sendNextTurn")).disabled).toBe(true);
-		expect(button(t("composer.steerCurrent")).disabled).toBe(true);
+		await enter();
+		expectNoDeliveryControls();
 		expect(button(t("composer.pause")).disabled).toBe(false);
 		await enter();
+		await enter(true);
 		await click(t("composer.pause"));
 		expect(onSend).toHaveBeenCalledOnce();
 		expect(onPause).toHaveBeenCalledOnce();
 		await type("下一条新指令");
 		await act(async () => pending.resolve(true));
 		expect(editor().textContent).toBe("下一条新指令");
-		expect(button(t("composer.sendNextTurn")).disabled).toBe(false);
+		await enter();
+		expect(onSend).toHaveBeenCalledTimes(2);
+		expect(onSend).toHaveBeenLastCalledWith("下一条新指令", undefined, undefined, "steer");
 	});
 
 	it("does not clear a draft when only its screenshot was removed during acknowledgement", async () => {

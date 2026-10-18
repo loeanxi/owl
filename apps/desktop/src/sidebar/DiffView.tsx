@@ -7,8 +7,17 @@
 import { useMemo } from "react";
 import { t } from "../i18n/index.ts";
 import { annotateCharDiff, parseUnifiedDiff, type DiffFile } from "./diff.ts";
+import { diffCommentKey, type DiffReviewComment, type DiffReviewMode, type DiffReviewTarget } from "./diff-review-model.ts";
+import { useDiffReviewText } from "./diff-review-copy.ts";
+import "./diff-review.css";
 
-export function DiffView({ text }: { text: string }): React.JSX.Element {
+export function DiffView({ text, mode = "diff", comments = [], onComment }: {
+	text: string;
+	mode?: DiffReviewMode;
+	comments?: readonly DiffReviewComment[];
+	onComment?: (target: DiffReviewTarget, trigger: HTMLButtonElement) => void;
+}): React.JSX.Element {
+	const copy = useDiffReviewText();
 	const files = useMemo<DiffFile[]>(() => {
 		const parsed = parseUnifiedDiff(text);
 		for (const file of parsed) {
@@ -25,26 +34,32 @@ export function DiffView({ text }: { text: string }): React.JSX.Element {
 				<div key={`${file.path}-${file.isNew ? "n" : ""}${file.isDeleted ? "d" : ""}`} className="mb-3">
 					<div className="sticky top-0 z-10 flex items-center gap-2 border-y border-owl-border/40 bg-owl-panel/95 px-3 py-1 backdrop-blur">
 						<span className="truncate text-[11px] text-owl-text" title={file.oldPath !== undefined ? `${file.oldPath} → ${file.path}` : file.path}>
-							{file.isNew && <span className="mr-1.5 rounded bg-emerald-500/20 px-1 text-emerald-300">{t("changes.new")}</span>}
-							{file.isDeleted && <span className="mr-1.5 rounded bg-red-500/20 px-1 text-red-300">{t("changes.deleted")}</span>}
-							{file.isRename && <span className="mr-1.5 rounded bg-sky-500/20 px-1 text-sky-300">{t("changes.renamed")}</span>}
+							{file.isNew && <span className="mr-1.5 rounded bg-emerald-500/20 px-1 text-status-added">{t("changes.new")}</span>}
+							{file.isDeleted && <span className="mr-1.5 rounded bg-red-500/20 px-1 text-status-deleted">{t("changes.deleted")}</span>}
+							{file.isRename && <span className="mr-1.5 rounded bg-sky-500/20 px-1 text-status-renamed">{t("changes.renamed")}</span>}
 							{file.path}
 						</span>
 					</div>
 					{file.hunks.map((hunk, hunkIndex) => (
 						<div key={hunkIndex}>
 							<div className="bg-owl-panel/60 px-3 py-0.5 text-owl-faint">{hunk.header}</div>
-							{hunk.lines.map((line, lineIndex) => (
+							{hunk.lines.filter((line) => mode === "diff" || (mode === "before" ? line.type !== "add" : line.type !== "del")).map((line, lineIndex) => {
+								const side = mode === "before" || line.newNo === undefined ? "old" : "new";
+								const number = side === "old" ? line.oldNo : line.newNo;
+								const target: DiffReviewTarget | undefined = number === undefined ? undefined : { path: side === "old" ? file.oldPath ?? file.path : file.path, side, line: number };
+								const notes = target ? comments.filter((comment) => comment.snapshot === text && diffCommentKey(comment.target) === diffCommentKey(target)) : [];
+								return <div key={lineIndex}>
 								<div
 									key={lineIndex}
 									className={`flex ${line.type === "add" ? "bg-emerald-500/10" : line.type === "del" ? "bg-red-500/10" : ""}`}
 								>
+									{onComment && target && <button type="button" className="owl-diff-comment-line" title={copy("comment")} aria-label={`${copy("comment")} · ${target.path} · ${copy(target.side === "old" ? "oldLine" : "newLine", { n: target.line })}`} onClick={(event) => onComment(target, event.currentTarget)}>+</button>}
 									<span className="w-10 shrink-0 pr-1 text-right text-owl-faint/60 select-none">{line.oldNo ?? ""}</span>
 									<span className="w-10 shrink-0 pr-1 text-right text-owl-faint/60 select-none">{line.newNo ?? ""}</span>
-									<span className={`w-4 shrink-0 select-none ${line.type === "add" ? "text-emerald-400" : line.type === "del" ? "text-red-400" : "text-transparent"}`}>
+									<span className={`w-4 shrink-0 select-none ${line.type === "add" ? "text-status-added" : line.type === "del" ? "text-status-deleted" : "text-transparent"}`}>
 										{line.type === "add" ? "+" : line.type === "del" ? "−" : " "}
 									</span>
-									<span className="whitespace-pre-wrap break-all">
+									<span className="min-w-0 whitespace-pre-wrap break-all">
 										{line.spans === undefined
 											? line.text
 											: line.spans.map((span, spanIndex) => (
@@ -63,7 +78,9 @@ export function DiffView({ text }: { text: string }): React.JSX.Element {
 												))}
 									</span>
 								</div>
-							))}
+								{notes.map((note) => <div key={note.id} className="owl-diff-saved-comment">{note.text}</div>)}
+								</div>;
+							})}
 						</div>
 					))}
 				</div>

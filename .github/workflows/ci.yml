@@ -90,9 +90,19 @@ jobs:
         working-directory: apps/desktop
         run: npm run test:all-platforms
 
-      - name: State-file and build-check tests
+      - name: State-file, build-check, permissions, syntax and schedule tests
         working-directory: packages/coding-agent
-        run: npx vitest --run test/atomic-file.test.ts test/build-check.test.ts test/career-stats.test.ts test/usage-stats-store.test.ts test/core/owl-memory.test.ts
+        run: >-
+          npx vitest --run
+          test/atomic-file.test.ts test/build-check.test.ts
+          test/usage-stats-store.test.ts test/core/owl-memory.test.ts
+          test/desktop-office-permissions.test.ts test/desktop-github-permissions.test.ts
+          test/syntax-highlight.test.ts src/modes/desktop/schedule-cron.test.ts
+          src/modes/desktop/schedule-service.test.ts
+
+      - name: Career statistics plugin tests
+        working-directory: packages/owl-career
+        run: npx vitest --run test/career-stats.test.ts
 
       - name: Check Tauri shell
         working-directory: apps/desktop/src-tauri

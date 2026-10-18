@@ -97,6 +97,8 @@ export interface ProcessEntry {
 	/** Failed to start; null exitCode marks terminal state without inventing a command exit code. */
 	spawnError?: Error;
 	killed: boolean;
+	/** Set only once bash/powershell actually returns a background session_id. */
+	backgrounded: boolean;
 	/** 输出自上次 poll 以来的新输出（读取即消费）。 */
 	pending: string;
 	pendingBytes: number;
@@ -141,6 +143,7 @@ export function registerSessionProcess(options: RegisterProcessOptions): Process
 		exitCode: undefined,
 		exitSignal: null,
 		killed: false,
+		backgrounded: false,
 		pending: "",
 		pendingBytes: 0,
 		recent: new HeadTailBuffer(),

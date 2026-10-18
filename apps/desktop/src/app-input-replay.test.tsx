@@ -4,17 +4,24 @@ import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.tsx";
-import type { ChatEntry } from "./hooks/transcript.ts";
+import type { ChatEntry, ToolCard } from "./hooks/transcript.ts";
+import type { ExecutionView } from "./components/execution-view.ts";
+import { ExecutionContext, type ExecutionContextValue } from "./sidebar/execution-context.tsx";
+import type { WorkbenchProps } from "./sidebar/Workbench.tsx";
+import { executionText } from "./components/execution-copy.ts";
+import { APP_KEYBINDINGS_KEY } from "./app-keybindings.ts";
 import type { PermissionRequest, QuestionRequest, SessionQueueSnapshot } from "./bridge/protocol.ts";
 import type { DynamicIslandProps } from "./components/DynamicIsland.tsx";
 import { QuestionDock } from "./components/QuestionDock.tsx";
 import { t } from "./i18n/index.ts";
 
 type ReplayCallbacks = {
+	executionView: ExecutionView;
+	onInspectTool: (card: ToolCard, ownerIndex?: number) => void;
 	onOpenFile: (path: string) => Promise<void>;
 	onRegenerate: () => void;
 	onResumeSession: (id: string) => void;
-	onEditMessage: (entryId: string, text: string) => void;
+	onEditMessage: (entryId: string, text: string) => boolean | Promise<boolean>;
 	entries: ChatEntry[];
 };
 type SidebarCallbacks = { onNewChat: () => void; onOpenSession: (id: string) => void; activeId?: string };
@@ -33,6 +40,8 @@ const fixture = vi.hoisted(() => ({
 	permission: undefined as ((request: PermissionRequest) => void) | undefined,
 	question: undefined as ((request: QuestionRequest) => void) | undefined,
 	island: undefined as DynamicIslandProps | undefined,
+	execution: undefined as ExecutionContextValue | undefined,
+	workbench: undefined as WorkbenchProps | undefined,
 }));
 vi.mock("./bridge/client.ts", () => ({ BridgeClient: class {
 	request = fixture.request;
@@ -53,7 +62,7 @@ vi.mock("./theme.ts", () => ({ isThemePreference: () => false, setThemeLock: () 
 vi.mock("./components/SessionSidebar.tsx", () => ({ SessionSidebar: (props: SidebarCallbacks) => { fixture.sidebar = props; return null; } }));
 vi.mock("./components/ChatStream.tsx", () => ({ ChatStream: (props: ReplayCallbacks) => { fixture.chat = props; return null; }, renderMarkdown: (text: string) => text }));
 vi.mock("./components/Composer.tsx", () => ({ Composer: (props: ComposerInput) => { fixture.composer = props; return null; } }));
-vi.mock("./components/AgentConversation.tsx", () => ({ AgentConversation: (props: { chat: React.ReactNode; composer: React.ReactNode; beforeComposer: React.ReactNode; questionDock?: Omit<React.ComponentProps<typeof QuestionDock>, "children"> }) => <>{props.chat}{props.beforeComposer}{props.questionDock ? <QuestionDock {...props.questionDock}>{props.composer}</QuestionDock> : props.composer}</> }));
+vi.mock("./components/AgentConversation.tsx", () => ({ AgentConversation: (props: { header?: React.ReactNode; chat: React.ReactNode; composer: React.ReactNode; beforeComposer: React.ReactNode; questionDock?: Omit<React.ComponentProps<typeof QuestionDock>, "children"> }) => <>{props.header}{props.chat}{props.beforeComposer}{props.questionDock ? <QuestionDock {...props.questionDock}>{props.composer}</QuestionDock> : props.composer}</> }));
 vi.mock("./components/Genui.tsx", () => ({ GenuiSessionProvider: (props: { children: React.ReactNode }) => props.children }));
 vi.mock("./hooks/use-subagents.ts", () => ({ useSubagents: () => ({ runs: [], refresh: () => {} }) }));
 vi.mock("./components/OwlMascot.tsx", () => ({ useSessionOwlPose: () => "idle" }));
@@ -92,17 +101,18 @@ vi.mock("./components/DesktopTitlebar.tsx", () => ({ DesktopTitlebar: (props: { 
 vi.mock("./components/DynamicIsland.tsx", () => ({ DynamicIsland: (props: DynamicIslandProps) => { fixture.island = props; return null; } }));
 vi.mock("./components/ShortcutsDialog.tsx", () => ({ ShortcutsDialog: () => null }));
 vi.mock("./components/FindBar.tsx", () => ({ FindBar: () => null }));
-vi.mock("./components/NewProjectDialog.tsx", () => ({ NewProjectDialog: () => null }));
+vi.mock("./components/NewProjectDialog.tsx", () => ({ NewProjectDialog: () => <div data-testid="project-dialog" /> }));
 vi.mock("./components/SettingsPage.tsx", () => ({ SettingsPage: () => null }));
 vi.mock("./components/TodoPin.tsx", () => ({ TodoPin: () => null }));
 vi.mock("./components/RetryPin.tsx", () => ({ RetryPin: () => null }));
 vi.mock("./components/BuildConsistencyBanner.tsx", () => ({ BuildConsistencyBanner: () => null }));
-vi.mock("./sidebar/Workbench.tsx", () => ({ Workbench: () => null }));
+vi.mock("./sidebar/Workbench.tsx", () => ({ Workbench: (props: WorkbenchProps) => { const context = React.useContext(ExecutionContext); if (props.role !== "terminal") { fixture.execution = context; fixture.workbench = props; } return null; } }));
 vi.mock("./components/WallpaperLayer.tsx", () => ({ WallpaperLayer: () => null }));
 
 let root: Root;
 let profileDirectory: string;
 let rewind: ReturnType<typeof Promise.withResolvers<unknown>>;
+let storage: Map<string, string>;
 const sourceText = "请参考截图检查 D:/project/source.ts";
 const sourcePath = "D:/project/source.ts";
 const sourceImage = { type: "image", mimeType: "image/png", data: "source-image" };
@@ -116,7 +126,8 @@ beforeEach(async () => {
 	vi.stubGlobal("Element", dom.window.Element);
 	vi.stubGlobal("Node", dom.window.Node);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+	storage = new Map();
+	vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) });
 	Object.defineProperty(dom.window, "location", { value: { search: "", hash: "", href: "http://localhost/" }, configurable: true });
 	dom.window.matchMedia = () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }) as MediaQueryList;
 	dom.document.hasFocus = () => true;
@@ -125,6 +136,8 @@ beforeEach(async () => {
 	fixture.rail = undefined;
 	fixture.sidebar = undefined;
 	fixture.composer = undefined;
+	fixture.execution = undefined;
+	fixture.workbench = undefined;
 	profileDirectory = "D:/profile-one";
 	rewind = Promise.withResolvers<unknown>();
 	fixture.request.mockReset().mockImplementation(async (request) => {
@@ -138,6 +151,7 @@ beforeEach(async () => {
 				sessionId: request.sessionId, cwd: "D:/project", messageEntryIds: ["source-user"],
 				messages: [{ role: "user", content: [{ type: "text", text: `[Attached files for this turn]\n- ${sourcePath}\n\n${sourceText}` }, sourceImage], timestamp: 1 }],
 			} };
+			case "commands.list": return { ok: true, result: { commands: [{ name: "compact", kind: "builtin", description: "compact" }] } };
 			case "session.prompt": return { ok: true };
 			default: return { ok: false };
 		}
@@ -159,6 +173,119 @@ function replay(action: "edit" | "regenerate"): void {
 	if (action === "edit") fixture.chat!.onEditMessage("source-user", "编辑后的原任务");
 	else fixture.chat!.onRegenerate();
 }
+
+async function shortcut(key: string, shiftKey = false): Promise<void> {
+	await act(async () => {
+		const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(event, { key, code: `Key${key.toUpperCase()}`, ctrlKey: true, altKey: false, metaKey: false, shiftKey });
+		window.dispatchEvent(event);
+	});
+}
+
+describe("App execution controls", () => {
+	it("cycles a global view preference without changing sessions, sending or stopping work", async () => {
+		expect(fixture.chat!.executionView).toBe("normal");
+		fixture.request.mockClear();
+		await shortcut("o"); expect(fixture.chat!.executionView).toBe("thinking");
+		await shortcut("o"); expect(fixture.chat!.executionView).toBe("verbose");
+		await shortcut("o"); expect(fixture.chat!.executionView).toBe("normal");
+		expect(storage.get("owl.execution.view")).toBe("normal");
+		expect(fixture.sidebar!.activeId).toBe("source-session");
+		expect(fixture.request.mock.calls.filter(([request]) => ["session.prompt", "session.abort", "session.resume"].includes(String(request.type)))).toEqual([]);
+		await shortcut("o", true);
+		expect(document.querySelector('[data-testid="project-dialog"]')).not.toBeNull();
+	});
+
+	it("saves a configurable view shortcut and keeps the former key available to the browser", async () => {
+		await act(async () => responseButton(`${executionText("normal")} ${executionText("view")}⌄`).click());
+		const change = responseButton(executionText("captureShortcut"));
+		await act(async () => change.click());
+		await act(async () => {
+			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(event, { key: "u", code: "KeyU", ctrlKey: true, altKey: false, metaKey: false, shiftKey: false });
+			change.dispatchEvent(event);
+		});
+		expect(JSON.parse(storage.get(APP_KEYBINDINGS_KEY)!)).toMatchObject({ cycleExecutionView: ["ctrl+u"] });
+		await shortcut("o"); expect(fixture.chat!.executionView).toBe("normal");
+		await shortcut("u"); expect(fixture.chat!.executionView).toBe("thinking");
+	});
+
+	it("opens tool evidence and background tasks as session-bound execution tabs", async () => {
+		const card: ToolCard = { id: "check-one", name: "bash", args: '{"command":"check"}', summary: "check", status: "running" };
+		await act(async () => fixture.chat!.onInspectTool(card, 1));
+		const evidence = fixture.workbench!.store.getState().tabs.find((tab) => tab.kind === "execution")!;
+		expect(JSON.parse(evidence.path!)).toEqual({ sessionId: "source-session", profile: "D:/profile-one", mode: "tool", toolId: "check-one", ownerIndex: 1 });
+		expect(fixture.workbench!.open).toBe(true);
+		await act(async () => responseButton(executionText("tasks")).click());
+		expect(fixture.workbench!.store.getState().tabs.filter((tab) => tab.kind === "execution")).toHaveLength(2);
+		expect(fixture.workbench!.store.getState().tabs.some((tab) => tab.kind === "terminal")).toBe(false);
+	});
+
+	it("uses the existing Git snapshot for counts and rejects late snapshots from another project or profile", async () => {
+		const snapshot = { repo: true, entries: [{ path: "a.ts", x: " ", y: "M" }, { path: "b.ts", x: " ", y: "M" }] };
+		await act(async () => fixture.workbench!.onGitStatusChange!("D:/project", "D:/profile-one", snapshot));
+		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)?.textContent).toBe("2");
+		await act(async () => fixture.workbench!.onGitStatusChange!("D:/old-project", "D:/profile-one", snapshot));
+		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)).toBeNull();
+		await act(async () => fixture.workbench!.onGitStatusChange!("D:/project", "D:/other-profile", snapshot));
+		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)).toBeNull();
+	});
+
+	it("acknowledges feedback only after a real prompt succeeds and uses steering during execution", async () => {
+		await act(async () => fixture.event!({ type: "event", sessionId: "source-session", event: { type: "agent_start" } }));
+		const pending = Promise.withResolvers<unknown>(); const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) => request.type === "session.prompt" ? pending.promise : base(request));
+		let result!: Promise<boolean>;
+		await act(async () => { result = fixture.execution!.onSubmitFeedback!("请调整 source.ts 第 3 行"); });
+		expect(fixture.request).toHaveBeenCalledWith({ type: "session.prompt", sessionId: "source-session", message: "请调整 source.ts 第 3 行", streamingBehavior: "steer" });
+		expect(fixture.request.mock.calls.some(([request]) => request.type === "session.abort")).toBe(false);
+		await act(async () => pending.resolve({ ok: false, error: "not accepted" }));
+		await expect(result).resolves.toBe(false);
+	});
+
+	it("rejects a retained feedback callback after navigation and keeps feedback out of the new session", async () => {
+		const send = fixture.execution!.onSubmitFeedback!;
+		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
+		fixture.request.mockClear();
+		await act(async () => { expect(await send("原会话的意见")).toBe(false); });
+		expect(fixture.request.mock.calls.filter(([request]) => request.type === "session.prompt")).toEqual([]);
+	});
+
+	it("sends idle feedback as a real new turn and resolves true only on acceptance", async () => {
+		await act(async () => { expect(await fixture.execution!.onSubmitFeedback!("请完善 source.ts 的说明")).toBe(true); });
+		expect(fixture.request).toHaveBeenCalledWith({ type: "session.prompt", sessionId: "source-session", message: "请完善 source.ts 的说明" });
+		expect(fixture.chat!.entries.some((entry) => entry.kind === "user" && entry.text === "请完善 source.ts 的说明")).toBe(true);
+		expect(fixture.composer!.draftRequest).toBeUndefined();
+	});
+
+	it("uses the live run state when feedback was drafted before execution began", async () => {
+		const send = fixture.execution!.onSubmitFeedback!;
+		await act(async () => fixture.event!({ type: "event", sessionId: "source-session", event: { type: "agent_start" } }));
+		await act(async () => { expect(await send("执行途中补充的意见")).toBe(true); });
+		expect(fixture.request).toHaveBeenCalledWith({ type: "session.prompt", sessionId: "source-session", message: "执行途中补充的意见", streamingBehavior: "steer" });
+	});
+
+	it("does not acknowledge old feedback as sent into a newly selected conversation", async () => {
+		const pending = Promise.withResolvers<unknown>(); const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) => request.type === "session.prompt" ? pending.promise : base(request));
+		let result!: Promise<boolean>;
+		await act(async () => { result = fixture.execution!.onSubmitFeedback!("原会话意见"); });
+		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
+		await act(async () => pending.resolve({ ok: true }));
+		await expect(result).resolves.toBe(false);
+		expect(fixture.request.mock.calls.filter(([request]) => request.type === "session.prompt").map(([request]) => request.sessionId)).toEqual(["source-session"]);
+		expect(fixture.chat!.entries.some((entry) => entry.kind === "user" && entry.text === "原会话意见")).toBe(false);
+	});
+
+	it("rejects a retained feedback callback after the account profile changes", async () => {
+		const send = fixture.execution!.onSubmitFeedback!;
+		profileDirectory = "D:/profile-two";
+		await act(async () => fixture.status!(false)); await act(async () => fixture.status!(true));
+		fixture.request.mockClear();
+		await act(async () => { expect(await send("旧账号意见")).toBe(false); });
+		expect(fixture.request.mock.calls.some(([request]) => request.type === "session.prompt")).toBe(false);
+	});
+});
 
 describe("App queue snapshot ownership", () => {
 	const queue: SessionQueueSnapshot = { steering: [], followUp: [{ messageId: "queued-one", text: "检查材料", textTruncated: false, imageCount: 1, attachedPaths: ["reference.md"], state: "queued" }] };
@@ -385,6 +512,54 @@ describe("App input replay session ownership", () => {
 		expect(fixture.request.mock.calls.filter(([request]) => request.type === "session.prompt")).toEqual([]);
 		expect(fixture.chat!.entries).toEqual([]);
 		expect(fixture.composer!.draftRequest).toBeUndefined();
+	});
+
+	it("reports a failed rewind and does not send the edited text", async () => {
+		let accepted!: Promise<boolean>;
+		await act(async () => { accepted = fixture.chat!.onEditMessage("source-user", "改过的任务"); });
+		await act(async () => { await rewind.resolve({ ok: false, error: "missing entry" }); });
+		await expect(accepted).resolves.toBe(false);
+		expect(fixture.request.mock.calls.filter(([request]) => request.type === "session.prompt")).toEqual([]);
+		expect(document.body.textContent).toContain(t("rewind.failed"));
+	});
+
+	it("does not write a finished compaction into a conversation opened while it was running", async () => {
+		const compact = Promise.withResolvers<unknown>();
+		const request = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((payload) => payload.type === "session.compact" ? compact.promise : request(payload));
+		let sent!: Promise<boolean>;
+		await act(async () => { sent = fixture.composer!.onSend("/compact"); });
+		expect(fixture.chat!.entries.some((entry) => entry.kind === "toolResult" && entry.brief === t("app.compactStarted"))).toBe(true);
+		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
+		await act(async () => { await compact.resolve({ ok: true, result: { model: { provider: "other", id: "compact-model" }, thinkingLevel: "high", availableThinkingLevels: ["high"], supportsThinking: true } }); });
+		await act(async () => { await sent; });
+		expect(fixture.chat!.entries.some((entry) => entry.kind === "toolResult" && entry.brief === t("app.compactDone"))).toBe(false);
+		expect(fixture.composer!.sessionInfo?.model?.id).not.toBe("compact-model");
+	});
+
+	it("ignores another edit or regenerate while rewind is still pending", async () => {
+		await act(async () => fixture.chat!.onRegenerate());
+		await act(async () => fixture.chat!.onEditMessage("source-user", "另一条编辑"));
+		expect(fixture.request.mock.calls.filter(([request]) => request.type === "rewind.execute")).toHaveLength(1);
+		await act(async () => rewind.resolve(rewindResult));
+		expect(fixture.request.mock.calls.filter(([request]) => request.type === "session.prompt")).toHaveLength(1);
+		expect(fixture.request).toHaveBeenCalledWith(expect.objectContaining({ type: "session.prompt", message: sourceText }));
+	});
+
+	it("regenerates the last delivered user message when a queued follow-up is last", async () => {
+		await act(async () => fixture.event?.({ type: "event", sessionId: "source-session", event: { type: "message_start", message: { role: "user", content: "排队跟进", queued: true } } }));
+		expect(fixture.chat!.entries.at(-1)).toMatchObject({ kind: "user", text: "排队跟进", queued: true });
+		await act(async () => fixture.chat!.onRegenerate());
+		await act(async () => rewind.resolve(rewindResult));
+		expect(fixture.request).toHaveBeenCalledWith(expect.objectContaining({ type: "session.prompt", sessionId: "source-session", message: sourceText }));
+	});
+
+	it("removes an island reply the session did not accept", async () => {
+		const request = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((payload) => payload.type === "session.prompt" ? Promise.resolve({ ok: false, error: "not delivered" }) : request(payload));
+		await act(async () => fixture.island!.onReply!("source-session", "岛上回复"));
+		expect(fixture.chat!.entries.some((entry) => entry.kind === "user" && entry.text === "岛上回复")).toBe(false);
+		expect(fixture.chat!.entries.at(-1)).toMatchObject({ kind: "toolResult", ok: false, brief: "not delivered" });
 	});
 
 	it.each(["edit", "regenerate"] as const)("replays complete %s input when the source conversation stays selected", async (action) => {

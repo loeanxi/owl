@@ -124,10 +124,10 @@ describe("message search navigation", () => {
 		expect([...highlights.get("owl-message-search")!].map(String)).toEqual(["timeout"]);
 	});
 
-	it("expands a folded intermediate assistant message before locating its own text", async () => {
+	it("locates an already visible intermediate assistant message without hiding its progress", async () => {
 		const entries = [user("question", "run"), assistant("note", "intermediate ERR_CONFLICT detail"), assistant("answer", "final result")];
 		await render({ entries });
-		expect(container.textContent).not.toContain("intermediate ERR_CONFLICT detail");
+		expect(container.textContent).toContain("intermediate ERR_CONFLICT detail");
 		await render({ searchTarget: { sessionId: "session-one", entryId: "note", query: "ERR_CONFLICT", requestId: 2 } });
 		const surface = scrollSurface();
 		const note = messageElement(surface, "note", "ERR_CONFLICT")!;
@@ -212,7 +212,11 @@ describe("reading position ownership", () => {
 	});
 
 	it("opens the latest turn's delivery from a completion request and does not repeat on later updates", async () => {
-		const answer: ChatEntry = { ...assistant("answer", "已交付"), tools: [{ id: "write-result", name: "write", args: JSON.stringify({ path: "result.md" }), summary: "生成结果", status: "ok", output: { text: "written", totalLines: 1 } }] };
+		const criteria = [{ criterion: "已生成结果文件", status: "verified", toolCallId: "write-result" }];
+		const answer: ChatEntry = { ...assistant("answer", "已交付"), tools: [
+			{ id: "write-result", name: "write", args: JSON.stringify({ path: "result.md" }), summary: "生成结果", status: "ok", output: { text: "written", totalLines: 1 } },
+			{ id: "registered-check", name: "task_check", args: JSON.stringify({ goal: "生成结果", criteria }), summary: "登记验收清单", status: "ok", output: { text: JSON.stringify({ goal: "生成结果", criteria }), totalLines: 1 } },
+		] };
 		await render({ entries: [user("latest-question", "生成结果"), answer], onOpenFile: () => {}, deliveryRequest: 10 });
 		const surface = scrollSurface();
 		container.querySelector<HTMLElement>(".owl-delivery-summary")!.getBoundingClientRect = () => ({ top: 520 } as DOMRect);
@@ -241,6 +245,16 @@ describe("reading position ownership", () => {
 		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
 		expect(surface.scrollTop).toBe(340);
 		expect(surface.dataset.owlScrollRestoring).toBe("true");
+	});
+
+	it("follows a newly sent message even while scroll restoration is still pending", async () => {
+		await render({ entries: [user("question", "run"), assistant("answer", "history")] });
+		const surface = scrollSurface();
+		surface.scrollTop = 340;
+		expect(surface.dataset.owlScrollRestoring).toBe("true");
+		await render({ entries: [user("question", "run"), assistant("answer", "history"), user("next", "继续")] });
+		expect(surface.hasAttribute("data-owl-scroll-restoring")).toBe(false);
+		expect(surface.scrollTop).toBe(surface.scrollHeight - surface.clientHeight);
 	});
 
 	it("preserves a restored historical position through replay and new assistant content", async () => {

@@ -67,7 +67,7 @@ pub fn show_approval_toast(
     let xml = format!(
         "<toast activationType=\"foreground\" launch=\"focus\">\
 <visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual>\
-{}</toast>",
+{}<audio silent=\"true\"/></toast>",
         escape_xml(&title),
         escape_xml(&body),
         actions,

@@ -7,7 +7,16 @@
  * is a host limitation rather than a product failure. Guard such tests with
  * `describe.skipIf(!CAPABILITY)` or `it.skipIf(!CAPABILITY)`.
  */
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getToolPath } from "../src/utils/tools-manager.ts";
@@ -30,6 +39,17 @@ export const SYMLINKS_SUPPORTED: boolean = probe((dir) => {
 	writeFileSync(target, "probe");
 	symlinkSync(target, link);
 	return readFileSync(link, "utf-8") === "probe";
+});
+
+/** Directory aliases can use unprivileged junctions on Windows; file symlinks still need their own probe. */
+export const DIRECTORY_LINK_TYPE = process.platform === "win32" ? "junction" : "dir";
+export const DIRECTORY_LINKS_SUPPORTED: boolean = probe((dir) => {
+	const target = join(dir, "target");
+	const link = join(dir, "link");
+	mkdirSync(target);
+	writeFileSync(join(target, "probe.txt"), "probe");
+	symlinkSync(target, link, DIRECTORY_LINK_TYPE);
+	return realpathSync(link) === realpathSync(target) && readFileSync(join(link, "probe.txt"), "utf-8") === "probe";
 });
 
 /** Windows ignores POSIX mode bits, so chmod 0 does not make a file unreadable. */

@@ -21,9 +21,12 @@ import { classifyHtmlDrop, dropPointHits, fileBasename, imageMimeOfName, splitDr
 import { PresetAvatar } from "./agent-preset-meta.tsx";
 import { OwlMascot, type OwlPose } from "./OwlMascot.tsx";
 import { useComposerPredictionText } from "./composer-prediction-copy.ts";
+import { useExecutionText } from "./execution-copy.ts";
+import { useComposerMotion, type ComposerSendMotion } from "./use-composer-motion.ts";
 import "./composer-responsive.css";
-import "./composer-send.css";
 import "./composer-prediction.css";
+import "./composer-motion.css";
+import { ImageViewer } from "./ImageViewer.tsx";
 
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -152,10 +155,10 @@ function FolderIcon({ tone = "text-owl-faint" }: { tone?: string }): React.JSX.E
 	);
 }
 
-type ComposerAction = "send" | "queue" | "pause" | "abort" | "resume";
+type ComposerAction = "send" | "pause" | "abort" | "resume";
 
 function ComposerActionIcon({ action }: { action: ComposerAction }): React.JSX.Element {
-	const send = action === "send" || action === "queue";
+	const send = action === "send";
 	return (
 		<span className="owl-composer-action-stage" aria-hidden="true">
 			<svg viewBox="0 0 16 16" data-shown={send || undefined} className="owl-composer-action-glyph is-stroke">
@@ -423,7 +426,7 @@ export type ComposerDraftRequest = {
 };
 
 /** 待发送区里的附图：额外带本地 id 供列表 key 与单张移除。 */
-type PendingImage = ComposerImage & { id: string };
+type PendingImage = ComposerImage & { id: string; name?: string };
 
 /** 单张附图上限：10MB（base64 后约 13MB，远小于桥 WebSocket 上限；服务端会按模型输入限制再压缩）。 */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -446,7 +449,7 @@ function transferHasFiles(transfer: DataTransfer): boolean {
 }
 
 /** 把图片文件读成 base64；非图片或读取失败返回 undefined。 */
-function readImageFile(file: File): Promise<{ data: string; mimeType: string } | undefined> {
+function readImageFile(file: File): Promise<{ data: string; mimeType: string; name: string } | undefined> {
 	return new Promise((resolve) => {
 		const reader = new FileReader();
 		reader.onload = () => {
@@ -457,7 +460,7 @@ function readImageFile(file: File): Promise<{ data: string; mimeType: string } |
 				resolve(undefined);
 				return;
 			}
-			resolve({ data: result.slice(comma + 1), mimeType });
+			resolve({ data: result.slice(comma + 1), mimeType, name: file.name });
 		};
 		reader.onerror = () => resolve(undefined);
 		reader.readAsDataURL(file);
@@ -597,6 +600,7 @@ export function Composer({
 	const t = useT();
 	useProjectSidebarRevision();
 	const predictionText = useComposerPredictionText();
+	const executionCopy = useExecutionText();
 	const predictionSettingId = useId();
 	const [value, setValue] = useState(() => initialDraft ?? "");
 	const initialDraftRef = useRef(initialDraft);
@@ -650,6 +654,11 @@ export function Composer({
 	// @ 文件引用：attachedPaths 与 DOM 中的芯片同步（哨兵推到、点 X 清掉它们）。
 	const [attachedPaths, updateAttachedPaths] = useState<string[]>([]);
 	const attachmentOwner = JSON.stringify([queueProfile, queueSessionId, queueOwnerRevision, workspaceDir, sessionScope]);
+	const motion = useComposerMotion({
+		surfaceRef: dropZoneRef, inputRef: inputBoxRef, client,
+		owner: JSON.stringify([queueProfile, queueOwnerRevision ?? queueSessionId, workspaceDir, sessionScope]),
+		isCurrent: queueIsCurrent,
+	});
 	const attachmentContext = useRef({ client, owner: attachmentOwner, connected });
 	attachmentContext.current = { client, owner: attachmentOwner, connected };
 	const [attachmentCheck, setAttachmentCheck] = useState<{ owner: string; client: BridgeClient; checking: boolean; issues: AttachmentIssue[] }>();
@@ -721,7 +730,7 @@ export function Composer({
 		editorRef.current?.focus();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [draftRequest]);
-	const submit = async (delivery?: "queue" | "steer"): Promise<void> => {
+	const submit = async (delivery?: "queue" | "steer", source?: HTMLElement): Promise<void> => {
 		if (disabled || submitInFlight.current || modelSelection?.status === "pending") return;
 		const text = value.trim();
 		const hasImages = pendingImages.length > 0;
@@ -730,17 +739,23 @@ export function Composer({
 		const revision = draftRevision.current;
 		submitInFlight.current = true;
 		setSending(true);
+		let feedback: ComposerSendMotion | undefined;
 		try {
 			if (hasAttachments && !(await verifyAttachedPaths([...attachedPaths], revision))) return;
-			const accepted = await onSend(text, hasImages ? pendingImages.map(({ type, data, mimeType }) => ({ type, data, mimeType })) : undefined, hasAttachments ? [...attachedPaths] : undefined, running ? delivery ?? "queue" : undefined);
+			const deliveryMode = running ? delivery ?? "steer" : undefined;
+			feedback = motion.beginSend(deliveryMode, source);
+			const accepted = await onSend(text, hasImages ? pendingImages.map(({ type, data, mimeType }) => ({ type, data, mimeType })) : undefined, hasAttachments ? [...attachedPaths] : undefined, deliveryMode);
+			if (accepted === false) { feedback.cancel(); return; }
+			feedback.accepted();
 			// A later edit or externally restored draft belongs to the user, not this request.
-			if (accepted === false || !mounted.current || draftRevision.current !== revision) return;
+			if (!mounted.current || draftRevision.current !== revision) return;
 			setDraftValue("");
 			setAttachedPaths([]);
 			setMentionOpen(false);
 			clearEditorContent(editorRef.current);
 			setPendingImages([]);
 		} catch {
+			feedback?.cancel();
 			// The caller owns visible failure feedback. Keep every part of the draft for retry.
 		} finally {
 			submitInFlight.current = false;
@@ -777,7 +792,7 @@ export function Composer({
 			const images: PendingImage[] = [];
 			const fallback: string[] = [];
 			for (const entry of loaded) {
-				if (entry.image) images.push({ id: `img-${++imageSeq}`, type: "image", data: entry.image.data, mimeType: entry.image.mimeType });
+				if (entry.image) images.push({ id: `img-${++imageSeq}`, type: "image", data: entry.image.data, mimeType: entry.image.mimeType, name: fileBasename(entry.path) });
 				else fallback.push(entry.path);
 			}
 			if (images.length > 0) setPendingImages((current) => [...current, ...images].slice(0, MAX_PROMPT_IMAGES));
@@ -803,7 +818,7 @@ export function Composer({
 		if (accepted.length === 0) return;
 		void Promise.all(accepted.map((file) => readImageFile(file))).then((images) => {
 			const next = images.flatMap((image) =>
-				image ? { id: `img-${++imageSeq}`, type: "image" as const, data: image.data, mimeType: image.mimeType } : [],
+				image ? { id: `img-${++imageSeq}`, type: "image" as const, data: image.data, mimeType: image.mimeType, name: image.name } : [],
 			);
 			if (next.length > 0) setPendingImages((current) => [...current, ...next].slice(0, MAX_PROMPT_IMAGES));
 		});
@@ -816,12 +831,21 @@ export function Composer({
 			const file = item.getAsFile();
 			if (file) files.push(file);
 		}
-		// 有图片文件时拦下默认行为（否则粘贴图片会把路径/乱码文本塞进输入框）；
-		// 纯文本粘贴不受影响。
-		if (files.length > 0) {
-			event.preventDefault();
-			addImageFiles(files);
-		}
+		const uriList = event.clipboardData.getData("text/uri-list");
+		if (files.length === 0 && uriList.trim() === "") return;
+		// 图片进预览。其余文件按本地路径附进本回合，没有路径就提示，不能把粘贴整段丢掉。
+		event.preventDefault();
+		const classified = classifyHtmlDrop(
+			files.map((file) => ({ name: file.name, type: file.type, path: filePathOf(file) })),
+			uriList,
+		);
+		const imageFiles = classified.imageIndexes.flatMap((index) => {
+			const file = files[index];
+			return file ? [file] : [];
+		});
+		if (imageFiles.length > 0) addImageFiles(imageFiles);
+		if (classified.attachmentPaths.length > 0) addAttachmentPaths(classified.attachmentPaths);
+		if (classified.unnamedCount > 0) showHint(t("composer.dropNoPath", { count: classified.unnamedCount }));
 	};
 
 	// 单行起步、随内容自动长高（Claude 同款）；上限 192px 与 max-h-48 一致，发送后随 value 清空缩回。
@@ -987,10 +1011,9 @@ export function Composer({
 		setMentionOpen(true);
 		setMentionQuery(mention.query);
 		setMentionIndex(0);
-		if (mention.query.length === 0) {
-			setMentionItems([]);
-			return;
-		}
+		// 新查询的结果回来之前先清掉上一份名单，避免回车选中过期文件。
+		setMentionItems([]);
+		if (mention.query.length === 0) return;
 		let cancelled = false;
 		void searchFiles(workspaceDir, mention.query).then((hits) => {
 			if (cancelled) return;
@@ -1116,6 +1139,7 @@ export function Composer({
 			selection.removeAllRanges();
 			selection.addRange(caret);
 		}
+		motion.acceptSuggestion();
 		return true;
 	};
 
@@ -1606,12 +1630,22 @@ export function Composer({
 					{environmentAccessory && <div className="owl-composer-environment-accessory">{environmentAccessory}</div>}
 				</div>}
 				<PromptQueue queue={queueProfile ? queued : undefined} controller={promptQueue} />
+				<ComposerMaterials key={attachmentOwner} images={pendingImages} files={chipEntries} onPreview={(image) => setZoomedImage(pendingImages.find((pending) => pending.id === image.id) ?? null)} onRemoveImage={(id) => {
+					setPendingImages((current) => current.filter((image) => image.id !== id));
+					editorRef.current?.focus({ preventScroll: true });
+				}} onRemoveFile={removeAttachment} />
 				{/* 输入框本体：Claude 同款单行小盒，输入与发送同行，随内容自动长高；吉祥物蹲在右上角沿口 */}
 				<div
 					className={"owl-composer-input relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
+					data-running={running && !paused || undefined}
 				>
 					<ContextTank percent={percent} />
+					<svg className="owl-composer-runtime-beam" aria-hidden="true">
+						<rect className="owl-composer-beam-tail" x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)" rx="12" pathLength="100" />
+						<rect x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)" rx="12" pathLength="100" />
+					</svg>
+					<span className="owl-composer-send-glint" aria-hidden="true" />
 					<OwlMascot
 						pose={owlPose}
 						hidden={mascotHidden}
@@ -1650,10 +1684,6 @@ export function Composer({
 							)}
 						</div>
 					)}
-					<ComposerMaterials key={attachmentOwner} images={pendingImages} files={chipEntries} onPreview={(image) => setZoomedImage(pendingImages.find((pending) => pending.id === image.id) ?? null)} onRemoveImage={(id) => {
-						setPendingImages((current) => current.filter((image) => image.id !== id));
-						editorRef.current?.focus({ preventScroll: true });
-					}} onRemoveFile={removeAttachment} />
 					{pasteHint && <p className="relative px-2.5 pt-1 text-[11px] text-owl-warning">{pasteHint}</p>}
 					{mentionOpen && (
 						<div
@@ -1707,6 +1737,7 @@ export function Composer({
 							{contextDetails}
 						</Menu>
 						<div className="owl-composer-draft min-w-0 flex-1" data-prediction={Boolean(suggestion) || undefined}>
+							<span className="owl-composer-accept-glint" aria-hidden="true" />
 							<div
 								ref={editorRef}
 								className="owl-composer-editor max-h-48 flex-1 text-owl-text outline-none"
@@ -1714,7 +1745,7 @@ export function Composer({
 								aria-multiline="true"
 								aria-label={t("composer.inputAria")}
 								aria-description={suggestion ? predictionText("hint") : undefined}
-								data-placeholder={suggestion ?? (running ? t("composer.queuePlaceholder") : t("composer.inputPlaceholder"))}
+								data-placeholder={suggestion ?? (running ? executionCopy("queuePlaceholder") : t("composer.inputPlaceholder"))}
 								data-prediction={Boolean(suggestion) || undefined}
 								contentEditable
 								suppressContentEditableWarning
@@ -1801,7 +1832,7 @@ export function Composer({
 										event.preventDefault();
 										if (running && (event.ctrlKey || event.metaKey)) void submit("steer");
 										else if (action === "resume" && !disabled && !sending && modelSelection?.status !== "pending") onResume?.();
-										else void submit(running ? "queue" : undefined);
+										else void submit(running ? "steer" : undefined);
 									}
 								}}
 							/>
@@ -1823,6 +1854,12 @@ export function Composer({
 							)}
 						</div>
 						<div className="owl-composer-trailing">
+							{running && hasDraft && <Menu triggerClassName="owl-composer-settings-fallback" triggerTitle={executionCopy("delivery")} panelClassName="owl-composer-menu right-0 w-64" trigger={<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-3.5 w-3.5" aria-label={executionCopy("delivery")}><path d="m4 6 4 4 4-4" /></svg>}>
+								{(close) => <div>
+									<button type="button" className={menuItemClass} disabled={disabled || sending || modelSelection?.status === "pending"} title={executionCopy("steerHint")} onClick={() => { close(); void submit("steer"); }}>{executionCopy("steer")}</button>
+									<button type="button" className={menuItemClass} disabled={disabled || sending || modelSelection?.status === "pending"} title={executionCopy("queueHint")} onClick={() => { close(); void submit("queue"); }}>{executionCopy("queue")}</button>
+								</div>}
+							</Menu>}
 							{mascotHidden && (
 								<Menu
 									triggerClassName={`owl-composer-settings-fallback${approvalMode === "auto" ? " is-alert" : ""}`}
@@ -1844,10 +1881,10 @@ export function Composer({
 							type="button"
 							aria-label={t(actionLabel)}
 							title={t(actionLabel)}
-							className={"owl-composer-action" + (running && hasDraft ? " is-quiet" : "")}
+							className="owl-composer-action"
 							disabled={(action === "send" || action === "resume") && (disabled || sending || modelSelection?.status === "pending" || (action === "send" && !hasDraft))}
-							onClick={() => {
-								if (action === "send") void submit();
+							onClick={(event) => {
+								if (action === "send") void submit(undefined, event.currentTarget);
 								else if (action === "pause") onPause?.();
 								else if (action === "resume") onResume?.();
 								else onAbort();
@@ -1856,17 +1893,6 @@ export function Composer({
 							<ComposerActionIcon action={action} />
 						</button>
 					</div>
-					{running && hasDraft && (
-						<div className="owl-composer-delivery">
-							<button type="button" className="owl-composer-delivery-button" title={t("composer.steerCurrentHint")} disabled={disabled || sending || modelSelection?.status === "pending"} onClick={() => void submit("steer")}>
-								{t("composer.steerCurrent")}
-							</button>
-							<button type="button" className="owl-composer-delivery-button is-primary" title={t("composer.queueHint")} disabled={disabled || sending || modelSelection?.status === "pending"} onClick={() => void submit("queue")}>
-								{t("composer.sendNextTurn")}
-								<ComposerActionIcon action="queue" />
-							</button>
-						</div>
-					)}
 				</div>
 				<div className="owl-composer-feedback">
 					<ModelSelectionNotice feedback={modelSelection} providers={providers} onRetry={onRetryModelSelection} />
@@ -1877,17 +1903,8 @@ export function Composer({
 					}} />
 				</div>
 			</div>
-			{zoomedImage && (
-				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
-					onClick={() => setZoomedImage(null)}
-				>
-					<img
-						src={`data:${zoomedImage.mimeType};base64,${zoomedImage.data}`}
-						alt={t("chat.viewFullImage")}
-						className="max-h-full max-w-full rounded-lg border border-owl-border shadow-2xl"
-					/>
-				</div>
+			{zoomedImage && pendingImages.length > 0 && (
+				<ImageViewer images={pendingImages.map((image, index) => ({ src: `data:${image.mimeType};base64,${image.data}`, alt: t("chat.attachment", { n: index + 1 }) }))} index={Math.max(0, pendingImages.findIndex((image) => image.id === zoomedImage.id))} onIndexChange={(index) => setZoomedImage(pendingImages[index] ?? null)} onClose={() => setZoomedImage(null)} />
 			)}
 			{showNewProject && (
 				<NewProjectDialog

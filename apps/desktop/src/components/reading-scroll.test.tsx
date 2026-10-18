@@ -77,7 +77,7 @@ it("treats code expansion as reading while a later real user message resumes bot
 	await resize();
 	expect(surface.scrollTop).toBe(readingTop);
 	await render([...entries, { kind: "user", entryId: "next-question", text: "继续检查" }]);
-	expect(surface.scrollTop).toBe(height);
+	expect(surface.scrollTop).toBe(height - surface.clientHeight);
 	await resize();
 	expect(surface.scrollTop).toBe(height - surface.clientHeight);
 });

@@ -116,15 +116,20 @@ function sessionRenameDraft(row: SessionRow): string {
 function relativeTime(iso: string): string {
 	const time = new Date(iso).getTime();
 	if (!time) return "";
-	const diff = Date.now() - time;
+	const now = Date.now();
+	const diff = now - time;
 	const minute = 60_000;
 	const hour = 3_600_000;
 	const day = 86_400_000;
+	const today = new Date(now);
+	today.setHours(0, 0, 0, 0);
+	const yesterday = new Date(today);
+	yesterday.setDate(yesterday.getDate() - 1);
 	if (diff < minute) return t("sidebar.relativeNow");
 	if (diff < hour) return t("sidebar.relativeMinutes", { n: Math.floor(diff / minute) });
-	if (diff < day) return t("sidebar.relativeHours", { n: Math.floor(diff / hour) });
-	if (diff < 2 * day) return t("sidebar.yesterday");
-	if (diff < 7 * day) return t("sidebar.relativeDays", { n: Math.floor(diff / day) });
+	if (time >= today.getTime()) return t("sidebar.relativeHours", { n: Math.max(1, Math.floor(diff / hour)) });
+	if (time >= yesterday.getTime()) return t("sidebar.yesterday");
+	if (diff < 7 * day) return t("sidebar.relativeDays", { n: Math.max(1, Math.floor(diff / day)) });
 	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
@@ -169,7 +174,7 @@ function loadSessionOrder(key: string): SessionOrderMap {
 
 /** 拖拽悬停位置 → 插入下标（按行中点划分上下半）。 */
 function sessionDropIndex(container: HTMLElement, clientY: number): number {
-	const rows = [...container.querySelectorAll<HTMLElement>(".owl-sidebar-session-row")];
+	const rows = [...container.querySelectorAll<HTMLElement>(".owl-sidebar-session-row:not([data-sidebar-window-overflow])")];
 	for (const [index, row] of rows.entries()) {
 		const rect = row.getBoundingClientRect();
 		if (clientY < rect.top + rect.height / 2) return index;
@@ -378,6 +383,16 @@ export function SessionSidebar({
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
 	const [listWindows, setListWindows] = useState<{ scope: SessionScope; counts: Record<string, number> }>(() => ({ scope: sessionScope, counts: {} }));
 	const visibleCount = (key: string): number => listWindows.scope === sessionScope ? listWindows.counts[key] ?? SESSION_PAGE_SIZE : SESSION_PAGE_SIZE;
+	/** 当前会话排在本页窗口外时仍留在列表末尾，且不计入「再显示 N 条」。 */
+	const sessionWindow = (rows: SessionRow[], windowKey: string): { rows: SessionRow[]; total: number } => {
+		const limit = visibleCount(windowKey);
+		const activeIndex = activeId ? rows.findIndex((row) => row.id === activeId) : -1;
+		const activeOutside = activeIndex >= limit;
+		return {
+			rows: activeOutside ? [...rows.slice(0, limit), rows[activeIndex]!] : rows.slice(0, limit),
+			total: rows.length - (activeOutside ? 1 : 0),
+		};
+	};
 	const setVisibleCount = (key: string, count: number): void => setListWindows((current) => ({
 		scope: sessionScope,
 		counts: { ...(current.scope === sessionScope ? current.counts : {}), [key]: count },
@@ -725,10 +740,15 @@ export function SessionSidebar({
 				type: "session.archive",
 				sessionId: id,
 			});
-			if (!response.ok) return;
+			if (!response.ok) {
+				setProjectNotice(response.error ?? t("sidebar.archiveFailed"));
+				return;
+			}
+			// 当前会话归档后不再留在主界面，否则侧栏找不到它，发送仍会进这条会话。
+			if (id === activeId) onNewChat();
 			void refresh();
-		} catch {
-			// 桥未连接等瞬时失败：列表不动，用户重试即可
+		} catch (error) {
+			setProjectNotice(error instanceof Error ? error.message : t("sidebar.archiveFailed"));
 		}
 	};
 
@@ -798,7 +818,12 @@ export function SessionSidebar({
 	const sessionMatches = (row: SessionRow): boolean =>
 		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search) || (row.cwd ? projectLabel(row.cwd).toLowerCase().includes(search) : false);
 
-	const byLatest = (a: SessionRow, b: SessionRow): number => (sessionTime(a) < sessionTime(b) ? 1 : -1);
+	const byLatest = (a: SessionRow, b: SessionRow): number => {
+		const left = sessionTime(a);
+		const right = sessionTime(b);
+		if (left !== right) return left < right ? 1 : -1;
+		return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+	};
 
 	/** 置顶会话只在「置顶」区出现，其余分组一律排除，避免同一会话重复两行。 */
 	const isPinnedRow = (row: SessionRow): boolean => row.id !== undefined && pinned.includes(row.id);
@@ -864,7 +889,7 @@ export function SessionSidebar({
 	 * 会话行（单行紧凑式）：标题在左，状态点靠右。运行中绿点闪烁，跑完未看为实心绿点，看过后变浅灰。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string): React.JSX.Element => {
+	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string, overflow = false): React.JSX.Element => {
 		const id = row.id;
 		const isRunning = id !== undefined && runningSessions.has(id);
 		const unread = isSessionUnread(projectPreferences, row);
@@ -873,11 +898,12 @@ export function SessionSidebar({
 		const menuOpen = openMenu === menuKey && sessionMenu?.key === menuKey;
 		// 仅项目分组内的完整会话列表可拖拽排序。
 		const draggable = projectPath !== undefined && id !== undefined;
-		const dropBefore = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
-		const dropAfter = projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
+		const dropBefore = !overflow && projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
+		const dropAfter = !overflow && projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
 			return (
 				<div
 					key={id ?? index}
+					data-sidebar-window-overflow={overflow ? "true" : undefined}
 					className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
 						id ? "owl-sidebar-row--has-marker" : ""
 					} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
@@ -976,7 +1002,7 @@ export function SessionSidebar({
 		const rows = projectSessionRows(path);
 		const name = projectLabel(path);
 		const windowKey = "project:" + normPath(path);
-		const visibleRows = rows.slice(0, visibleCount(windowKey));
+		const windowed = sessionWindow(rows, windowKey);
 		return <div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
 			<div className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}>
 				<button type="button" className="owl-sidebar-project-toggle" data-icon={expanded ? "folder-open" : "folder"} aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path)}>{expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}</button>
@@ -1022,7 +1048,7 @@ export function SessionSidebar({
 					setDraggingSession(null);
 					setDropHint(null);
 				}}
-			>{visibleRows.map((row, index) => sessionRow(row, index, false, menuId, path))}{listControls(windowKey, rows.length, name)}{rows.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}</div>}
+			>{windowed.rows.map((row, index) => sessionRow(row, index, false, menuId, path, index >= visibleCount(windowKey)))}{listControls(windowKey, windowed.total, name)}{rows.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}</div>}
 		</div>;
 	};
 	const renderProjectContents = (paths: string[], location: string): React.ReactNode => {
@@ -1038,21 +1064,24 @@ export function SessionSidebar({
 		const pathsSet = new Set(paths.map(normPath));
 		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd))).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
 		const windowKey = "merged:" + location;
-		return rows.length ? <>{rows.slice(0, visibleCount(windowKey)).map((row, index) => sessionRow(row, index, false, location))}{listControls(windowKey, rows.length, pt("defaultSection"))}</> : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
+		const windowed = sessionWindow(rows, windowKey);
+		return rows.length ? <>{windowed.rows.map((row, index) => sessionRow(row, index, false, location, undefined, index >= visibleCount(windowKey)))}{listControls(windowKey, windowed.total, pt("defaultSection"))}</> : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
 	};
 	const defaultProjects = visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === undefined);
-	const renderRecentRows = (rows: SessionRow[], location: string): React.ReactNode => {
+	const renderRecentRows = (rows: SessionRow[], location: string, overflowId?: string): React.ReactNode => {
 		const groups = groupSessionsByPeriod(rows);
 		if (recentSort === "oldest") groups.reverse();
 		return groups.map(({ period, rows: periodRows }) => <div key={period} className="owl-sidebar-date-group" data-session-period={period}>
 			<h3 className="owl-sidebar-date-label">{t(period === "today" ? "history.today" : period === "yesterday" ? "sidebar.yesterday" : "myself.groupEarlier")}</h3>
-			{periodRows.map((row, index) => sessionRow(row, index, false, location))}
+			{periodRows.map((row, index) => sessionRow(row, index, false, location, undefined, row.id === overflowId))}
 		</div>);
 	};
 	const renderRecentContents = (): React.ReactNode => {
-		const rows = recentSessions.slice(0, visibleCount("recent"));
-		const controls = listControls("recent", recentSessions.length, sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent"));
-		if (projectPreferences.recentView === "merged") return <>{renderRecentRows(rows, "recent")}{controls}</>;
+		const recentWindow = sessionWindow(recentSessions, "recent");
+		const rows = recentWindow.rows;
+		const overflowId = rows.length > visibleCount("recent") ? rows.at(-1)?.id : undefined;
+		const controls = listControls("recent", recentWindow.total, sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent"));
+		if (projectPreferences.recentView === "merged") return <>{renderRecentRows(rows, "recent", overflowId)}{controls}</>;
 		const groups = new Map<string, { path?: string; rows: SessionRow[] }>();
 		for (const row of rows) {
 			const key = normPath(row.cwd);
@@ -1068,7 +1097,7 @@ export function SessionSidebar({
 					{group.path ? (expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />) : <><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /><IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /></>}
 					<span className="owl-sidebar-row-label">{name}</span>
 				</button></div>
-				{expanded && <div className="owl-sidebar-project-sessions">{renderRecentRows(group.rows, key)}</div>}
+				{expanded && <div className="owl-sidebar-project-sessions">{renderRecentRows(group.rows, key, overflowId)}</div>}
 			</div>;
 		})}{controls}</>;
 	};
@@ -1225,8 +1254,8 @@ export function SessionSidebar({
 							</>
 						}
 					>
-					{pinnedSessions.slice(0, visibleCount("pinned")).map((row, index) => sessionRow(row, index, true, "pinned"))}
-					{listControls("pinned", pinnedSessions.length, t("sidebar.sectionPinned"))}
+					{sessionWindow(pinnedSessions, "pinned").rows.map((row, index) => sessionRow(row, index, true, "pinned", undefined, index >= visibleCount("pinned")))}
+					{listControls("pinned", sessionWindow(pinnedSessions, "pinned").total, t("sidebar.sectionPinned"))}
 					</Section>
 				)}
 

@@ -6,7 +6,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultPackageManager, type ProgressEvent, type ResolvedResource } from "../src/core/package-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { SYMLINKS_SUPPORTED } from "./capabilities.ts";
+import { DIRECTORY_LINK_TYPE, DIRECTORY_LINKS_SUPPORTED } from "./capabilities.ts";
 
 function normalizeForMatch(value: string): string {
 	return value.replace(/\\/g, "/");
@@ -296,7 +296,7 @@ Content`,
 			expect(result.prompts.some((r) => r.path === promptPath && !r.enabled)).toBe(true);
 		});
 
-		it.skipIf(!SYMLINKS_SUPPORTED)("should resolve symlinked user and project resources once", async () => {
+		it.skipIf(!DIRECTORY_LINKS_SUPPORTED)("should resolve linked user and project resources once", async () => {
 			const previousHome = process.env.HOME;
 			process.env.HOME = tempDir;
 
@@ -326,14 +326,14 @@ Content`,
 
 				mkdirSync(join(agentDir), { recursive: true });
 				mkdirSync(join(tempDir, ".owl"), { recursive: true });
-				symlinkSync(sharedExtensionsDir, join(agentDir, "extensions"), "dir");
-				symlinkSync(sharedSkillsDir, join(agentDir, "skills"), "dir");
-				symlinkSync(sharedPromptsDir, join(agentDir, "prompts"), "dir");
-				symlinkSync(sharedThemesDir, join(agentDir, "themes"), "dir");
-				symlinkSync(sharedExtensionsDir, join(tempDir, ".owl", "extensions"), "dir");
-				symlinkSync(sharedSkillsDir, join(tempDir, ".owl", "skills"), "dir");
-				symlinkSync(sharedPromptsDir, join(tempDir, ".owl", "prompts"), "dir");
-				symlinkSync(sharedThemesDir, join(tempDir, ".owl", "themes"), "dir");
+				symlinkSync(sharedExtensionsDir, join(agentDir, "extensions"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedSkillsDir, join(agentDir, "skills"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedPromptsDir, join(agentDir, "prompts"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedThemesDir, join(agentDir, "themes"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedExtensionsDir, join(tempDir, ".owl", "extensions"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedSkillsDir, join(tempDir, ".owl", "skills"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedPromptsDir, join(tempDir, ".owl", "prompts"), DIRECTORY_LINK_TYPE);
+				symlinkSync(sharedThemesDir, join(tempDir, ".owl", "themes"), DIRECTORY_LINK_TYPE);
 
 				const result = await packageManager.resolve();
 
@@ -376,15 +376,15 @@ Content`,
 			expect(result.prompts.some((r) => r.path === promptPath && !r.enabled)).toBe(true);
 		});
 
-		it("should resolve directory with package.json pi.extensions in extensions setting", async () => {
-			// Create a package with pi.extensions in package.json
+		it("should resolve directory with package.json owl.extensions in extensions setting", async () => {
+			// Create a package with owl.extensions in package.json
 			const pkgDir = join(tempDir, "my-extensions-pkg");
 			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
 			writeFileSync(
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "my-extensions-pkg",
-					pi: {
+					owl: {
 						extensions: ["./extensions/clip.ts", "./extensions/cost.ts"],
 					},
 				}),
@@ -398,7 +398,7 @@ Content`,
 
 			const result = await packageManager.resolve();
 
-			// Should find the extensions declared in package.json pi.extensions
+			// Should find the extensions declared in package.json owl.extensions
 			expect(result.extensions.some((r) => r.path === join(pkgDir, "extensions", "clip.ts") && r.enabled)).toBe(
 				true,
 			);
@@ -500,8 +500,7 @@ Content`,
 			const globalSkillsDir = join(tempDir, "skills");
 			mkdirSync(globalSkillsDir, { recursive: true });
 			// Use junction on Windows to avoid EPERM when symlink privileges are unavailable.
-			const directoryLinkType = process.platform === "win32" ? "junction" : "dir";
-			symlinkSync(globalSkillsDir, join(agentDir, "skills"), directoryLinkType);
+			symlinkSync(globalSkillsDir, join(agentDir, "skills"), DIRECTORY_LINK_TYPE);
 
 			const skillPath = join(globalSkillsDir, "foo", "SKILL.md");
 			mkdirSync(join(globalSkillsDir, "foo"), { recursive: true });
@@ -557,14 +556,14 @@ Content`,
 			expect(result.extensions.some((r) => r.path === extPath && r.enabled)).toBe(true);
 		});
 
-		it("should handle directories with pi manifest", async () => {
+		it("should handle directories with owl manifest", async () => {
 			const pkgDir = join(tempDir, "my-package");
 			mkdirSync(pkgDir, { recursive: true });
 			writeFileSync(
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "my-package",
-					pi: {
+					owl: {
 						extensions: ["./src/index.ts"],
 						skills: ["./skills"],
 					},
@@ -586,7 +585,7 @@ Content`,
 			);
 		});
 
-		it("should keep pi manifest entries with leading tilde package-relative", async () => {
+		it("should keep owl manifest entries with leading tilde package-relative", async () => {
 			const pkgDir = join(tempDir, "tilde-manifest-package");
 			const directExtensionPath = join(pkgDir, "~extensions", "main.ts");
 			const slashExtensionPath = join(pkgDir, "~", "extensions", "alt.ts");
@@ -605,7 +604,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "tilde-manifest-package",
-					pi: {
+					owl: {
 						extensions: ["~extensions/main.ts", "~/extensions/alt.ts"],
 						skills: ["~skills", "~/skills"],
 					},
@@ -1635,7 +1634,7 @@ Content`,
 		});
 	});
 
-	describe("pattern filtering in pi manifest", () => {
+	describe("pattern filtering in owl manifest", () => {
 		it("should support glob patterns in manifest extensions", async () => {
 			const pkgDir = join(tempDir, "manifest-pkg");
 			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
@@ -1647,7 +1646,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "manifest-pkg",
-					pi: {
+					owl: {
 						extensions: ["extensions", "node_modules/dep/extensions", "!**/skip.ts"],
 					},
 				}),
@@ -1675,7 +1674,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "skill-manifest-pkg",
-					pi: {
+					owl: {
 						skills: ["skills", "!**/bad-skill"],
 					},
 				}),
@@ -1702,7 +1701,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "skill-manifest-glob-pkg",
-					pi: {
+					owl: {
 						skills: ["./plugins/*/skills"],
 					},
 				}),
@@ -1735,16 +1734,12 @@ Content`,
 				join(linkedPluginSource, "skills", "linked-skill", "SKILL.md"),
 				"---\nname: linked-skill\ndescription: Linked\n---\n",
 			);
-			symlinkSync(
-				linkedPluginSource,
-				join(pkgDir, "plugins", "linked"),
-				process.platform === "win32" ? "junction" : "dir",
-			);
+			symlinkSync(linkedPluginSource, join(pkgDir, "plugins", "linked"), DIRECTORY_LINK_TYPE);
 			writeFileSync(
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "manifest-glob-semantics-pkg",
-					pi: {
+					owl: {
 						extensions: [
 							"./extension-files/*.ts",
 							"./extension-files/**/.ignored.ts",
@@ -1781,7 +1776,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "layered-pkg",
-					pi: {
+					owl: {
 						extensions: ["extensions", "!**/baz.ts"],
 					},
 				}),
@@ -2028,7 +2023,7 @@ Content`,
 				join(pkgDir, "package.json"),
 				JSON.stringify({
 					name: "manifest-force-pkg",
-					pi: {
+					owl: {
 						extensions: ["extensions", "!**/two.ts", "+extensions/two.ts"],
 					},
 				}),
@@ -2250,7 +2245,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "agents.ts"))).toBe(false);
 		});
 
-		it("should respect package.json pi.extensions manifest in subdirectories", async () => {
+		it("should respect package.json owl.extensions manifest in subdirectories", async () => {
 			const pkgDir = join(tempDir, "manifest-subdir-pkg");
 			mkdirSync(join(pkgDir, "extensions", "custom"), { recursive: true });
 
@@ -2258,7 +2253,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			writeFileSync(
 				join(pkgDir, "extensions", "custom", "package.json"),
 				JSON.stringify({
-					pi: {
+					owl: {
 						extensions: ["./main.ts"],
 					},
 				}),

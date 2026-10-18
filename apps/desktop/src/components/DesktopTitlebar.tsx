@@ -27,12 +27,14 @@ type MenuRow = MenuEntry | "separator";
 
 interface DesktopTitlebarProps {
 	connected: boolean;
+	activityRailCollapsed: boolean;
 	sidebarCollapsed: boolean;
 	sidebarView?: "manager" | "chat" | "map" | "news" | "mail" | "evaluation" | "projects" | "research" | "guide" | "myself" | "expert" | "market" | "career" | "automation" | "bagu" | "account";
 	sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 	terminalOpen: boolean;
 	sidebarOpen: boolean;
 	fullscreen: boolean;
+	onToggleActivityRail: () => void;
 	onToggleSidebar: () => void;
 	onNewChat: () => void;
 	onOpenProject: () => void;
@@ -58,6 +60,7 @@ interface DesktopTitlebarProps {
 	onZoomOut: () => void;
 	onZoomReset: () => void;
 	onToggleFullscreen: () => void;
+	onDebugUpdate: () => void;
 	onOpenGuide: () => void;
 	onShowShortcuts: () => void;
 	onOpenAbout: () => void;
@@ -91,6 +94,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 	const researchTitle = useResearchEntryText();
 	const [sessionDrawer, setSessionDrawer] = useState({ enabled: false, open: false });
 	const sidebarCollapsed = sessionDrawer.enabled ? !sessionDrawer.open : props.sidebarCollapsed;
+	const activityRailLabel = t(props.activityRailCollapsed ? "titlebar.showActivityRail" : "titlebar.hideActivityRail");
 	const sidebarLabel = props.sidebarView === "evaluation"
 		? evaluationText("title")
 		: props.sidebarView === "mail"
@@ -234,7 +238,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 	const actions: Record<MenuKey, MenuRow[]> = {
 		file: [
 			{ label: t("titlebar.newChat"), hint: "Ctrl+N", disabled: !props.connected, action: props.onNewChat },
-			{ label: t("titlebar.openProject"), hint: "Ctrl+O", disabled: !props.connected, action: props.onOpenProject },
+			{ label: t("titlebar.openProject"), hint: "Ctrl+Shift+O", disabled: !props.connected, action: props.onOpenProject },
 			"separator",
 			{ label: t("titlebar.closeWindow"), hint: "Ctrl+W", action: props.onCloseWindow },
 			{ label: t("titlebar.quitOwl"), hint: "Ctrl+Q", action: props.onQuit },
@@ -252,6 +256,7 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("titlebar.settings"), hint: "Ctrl+,", action: props.onOpenSettings },
 		],
 		view: [
+			{ label: activityRailLabel, active: !props.activityRailCollapsed, action: props.onToggleActivityRail },
 			{ label: sidebarLabel, hint: "Ctrl+Shift+S", active: !sidebarCollapsed, action: toggleSidebar },
 			{ label: bottomOpen ? t("view.hideBottomPanel") : t("view.showBottomPanel"), hint: "Ctrl+J", active: bottomOpen, action: props.onToggleBottomPanel },
 			{ label: rightOpen ? t("view.hideRightPanel") : t("view.showRightPanel"), hint: "Ctrl+Shift+E", active: rightOpen, action: props.onToggleRightPanel },
@@ -271,6 +276,8 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 			{ label: t("view.zoomIn"), hint: "Ctrl+Shift+=", action: props.onZoomIn },
 			{ label: t("view.zoomOut"), hint: "Ctrl+-", action: props.onZoomOut },
 			{ label: t("view.zoomReset"), hint: "Ctrl+0", action: props.onZoomReset },
+			"separator",
+			{ label: t("view.debugUpdate"), hint: "Ctrl+Shift+R", action: props.onDebugUpdate },
 			"separator",
 			{ label: t("view.toggleFullscreen"), hint: "F11", active: props.fullscreen, action: props.onToggleFullscreen },
 		],
@@ -361,6 +368,21 @@ export function DesktopTitlebar(props: DesktopTitlebarProps): React.JSX.Element 
 		<header className="owl-desktop-titlebar owl-desktop-titlebar-responsive" ref={root} data-tauri-drag-region="deep">
 				{props.island}
 				<div className="owl-desktop-menu-row" data-tauri-drag-region="false">
+				<button
+					type="button"
+					className="owl-chrome-button owl-desktop-rail-toggle"
+					aria-label={activityRailLabel}
+					title={activityRailLabel}
+					aria-expanded={!props.activityRailCollapsed}
+					aria-controls="owl-activity-rail"
+					onClick={() => { setMenu(undefined); props.onToggleActivityRail(); }}
+				>
+					<svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+						<rect x="3" y="4" width="18" height="16" rx="2" />
+						<path d="M8 4v16" />
+						<path d={props.activityRailCollapsed ? "m12 9 3 3-3 3" : "m16 9-3 3 3 3"} />
+					</svg>
+				</button>
 				<button
 					ref={props.sidebarToggleRef}
 					type="button"

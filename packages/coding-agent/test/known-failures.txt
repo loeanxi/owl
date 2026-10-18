@@ -1,59 +1,12 @@
-# Tests that already fail on main, so a red run does not mean your change broke them.
-# Read by scripts/test-known.mjs (npm run test:known / test:changed): it fails only on
-# failures missing from this list and reports entries that pass again.
-# Format: "<path relative to packages/coding-agent> > <vitest full name>", "<path> > (file)"
-# when the whole file fails to collect, or "<path> > *" for a flaky file whose failures are
-# all tolerated. Remove an entry when you fix the test.
-# Verified 2026-10-10 against HEAD 643542af1 in a separate worktree.
-
-# Likely Windows-only: symlink EPERM, POSIX temp paths (D:\tmp), backslashes in manifest globs.
-test/package-manager.test.ts > DefaultPackageManager resolve should resolve directory with package.json pi.extensions in extensions setting
-test/package-manager.test.ts > DefaultPackageManager resolveExtensionSources should handle directories with pi manifest
-test/package-manager.test.ts > DefaultPackageManager resolveExtensionSources should keep pi manifest entries with leading tilde package-relative
-test/package-manager.test.ts > DefaultPackageManager pattern filtering in pi manifest should support glob patterns in manifest extensions
-test/package-manager.test.ts > DefaultPackageManager pattern filtering in pi manifest should support glob patterns in manifest skills
-test/package-manager.test.ts > DefaultPackageManager pattern filtering in pi manifest should expand positive glob manifest entries before collecting skills
-test/package-manager.test.ts > DefaultPackageManager pattern filtering in pi manifest should sort manifest glob matches and use exact entries for dot paths and symlink traversal
-test/package-manager.test.ts > DefaultPackageManager pattern filtering in package filters should apply user filters on top of manifest filters (not replace)
-test/package-manager.test.ts > DefaultPackageManager multi-file extension discovery (issue #1102) should respect package.json pi.extensions manifest in subdirectories
-test/resource-loader.test.ts > DefaultResourceLoader reload should prefer project resources over user on name collisions
-test/resource-loader.test.ts > DefaultResourceLoader reload should load symlinked user and project extensions once
-test/resource-loader.test.ts > DefaultResourceLoader extendResources should keep package metadata for skills, prompts, and themes
-test/suite/regressions/7187-malformed-package-manifest.test.ts > issue #7187 malformed package manifest ignores invalid resource fields without dropping valid fields
-test/sdk-session-manager.test.ts > createAgentSession session manager defaults runs the built-in bash tool in the session cwd
-
-# Behavior drifted from the expectation; needs a decision on which side is right.
-test/model-runtime-classifiers.test.ts > ModelRuntime classifiers lists Jev separately and classifies with runtime-resolved auth
-test/suite/agent-session-boundaries.test.ts > AgentSession actionable boundaries does not compact from usage belonging to a boundary-omitted assistant
-test/suite/agent-session-boundaries.test.ts > AgentSession actionable boundaries does not trigger successful-response overflow from usage captured before a boundary edit
-test/suite/agent-session-compaction.test.ts > AgentSession compaction characterization compacts after an oversized tool result in the same run (model override: false)
-test/suite/agent-session-compaction.test.ts > AgentSession compaction characterization compacts after an oversized tool result in the same run (model override: true)
-test/suite/agent-session-runtime.test.ts > AgentSessionRuntime characterization settles the active response before session replacement
-test/suite/virtual-models.test.ts > AgentSession virtual models routes each request, including retries, while the selection stays virtual
-test/suite/virtual-models.test.ts > AgentSession virtual models retries the first request of a turn on the model routed for that turn
-test/suite/virtual-models.test.ts > AgentSession virtual models compacts between turns of a run when the next request is routed to a smaller window
-# Reproduced on a clean worktree at HEAD bddf10def (2026-10-12): one extra model call after restart.
-test/core/news-host.test.ts > news application service preserves processed output after restart and completes a full faux-model pipeline
-
-# Docs pages not linked from navigation: agent-presets.md, news.md, tool-discovery.md,
-# research/dsh-univer-office-assessment.md.
-test/documentation.test.ts > coding-agent documentation has valid navigation and no orphaned Markdown pages
-
-# node:test files collected by vitest ("No test suite found").
-test/desktop-office-permissions.test.ts > (file)
-src/modes/desktop/schedule-cron.test.ts > (file)
-src/modes/desktop/schedule-service.test.ts > (file)
-
-# Flaky under full-suite load (real browser, native windows, streaming timing); a different
-# subset fails on each run. "should queue extension-origin steering messages while streaming"
-# also fails when run alone.
-test/agent-session-concurrent.test.ts > *
-test/desktop-browser-fill-form.test.ts > *
-test/desktop-browser-interaction.test.ts > *
-test/desktop-browser-typed-inputs.test.ts > *
-test/core/evaluation-browser-checks.test.ts > *
-test/mirror-capture-geometry.test.ts > *
-test/mirror-capture-resize.test.ts > *
-test/mirror-native-layout.test.ts > *
-test/mirror-projection-worker.test.ts > *
-test/mirror-vm-surface.test.ts > *
+# Known assertion failures tolerated by scripts/test-known.mjs (test:known / test:changed).
+# Current exemptions: none.
+# All 35 previous entries were audited on Windows on 2026-10-19; their 21 files passed
+# together with 332 tests and zero skips. This is not a full-repository test result.
+# Eight historical entries did not reproduce; removing their exemptions does not claim
+# that every possible high-load flake has been eliminated.
+# Per-entry local evidence from the repository root:
+# .artifacts/known-failures-2026-10-19/verification.json
+#
+# Add only a reproduced assertion failure, with its exact Vitest full name, command,
+# and confirmed cause. Format: <path relative to packages/coding-agent> > <full name>
+# Collection failures, runner errors, and unhandled exceptions are always fatal.

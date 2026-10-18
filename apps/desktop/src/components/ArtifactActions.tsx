@@ -20,10 +20,20 @@ export interface ArtifactActionsProps {
 	onOpenFile?: (path: string) => void | Promise<void>;
 	/** Keep the established file-title button on artifact cards. */
 	children?: (open: () => void, disabled: boolean) => React.ReactNode;
+	/** 在文件行的操作菜单中复用相同的确认与错误反馈。 */
+	menu?: boolean;
 }
 
 /** Acknowledged file actions; failed operations remain visible and can be retried. */
-export function ArtifactActions({ path, title, client, cwd, onOpenFile, children }: ArtifactActionsProps): React.JSX.Element {
+export function ArtifactActions({
+	path,
+	title,
+	client,
+	cwd,
+	onOpenFile,
+	children,
+	menu = false,
+}: ArtifactActionsProps): React.JSX.Element {
 	const text = useArtifactActionText();
 	const [feedback, setFeedback] = useState<Feedback>();
 	const mounted = useRef(true);
@@ -35,7 +45,9 @@ export function ArtifactActions({ path, title, client, cwd, onOpenFile, children
 	const pending = useRef<{ generation: number; action: Action } | undefined>(undefined);
 	useEffect(() => {
 		mounted.current = true;
-		return () => { mounted.current = false; };
+		return () => {
+			mounted.current = false;
+		};
 	}, []);
 	const visible = feedback?.generation === generation ? feedback : undefined;
 	const busy = visible?.status === "pending";
@@ -52,12 +64,18 @@ export function ArtifactActions({ path, title, client, cwd, onOpenFile, children
 			if (cwd && !resolved) throw new Error(text("invalidPath"));
 			if (action === "copy") {
 				if (!resolved) throw new Error(text("missingWorkspace"));
-				if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) throw new Error(text("clipboardUnavailable"));
+				if (typeof navigator === "undefined" || !navigator.clipboard?.writeText)
+					throw new Error(text("clipboardUnavailable"));
 				await navigator.clipboard.writeText(resolved.absolute);
 			} else if (action === "reveal") {
 				if (!resolved || !cwd) throw new Error(text("missingWorkspace"));
 				if (!client) throw new Error(text("missingConnection"));
-				const response = await client.request({ type: "open.external", action: "reveal", target: resolved.relative, cwd });
+				const response = await client.request({
+					type: "open.external",
+					action: "reveal",
+					target: resolved.relative,
+					cwd,
+				});
 				if (!response.ok) throw new Error(response.error ?? text("failed"));
 			} else {
 				if (!onOpenFile) throw new Error(text("missingOpen"));
@@ -71,23 +89,72 @@ export function ArtifactActions({ path, title, client, cwd, onOpenFile, children
 			}
 			if (active()) setFeedback({ ...token, status: "success" });
 		} catch (error) {
-			if (active()) setFeedback({ ...token, status: "error", error: error instanceof Error ? error.message : String(error) });
+			if (active())
+				setFeedback({ ...token, status: "error", error: error instanceof Error ? error.message : String(error) });
 		} finally {
 			if (pending.current === token) pending.current = undefined;
 		}
 	};
 	return (
 		<div className="owl-artifact-actions" onClick={(event) => event.stopPropagation()}>
-			{children?.(() => { void run("open"); }, !!busy || !!(cwd && !resolved) || !onOpenFile)}
-			<div className="owl-artifact-actions-buttons" role="group" aria-label={title ? `${title} · ${text("group")}` : text("group")}>
-				{onOpenFile && <button type="button" disabled={busy || !!(cwd && !resolved)} title={cwd && !resolved ? unavailable : undefined} onClick={() => void run("open")}>{busy && visible.action === "open" ? text("opening") : text("open")}</button>}
-				<button type="button" disabled={busy || !!unavailable || !client} title={unavailable ?? (!client ? text("missingConnection") : undefined)} onClick={() => void run("reveal")}>{busy && visible.action === "reveal" ? text("revealing") : text("reveal")}</button>
-				<button type="button" disabled={busy || !!unavailable} title={unavailable} onClick={() => void run("copy")}>{busy && visible.action === "copy" ? text("copying") : text("copy")}</button>
+			{children?.(
+				() => {
+					void run("open");
+				},
+				!!busy || !!(cwd && !resolved) || !onOpenFile,
+			)}
+			<div
+				className="owl-artifact-actions-buttons"
+				role={menu ? "none" : "group"}
+				aria-label={menu ? undefined : title ? `${title} · ${text("group")}` : text("group")}
+			>
+				{onOpenFile && (
+					<button
+						type="button"
+						role={menu ? "menuitem" : undefined}
+						disabled={busy || !!(cwd && !resolved)}
+						title={cwd && !resolved ? unavailable : undefined}
+						onClick={() => void run("open")}
+					>
+						{busy && visible.action === "open" ? text("opening") : text("open")}
+					</button>
+				)}
+				<button
+					type="button"
+					role={menu ? "menuitem" : undefined}
+					disabled={busy || !!unavailable || !client}
+					title={unavailable ?? (!client ? text("missingConnection") : undefined)}
+					onClick={() => void run("reveal")}
+				>
+					{busy && visible.action === "reveal" ? text("revealing") : text("reveal")}
+				</button>
+				<button
+					type="button"
+					role={menu ? "menuitem" : undefined}
+					disabled={busy || !!unavailable}
+					title={unavailable}
+					onClick={() => void run("copy")}
+				>
+					{busy && visible.action === "copy" ? text("copying") : text("copy")}
+				</button>
 			</div>
-			{visible && visible.status !== "pending" && <div className={`owl-artifact-action-feedback is-${visible.status}`} role={visible.status === "error" ? "alert" : "status"}>
-				<span>{visible.status === "error" ? `${text("failed")}: ${visible.error}` : text(visible.action === "copy" ? "copied" : visible.action === "reveal" ? "revealed" : "opened")}</span>
-				{visible.status === "error" && <button type="button" onClick={() => void run(visible.action)}>{text("retry")}</button>}
-			</div>}
+			{visible && visible.status !== "pending" && (
+				<div
+					className={`owl-artifact-action-feedback is-${visible.status}`}
+					role={visible.status === "error" ? "alert" : "status"}
+				>
+					<span>
+						{visible.status === "error"
+							? `${text("failed")}: ${visible.error}`
+							: text(visible.action === "copy" ? "copied" : visible.action === "reveal" ? "revealed" : "opened")}
+					</span>
+					{visible.status === "error" && (
+						<button type="button" onClick={() => void run(visible.action)}>
+							{text("retry")}
+						</button>
+					)}
+				</div>
+			)}
 			{unavailable && <p className="owl-artifact-action-unavailable">{unavailable}</p>}
 		</div>
 	);

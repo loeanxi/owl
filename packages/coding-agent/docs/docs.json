@@ -21,6 +21,23 @@
       "title": "Guides",
       "items": [
         {
+          "title": "Use Owl Desktop",
+          "items": [
+            {
+              "title": "Agent Presets",
+              "path": "agent-presets.md"
+            },
+            {
+              "title": "Discover Tools",
+              "path": "tool-discovery.md"
+            },
+            {
+              "title": "News",
+              "path": "news.md"
+            }
+          ]
+        },
+        {
           "title": "Run Pi",
           "items": [
             {
@@ -126,6 +143,15 @@
               "path": "sdk.md"
             }
           ]
+        }
+      ]
+    },
+    {
+      "title": "Research Notes",
+      "items": [
+        {
+          "title": "Office Integration Assessment",
+          "path": "research/dsh-univer-office-assessment.md"
         }
       ]
     },

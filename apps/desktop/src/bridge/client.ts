@@ -440,6 +440,7 @@ export class BridgeClient {
 			// 回答走事件流），session.resume 要回放整份转录所以放宽到 30s。桥假死时
 			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
 			const fallbackTimeout =
+				request.type.startsWith("process.") || request.type === "subagent.interrupt" ? 15_000 :
 				request.type === "session.promptSuggestion" || request.type === "session.promptSuggestion.cancel" ? 15_000 :
 				request.type === "session.resume" ? 30_000
 				: request.type.startsWith("editor.") || request.type === "fs.stat" || request.type.startsWith("session.queue.") ? 30_000

@@ -16,6 +16,8 @@ import {
 	IconChevronRight,
 	IconCopy,
 	IconExternal,
+	IconEye,
+	IconEyeOff,
 	IconFile,
 	IconFolder,
 	IconFolderOpen,
@@ -40,35 +42,37 @@ interface MenuState {
 	entry: FsEntry;
 }
 
-/** 目录行在"压缩一层"语义下的树行展开（展开的目录才带子行）。 */
-function flatten(
+/** 目录行在"压缩一层"语义下的树行展开（展开的目录才带子行）；默认不显示点开头的隐藏项。 */
+export function flatten(
 	listing: FsListing | undefined,
 	depth: number,
 	expanded: ReadonlySet<string>,
 	listings: ReadonlyMap<string, FsListing>,
 	out: TreeRow[],
+	showHidden = false,
 ): void {
 	if (listing === undefined) return;
 	for (const entry of listing.entries) {
+		if (entry.hidden && !showHidden) continue;
 		out.push({ entry, depth });
 		if (entry.isDir && expanded.has(entry.path)) {
-			flatten(listings.get(entry.path), depth + 1, expanded, listings, out);
+			flatten(listings.get(entry.path), depth + 1, expanded, listings, out, showHidden);
 		}
 	}
 }
 
-/** 扩展名 → 图标色（简单的开发文件着色，够用即可）。 */
+/** 扩展名 → 图标色（简单的开发文件着色，够用即可）；附带浅色档压暗标记类。 */
 function fileColor(path: string): string {
 	const name = path.split("/").pop() ?? path;
 	const dot = name.lastIndexOf(".");
 	const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-	if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(ext)) return "text-sky-300";
-	if (["json", "yaml", "yml", "toml"].includes(ext)) return "text-amber-300";
+	if (["ts", "tsx", "js", "jsx", "mjs", "cjs"].includes(ext)) return "text-sky-300 owl-file-icon-tint";
+	if (["json", "yaml", "yml", "toml"].includes(ext)) return "text-amber-300 owl-file-icon-tint";
 	if (["md", "txt"].includes(ext)) return "text-owl-muted";
-	if (["rs"].includes(ext)) return "text-orange-300";
-	if (["py"].includes(ext)) return "text-emerald-300";
-	if (["css", "scss", "html"].includes(ext)) return "text-fuchsia-300";
-	if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"].includes(ext)) return "text-violet-300";
+	if (["rs"].includes(ext)) return "text-orange-300 owl-file-icon-tint";
+	if (["py"].includes(ext)) return "text-emerald-300 owl-file-icon-tint";
+	if (["css", "scss", "html"].includes(ext)) return "text-fuchsia-300 owl-file-icon-tint";
+	if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"].includes(ext)) return "text-violet-300 owl-file-icon-tint";
 	if (["gitignore", "lock"].includes(ext) || name === ".gitignore" || name.endsWith(".lock")) return "text-owl-faint";
 	return "text-owl-muted";
 }
@@ -86,16 +90,16 @@ interface GitDecorations {
 	ignored: Set<string>;
 }
 
-/** Git 状态 → 行色与状态字母（VS Code 同款映射）。 */
+/** Git 状态 → 行色与状态字母（VS Code 同款映射；颜色走 --color-status-* 令牌，浅色档自动换深）。 */
 function decorationOf(x: string, y: string): GitDecoration {
 	const letter = x !== " " && x !== "?" ? x : y;
 	if (x === "U" || y === "U" || (x === "A" && y === "A") || (x === "D" && y === "D"))
-		return { color: "text-red-400", letter: "!", rank: 6 };
-	if (y === "?") return { color: "text-emerald-300/80", letter: "U", rank: 1 };
-	if (letter === "A") return { color: "text-emerald-300", letter: "A", rank: 2 };
-	if (letter === "D") return { color: "text-red-400", letter: "D", rank: 4 };
-	if (letter === "R" || letter === "C") return { color: "text-sky-300", letter: "R", rank: 3 };
-	if (letter === "M" || letter === "T") return { color: "text-amber-300", letter: "M", rank: 5 };
+		return { color: "text-status-deleted", letter: "!", rank: 6 };
+	if (y === "?") return { color: "text-status-untracked", letter: "U", rank: 1 };
+	if (letter === "A") return { color: "text-status-added", letter: "A", rank: 2 };
+	if (letter === "D") return { color: "text-status-deleted", letter: "D", rank: 4 };
+	if (letter === "R" || letter === "C") return { color: "text-status-renamed", letter: "R", rank: 3 };
+	if (letter === "M" || letter === "T") return { color: "text-status-modified", letter: "M", rank: 5 };
 	return { color: "text-owl-muted", letter, rank: 0 };
 }
 
@@ -143,7 +147,19 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const [renaming, setRenaming] = useState<{ path: string; name: string } | undefined>(undefined);
 	const [creating, setCreating] = useState<{ parent: string; name: string } | undefined>(undefined);
 	const [confirming, setConfirming] = useState<FsEntry | undefined>(undefined);
+	// 点开头的隐藏项默认不进树（搜索仍全量）；选择持久化，下次打开工作台保持一致。
+	const [showHidden, setShowHidden] = useState(() => {
+		try { return localStorage.getItem("owl.files.showHidden") === "true"; } catch { return false; }
+	});
 	const searchSeq = useRef(0);
+
+	const toggleShowHidden = (): void => {
+		setShowHidden((current) => {
+			const next = !current;
+			try { localStorage.setItem("owl.files.showHidden", String(next)); } catch { /* 内存态兜底 */ }
+			return next;
+		});
+	};
 
 	const markLoading = useCallback((dir: string, on: boolean): void => {
 		setLoading((current) => {
@@ -252,9 +268,9 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const rows = useMemo(() => {
 		void version; // 缓存刷新靠 version 触发
 		const out: TreeRow[] = [];
-		flatten(cacheRef.current.get(""), 0, expanded, cacheRef.current, out);
+		flatten(cacheRef.current.get(""), 0, expanded, cacheRef.current, out, showHidden);
 		return out;
-	}, [version, expanded]);
+	}, [version, expanded, showHidden]);
 	const decorations = useMemo(() => buildGitDecorations(gitStatus), [gitStatus]);
 
 	const doRename = async (): Promise<void> => {
@@ -358,7 +374,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	};
 
 	const rowIcon = (entry: FsEntry, isOpen: boolean): React.ReactNode => {
-		if (entry.isSymlink && entry.broken) return <IconFile size={14} className="text-red-400" />;
+		if (entry.isSymlink && entry.broken) return <IconFile size={14} className="text-status-deleted" />;
 		let minimal: React.ReactNode;
 		if (entry.isDir) minimal = isOpen ? <IconFolderOpen size={14} className="text-owl-accent" /> : <IconFolder size={14} className="text-owl-accent" />;
 		else if (/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|avif)$/i.test(entry.name)) minimal = <IconImage size={14} className={fileColor(entry.path)} />;
@@ -410,6 +426,16 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 					}}
 				>
 					<IconRefresh size={14} />
+				</button>
+				<button
+					type="button"
+					title={showHidden ? t("files.hideHiddenEntries") : t("files.showHiddenEntries")}
+					aria-label={showHidden ? t("files.hideHiddenEntries") : t("files.showHiddenEntries")}
+					aria-pressed={showHidden}
+					className={`rounded-md p-1.5 hover:bg-owl-hover ${showHidden ? "text-owl-accent" : "text-owl-muted hover:text-owl-text"}`}
+					onClick={toggleShowHidden}
+				>
+					{showHidden ? <IconEye size={14} /> : <IconEyeOff size={14} />}
 				</button>
 			</div>
 

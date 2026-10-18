@@ -164,11 +164,21 @@ describe("AgentSessionRuntime characterization", () => {
 	});
 
 	it("settles the active response before session replacement", async () => {
+		const lifecycle: string[] = [];
 		let toolStarted!: () => void;
 		const toolStartedPromise = new Promise<void>((resolve) => {
 			toolStarted = resolve;
 		});
 		const { runtime, faux } = await createRuntimeForTest((pi: ExtensionAPI) => {
+			pi.on("agent_settled", (event) => {
+				lifecycle.push(`settled:${event.aborted}`);
+			});
+			pi.on("session_shutdown", () => {
+				lifecycle.push("shutdown");
+			});
+			pi.on("session_start", () => {
+				lifecycle.push("start");
+			});
 			pi.registerTool({
 				name: "block",
 				label: "Block",
@@ -191,11 +201,17 @@ describe("AgentSessionRuntime characterization", () => {
 
 		faux.setResponses([fauxAssistantMessage(fauxToolCall("block", {}), { stopReason: "toolUse" })]);
 		const outgoingSession = runtime.session;
+		const callsBefore = faux.state.callCount;
+		lifecycle.length = 0;
+		outgoingSession.subscribe((event) => {
+			if (event.type === "message_end" && event.message.role === "toolResult") lifecycle.push("tool-result");
+		});
 		const promptPromise = outgoingSession.prompt("start blocking tool");
 		await toolStartedPromise;
 
 		const switchResult = await runtime.switchSession(firstSessionFile);
 		await promptPromise;
+		await runtime.session.bindExtensions({});
 
 		expect(switchResult.cancelled).toBe(false);
 		expect(runtime.session.sessionFile).toBe(firstSessionFile);
@@ -204,13 +220,21 @@ describe("AgentSessionRuntime characterization", () => {
 		const outgoingEntries = SessionManager.open(outgoingSession.sessionFile!)
 			.getEntries()
 			.filter((entry) => entry.type === "message");
-		expect(outgoingEntries.map((entry) => entry.message.role)).toEqual([
-			"system",
-			"user",
-			"assistant",
-			"toolResult",
-			"assistant",
-		]);
+		expect(outgoingEntries.map((entry) => entry.message.role)).toEqual(["system", "user", "assistant", "toolResult"]);
+		const assistant = outgoingEntries[2]?.message;
+		if (assistant?.role !== "assistant") throw new Error("missing interrupted assistant tool call");
+		const toolCall = assistant.content.find((part) => part.type === "toolCall");
+		expect(toolCall).toBeDefined();
+		expect(outgoingEntries[3]?.message).toMatchObject({
+			role: "toolResult",
+			toolCallId: toolCall?.id,
+			toolName: "block",
+			content: [{ type: "text", text: "tool aborted" }],
+		});
+		// Abort finishes the tool and settles the old session before teardown and destination startup.
+		expect(lifecycle).toEqual(["tool-result", "settled:true", "shutdown", "start"]);
+		expect(outgoingSession.isIdle).toBe(true);
+		expect(faux.state.callCount).toBe(callsBefore + 1);
 	});
 
 	it("preserves an existing session when importing a file with the same name", async () => {

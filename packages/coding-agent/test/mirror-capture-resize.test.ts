@@ -14,6 +14,10 @@ describe.skipIf(process.platform !== "win32")("mirror capture frame pool resizin
 				fileURLToPath(new URL("./fixtures/mirror-capture-resize.ps1", import.meta.url)),
 				"-WorkerPath",
 				fileURLToPath(new URL("../src/modes/desktop/mirror/windows-capture.ps1", import.meta.url)),
+				// Exercise a slow paint so the fixture cannot accidentally rely on
+				// background and corner drawing finishing within one compositor tick.
+				"-PaintDelayMs",
+				"40",
 			],
 			{ encoding: "utf8", windowsHide: true, timeout: 35_000 },
 		);

@@ -33,6 +33,8 @@ export function createLocalPowerShellOperations(): PowerShellOperations {
 	const operations = createLocalShellOperations("PowerShell", getPowerShellConfig);
 	return {
 		exec: (command, cwd, options) => operations.exec(`${UTF8_OUTPUT_PREFIX}${command}`, cwd, options),
+		spawnSession: (command, cwd, options) =>
+			operations.spawnSession!(`${UTF8_OUTPUT_PREFIX}${command}`, cwd, options),
 	};
 }
 

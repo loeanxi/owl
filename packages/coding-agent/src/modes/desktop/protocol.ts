@@ -18,6 +18,7 @@ import type { ResearchTaskRecord } from "../../core/research/task-state.ts";
 import type { ResearchMode } from "../../core/research/types.ts";
 import type { WorkspaceViewerInfo } from "../../core/workspace-viewers.ts";
 import type { ExecutionAnomalyListInput, ExecutionAnomalyProcessInput } from "./execution-anomalies.ts";
+import type { DesktopExecutionRequest } from "./execution-types.ts";
 
 export type {
 	ExecutionAnomalyKind,
@@ -30,6 +31,7 @@ export type {
 	ExecutionAnomalyRecord,
 	ExecutionAnomalyStatus,
 } from "./execution-anomalies.ts";
+export type * from "./execution-types.ts";
 
 export interface ExecutionAnomaliesListRequest extends ExecutionAnomalyListInput {
 	type: "execution.anomalies.list";
@@ -2657,6 +2659,7 @@ export interface BuildHelloResult {
 
 export type DesktopClientRequest =
 	| BuildHelloRequest
+	| DesktopExecutionRequest
 	| ExecutionAnomaliesListRequest
 	| ExecutionAnomaliesProcessRequest
 	| ExecutionAnomaliesRestoreRequest

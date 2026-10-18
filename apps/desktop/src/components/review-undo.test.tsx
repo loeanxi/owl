@@ -34,6 +34,7 @@ beforeEach(() => {
 	vi.stubGlobal("window", dom.window);
 	vi.stubGlobal("document", dom.document);
 	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
+	vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);

@@ -175,3 +175,79 @@ describe("Markdown answer reading controls", () => {
 		expect(onBodyClick).toHaveBeenCalledTimes(2);
 	});
 });
+
+describe("Markdown image preview entry points", () => {
+	let active: Element | null;
+	let openModal: ReturnType<typeof vi.fn>;
+	beforeEach(() => {
+		active = null;
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
+		window.HTMLElement.prototype.focus = function (): void { active = this; };
+		Object.defineProperty(window.HTMLElement.prototype, "open", { configurable: true, get() { return this.hasAttribute("open"); } });
+		openModal = vi.fn(function (this: HTMLElement) { this.setAttribute("open", ""); });
+		window.HTMLElement.prototype.showModal = openModal;
+		window.HTMLElement.prototype.close = function (): void { this.removeAttribute("open"); };
+		window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 500, top: 0, left: 0, right: 800, bottom: 500, toJSON: () => ({}) });
+	});
+
+	function image(): HTMLImageElement { return document.querySelector<HTMLImageElement>(".owl-image-viewer-image")!; }
+	function close(): HTMLButtonElement { return document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="关闭预览"]')!; }
+	async function imageClick(target: HTMLImageElement): Promise<Event> {
+		const event = new window.Event("click", { bubbles: true, cancelable: true });
+		await act(async () => target.dispatchEvent(event));
+		return event;
+	}
+
+	it("opens the clicked image from a shared group without following its enclosing link", async () => {
+		const parentClick = vi.fn();
+		await render("![第一张](https://example.test/first.png)\n\n[![链接里的第二张](https://example.test/second.png)](https://example.test/article)", parentClick);
+		const pictures = [...host.querySelectorAll<HTMLImageElement>(".owl-answer-reading img")];
+		expect(pictures[1].getAttribute("tabindex")).toBe("0");
+		expect(pictures[1].getAttribute("role")).toBe("button");
+		expect(pictures[1].getAttribute("aria-label")).toContain("链接里的第二张");
+		const event = await imageClick(pictures[1]);
+		expect(event.defaultPrevented).toBe(true);
+		expect(parentClick).not.toHaveBeenCalled();
+		expect(image().getAttribute("src")).toBe("https://example.test/second.png");
+		expect(document.querySelector(".owl-image-viewer-count")?.textContent).toBe("2 / 2");
+		await act(async () => document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="上一张"]')!.click());
+		expect(image().getAttribute("src")).toBe("https://example.test/first.png");
+		expect(openModal).toHaveBeenCalledOnce();
+		await act(async () => close().click());
+		expect(active).toBe(pictures[1]);
+	});
+
+	it.each(["Enter", " "])("opens an inline image with %j and keeps code controls independent", async (key) => {
+		await render("![键盘截图](/fixture/keyboard.png)\n\n```js\nconst preserved = '<image>';\n```");
+		const picture = host.querySelector<HTMLImageElement>(".owl-answer-reading img")!;
+		const event = Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), { key, isComposing: false });
+		await act(async () => picture.dispatchEvent(event));
+		expect(event.defaultPrevented).toBe(true);
+		expect(image().getAttribute("src")).toBe("/fixture/keyboard.png");
+		await act(async () => close().click());
+		await click(action(codeBlock(), "copy-code"));
+		expect(writeText).toHaveBeenCalledExactlyOnceWith("const preserved = '<image>';\n");
+		expect(document.querySelector(".owl-image-viewer")).toBeNull();
+	});
+
+	it("keeps the open image snapshot and zoom while the answer continues streaming", async () => {
+		const original = "![第一张](/fixture/original.png)\n\n![第二张](/fixture/second.png)";
+		await render(original);
+		await imageClick(host.querySelector<HTMLImageElement>(".owl-answer-reading img")!);
+		const viewer = document.querySelector(".owl-image-viewer")!;
+		const picture = image();
+		Object.defineProperties(picture, { naturalWidth: { configurable: true, value: 1600 }, naturalHeight: { configurable: true, value: 1000 } });
+		await act(async () => picture.dispatchEvent(new window.Event("load")));
+		const originalZoom = document.querySelector(".owl-image-viewer-scale")!.textContent;
+		await act(async () => document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="放大"]')!.click());
+		const zoom = document.querySelector(".owl-image-viewer-scale")!.textContent;
+		expect(zoom).not.toBe(originalZoom);
+		await render(original.replace("original.png", "changed.png") + "\n\n新增正文\n\n![第三张](/fixture/third.png)");
+		expect(document.querySelector(".owl-image-viewer")).toBe(viewer);
+		expect(image()).toBe(picture);
+		expect(image().getAttribute("src")).toBe("/fixture/original.png");
+		expect(document.querySelector(".owl-image-viewer-count")?.textContent).toBe("1 / 2");
+		expect(document.querySelector(".owl-image-viewer-scale")?.textContent).toBe(zoom);
+		expect(openModal).toHaveBeenCalledOnce();
+	});
+});

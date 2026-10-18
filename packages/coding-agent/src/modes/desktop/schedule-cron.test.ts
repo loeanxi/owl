@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { describeRepeat, isExpired, nextRunAt, type ScheduleRepeat, validateRepeat } from "./schedule-cron.ts";
 
 /** 固定基准：2026-10-07（周三）10:30 本地时间。 */

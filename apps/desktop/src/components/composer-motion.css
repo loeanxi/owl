@@ -1,0 +1,73 @@
+.owl-composer-runtime-beam {
+	position: absolute;
+	z-index: 1;
+	inset: -1px;
+	width: calc(100% + 2px);
+	height: calc(100% + 2px);
+	overflow: visible;
+	border-radius: inherit;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.owl-composer-runtime-beam rect {
+	fill: none;
+	stroke: var(--color-owl-accent);
+	stroke-width: 1.8px;
+	stroke-linecap: round;
+	stroke-dasharray: 12 88;
+	stroke-dashoffset: 0;
+}
+
+.owl-composer-runtime-beam .owl-composer-beam-tail {
+	stroke-width: 2px;
+	stroke-dasharray: 30 70;
+	opacity: .22;
+}
+
+.owl-composer-input[data-running] {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 46%, var(--color-owl-border));
+}
+
+.owl-composer-input[data-running] > .owl-composer-runtime-beam { opacity: 1; }
+.owl-composer-input[data-running] > .owl-composer-runtime-beam rect { animation: owl-composer-border-orbit 2800ms linear infinite; }
+
+@keyframes owl-composer-border-orbit { to { stroke-dashoffset: -100; } }
+
+.owl-composer-draft { position: relative; }
+/* The mascot stays on the input rim; materials above it keep its hit target clear. */
+.owl-composer-column:has(.owl-mascot-slot:not(.is-hidden)) > .owl-composer-materials { padding-inline-end: 56px; }
+.owl-composer-accept-glint, .owl-composer-send-glint {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	border-radius: inherit;
+	opacity: 0;
+	pointer-events: none;
+	background: linear-gradient(100deg, transparent 15%, color-mix(in srgb, var(--color-owl-accent) 15%, transparent) 50%, transparent 80%);
+}
+.owl-composer-accept-glint { inset: -3px -6px; border-radius: 7px; }
+.owl-composer-send-glint { clip-path: inset(0 round 12px); background-size: 200% 100%; }
+
+.owl-composer-relay {
+	position: fixed;
+	z-index: 60;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--color-owl-accent);
+	opacity: 0;
+	pointer-events: none;
+}
+
+.owl-composer-surface[data-composer-motion="paused"] .owl-composer-runtime-beam,
+html[data-owl-chat-motion="off"] .owl-composer-runtime-beam { display: none; }
+.owl-composer-surface[data-composer-motion="paused"] .owl-composer-runtime-beam rect,
+html[data-owl-chat-motion="off"] .owl-composer-runtime-beam rect { animation: none; }
+.owl-composer-surface[data-composer-motion="paused"] .owl-context-tank__wave { animation-play-state: paused; }
+html[data-owl-chat-motion="off"] .owl-composer-surface .owl-context-tank__wave { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+	.owl-composer-runtime-beam, .owl-composer-accept-glint, .owl-composer-send-glint, .owl-composer-relay { display: none; }
+	.owl-composer-runtime-beam rect { animation: none; }
+}

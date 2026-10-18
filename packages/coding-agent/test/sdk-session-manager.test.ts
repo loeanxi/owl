@@ -126,7 +126,10 @@ describe("createAgentSession session manager defaults", () => {
 
 		const bashTool = session.agent.state.tools.find((tool) => tool.name === "bash");
 		expect(bashTool).toBeTruthy();
-		const result = await bashTool!.execute("test", { command: "pwd" });
+		// Git Bash's POSIX pwd cannot be passed to Windows realpathSync. Ask the
+		// same native Node executable for its inherited cwd so both sides use one namespace.
+		const nodeExecutable = process.execPath.split(sep).join("/").replace(/'/g, "'\\''");
+		const result = await bashTool!.execute("test", { command: `'${nodeExecutable}' -p 'process.cwd()'` });
 		const output = result.content
 			.filter((item): item is { type: "text"; text: string } => item.type === "text")
 			.map((item) => item.text)

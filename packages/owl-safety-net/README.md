@@ -10,7 +10,7 @@ Owl 编码代理的安全网插件：在任何 shell 命令、文件读写执行
 
 ```
 src/index.ts            Owl 原生扩展入口（对上游 dist/pi/index.js 的可读重写）
-vendor/chunks/*.js      上游规则引擎，逐字节原样保留（含规则库、守卫、审计、参考文档）
+vendor/chunks/*.js      上游规则引擎（含规则库、守卫、审计、参考文档；Owl 补丁见下节）
 vendor/chunks/*.d.ts    手写声明，映射上游压缩导出名（c/ye/be/N/he/… → 语义名）
 scripts/build.js        esbuild 打包 src + vendor → dist/index.js（自包含单文件）
 scripts/smoke.mjs       无需宿主的冒烟测试（mock 扩展 API）
@@ -28,6 +28,11 @@ scripts/smoke.mjs       无需宿主的冒烟测试（mock 扩展 API）
 - 斜杠命令由 `/cc-safety-net` 改为 **`/safety-net`**（把引擎参考文档作为提示词发给模型）。
 - 上游入口里对事件对象的运行时防御检查（非对象/未知 type）依赖 pi 的动态事件，
   Owl 的 `tool_call` 事件是强类型，故省略。
+- POSIX 解析器 `bd()` 在原有参数边界内增加有界扫描，拒绝下游不能可靠分析的
+  非算术 `$()` 和反引号命令替换；外层仍按 fail-closed 拦截，所有安全阶段保留。
+  原来的首个 `}` 边界、未知语法处理和分析预算不变，不新增语法放行。
+  `${pool[${i}]}` 等嵌套参数目前仍被拒绝：仅修边界会使动态敏感数组路径漏检，
+  兼容性修复须先补齐该语义分析，不能把拆分命令后的成功当成解析器修复。
 
 ## 行为
 

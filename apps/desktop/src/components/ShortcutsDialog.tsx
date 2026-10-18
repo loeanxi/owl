@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/index.ts";
+import { formatAppKeybinding, loadAppKeybindings } from "../app-keybindings.ts";
+import { useExecutionText } from "./execution-copy.ts";
 
 export type HelpSection = "guide" | "shortcuts";
 
@@ -14,6 +16,8 @@ interface ShortcutRow {
  */
 export function ShortcutsDialog({ section, onClose }: { section: HelpSection; onClose: () => void }): React.JSX.Element {
 	const t = useT();
+	const executionCopy = useExecutionText();
+	const appKeybindings = loadAppKeybindings(localStorage);
 	const panelRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -34,7 +38,7 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 			title: t("titlebar.menuFile"),
 			rows: [
 				{ label: t("titlebar.newChat"), keys: ["Ctrl", "N"] },
-				{ label: t("titlebar.openProject"), keys: ["Ctrl", "O"] },
+				{ label: t("titlebar.openProject"), keys: formatAppKeybinding(appKeybindings.openProject[0]).split("+") },
 				{ label: t("titlebar.closeWindow"), keys: ["Ctrl", "W"] },
 				{ label: t("titlebar.quitOwl"), keys: ["Ctrl", "Q"] },
 			],
@@ -55,13 +59,14 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 			title: t("help.shortcutChat"),
 			rows: [
 				{ label: t("composer.sendShortcut"), keys: ["Enter"] },
-				{ label: t("composer.queueShortcut"), keys: ["Enter"] },
-				{ label: t("composer.steerShortcut"), keys: ["Ctrl", "Enter"] },
+				{ label: executionCopy("steeringShortcut"), keys: ["Enter"] },
+				{ label: executionCopy("queueShortcut"), keys: [] },
 			],
 		},
 		{
 			title: t("titlebar.menuView"),
 			rows: [
+				{ label: executionCopy("cycleView"), keys: formatAppKeybinding(appKeybindings.cycleExecutionView[0]).split("+") },
 				{ label: t("titlebar.showSessions"), keys: ["Ctrl", "Shift", "S"] },
 				{ label: t("view.showBottomPanel"), keys: ["Ctrl", "J"] },
 				{ label: t("view.showRightPanel"), keys: ["Ctrl", "Shift", "E"] },
@@ -76,6 +81,7 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 				{ label: t("view.zoomIn"), keys: ["Ctrl", "Shift", "="] },
 				{ label: t("view.zoomOut"), keys: ["Ctrl", "-"] },
 				{ label: t("view.zoomReset"), keys: ["Ctrl", "0"] },
+				{ label: t("view.debugUpdate"), keys: ["Ctrl", "Shift", "R"] },
 				{ label: t("view.zoomWheel"), keys: ["Ctrl", t("view.wheelKey")] },
 				{ label: t("view.toggleFullscreen"), keys: ["F11"] },
 			],
@@ -97,7 +103,7 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 					<section>
 						<h3 className="mb-2 text-xs font-semibold tracking-wide text-owl-muted uppercase">{t("help.guide")}</h3>
 						<ul className="space-y-2 text-xs leading-relaxed text-owl-muted">
-							<li>{t("guide.point1")}</li>
+							<li>{executionCopy("projectGuide")}</li>
 							<li>{t("guide.point2")}</li>
 							<li>{t("guide.point3")}</li>
 							<li>{t("guide.point4")}</li>

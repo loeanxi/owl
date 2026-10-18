@@ -10,6 +10,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type { Skill } from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
+import { DIRECTORY_LINK_TYPE } from "./capabilities.ts";
 
 import { createModelRegistry } from "./model-runtime-test-utils.ts";
 
@@ -180,7 +181,7 @@ Prompt content.`,
 			]);
 		});
 
-		it("should prefer project resources over user on name collisions", async () => {
+		it("should prefer project skills and prompts over user on name collisions", async () => {
 			const userPromptsDir = join(agentDir, "prompts");
 			const projectPromptsDir = join(cwd, ".owl", "prompts");
 			mkdirSync(userPromptsDir, { recursive: true });
@@ -213,21 +214,7 @@ description: project
 Project skill`,
 			);
 
-			const baseTheme = JSON.parse(readFileSync(join(__dirname, "fixtures", "themes", "dark.json"), "utf-8")) as {
-				name: string;
-				vars?: Record<string, string>;
-			};
-			baseTheme.name = "collision-theme";
-			const userThemePath = join(agentDir, "themes", "collision.json");
-			const projectThemePath = join(cwd, ".owl", "themes", "collision.json");
-			mkdirSync(join(agentDir, "themes"), { recursive: true });
-			mkdirSync(join(cwd, ".owl", "themes"), { recursive: true });
-			writeFileSync(userThemePath, JSON.stringify(baseTheme, null, 2));
-			if (baseTheme.vars) {
-				baseTheme.vars.accent = "#ff00ff";
-			}
-			writeFileSync(projectThemePath, JSON.stringify(baseTheme, null, 2));
-
+			// TUI theme loading is retired; verify precedence for the active resource kinds.
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();
 
@@ -237,8 +224,28 @@ Project skill`,
 			const skill = loader.getSkills().skills.find((s) => s.name === "collision-skill");
 			expect(skill?.filePath).toBe(projectSkillPath);
 
-			const theme = loader.getThemes().themes.find((t) => t.name === "collision-theme");
-			expect(theme?.sourcePath).toBe(projectThemePath);
+			expect(loader.getPrompts().diagnostics).toContainEqual(
+				expect.objectContaining({
+					type: "collision",
+					collision: {
+						resourceType: "prompt",
+						name: "commit",
+						winnerPath: projectPromptPath,
+						loserPath: userPromptPath,
+					},
+				}),
+			);
+			expect(loader.getSkills().diagnostics).toContainEqual(
+				expect.objectContaining({
+					type: "collision",
+					collision: expect.objectContaining({
+						resourceType: "skill",
+						name: "collision-skill",
+						winnerPath: projectSkillPath,
+						loserPath: userSkillPath,
+					}),
+				}),
+			);
 		});
 
 		it("should load symlinked user and project extensions once", async () => {
@@ -256,8 +263,8 @@ Project skill`,
 
 			mkdirSync(agentDir, { recursive: true });
 			mkdirSync(join(cwd, ".owl"), { recursive: true });
-			symlinkSync(sharedExtDir, join(agentDir, "extensions"), "dir");
-			symlinkSync(sharedExtDir, join(cwd, ".owl", "extensions"), "dir");
+			symlinkSync(sharedExtDir, join(agentDir, "extensions"), DIRECTORY_LINK_TYPE);
+			symlinkSync(sharedExtDir, join(cwd, ".owl", "extensions"), DIRECTORY_LINK_TYPE);
 
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();
@@ -743,14 +750,12 @@ Extra content`,
 
 		// Regression: extension discovery used to drop package scope/source, collapsing every
 		// autocomplete source tag to [t]. See issue #6968.
-		it("should keep package metadata for skills, prompts, and themes", async () => {
+		it("should keep package metadata for skills and prompts", async () => {
 			const packageRoot = join(agentDir, "npm", "node_modules", "metadata-pkg");
 			const packageSkillDir = join(packageRoot, "skills", "package-skill");
 			const packagePromptsDir = join(packageRoot, "prompts");
-			const packageThemesDir = join(packageRoot, "themes");
 			mkdirSync(packageSkillDir, { recursive: true });
 			mkdirSync(packagePromptsDir, { recursive: true });
-			mkdirSync(packageThemesDir, { recursive: true });
 			writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: "metadata-pkg", version: "1.0.0" }));
 			writeFileSync(
 				join(packageSkillDir, "SKILL.md"),
@@ -767,21 +772,11 @@ description: Package prompt
 ---
 Package prompt content`,
 			);
-			const baseTheme = JSON.parse(readFileSync(join(__dirname, "fixtures", "themes", "dark.json"), "utf-8")) as {
-				name: string;
-			};
-			writeFileSync(
-				join(packageThemesDir, "package-theme.json"),
-				JSON.stringify({ ...baseTheme, name: "package-theme" }),
-			);
-
 			const extensionResourceDir = join(tempDir, "extension-resources");
 			const extensionSkillDir = join(extensionResourceDir, "extension-skill");
 			const extensionPromptsDir = join(extensionResourceDir, "prompts");
-			const extensionThemesDir = join(extensionResourceDir, "themes");
 			mkdirSync(extensionSkillDir, { recursive: true });
 			mkdirSync(extensionPromptsDir, { recursive: true });
-			mkdirSync(extensionThemesDir, { recursive: true });
 			writeFileSync(
 				join(extensionSkillDir, "SKILL.md"),
 				`---
@@ -797,11 +792,6 @@ description: Extension prompt
 ---
 Extension prompt content`,
 			);
-			writeFileSync(
-				join(extensionThemesDir, "extension.json"),
-				JSON.stringify({ ...baseTheme, name: "extension-theme" }),
-			);
-
 			const loader = new DefaultResourceLoader({
 				cwd,
 				agentDir,
@@ -817,7 +807,6 @@ Extension prompt content`,
 			loader.extendResources({
 				skillPaths: [{ path: extensionSkillDir, metadata: extensionMetadata }],
 				promptPaths: [{ path: extensionPromptsDir, metadata: extensionMetadata }],
-				themePaths: [{ path: extensionThemesDir, metadata: extensionMetadata }],
 			});
 
 			const packageSourceInfo = { source: "npm:metadata-pkg", scope: "user", origin: "package" };
@@ -827,8 +816,11 @@ Extension prompt content`,
 			expect(
 				loader.getPrompts().prompts.find((prompt) => prompt.name === "package-prompt")?.sourceInfo,
 			).toMatchObject(packageSourceInfo);
-			expect(loader.getThemes().themes.find((theme) => theme.name === "package-theme")?.sourceInfo).toMatchObject(
-				packageSourceInfo,
+			expect(loader.getSkills().skills.find((skill) => skill.name === "package-skill")?.sourceInfo?.path).toBe(
+				join(packageSkillDir, "SKILL.md"),
+			);
+			expect(loader.getPrompts().prompts.find((prompt) => prompt.name === "package-prompt")?.sourceInfo?.path).toBe(
+				join(packagePromptsDir, "package-prompt.md"),
 			);
 
 			expect(loader.getSkills().skills.find((skill) => skill.name === "extension-skill")?.sourceInfo).toMatchObject(
@@ -837,9 +829,12 @@ Extension prompt content`,
 			expect(
 				loader.getPrompts().prompts.find((prompt) => prompt.name === "extension-prompt")?.sourceInfo,
 			).toMatchObject(extensionMetadata);
-			expect(loader.getThemes().themes.find((theme) => theme.name === "extension-theme")?.sourceInfo).toMatchObject(
-				extensionMetadata,
+			expect(loader.getSkills().skills.find((skill) => skill.name === "extension-skill")?.sourceInfo?.path).toBe(
+				join(extensionSkillDir, "SKILL.md"),
 			);
+			expect(
+				loader.getPrompts().prompts.find((prompt) => prompt.name === "extension-prompt")?.sourceInfo?.path,
+			).toBe(join(extensionPromptsDir, "extension-prompt.md"));
 		});
 	});
 

@@ -58,6 +58,8 @@ export interface WorkbenchProps {
 	developerLayout?: boolean;
 	/** tab 内「让 Owl …」类操作：把文字填进对话输入框。 */
 	onToChat?: (text: string) => void;
+	/** Reuse the workspace snapshot for conversation controls without another Git query. */
+	onGitStatusChange?: (cwd: string, profile: string | undefined, status: GitStatusResult | undefined) => void;
 }
 
 const DESIGNED_TAB_KINDS = new Set(["files", "changes", "review", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
@@ -83,7 +85,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", developerLayout = false, onToChat }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", developerLayout = false, onToChat, onGitStatusChange }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	const api = useMemo(() => createSidebarApi(client), [client]);
 	const registry = useTabRegistry();
@@ -97,7 +99,9 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 		(kind: string): boolean => (terminalOnly ? kind === "terminal" : kind !== "terminal") && isTabKindEnabled(kind, cfg),
 		[cfg, terminalOnly],
 	);
-	const [gitStatus, setGitStatus] = useState<GitStatusResult | undefined>(undefined);
+	const [gitSnapshot, setGitSnapshot] = useState<{ cwd: string; profile?: string; result: GitStatusResult }>();
+	const gitStatus = gitSnapshot?.cwd === cwd && gitSnapshot.profile === profile ? gitSnapshot.result : undefined;
+	useEffect(() => { if (!terminalOnly) onGitStatusChange?.(cwd, profile, connected ? gitStatus : undefined); }, [cwd, profile, connected, gitStatus, terminalOnly, onGitStatusChange]);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(WIDTH_KEY));
 		return Number.isFinite(saved) && saved >= WORKBENCH_MIN_WIDTH ? saved : 380;
@@ -234,26 +238,26 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 
 	// -- Git 状态快照：项目切换 / fs_changed / git_changed（防抖）/ 主动刷新（终端底栏用不到） -
 	// 同一项目同时只跑一个 status：在途期间再来的刷新只记一笔，跑完补一次，变更风暴里不会排队堆请求。
-	const gitRun = useRef<{ cwd: string; dirty: boolean } | undefined>(undefined);
+	const gitRun = useRef<{ cwd: string; profile?: string; dirty: boolean } | undefined>(undefined);
 	const refreshGit = useCallback(
 		function run(): void {
 			if (terminalOnly) return;
 			const current = gitRun.current;
-			if (current !== undefined && current.cwd === cwd) {
+			if (current !== undefined && current.cwd === cwd && current.profile === profile) {
 				current.dirty = true;
 				return;
 			}
-			const flight = { cwd, dirty: false };
+			const flight = { cwd, profile, dirty: false };
 			gitRun.current = flight;
 			const settle = (result: GitStatusResult): void => {
 				if (gitRun.current !== flight) return;
 				gitRun.current = undefined;
-				setGitStatus(result);
+				setGitSnapshot({ cwd, profile, result });
 				if (flight.dirty) run();
 			};
 			void api.gitStatus(cwd).then(settle, () => settle({ repo: false, entries: [] }));
 		},
-		[api, cwd, terminalOnly],
+		[api, cwd, profile, terminalOnly],
 	);
 	const scheduleGitRefresh = useCallback(
 		(delay: number) => {
@@ -268,7 +272,7 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			if (connected) refreshGit();
 		});
 		refreshGit();
-		return offStatus;
+		return () => { offStatus(); gitRun.current = undefined; window.clearTimeout(gitTimer.current); };
 	}, [client, refreshGit]);
 
 	useEffect(() => {

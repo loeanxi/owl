@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$WorkerPath,
-  [string]$OutputDir = ''
+  [string]$OutputDir = '',
+  [int]$PaintDelayMs = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,10 +14,17 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 public class OwlCaptureFixture : Form {
   public int FrameTick;
+  public int PaintDelayMs;
+  public OwlCaptureFixture() {
+    // Publish the background and corner markers together. Otherwise WGC can
+    // sample the new stage background before OnPaint draws its corner markers.
+    DoubleBuffered = true;
+  }
   [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
   protected override void OnPaint(PaintEventArgs e) {
     base.OnPaint(e);
+    if (PaintDelayMs > 0) System.Threading.Thread.Sleep(PaintDelayMs);
     e.Graphics.FillRectangle(Brushes.Red, 0, 0, 40, 40);
     e.Graphics.FillRectangle(Brushes.Lime, ClientSize.Width - 40, 0, 40, 40);
     e.Graphics.FillRectangle(Brushes.Blue, 0, ClientSize.Height - 40, 40, 40);
@@ -31,6 +39,7 @@ $target = New-Object OwlCaptureFixture
 $target.FormBorderStyle = 'None'
 $target.StartPosition = 'Manual'
 $target.ShowInTaskbar = $false
+$target.PaintDelayMs = $PaintDelayMs
 $target.SetBounds(30, 100, 320, 240)
 $targetHandle = $target.Handle
 [OwlCaptureFixture]::ShowWindow($targetHandle, 4) | Out-Null
@@ -44,6 +53,7 @@ $worker.StartInfo.CreateNoWindow = $true
 $worker.StartInfo.RedirectStandardOutput = $true
 $worker.StartInfo.RedirectStandardError = $true
 $results = New-Object System.Collections.ArrayList
+if (-not $OutputDir) { $OutputDir = $env:OWL_CAPTURE_RESIZE_DIAGNOSTIC_DIR }
 if ($OutputDir) { New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null }
 
 try {
@@ -93,6 +103,18 @@ try {
         )
         foreach ($pair in $corners) {
           if ([Math]::Abs($pair[0].R - $pair[1].R) -gt 25 -or [Math]::Abs($pair[0].G - $pair[1].G) -gt 25 -or [Math]::Abs($pair[0].B - $pair[1].B) -gt 25) {
+            if ($OutputDir) {
+              $failureBase = Join-Path $OutputDir ("failure-stage-$index-seq-$($message.seq)")
+              [IO.File]::WriteAllBytes(($failureBase + '.jpg'), $bytes)
+              $bitmap.Save(($failureBase + '.png'), [Drawing.Imaging.ImageFormat]::Png)
+              @{
+                stage = $index; width = $message.w; height = $message.h; sequence = $message.seq
+                center = @($center.R, $center.G, $center.B); marker = @($marker.R, $marker.G, $marker.B)
+                coordinates = @(@(20,20), @(($bitmap.Width-20),20), @(20,($bitmap.Height-20)), @(($bitmap.Width-20),($bitmap.Height-20)))
+                actualCorners = @($corners | ForEach-Object { ,@($_[0].R, $_[0].G, $_[0].B) })
+                expectedCorners = @($corners | ForEach-Object { ,@($_[1].R, $_[1].G, $_[1].B) })
+              } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath ($failureBase + '.json') -Encoding UTF8
+            }
             throw "Capture clipped a corner at $($size[0])x$($size[1])"
           }
         }

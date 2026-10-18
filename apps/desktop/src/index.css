@@ -42,6 +42,13 @@
 	--color-owl-muted: #a3a3a3;
 	--color-owl-faint: #909090;
 
+	/* git/diff 状态语义色：暗色档沿用历史值；浅色档在 html[data-owl-theme="light"] 覆盖为深色变体。 */
+	--color-status-added: #6ee7b7;
+	--color-status-deleted: #f87171;
+	--color-status-modified: #fcd34d;
+	--color-status-renamed: #7dd3fc;
+	--color-status-untracked: color-mix(in srgb, #6ee7b7 80%, transparent);
+
 	/* 界面强调色按主题区分；原版 owl.svg 保留品牌颜色。 */
 	--color-owl-accent: var(--owl-preset-accent);
 	--color-owl-accent-hover: var(--owl-preset-accent-hover);
@@ -498,7 +505,17 @@ html[data-owl-theme="light"] {
 	--color-owl-text: #3d3a32;
 	--color-owl-muted: #6e6a5e;
 	--color-owl-faint: #716d61;
+
+	/* git/diff 状态色浅色档：700 深色变体，白底对比 ≥4.5:1 */
+	--color-status-added: #047857;
+	--color-status-deleted: #dc2626;
+	--color-status-modified: #b45309;
+	--color-status-renamed: #0369a1;
+	--color-status-untracked: #047857;
 }
+
+/* 浅色档把文件类型图标的浅色（sky-300 系）压暗增饱和，白底可读。 */
+html[data-owl-theme="light"] .owl-file-icon-tint { filter: brightness(0.72) saturate(1.4); }
 
 /*
  * Codex 预设的浅色覆盖：放在默认浅色块之后同优先级覆盖，确保 codex + 浅色时

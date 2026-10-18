@@ -1,0 +1,15 @@
+/* Keep the rail mounted so hiding navigation preserves its account and pin state. */
+.owl-desktop-shell .owl-activity-rail[hidden] {
+	display: none;
+}
+
+.owl-desktop-shell.is-activity-rail-collapsed .owl-desktop-body {
+	gap: 0;
+}
+
+/* This control stays in the titlebar so the rail can always be restored. */
+.owl-desktop-titlebar .owl-desktop-rail-toggle {
+	width: var(--owl-shell-rail-size);
+	height: 28px;
+	margin-right: 2px;
+}

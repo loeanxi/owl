@@ -1,0 +1,40 @@
+.owl-execution { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--color-owl-text); font-size: 12px; }
+.owl-execution .owl-execution-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 46px; padding: 8px 12px; border-bottom: 1px solid var(--color-owl-border); }
+.owl-execution .owl-execution-toolbar strong { font-size: 12px; font-weight: 550; }
+.owl-execution .owl-execution-push { margin-left: auto; }
+.owl-execution .owl-execution-button { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 8px; border: 1px solid var(--color-owl-border); border-radius: 6px; background: transparent; color: var(--color-owl-muted); font-size: 11px; cursor: pointer; }
+.owl-execution .owl-execution-button:hover { background: var(--color-owl-hover); color: var(--color-owl-text); }
+.owl-execution .owl-execution-button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
+.owl-execution .owl-execution-button:disabled { opacity: .45; cursor: default; }
+.owl-execution .owl-execution-button.is-danger { color: var(--color-owl-danger); }
+.owl-execution .owl-execution-state { color: var(--color-owl-faint); font-size: 10px; white-space: nowrap; }
+.owl-execution .owl-execution-state[data-status="running"], .owl-execution .owl-execution-state[data-status="pending"] { color: var(--color-owl-warning); }
+.owl-execution .owl-execution-state[data-status="ok"], .owl-execution .owl-execution-state[data-status="completed"] { color: var(--color-owl-success); }
+.owl-execution .owl-execution-state[data-status="error"], .owl-execution .owl-execution-state[data-status="failed"] { color: var(--color-owl-danger); }
+.owl-execution .owl-execution-task-list { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.owl-execution .owl-execution-task-list h3 { display: flex; align-items: center; gap: 7px; color: var(--color-owl-muted); font-size: 10px; font-weight: 500; margin: 6px 0 10px; }
+.owl-execution .owl-execution-task-list h3 span { color: var(--color-owl-faint); }
+.owl-execution .owl-execution-task { margin-bottom: 12px; border: 1px solid var(--color-owl-border); border-radius: 9px; padding: 11px; background: var(--color-owl-panel); }
+.owl-execution .owl-execution-agent + .owl-execution-agent { border-top: 1px solid var(--color-owl-border); margin-top: 10px; padding-top: 10px; }
+.owl-execution .owl-execution-agent > div, .owl-execution .owl-execution-process-title { display: flex; justify-content: space-between; gap: 10px; }
+.owl-execution .owl-execution-agent p { margin: 7px 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-owl-muted); line-height: 1.6; }
+.owl-execution .owl-execution-agent > code { display: block; margin: 6px 0; color: var(--color-owl-faint); font-size: 10px; }
+.owl-execution .owl-execution-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; }
+.owl-execution .owl-execution-task-actions small { flex: 1 1 100%; color: var(--color-owl-faint); line-height: 1.5; }
+.owl-execution .owl-execution-command { margin: 9px 0 5px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
+.owl-execution .owl-execution-cwd { font-size: 10px; color: var(--color-owl-faint); overflow-wrap: anywhere; }
+.owl-execution .owl-execution-empty { margin: auto; padding: 30px 20px; color: var(--color-owl-faint); font-size: 12px; line-height: 1.8; text-align: center; }
+.owl-execution .owl-execution-empty p { margin: 8px 0 14px; }
+.owl-execution .owl-execution-notice { margin: 0; padding: 9px 12px; color: var(--color-owl-faint); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.owl-execution .owl-execution-notice.is-error { color: var(--color-owl-danger); }
+.owl-execution .owl-execution-output-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding: 10px 12px; color: var(--color-owl-muted); font-size: 10px; overflow-wrap: anywhere; }
+.owl-execution .owl-execution-output-heading code { min-width: 0; white-space: pre-wrap; }
+.owl-execution .owl-execution-output { flex: 1; min-height: 100px; overflow: auto; padding: 2px 14px 16px; user-select: text; }
+.owl-execution .owl-execution-output pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; font-size: 11px; font-family: var(--font-mono, monospace); }
+.owl-execution .owl-execution-arguments { border-top: 1px solid var(--color-owl-border); flex: 0 0 auto; max-height: 35%; overflow: auto; padding: 10px 12px; color: var(--color-owl-faint); font-size: 11px; }
+.owl-execution .owl-execution-arguments summary { cursor: pointer; }
+.owl-execution .owl-execution-arguments pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 9px 0 0; }
+.owl-execution .owl-execution-images { display: flex; gap: 8px; overflow: auto; max-height: 220px; padding: 10px 12px; }
+.owl-execution .owl-execution-images img { max-width: 100%; object-fit: contain; }
+.owl-execution .owl-execution-full { margin: 8px 12px; align-self: flex-start; }
+.owl-execution .owl-execution-footer { display: flex; justify-content: flex-end; padding: 10px 12px; border-top: 1px solid var(--color-owl-border); }

@@ -1,6 +1,7 @@
 /**
  * Re-exports the kernel wire protocol so the UI and bridge share one definition.
  */
+export type * from "../../../../packages/coding-agent/src/modes/desktop/execution-types.ts";
 export type {
 	ExecutionAnomalyKind,
 	ExecutionAnomalyStatus,

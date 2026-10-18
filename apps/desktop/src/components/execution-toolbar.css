@@ -1,0 +1,21 @@
+.owl-execution-controls { flex: 0 0 auto; min-width: 0; }
+.owl-execution-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 20px; border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border)); }
+.owl-execution-button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; border: 0; border-radius: 6px; padding: 4px 0; background: transparent; color: var(--owl-ui-muted, var(--color-owl-muted)); font-size: 11px; cursor: pointer; white-space: nowrap; }
+.owl-execution-button:hover, .owl-execution-button[aria-pressed="true"] { color: var(--color-owl-accent); }
+.owl-execution-button svg { flex: 0 0 auto; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.owl-execution-button b { padding: 0 4px; border-radius: 4px; background: var(--owl-ui-panel, var(--color-owl-panel)); color: var(--owl-ui-text, var(--color-owl-text)); font-size: 10px; font-weight: 400; }
+.owl-execution-actions { display: flex; align-items: center; gap: 13px; }
+.owl-execution-view-menu { width: min(275px, calc(100vw - 40px)); }
+.owl-execution-menu-heading { display: flex; justify-content: space-between; gap: 8px; padding: 7px 12px; color: var(--color-owl-muted); font-size: 11px; }
+.owl-execution-menu-heading kbd { font-size: 10px; }
+.owl-execution-view-option { display: flex; align-items: center; gap: 8px; width: calc(100% - 8px); margin: 0 4px; padding: 8px 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.owl-execution-view-option:hover { background: var(--color-owl-hover); }
+.owl-execution-view-option > span:first-child { flex: 0 0 16px; color: var(--color-owl-accent); }
+.owl-execution-view-option strong { display: block; color: var(--color-owl-text); font-size: 12px; font-weight: 500; }
+.owl-execution-view-option small { display: block; margin-top: 2px; color: var(--color-owl-muted); font-size: 10px; }
+.owl-execution-menu-note { padding: 6px 12px; color: var(--color-owl-muted); font-size: 10px; line-height: 1.6; }
+.owl-execution-shortcut { display: flex; justify-content: space-between; gap: 8px; margin: 0 8px; padding-top: 5px; border-top: 1px solid var(--color-owl-border); }
+.owl-execution-shortcut button { border: 0; border-radius: 4px; padding: 5px 4px; background: transparent; color: var(--color-owl-muted); font-size: 10px; cursor: pointer; }
+.owl-execution-shortcut button:hover, .owl-execution-shortcut button:focus-visible { background: var(--color-owl-hover); color: var(--color-owl-text); }
+@container owl-conversation (max-width: 660px) { .owl-execution-toolbar { padding: 0 16px; } }
+@container owl-conversation (max-width: 420px) { .owl-execution-actions { gap: 10px; } .owl-execution-actions .owl-execution-button > span { display: none; } }

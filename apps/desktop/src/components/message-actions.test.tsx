@@ -308,9 +308,21 @@ async function changeDraft(input: HTMLTextAreaElement, value: string): Promise<v
 
 describe("Message actions in the real chat timeline", () => {
 	it("keeps copy and regenerate direct while selecting a branch only through More", async () => {
-		const props: ChatProps = { entries: entries(), sessionId: "session", onRegenerate: vi.fn(), onBranch: vi.fn() };
+		const messages = entries();
+		messages[1]!.timestamp = Date.now();
+		const props: ChatProps = { entries: messages, sessionId: "session", onRegenerate: vi.fn(), onBranch: vi.fn() };
 		await render(<ChatStream {...props} />);
 		const footer = host.querySelector<HTMLElement>(".owl-msg-actions")!;
+		const actions = [...footer.querySelectorAll<HTMLButtonElement>("button")];
+		expect(actions).toHaveLength(3);
+		for (const action of actions) {
+			expect(action.textContent).toBe("");
+			expect(action.querySelector("svg")).not.toBeNull();
+			expect(action.getAttribute("title")).toBe(action.getAttribute("aria-label"));
+			expect(action.getAttribute("aria-label")).toBeTruthy();
+		}
+		expect(footer.textContent).toBe("");
+		expect(footer.title).toBe(t("chat.justNow"));
 		expect(buttonWithin(footer, t("chat.msgCopy"))).toBeDefined();
 		expect(buttonWithin(footer, t("chat.msgRegenerate"))).toBeDefined();
 		expect([...footer.querySelectorAll("button")].some((button) => button.getAttribute("aria-label") === t("chat.msgBranch"))).toBe(false);
@@ -346,6 +358,14 @@ describe("Message actions in the real chat timeline", () => {
 		await key(input, "Escape");
 		expect(props.onEditMessage).toHaveBeenCalledOnce();
 		expect(host.querySelector("textarea")).toBeNull();
+		const rejected: ChatProps = { entries: entries(), sessionId: "session", onEditMessage: vi.fn(async () => false) };
+		await render(<ChatStream {...rejected} />);
+		await click(buttonWithin(host, t("chat.msgEdit")));
+		input = host.querySelector<HTMLTextAreaElement>("textarea")!;
+		await changeDraft(input, "回退没有完成");
+		await key(input, "Enter");
+		expect(rejected.onEditMessage).toHaveBeenCalledOnce();
+		expect(host.querySelector("textarea")).not.toBeNull();
 	});
 
 	it("keeps busy restrictions and places user actions after an intact body with attachment controls", async () => {

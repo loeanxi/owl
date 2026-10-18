@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { estimateTokens } from "../../src/core/compaction/index.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -512,6 +513,7 @@ describe("AgentSession actionable boundaries", () => {
 
 	it("does not compact from usage belonging to a boundary-omitted assistant", async () => {
 		let handled = false;
+		let tokensBeforeResponse = 0;
 		const harness = await createHarness({
 			models: [{ id: "faux-1", contextWindow: 10_000, maxTokens: 100 }],
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 300 } },
@@ -537,16 +539,25 @@ describe("AgentSession actionable boundaries", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("short response")]);
+		harness.setResponses([
+			(context) => {
+				tokensBeforeResponse = context.messages.reduce((total, message) => total + estimateTokens(message), 0);
+				return fauxAssistantMessage("short response");
+			},
+		]);
 
 		await harness.session.prompt("small prompt");
 
 		expect(harness.eventsOfType("compaction_start")).toEqual([]);
-		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(2_000);
+		// Omitting the response restores the input estimate, including the current system/tool definitions.
+		expect(harness.session.messages.some((message) => message.role === "assistant")).toBe(false);
+		expect(tokensBeforeResponse).toBeGreaterThan(0);
+		expect(harness.session.getContextUsage()?.tokens).toBe(tokensBeforeResponse);
 	});
 
 	it("does not trigger successful-response overflow from usage captured before a boundary edit", async () => {
 		let handled = false;
+		let tokensAfterEdit = 0;
 		const harness = await createHarness({
 			models: [{ id: "faux-1", contextWindow: 5_000, maxTokens: 100 }],
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
@@ -574,12 +585,23 @@ describe("AgentSession actionable boundaries", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("done")]);
+		harness.setResponses([
+			(context) => {
+				const response = fauxAssistantMessage("done");
+				tokensAfterEdit = context.messages
+					.filter((message) => message.role !== "user")
+					.reduce((total, message) => total + estimateTokens(message), estimateTokens(response));
+				return response;
+			},
+		]);
 
 		await harness.session.prompt("large input that is later omitted");
 
 		expect(harness.eventsOfType("compaction_start")).toEqual([]);
-		expect(harness.session.getContextUsage()?.tokens).toBeLessThan(2_000);
+		// The omitted input and its provider usage cannot survive the boundary edit.
+		expect(harness.session.messages.some((message) => message.role === "user")).toBe(false);
+		expect(tokensAfterEdit).toBeGreaterThan(0);
+		expect(harness.session.getContextUsage()?.tokens).toBe(tokensAfterEdit);
 	});
 
 	it("does not trigger threshold compaction from post-edit usage captured before a later compaction", async () => {

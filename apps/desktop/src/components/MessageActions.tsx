@@ -78,7 +78,6 @@ export type MessageMoreItem = { id: string; label: string; onSelect: () => void;
 
 /** A small menu outside message bubbles; keyboard and pointer dismissal restore its trigger. */
 export function MessageMoreMenu({ label, items, identity }: { label: string; items: readonly MessageMoreItem[]; identity?: string }): React.JSX.Element | null {
-	const copy = useMessageActionsText();
 	const id = useId();
 	const root = useRef<HTMLDivElement>(null);
 	const trigger = useRef<HTMLButtonElement>(null);
@@ -158,7 +157,6 @@ export function MessageMoreMenu({ label, items, identity }: { label: string; ite
 			}}
 		>
 			<IconMore className="h-3.5 w-3.5" />
-			<span className="owl-message-action-label">{copy("moreShort")}</span>
 		</button>
 		{open && <div ref={menu} id={`${id}-menu`} className="owl-message-more-menu" role="menu" aria-labelledby={`${id}-trigger`} onKeyDown={(event) => {
 			const choices = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')];

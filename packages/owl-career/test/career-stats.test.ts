@@ -292,7 +292,9 @@ describe("career stats", () => {
 			create table session (id text primary key, directory text, title text, cost real, tokens_input integer, tokens_output integer, tokens_cache_read integer, tokens_cache_write integer, tokens_reasoning integer, time_created integer, time_updated integer);
 			create table message (id text primary key, session_id text, time_created integer, data text);
 		`);
-		const now = Date.now();
+		// 固定到不同本地日期，避免凌晨运行时相对小时偏移仍落在同一天。
+		const firstDay = Date.parse(localIso(2));
+		const secondDay = Date.parse(localIso(1));
 		db.prepare("insert into session values (?,?,?,?,?,?,?,?,?,?,?)").run(
 			"ses_1",
 			"C:/proj",
@@ -303,8 +305,8 @@ describe("career stats", () => {
 			2000,
 			50,
 			5,
-			now - 86_400_000,
-			now - 3_600_000,
+			firstDay,
+			secondDay,
 		);
 		const msg = (id: string, time: number, tokens: Record<string, unknown>, model: string): void => {
 			db.prepare("insert into message values (?,?,?,?)").run(
@@ -316,13 +318,13 @@ describe("career stats", () => {
 		};
 		msg(
 			"m1",
-			now - 86_400_000,
+			firstDay,
 			{ input: 600, output: 60, reasoning: 5, cache: { read: 1200, write: 30 }, total: 1895 },
 			"deepseek-v4-pro",
 		);
 		msg(
 			"m2",
-			now - 3_600_000,
+			secondDay,
 			{ input: 400, output: 40, reasoning: 0, cache: { read: 800, write: 20 }, total: 1260 },
 			"deepseek-v4-pro",
 		);

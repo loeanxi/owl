@@ -35,6 +35,13 @@ async function render(patch: Partial<Props> = {}): Promise<void> { props = { ...
 function button(label: string): HTMLButtonElement { const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === label || item.getAttribute("aria-label") === label); if (!result) throw new Error(`Missing button ${label}`); return result; }
 async function click(label: string): Promise<void> { await act(async () => button(label).click()); }
 const editor = (): HTMLElement => container.querySelector<HTMLElement>('[role="textbox"]')!;
+async function enter(ctrlKey = false): Promise<void> {
+	await act(async () => {
+		const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+		Object.assign(event, { key: "Enter", code: "Enter", ctrlKey, isComposing: false });
+		editor().dispatchEvent(event);
+	});
+}
 
 describe("Composer attachment accessibility preflight", () => {
 	it("retains the complete input on a missing file and removes only the chosen bad reference", async () => {
@@ -71,12 +78,20 @@ describe("Composer attachment accessibility preflight", () => {
 		expect(props.onSend).not.toHaveBeenCalled(); expect(container.querySelector('[role="alert"]')).toBeNull();
 	});
 
-	it("checks attachments for queued input and keeps pause available during the check", async () => {
+	it.each([false, true])("checks attachment-only keyboard delivery (Ctrl: %s) and keeps only the main pause button available", async (ctrlKey) => {
 		const metadata = Promise.withResolvers<Metadata>(); request.mockReturnValue(metadata.promise); const onPause = vi.fn();
-		await render({ running: true, onPause }); await click(t("composer.sendNextTurn"));
+		await render({ running: true, onPause, draftRequest: { ...props.draftRequest!, text: "" } });
+		expect(editor().textContent).toBe("");
+		expect(container.querySelector(".owl-composer-delivery")).toBeNull();
+		const labels = [...container.querySelectorAll("button")].map((item) => item.getAttribute("aria-label") ?? item.textContent?.trim());
+		expect(labels).not.toContain(t("composer.sendNextTurn"));
+		expect(labels).not.toContain(t("composer.steerCurrent"));
+		await enter(ctrlKey);
+		await enter(ctrlKey);
+		expect(props.onSend).not.toHaveBeenCalled();
 		expect(button(t("composer.pause")).disabled).toBe(false); await click(t("composer.pause")); expect(onPause).toHaveBeenCalledOnce();
 		await act(async () => metadata.resolve({ ok: true, result: { isFile: true, isDirectory: false } }));
-		expect(props.onSend).toHaveBeenCalledExactlyOnceWith("核对截图与文件", [image], ["D:/project/valid.md", "D:/project/missing.md"], "queue");
+		expect(props.onSend).toHaveBeenCalledExactlyOnceWith("", [image], ["D:/project/valid.md", "D:/project/missing.md"], "steer");
 	});
 
 	it("does not submit a completed check after navigation starts before React commits", async () => {

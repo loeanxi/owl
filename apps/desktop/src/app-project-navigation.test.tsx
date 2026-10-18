@@ -253,6 +253,19 @@ describe("App project conversation navigation", () => {
 		assertNoPrompt();
 	});
 
+	it("keeps the open conversation when another session fails to resume", async () => {
+		const kept = fixture.chat!.entries;
+		expect(kept.some((entry) => entry.kind === "user" && entry.text.includes("alpha-old"))).toBe(true);
+		const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) => request.type === "session.resume" && request.sessionId === "beta-one" ? Promise.resolve({ ok: false, error: "missing session" }) : base(request));
+		await act(async () => fixture.sidebar!.onOpenSession("beta-one"));
+		expect(fixture.sidebar!.activeId).toBe("alpha-old");
+		expect(fixture.chat!.sessionId).toBe("alpha-old");
+		expect(fixture.chat!.entries).toEqual(kept);
+		expect(container.textContent).toContain(`${t("app.sessionRestoreFailed")}：missing session`);
+		assertNoPrompt();
+	});
+
 	it("uses the explicit project compose action to open a blank chat", async () => {
 		await selectProject("D:/beta");
 		fixture.request.mockClear();

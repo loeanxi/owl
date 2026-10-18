@@ -14,12 +14,12 @@ $owner = New-Object System.Windows.Forms.Form
 $owner.FormBorderStyle = 'None'
 $owner.StartPosition = 'Manual'
 $owner.ShowInTaskbar = $false
-$owner.SetBounds(100, 100, 1920, 1080)
+$owner.SetBounds(-8000, -8000, 1920, 1080)
 $target = New-Object System.Windows.Forms.Form
 $target.FormBorderStyle = 'None'
 $target.StartPosition = 'Manual'
 $target.ShowInTaskbar = $false
-$target.SetBounds(200, 200, 906, 510)
+$target.SetBounds(-7900, -7900, 906, 510)
 $target.MinimumSize = New-Object System.Drawing.Size(600, 500)
 $player = New-Object System.Windows.Forms.Panel
 $player.SetBounds(4, 40, 840, 470)
@@ -28,6 +28,13 @@ $target.Controls.Add($player)
 $ownerHandle = $owner.Handle
 $targetHandle = $target.Handle
 $playerHandle = $player.Handle
+# PlaceStage uses physical, DPI-scaled app chrome. Model the same margins in
+# the anchored fixture instead of assuming the desktop always runs at 100%.
+$scale = [Math]::Max(96, [OwlMirrorWin32]::GetDpiForWindow($targetHandle)) / 96.0
+$contentLeft = [int][Math]::Round(4 * $scale)
+$contentTop = [int][Math]::Round(40 * $scale)
+$contentRight = [int][Math]::Round(62 * $scale)
+$player.SetBounds($contentLeft, $contentTop, $target.ClientSize.Width - $contentLeft - $contentRight, $target.ClientSize.Height - $contentTop)
 
 try {
   foreach ($stage in @(
@@ -53,18 +60,18 @@ try {
     } finally { [OwlMirrorWin32]::DeleteObject($region) | Out-Null }
     $window = New-Object OwlMirrorWin32+RECT
     [OwlMirrorWin32]::GetWindowRect($targetHandle, [ref]$window) | Out-Null
-    if ($window.Left + $player.Left -ne 100 + $stage.X -or
-        $window.Top + $player.Top -ne 100 + $stage.Y) {
+    if ($window.Left + $player.Left -ne -8000 + $stage.X -or
+        $window.Top + $player.Top -ne -8000 + $stage.Y) {
       throw 'App content does not align with the stage origin'
     }
   }
   # Moving Owl and changing the stage origin at the same time must use the new
   # origin; caching only width/height leaves the video over the chat composer.
-  $owner.Location = New-Object System.Drawing.Point(180, 160)
+  $owner.Location = New-Object System.Drawing.Point(-7920, -7940)
   [OwlMirrorWin32]::PlaceStage($targetHandle, $ownerHandle, 800, 140, 360, 640) | Out-Null
   $window = New-Object OwlMirrorWin32+RECT
   [OwlMirrorWin32]::GetWindowRect($targetHandle, [ref]$window) | Out-Null
-  if ($window.Left + $player.Left -ne 980 -or $window.Top + $player.Top -ne 300) {
+  if ($window.Left + $player.Left -ne -7120 -or $window.Top + $player.Top -ne -7800) {
     throw 'Native window followed a stale stage origin'
   }
 
@@ -72,7 +79,7 @@ try {
   # physical stage rectangle when the whole app is painted into its root HWND.
   $target.Controls.Remove($player)
   [OwlMirrorWin32]::PlaceStage($targetHandle, $ownerHandle, 800, 140, 360, 640) | Out-Null
-  if (-not [OwlMirrorWin32]::ContentClipOk($targetHandle, 4, 40, 364, 680)) {
+  if (-not [OwlMirrorWin32]::ContentClipOk($targetHandle, $contentLeft, $contentTop, $contentLeft + 360, $contentTop + 640)) {
     throw 'Root-painted app has a different clipping layout'
   }
   $target.Controls.Add($player)

@@ -127,6 +127,7 @@
 html[data-owl-theme="light"] .owl-permission-review .owl-permission-action.allow:not(:hover) { background: color-mix(in srgb, var(--color-owl-accent) 97%, black); }
 .owl-permission-review .owl-permission-action.allow:hover:not(:disabled) { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-permission-review .owl-permission-action:disabled { cursor: default; opacity: 0.5; }
+.owl-permission-review .owl-permission-action.sending { border-color: transparent; color: var(--owl-permission-muted); }
 .owl-permission-review button:focus-visible,
 .owl-permission-review .owl-permission-source > summary:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
 
