@@ -178,6 +178,10 @@ export function registerModelAdminRoutes(router: Router, deps: ModelAdminRoutesD
 		const body = await ctx.readBody<Record<string, unknown>>();
 		const model = modelFromBody(body, existing.id, existing);
 		deps.catalog.saveModel(model);
+		// 编辑弹窗把平台路由和模型一起提交。只写模型字段时，优先级等路由改动会看起来保存成功但库里不变。
+		if (Array.isArray(body.routes)) {
+			replaceRoutes(deps, model.id, routesFromBody(body, model.id, deps.catalog.routesOf(model.id)));
+		}
 		return { ...modelView(model), routes: deps.catalog.routesOf(model.id).map(routeView) };
 	});
 
@@ -260,18 +264,24 @@ function modelFromBody(body: Record<string, unknown>, id: string, existing?: Pub
 	};
 }
 
-function routesFromBody(body: Record<string, unknown>, modelId: string): ModelRoute[] {
+function routesFromBody(body: Record<string, unknown>, modelId: string, existing: ModelRoute[] = []): ModelRoute[] {
 	const raw = body.routes;
 	if (!Array.isArray(raw)) {
 		return [];
 	}
+	const owned = new Set(existing.map((route) => route.id));
 	return raw.map((item) => {
 		const record = (item ?? {}) as Record<string, unknown>;
+		const submittedId = asString(record.id);
+		const upstreamModel = asString(record.upstreamModel)?.trim() ?? "";
+		if (upstreamModel.length === 0) {
+			throw BusinessError.of("catalog.upstreamModelRequired", "上游模型名不能为空");
+		}
 		return {
-			id: randomUUID(),
+			id: submittedId !== undefined && owned.has(submittedId) ? submittedId : randomUUID(),
 			modelId,
 			platform: parsePlatform(record.platform),
-			upstreamModel: asString(record.upstreamModel)?.trim() ?? "",
+			upstreamModel,
 			priority: intOrNull(record.priority) ?? 0,
 			enabled: record.enabled === undefined ? true : record.enabled === true,
 			supportsImages: record.supportsImages === true,
@@ -279,6 +289,19 @@ function routesFromBody(body: Record<string, unknown>, modelId: string): ModelRo
 			reasoningEfforts: stringArray(record.reasoningEfforts) ?? [],
 		};
 	});
+}
+
+/** 用提交的路由整表替换：保留仍在表单里的 id，删掉被移除的，并写回优先级等字段。 */
+function replaceRoutes(deps: ModelAdminRoutesDeps, modelId: string, routes: ModelRoute[]): void {
+	const kept = new Set(routes.map((route) => route.id));
+	for (const current of deps.catalog.routesOf(modelId)) {
+		if (!kept.has(current.id)) {
+			deps.catalog.deleteRoute(current.id);
+		}
+	}
+	for (const route of routes) {
+		deps.catalog.saveRoute(route);
+	}
 }
 
 function modelView(model: PublishedModel): Record<string, unknown> {
