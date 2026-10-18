@@ -216,7 +216,7 @@ async function credentialedProviderGroups(ctx: ModelsHandlerContext): Promise<Pr
 }
 
 /**
- * 模型列表的完整视图：models.json 声明 ∪ 有凭据的内置供应商；动态目录限制已声明能力。
+ * 模型列表的完整视图：models.json 声明 ∪ 有凭据的内置供应商；动态目录的已公布窗口覆盖本地旧声明。
  * 供应商增删的落盘操作也用同一视图回包，否则凭据分组会在界面凭空消失/复活。
  */
 async function mergedProviderGroups(ctx: ModelsHandlerContext, agentDir: string): Promise<ProviderModelsMessage[]> {
@@ -235,9 +235,7 @@ async function mergedProviderGroups(ctx: ModelsHandlerContext, agentDir: string)
 					if (!declaredModel) {
 						group.models.push(liveModel);
 					} else if (liveModel.contextWindow) {
-						declaredModel.contextWindow = declaredModel.contextWindow
-							? Math.min(declaredModel.contextWindow, liveModel.contextWindow)
-							: liveModel.contextWindow;
+						declaredModel.contextWindow = liveModel.contextWindow;
 					}
 				}
 			}

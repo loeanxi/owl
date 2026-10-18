@@ -161,8 +161,9 @@ function mergeInputLimits(
 }
 
 function contextWindowWithUpstreamCeiling(model: Model<Api>, requested: number | undefined): number {
-	const configured = requested ?? model.contextWindow;
-	return model.contextWindowConfirmed === true ? Math.min(configured, model.contextWindow) : configured;
+	// 网关已公布的窗口就是上游能力。本地声明只能在未公布时生效，不能把 1M 压回旧的 200k。
+	if (model.contextWindowConfirmed === true) return model.contextWindow;
+	return requested ?? model.contextWindow;
 }
 
 function applyModelOverride(model: Model<Api>, override: ModelsJsonModelOverride): Model<Api> {
