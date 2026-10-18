@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
-import { isRecordedExecutionAnomaly } from "../../../../packages/coding-agent/src/modes/desktop/execution-anomaly-capture.ts";
-import { errorKindOf, exitCodeOf, toolRunLabel } from "../hooks/summarize.ts";
+import { errorKindOf, exitCodeOf } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
 import { IconAlert, IconCheck, IconChevron, IconClock, IconCompose, IconLightbulb, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
 import { MessageCopyButton, MessageMoreMenu } from "./MessageActions.tsx";
@@ -38,7 +37,6 @@ const AttachmentToolContext = createContext<{ toolId: string; ownerIndex?: numbe
 const WorkToolFocusContext = createContext<{ toolId: string; ownerIndex?: number } | undefined>(undefined);
 type WorkPresentation = {
 	processes: Map<string, boolean>;
-	groups: Map<string, boolean>;
 	tools: Map<string, boolean>;
 	outputs: Map<string, boolean>;
 	thoughts: Map<string, boolean>;
@@ -46,7 +44,6 @@ type WorkPresentation = {
 };
 const WorkPresentationContext = createContext<WorkPresentation | undefined>(undefined);
 const ExecutionViewContext = createContext<{ view: ExecutionView; onInspectTool?: (card: ToolCard, ownerIndex?: number) => void }>({ view: "normal" });
-const WorkRecordsContext = createContext(false);
 
 export type { MessageSearchTarget } from "./chat-message-navigation.ts";
 
@@ -270,6 +267,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 	const opensSubagent = card.name === "subagent" && onOpenSubagent !== undefined;
 	const actionTitle = processView ? workActionTitle(card) : card.summary;
 	const actionPath = processView ? workActionPath(card) : undefined;
+	const input = card.detail || (processView ? card.args : "");
 
 	return (
 		<div ref={toolRoot} className="owl-tool-row" data-entry-id={entryId} data-tool-id={card.id} data-tool-owner={ownerIndex} data-status={card.status} data-error-kind={errorKind}>
@@ -277,7 +275,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 			<button
 				type="button"
 				aria-expanded={opensSubagent ? undefined : open}
-				title={opensSubagent ? subagentCopy.open : undefined}
+				title={opensSubagent ? subagentCopy.open : actionPath || input || card.summary}
 				onClick={() => opensSubagent ? onOpenSubagent(card) : toggleTool()}
 				className="owl-tool-summary min-w-0 flex-1"
 			>
@@ -285,8 +283,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 				<span
 					className={`${processView ? "owl-work-action-copy" : "min-w-0 flex-1 truncate"} ${errorKind === "failed" ? "text-owl-danger" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
 				>
-					<span className={processView ? "owl-work-action-title" : undefined} title={card.detail || card.summary}>{actionPath ? actionTitle : <InlineSummary text={actionTitle} />}</span>
-					{processView && <span className="owl-work-action-detail">{actionPath ? <code className="owl-tool-inline-code owl-path-chip">{actionPath}</code> : <InlineSummary text={actionTitle !== card.summary ? card.summary : card.name} />}</span>}
+					<span className={processView ? "owl-work-action-title" : undefined} title={actionPath || input || card.summary}>{actionPath ? actionTitle : <InlineSummary text={actionTitle} />}</span>
 				</span>
 				{card.status === "cancelled" && <span className="owl-work-action-result text-xs text-owl-faint">{t("chat.cancelled")}</span>}
 				{errorKind === "blocked" && <span className="owl-work-action-result shrink-0 text-xs text-owl-warning">{t("chat.toolBlocked")}</span>}
@@ -300,14 +297,13 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 				/>
 			</button>
 			{opensSubagent && <button type="button" className="owl-msg-action" title={subagentCopy.toolDetails} aria-label={subagentCopy.toolDetails} aria-expanded={open} onClick={toggleTool}><IconMore className="h-3.5 w-3.5" /></button>}
-			{onInspectTool && <button type="button" className="owl-work-inspect" data-work-reading="" title={copy("inspectTool")} aria-label={copy("inspectTool") + ": " + actionTitle} onClick={() => onInspectTool(card, ownerIndex)}><IconTerminal className="h-3.5 w-3.5" /></button>}
 			</div>
 			{open && (
 				<div className="owl-tool-detail">
-					{card.detail && (
+					{input && (
 						<section className="owl-work-record" data-work-record="command">
-							<div className="owl-work-record-toolbar" data-message-action-ui=""><span className="owl-work-record-label">{copy("command")}</span><MessageCopyButton text={card.detail} label={copy("copyCommand")} identity={presentationKey + ":command"} showLabel /></div>
-							<pre className="owl-tool-command">{card.detail}</pre>
+							<div className="owl-work-record-toolbar" data-message-action-ui=""><span className="owl-work-record-label">{actionPath ? <code className="owl-tool-inline-code owl-path-chip">{actionPath}</code> : copy("command")}</span><MessageCopyButton text={input} label={copy("copyCommand")} identity={presentationKey + ":command"} showLabel /></div>
+							<pre className="owl-tool-command">{input}</pre>
 						</section>
 					)}
 					{output && output.text !== "" && (
@@ -366,66 +362,22 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 							)}
 						</div>
 					)}
+					{onInspectTool && <div className="owl-work-record-foot" data-message-action-ui=""><button type="button" className="owl-work-inspect" data-work-reading="" title={copy("inspectTool")} aria-label={copy("inspectTool") + ": " + actionTitle} onClick={() => onInspectTool(card, ownerIndex)}>{copy("inspectTool")}</button></div>}
 				</div>
 			)}
 		</div>
 	);
 }
 
-/** 连续工具调用的合组（名称可不同）：失败只标红计数，不自动弹开。 */
-function ToolGroupView({ label, cards, owners, entryIds, expanded = false, flat = false, onOpenSubagent }: { label: string; cards: ToolCard[]; owners?: ReadonlyMap<ToolCard, number>; entryIds?: ReadonlyMap<number, string>; expanded?: boolean; flat?: boolean; onOpenSubagent?: (card: ToolCard) => void }): React.JSX.Element {
-	const receiptTarget = useContext(AttachmentToolContext);
-	const processOpen = useContext(WorkRecordsContext);
-	const presentation = useContext(WorkPresentationContext);
-	const groupKey = String(owners?.get(cards[0]!)) + ":" + cards[0]?.id;
-	const revealsReceipt = cards.some((card) => card.id === receiptTarget?.toolId && owners?.get(card) === receiptTarget?.ownerIndex);
-	const [open, setOpen] = useState(revealsReceipt || (presentation?.groups.get(groupKey) ?? false));
-	useEffect(() => { if (revealsReceipt) setOpen(true); }, [revealsReceipt, receiptTarget?.requestId]);
-	const errorCount = cards.filter(isHardFailure).length;
-	const running = cards.some((card) => card.status === "running");
-
-	if (flat) return <div className="owl-work-tool-list" aria-label={label}>
-		{!processOpen && <button type="button" className="owl-work-history-toggle" data-work-reading="" aria-expanded={open} onClick={() => { presentation?.groups.set(groupKey, !open); setOpen(!open); }}><IconChevron className={"h-3 w-3 shrink-0 " + (open ? "rotate-90" : "")} /><IconTerminal className="h-3.5 w-3.5 shrink-0" /><span>{label}</span></button>}
-		{(processOpen || open) && cards.map((card) => <ToolRowView key={String(owners?.get(card)) + ":" + card.id} card={card} ownerIndex={owners?.get(card)} entryId={entryIds?.get(owners?.get(card) ?? -1)} expanded={expanded} autoOpen={false} processView onOpenSubagent={onOpenSubagent} />)}
+function ToolRecords({ cards, owners, entryIds, expanded, onOpenSubagent }: { cards: ToolCard[]; owners: ReadonlyMap<ToolCard, number>; entryIds: ReadonlyMap<number, string>; expanded: boolean; onOpenSubagent?: (card: ToolCard) => void }): React.JSX.Element {
+	return <div className="owl-work-tool-list">
+		{cards.map((card) => <ToolRowView key={String(owners.get(card)) + ":" + card.id} card={card} ownerIndex={owners.get(card)} entryId={entryIds.get(owners.get(card) ?? -1)} expanded={expanded} autoOpen={false} processView onOpenSubagent={onOpenSubagent} />)}
 	</div>;
-
-	return (
-		<div className={`owl-tool-group ${open ? "is-open" : ""}`}>
-			<button
-				type="button"
-				aria-expanded={open}
-				onClick={() => setOpen((value) => !value)}
-				className="owl-tool-summary owl-tool-group-summary"
-			>
-				<IconTerminal className="h-3.5 w-3.5 shrink-0 text-owl-faint" />
-				<IconChevron
-					className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
-				/>
-				<span className="min-w-0 flex-1 truncate text-owl-muted">{label}</span>
-				{running ? (
-					<span className="flex shrink-0 items-center gap-1.5 text-owl-accent">
-						{t("chat.groupRunning")}
-					</span>
-				) : errorCount > 0 ? (
-					<span className="shrink-0 text-owl-danger">
-						{t("chat.groupFailed", { n: errorCount })}
-					</span>
-				) : null}
-			</button>
-			{open && (
-				<div className="owl-tool-group-body">
-					{cards.map((card) => (
-						<ToolRowView key={`${owners?.get(card)}:${card.id}`} card={card} ownerIndex={owners?.get(card)} onOpenSubagent={onOpenSubagent} />
-					))}
-				</div>
-			)}
-		</div>
-	);
 }
 
 /**
- * 整轮工作过程折叠行：一次提问到该轮最终回答之间的思考、工具调用与中间说明收进
- * 默认展示当前动作和最近进展，详细操作原位展开。未确认解决的问题常显，
+ * 一段连续工具记录共用一个折叠入口，公开说明和交互卡在正文中打断该段。
+ * 运行时展示当前动作与实际输出；结束后的失败保留计数与原始明细。
  * 手动展开状态跟随具体操作保留，不因最后一条回答到达而关闭。
  */
 type WorkProcessItem = {
@@ -506,12 +458,14 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const searchFocus = useMemo(() => searchedAction ? { toolId: searchedAction.card.id, ownerIndex: searchedAction.ownerIndex } : undefined, [searchedAction?.card.id, searchedAction?.ownerIndex, searchTarget?.requestId]);
 	const current = activeScope ? workActionFacts(actions.filter((action) => action.scope === activeScope.id)).current : undefined;
 	const primary = running ? waiting ? copy("waiting") : current ? workActionTitle(current.card) : copy("waitingModel") : actions.length || !thinkingSegments.length ? copy("process") : copy("thinking");
-	// A later unrelated success cannot hide an unresolved operation or its original output.
-	const reviewIssue = facts.issues.at(-1);
-	const latestOutput = reviewIssue?.card.output?.text.trim() ? reviewIssue : workLatestOutput(actions, current);
-	const latestStatus = reviewIssue ?? facts.recent.at(-1);
-	const anomalyIssues = facts.issues.filter(({ card }) => isRecordedExecutionAnomaly(card.name, card.output?.text ?? ""));
-	const issueKind = anomalyIssues.some(({ card }) => isHardFailure(card)) ? "failed" : anomalyIssues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
+	// Finished records retain their original status behind the issue counter. Only the active
+	// segment promotes a received result, so an old failed attempt cannot masquerade as live output.
+	const activeActions = activeScope ? actions.filter((action) => action.scope === activeScope.id) : [];
+	const activeFacts = workActionFacts(activeActions);
+	const reviewIssue = running && !current ? activeFacts.issues.at(-1) : undefined;
+	const latestOutput = running ? reviewIssue?.card.output?.text.trim() ? reviewIssue : workLatestOutput(activeActions, current) : undefined;
+	const latestStatus = running ? reviewIssue ?? activeFacts.recent.at(-1) : undefined;
+	const issueKind = facts.issues.some(({ card }) => isHardFailure(card)) ? "failed" : facts.issues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
 	const hasOrdinaryItems = items.some((item) => !item.interactive);
 	useEffect(() => {
 		if (!open || !focusedTool) return;
@@ -554,7 +508,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	};
 	return (
 		<WorkToolFocusContext.Provider value={searchFocus ?? focusedTool}>
-		<WorkRecordsContext.Provider value={open}>
 		<div ref={root} className="owl-work-process" data-state={waiting ? "waiting" : running ? "running" : "finished"} data-view={view} data-failed-count={scopes.reduce((sum, scope) => sum + scope.failed, 0)}>
 			{hasOrdinaryItems && <div className="owl-work-process-header" data-message-action-ui="">
 				<button type="button" aria-expanded={open} aria-controls={panelId} data-work-reading="" onClick={() => setProcessOpen(!open)} className="owl-tool-summary owl-work-process-summary">
@@ -563,15 +516,15 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 					<span className="owl-work-metadata">{[elapsed !== undefined ? formatDuration(elapsed) : undefined, actions.length ? copy("stepCount", { n: actions.length }) : undefined, facts.recovered.length ? copy("recoveredCount", { n: facts.recovered.length }) : undefined].filter(Boolean).join(" · ")}</span>
 					<IconChevron className={"owl-work-summary-chevron h-3 w-3 shrink-0 transition-transform " + (open ? "rotate-90" : "")} />
 				</button>
-				{anomalyIssues.length > 0 && <button type="button" className="owl-work-issue-link" data-error-kind={issueKind} data-work-reading="" title={copy("issueHint")} onClick={() => {
-					const issue = anomalyIssues[issueCursor.current++ % anomalyIssues.length]!;
+				{facts.issues.length > 0 && <button type="button" className="owl-work-issue-link" data-error-kind={issueKind} data-work-reading="" title={copy("issueHint")} onClick={() => {
+					const issue = facts.issues[issueCursor.current++ % facts.issues.length]!;
 					setProcessOpen(true);
 					setFocusedTool({ toolId: issue.card.id, ownerIndex: issue.ownerIndex });
-				}}><IconAlert className="h-3 w-3" />{copy("issueCount", { n: anomalyIssues.length })}</button>}
+				}}><IconAlert className="h-3 w-3" />{copy("issueCount", { n: facts.issues.length })}</button>}
 			</div>}
 			{activeScope?.subagents.some((card) => card.status === "running" || card.status === "pending") && <div className="owl-work-delegations">{activeScope.subagents.filter((card) => card.status === "running" || card.status === "pending").map((card) => <SubagentLiveLine key={card.id} card={card} onOpen={() => onOpenSubagent ? onOpenSubagent(card) : setProcessOpen(true)} />)}</div>}
 			<div id={panelId} className="owl-tool-group-body owl-work-process-body" data-open={open}>
-				{items.filter((item) => !item.thinking).map((item) => <div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.cards ? "tool" : "note"}>{item.content}</div>)}
+				{items.filter((item) => !item.thinking && (open || item.interactive)).map((item) => <div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.cards ? "tool" : "note"}>{item.content}</div>)}
 				{thinkingSegments.length > 0 && <div className="owl-work-process-item" data-work-kind="thinking" hidden={!open && view === "normal"}>{open || view !== "normal" ? <ThinkingRow thinking={thinkingSegments.map((segment) => segment.text).join("\n\n")} segments={thinkingSegments} searchTarget={searchTarget} /> : null}</div>}
 			</div>
 			{latestStatus && <div className="owl-work-latest-state" data-status={latestStatus.card.status}>
@@ -579,7 +532,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 				<StatusIcon status={latestStatus.card.status} errorKind={latestStatus.card.status === "error" ? errorKindOf(latestStatus.card.name, latestStatus.card.output?.text) : undefined} />
 				<span className="owl-work-latest-title"><InlineSummary text={workActionTitle(latestStatus.card)} /></span>
 				<span>{workActionStatus(latestStatus.card)}</span>
-				{reviewIssue && <button type="button" className="owl-work-inspect" data-work-reading="" onClick={() => inspectAction(reviewIssue)}>{copy("inspectTool")}</button>}
 			</div>}
 			{latestOutput && <section className="owl-work-latest-output" aria-label={copy("latestOutput")} data-output-status={latestOutput.card.status}>
 				<div className="owl-work-latest-toolbar"><span>{copy("latestOutput")}{latestOutput.key !== current?.key ? " · " + workActionTitle(latestOutput.card) : ""}</span>
@@ -592,7 +544,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 				<button type="button" data-work-reading="" onClick={collapseProcess}>{copy("collapse")}</button>
 			</div>}
 		</div>
-		</WorkRecordsContext.Provider>
 		</WorkToolFocusContext.Provider>
 	);
 }
@@ -1013,12 +964,12 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 	let workSeq = 0;
 	let workFinishedAt: number | undefined;
 	let workLastEntryIndex = -1;
-	type TurnProcess = { row: TimelineRow; scopes: WorkProcessScope[]; hasAnswer: boolean };
+	type TurnProcess = { row: TimelineRow; scopes: WorkProcessScope[]; hasAnswer: boolean; turn: number };
 	const processes: TurnProcess[] = [];
 	const workSegments: WorkProcessScope[] = [];
 	let turnProcess: TurnProcess | undefined;
 	let turnHasAnswer = false;
-	let turnStartIndex = 0;
+	let workBoundary = "start";
 	const recordWork = (entry: Extract<ChatEntry, { kind: "assistant" }>, index: number, tool?: ToolCard): void => {
 		workLastEntryIndex = index;
 		for (const time of [entry.endedAt, tool?.finishedAt]) {
@@ -1043,7 +994,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			cards,
 			owners: toolOwners,
 			entryIds,
-			content: <ToolGroupView label={toolRunLabel(cards.map((card) => card.name), cards.length)} cards={cards} owners={toolOwners} entryIds={entryIds} expanded={expandedTools} flat onOpenSubagent={onOpenSubagent} />,
+			content: <ToolRecords cards={cards} owners={toolOwners} entryIds={entryIds} expanded={expandedTools} onOpenSubagent={onOpenSubagent} />,
 		});
 	};
 	// Preserve emitted segment order. Only the latest segment owned by the active run is live.
@@ -1068,12 +1019,10 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		workFinishedAt = undefined;
 		workLastEntryIndex = -1;
 		if (!turnProcess) {
-			const row: TimelineRow = { key: "work-turn-" + turn, quiet: true, content: <></> };
-			turnProcess = { row, scopes: [], hasAnswer: turnHasAnswer };
+			const row: TimelineRow = { key: "work-turn-" + turn + "-" + workBoundary, quiet: true, content: <></> };
+			turnProcess = { row, scopes: [], hasAnswer: turnHasAnswer, turn };
 			processes.push(turnProcess);
-			const answerIndex = rows.findIndex((candidate, index) => index >= turnStartIndex && candidate.answer);
-			if (answerIndex >= 0) rows.splice(answerIndex, 0, row);
-			else rows.push(row);
+			rows.push(row);
 		}
 		turnProcess.scopes.push(scope);
 		workSegments.push(scope);
@@ -1092,6 +1041,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			}
 			if (entry.kind === "user" && entry.queued) {
 				flushWork();
+				turnProcess = undefined;
+				workBoundary = "queued-" + index;
 				rows.push({
 					key: "queued-" + index,
 					entryId: entry.entryId,
@@ -1121,6 +1072,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 				turn += 1;
 				turnProcess = undefined;
 				turnHasAnswer = false;
+				workBoundary = "start";
 				// 自动化任务的到点投递渲染成任务卡（可暂停），不是普通用户气泡。
 				const delivery = parseScheduleDelivery(entry.text);
 				rows.push({
@@ -1131,12 +1083,13 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 						? <ScheduleDeliveryCard info={delivery} client={client} onOpenAutomation={onOpenAutomation} />
 						: <UserRowView entry={entry} busy={busy} onRewind={onRewind} onEditMessage={onEditMessage} receipts={attachmentReceipts.get(index)} cwd={cwd} sessionId={sessionId} client={client} onOpenFile={onOpenFile} onLocateAttachment={onLocateAttachment} />,
 				});
-				turnStartIndex = rows.length;
 				return;
 			}
 		turnEntries.push(entry);
 		if (entry.kind === "toolResult") {
 			flushWork();
+			turnProcess = undefined;
+			workBoundary = "result-" + index;
 			rows.push({ key: "result-" + index, content: <OrphanResultRow entry={entry} /> });
 			return;
 		}
@@ -1170,8 +1123,10 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			if (card.name === "render_ui" && card.output?.genuiSpec !== undefined) {
 				// owl-genui：完成后留在结论下方（运行中还没有 spec，先走普通工具行）。
 				// 正在问的问题由输入框上的提问卡负责，工具记录留在折叠里，不另占一行。
-				flushWorkTools();
-				workRows.push({ key: "genui-" + index + ":" + card.id, interactive: true, content: <GenuiToolCardView card={card} /> });
+				flushWork();
+				turnProcess = undefined;
+				workBoundary = "interactive-" + index + ":" + card.id;
+				rows.push({ key: "genui-" + index + ":" + card.id, entryId: entry.entryId, content: <div data-work-kind="interactive" data-tool-id={card.id} data-tool-owner={index}><GenuiToolCardView card={card} /></div> });
 			} else {
 				workPendingTools.push(card);
 			}
@@ -1191,7 +1146,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			if (answerParts.length === 0) return;
 			const parts = answerParts.splice(0, answerParts.length);
 			turnHasAnswer = true;
-			if (turnProcess) turnProcess.hasAnswer = true;
+			for (const process of processes) if (process.turn === turn) process.hasAnswer = true;
 			rows.push({
 				key: "message-" + index,
 				entryId: entry.entryId,
@@ -1208,7 +1163,6 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			if (!segment.text.trim()) return;
 			if (segment.kind === "thinking") {
 				// 思考进折叠区：不再打断工具聚合，也不再占独立整行
-				flushWorkTools();
 				workSteps += 1;
 				recordWork(entry, index);
 				workRows.push({ key: "think-" + index + "-" + segmentIndex, entryId: entry.entryId, thinking: segment.text, content: <ThinkingRow thinking={segment.text} /> });
@@ -1217,13 +1171,13 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			const followedByTool = segment.phase !== "final_answer" && !segment.text.includes("```owl-ui") && segments.slice(segmentIndex + 1).some((later) => later.kind === "tool");
 			if (segment.phase === "commentary" || followedByTool || (!answerEntries.has(index) && !promotedFenceEntries.has(index))) {
 				// 公开进展按真实顺序留在工具组之间；thinking 走独立原文入口。
-				flushWorkTools();
-				workSteps += 1;
-				recordWork(entry, index);
-				workRows.push({
+				flushWork();
+				turnProcess = undefined;
+				workBoundary = "note-" + index + "-" + segmentIndex;
+				rows.push({
 					key: "note-" + index + "-" + segmentIndex,
 					entryId: entry.entryId,
-					content: answerCard(segmentIndex, segment.text),
+					content: <div className="owl-work-progress" data-work-kind="note">{answerCard(segmentIndex, segment.text)}</div>,
 				});
 				return;
 			}
@@ -1240,12 +1194,16 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		for (const card of entry.tools) if (!seenTools.has(card.id)) appendTool(card);
 		if (entry.error) {
 			flushWork(entry.endedAt);
+			turnProcess = undefined;
+			workBoundary = "error-" + index;
 			workStartedAt = undefined;
 			resumeWorkClock = true;
 			rows.push({ key: "error-" + index, entryId: entry.entryId, content: <div className="owl-chat-error" role="alert">{entry.error}</div> });
 		} else if (entry.aborted) {
 			// 用户暂停：只留一行置灰小字（provider 的中止报错不上屏），继续入口在输入框按钮上。
 			flushWork(entry.endedAt);
+			turnProcess = undefined;
+			workBoundary = "paused-" + index;
 			workStartedAt = undefined;
 			resumeWorkClock = true;
 			rows.push({ key: "paused-" + index, content: <div className="owl-chat-paused">{t("chat.pausedHint")}</div> });
@@ -1509,7 +1467,7 @@ export function ChatStream({
 	const t = useT();
 	const container = useRef<HTMLElement>(null);
 	const receiptScope = JSON.stringify([profile, sessionId, cwd]);
-	const workPresentation = useMemo<WorkPresentation>(() => ({ processes: new Map(), groups: new Map(), tools: new Map(), outputs: new Map(), thoughts: new Map() }), [receiptScope]);
+	const workPresentation = useMemo<WorkPresentation>(() => ({ processes: new Map(), tools: new Map(), outputs: new Map(), thoughts: new Map() }), [receiptScope]);
 	const executionPresentation = useMemo(() => ({ view: executionView, onInspectTool }), [executionView, onInspectTool]);
 	const receiptSequence = useRef(0);
 	const [requestedReceipt, setRequestedReceipt] = useState<{ scope: string; toolId: string; ownerIndex?: number; requestId: number }>();

@@ -135,7 +135,7 @@ describe("message search navigation", () => {
 		note.getBoundingClientRect = () => ({ top: 180 } as DOMRect);
 		await flushFrames();
 		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 164, behavior: "instant" });
-		expect(container.querySelector(".owl-work-process-summary")?.getAttribute("aria-expanded")).toBe("true");
+		expect(container.querySelector(".owl-work-process-summary")).toBeNull();
 		expect(container.querySelector('[data-search-match="true"]')?.dataset.entryId).toBe("note");
 	});
 

@@ -86,7 +86,7 @@ describe("chat work segment status", () => {
 		expect(footer?.lastElementChild).toBe(details);
 	});
 
-	it.each(["working", "waiting"] as const)("keeps one process while only its current segment owns the live timer during %s", (activity) => {
+	it.each(["working", "waiting"] as const)("splits at public progress while only the current segment owns the live timer during %s", (activity) => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "running")], {
@@ -95,9 +95,9 @@ describe("chat work segment status", () => {
 			}),
 		];
 		const { labels, live } = render(entries, activity);
-		expect(labels).toHaveLength(1);
+		expect(labels).toHaveLength(2);
 		expect(live).toHaveLength(1);
-		expect(live[0]).toBe("正在工作 29s");
+		expect(labels).toEqual(["工作了 5s", "正在工作 24s"]);
 	});
 
 	it("does not revive a sealed segment even when its tool has a stale running status", () => {
@@ -109,9 +109,9 @@ describe("chat work segment status", () => {
 			}),
 		];
 		expect(render(entries).live).toHaveLength(1);
-		expect(render(entries).labels).toEqual(["正在工作 29s"]);
+		expect(render(entries).labels).toEqual(["工作了 5s", "正在工作 24s"]);
 		vi.setSystemTime(45_000);
-		expect(render(entries).labels).toEqual(["正在工作 44s"]);
+		expect(render(entries).labels).toEqual(["工作了 5s", "正在工作 39s"]);
 	});
 
 	it("keeps a paused segment fixed and starts continuation timing after the pause", () => {
@@ -121,9 +121,9 @@ describe("chat work segment status", () => {
 			assistant([tool("resumed", "running")], { timestamp: 20_000 }),
 		];
 		const first = render(entries);
-		expect(first.labels).toEqual(["正在工作 16s"]);
+		expect(first.labels).toEqual(["工作了 6s", "正在工作 10s"]);
 		vi.setSystemTime(45_000);
-		expect(render(entries).labels).toEqual(["正在工作 31s"]);
+		expect(render(entries).labels).toEqual(["工作了 6s", "正在工作 25s"]);
 	});
 
 	it("does not manufacture a live row for an idle queued message", () => {
@@ -155,7 +155,7 @@ describe("chat work segment status", () => {
 		expect(render(entries, "idle").labels).toEqual(["工作了 9s"]);
 	});
 
-	it("adds sealed segment durations without changing their separate timing origins", () => {
+	it("keeps visible segments on their separate timing origins", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "ok", 9000)], {
@@ -163,7 +163,7 @@ describe("chat work segment status", () => {
 				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
 			}),
 		];
-		expect(render(entries, "idle").labels).toEqual(["工作了 8s"]);
+		expect(render(entries, "idle").labels).toEqual(["工作了 5s", "工作了 3s"]);
 	});
 
 	it("uses the real continuation run boundary even without a new user or an aborted message", () => {

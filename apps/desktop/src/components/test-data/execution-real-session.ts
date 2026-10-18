@@ -1,7 +1,7 @@
 /** Sanitized real session turn. No synthetic progress has been added. */
 export const REAL_REPLAY_SOURCE = {
 	"source": "2026-10-18T18-51-26-355Z_01a1505a-bd13-77cd-b57e-ec091f92abb2.jsonl",
-	"sourceSha256": "e0446e6615554e974234675d79ccaed0b2e0266003409fd8996f7cc64f30525c",
+	"sourceSha256": "cc2457af42b28f0a2663b0de2a5fd4348cfe71cb68c4e946753af2da77a59792",
 	"userEntryId": "84eeabd1",
 	"finalEntryId": "fdfce2f5",
 	"retainedThinking": false,
@@ -85,6 +85,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"stopReason": "toolUse",
 		"content": [
 			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
+			{
 				"type": "toolCall",
 				"id": "call_00_WdABMXJ6nQELSS8jD8Pi7285",
 				"name": "ls",
@@ -136,6 +140,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"persistedAt": 1792349507723,
 		"stopReason": "toolUse",
 		"content": [
+			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
 			{
 				"type": "toolCall",
 				"id": "call_00_aeJFG9Y1r9GG2yFxMy1y8615",
@@ -208,6 +216,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"stopReason": "toolUse",
 		"content": [
 			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
+			{
 				"type": "toolCall",
 				"id": "call_00_eKwBmAiK9Y9RVtdBTqyf3586",
 				"name": "read",
@@ -279,6 +291,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"stopReason": "toolUse",
 		"content": [
 			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
+			{
 				"type": "toolCall",
 				"id": "call_00_aYvam3MTptcRH5FE6ZNS6951",
 				"name": "bash",
@@ -330,6 +346,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"stopReason": "toolUse",
 		"content": [
 			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
+			{
 				"type": "toolCall",
 				"id": "call_00_fG2BqHFslnGlvh5IqNkY1320",
 				"name": "bash",
@@ -380,6 +400,10 @@ export const REAL_REPLAY_MESSAGES = [
 		"persistedAt": 1792349521056,
 		"stopReason": "stop",
 		"content": [
+			{
+				"type": "thinking",
+				"thinking": "[已移除原始 thinking 正文]"
+			},
 			{
 				"type": "text",
 				"text": "看完了，给你一份概览：\n\n**D:/owl** 是一个多项目工作区，主战场是 `owl-re-v1/owl-mono`——就是把上游 pi-mono（MIT）改造成桌面版编码 agent 的 **Owl**，当前版本 `v0.0.3`（tag 已到 v1.0.0）。\n\n**架构三件套**\n- 桥服务器：`packages/coding-agent/src/modes/desktop/`，WebSocket 协议 + 单端口托管 UI\n- 前端：`apps/desktop/src/`（React）\n- 壳：`apps/desktop/src-tauri/`（Tauri，Windows）\n\n**包结构**：4 个上游包（ai / agent / coding-agent / codemode）+ 20 个 owl-* 扩展包（compter-use、univer-office、life-guide、map、media-bridge、safety-net、genui……）+ 2 个 app（desktop、pool-server）。\n\n**⚠️ 值得注意的一点**：工作区现在有 **167 个未提交改动**，一堆新文件还没进 git（`app-keybindings.ts`、`ExecutionToolbar.tsx`、`ImageViewer.tsx`、`execution-view.test.tsx` 等），当前在 `main` 分支，最后一次提交是 10-18。CHANGELOG 里 10-19 那段「对话三视图 / 改动面板 / 后台任务」的改动看起来就是这批活儿。\n\n要我看某一块具体代码，还是帮你梳理这堆未提交改动、准备分批提交？"

@@ -102,24 +102,24 @@ function visibleText(scope: HTMLElement): string {
 	return clone.textContent ?? "";
 }
 
-describe("One process for each delivered user turn", () => {
-	it("keeps tools, retries, stops, queued follow-ups and final generation under one process without merging the next delivered turn", async () => {
+describe("One process between visible conversation boundaries", () => {
+	it("keeps silent tools together and separates pauses, queued follow-ups and the next delivered turn", async () => {
 		const queued: ChatEntry = { kind: "user", entryId: "queued-user", text: "排队跟进", queued: true, timestamp: 8000 };
 		const messages: ChatEntry[] = [...turn(
 			assistant("failed-entry", [tool("failed", "src/first.ts", "error", "第一次失败"), tool("retried", "src/first.ts", "ok", "同一操作重试成功")], { endedAt: 4000 }),
 			assistant("paused-entry", [tool("cancelled", "src/paused.ts", "cancelled")], { aborted: true, timestamp: 5000, endedAt: 7000 }),
 		), queued, assistant("continued-entry", [tool("resumed", "src/resumed.ts", "running")], { thinking: "继续处理的原始思考", timestamp: 20_000 })];
 		await render({ entries: messages, activity: "working" });
-		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(1);
-		expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(1);
+		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(2);
+		expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(2);
 		expect(visibleText(host)).toContain("排队跟进");
 		expect(host.querySelector(".owl-work-recent, .owl-work-issues")).toBeNull();
 		await render({ entries: [...messages, assistant("generating", [], { thinking: "整理最终结论", timestamp: 24_000 })], activity: "working" });
-		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(1);
-		await render({ entries: [...messages.slice(0, -1), assistant("continued-entry", [tool("resumed", "src/resumed.ts")], { endedAt: 24_000 }), assistant("answer", [], { text: "最终结论", timestamp: 25_000, endedAt: 26_000 })] });
-		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(1);
-		await render({ entries: [...props.entries, { kind: "user", entryId: "user-two", text: "已送达的第二轮", timestamp: 27_000 }, assistant("second-turn-work", [tool("other-turn", "src/second-turn.ts")], { endedAt: 28_000 })], activity: "idle" });
 		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(2);
+		await render({ entries: [...messages.slice(0, -1), assistant("continued-entry", [tool("resumed", "src/resumed.ts")], { endedAt: 24_000 }), assistant("answer", [], { text: "最终结论", timestamp: 25_000, endedAt: 26_000 })] });
+		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(2);
+		await render({ entries: [...props.entries, { kind: "user", entryId: "user-two", text: "已送达的第二轮", timestamp: 27_000 }, assistant("second-turn-work", [tool("other-turn", "src/second-turn.ts")], { endedAt: 28_000 })], activity: "idle" });
+		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(3);
 	});
 
 	it("keeps zero-tool original thinking accessible without a zero-action shell", async () => {
@@ -147,7 +147,7 @@ describe("One process for each delivered user turn", () => {
 		await render({ entries: turn(assistant("current", [tool("read-now", "src/missing.ts", "error", "EIO: read failed")], { endedAt: 5000 })) });
 		expect(visibleText(host)).toContain(text("issueCount", { n: 1 }));
 		await render({ entries: turn(assistant("current", [tool("edit-missing", "ghost.txt", "error", "Could not edit file: ghost.txt. Error code: ENOENT."), tool("blocked", "bash", "error", "BLOCKED by CC Safety Net\n\nReason: command analysis failed unexpectedly.")], { endedAt: 5000 })) });
-		expect(visibleText(host)).not.toContain("执行异常");
+		expect(visibleText(host)).toContain(text("issueCount", { n: 2 }));
 		expect(host.querySelector(".owl-work-issues")).toBeNull();
 	});
 
@@ -174,7 +174,7 @@ describe("One process for each delivered user turn", () => {
 });
 
 describe("Readable tool records without losing evidence", () => {
-	it("uses plain localized basenames for file actions while preserving the full real path as the only secondary chip", async () => {
+	it("uses a single basename action with the real path in its title and expandable input", async () => {
 		const path = "D:/project/一层/deep/中文 file.ts";
 		const calls = (["read", "write", "edit"] as const).map((name) => ({ ...tool(name, path), name, args: JSON.stringify({ path, content: "unchanged fixture" }), summary: `${name} \`${path}\`` }));
 		const onOpenFile = vi.fn();
@@ -186,13 +186,12 @@ describe("Readable tool records without losing evidence", () => {
 			const title = toggle.querySelector<HTMLElement>(".owl-work-action-title")!;
 			expect(title.textContent).toBe(["读取", "写入", "编辑"][index] + " 中文 file.ts");
 			expect(title.querySelector("code.owl-path-chip, a")).toBeNull();
-			const secondary = row.querySelector<HTMLElement>(".owl-work-action-detail")!;
-			expect(secondary.textContent).toBe(path);
-			expect(secondary.querySelector("code.owl-path-chip")?.textContent).toBe(path);
+			expect(row.querySelector(".owl-work-action-detail")).toBeNull();
+			expect(toggle.getAttribute("title")).toBe(path);
 			await click(title);
 			expect(onOpenFile).toHaveBeenCalledTimes(index);
 			expect(row.querySelector('[data-work-record="command"] pre')?.textContent).toBe(path);
-			await click(secondary.querySelector<HTMLElement>("code.owl-path-chip")!);
+			await click(row.querySelector<HTMLElement>('.owl-tool-detail code.owl-path-chip')!);
 			expect(onOpenFile).toHaveBeenLastCalledWith("一层/deep/中文 file.ts");
 		}
 		expect(onOpenFile).toHaveBeenCalledTimes(3);
@@ -337,14 +336,13 @@ describe("Readable tool records without losing evidence", () => {
 			assistant("mixed", [tool("before", "src/before.ts"), card, tool("after", "src/after.ts")], { text: "中间公开说明", segments: [{ kind: "tool", toolId: "before" }, { kind: "text", text: "中间公开说明" }, { kind: "tool", toolId: "interactive" }, { kind: "tool", toolId: "after" }] }),
 			assistant("final", [], { text: "最终答复", timestamp: 5000, endedAt: 6000 }),
 		) });
-		const process = host.querySelector<HTMLElement>(".owl-work-process")!;
 		const widget = host.querySelector<HTMLElement>('[data-test-work-card="interactive"]')!;
 		expect(widget.closest('[data-work-kind="interactive"]')).not.toBeNull();
 		expect(widget.closest("[hidden]")).toBeNull();
 		await click(widget.querySelector("button")!);
 		expect(widget.textContent).toContain("卡片操作 1");
-		await click(summary());
-		expect([...process.querySelectorAll<HTMLElement>('[data-tool-id="before"], [data-work-kind="note"] .owl-answer-reading, [data-test-work-card], [data-tool-id="after"]')].map((node) => node.dataset.toolId ?? node.dataset.testWorkCard ?? "note")).toEqual(["before", "note", "interactive", "after"]);
+		for (const toggle of host.querySelectorAll<HTMLButtonElement>(".owl-work-process-summary")) await click(toggle);
+		expect([...host.querySelectorAll<HTMLElement>('[data-tool-id="before"], [data-work-kind="note"] .owl-answer-reading, [data-test-work-card], [data-tool-id="after"]')].map((node) => node.dataset.toolId ?? node.dataset.testWorkCard ?? "note")).toEqual(["before", "note", "interactive", "after"]);
 		await click(summary());
 		expect(host.querySelector('[data-test-work-card="interactive"]')).toBe(widget);
 		expect(widget.closest("[hidden]")).toBeNull();

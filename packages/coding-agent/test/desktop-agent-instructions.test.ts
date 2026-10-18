@@ -81,6 +81,11 @@ describe("desktop agent instructions", () => {
 	it("keeps the final-answer ordering discipline in the defaults", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("先完成全部工具调用（含执行异常补报）再作答");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("owl-ui 界面围栏这类交付物尤其要写在最终回答里");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain(
+			"这只约束最终答复，不禁止在执行工具前或执行中发送简短的公开进展说明",
+		);
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("进展说明之后继续执行已授权的工具操作");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("用户在正文里看不到");
 	});
 
 	it("discovers updated project append instructions on reload without duplicating defaults", async () => {

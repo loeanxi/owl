@@ -115,7 +115,7 @@ test("localized labels interpolate counts without claiming task success", () => 
 	const described = action("shell", "running", "{}", "powershell");
 	assert.equal(workActionTitle(described.card), described.card.summary);
 	assert.equal(workActionTitle({ ...described.card, summary: "" }), "Run command");
-	assert.equal(workProcessText("issueCount", { n: 2 }), "Execution issues: 2");
+	assert.equal(workProcessText("issueCount", { n: 2 }), "Failed records: 2");
 	assert.equal(workProcessText("finished"), "Execution ended");
 	setUiLanguage("zh");
 	assert.equal(workProcessText("recoveredCount", { n: 1 }), "1 项操作重试成功");

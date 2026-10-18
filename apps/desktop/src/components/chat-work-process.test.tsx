@@ -103,7 +103,7 @@ describe("working through a turn in the real conversation", () => {
 		expect(visibleText()).not.toContain("原始思考内容不应默认铺开");
 		await click(processToggle());
 		expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(5);
-		expect(host.querySelector(".owl-work-process-body")?.textContent).toContain("src/earliest.ts");
+		expect(host.querySelector('[data-tool-id="old"] .owl-tool-summary')?.getAttribute("title")).toBe("src/earliest.ts");
 		expect(host.querySelector(".owl-thinking pre")?.textContent).toBe("原始思考内容不应默认铺开");
 	});
 
@@ -118,13 +118,13 @@ describe("working through a turn in the real conversation", () => {
 		expect(processToggle(process).getAttribute("aria-expanded")).toBe("true");
 		expect(process.querySelectorAll(".owl-tool-row")).toHaveLength(2);
 		expect(process.querySelector(".owl-tool-group-summary")).toBeNull();
-		expect(process.textContent).toContain("src/first.ts");
-		expect(process.textContent).toContain("src/second.ts");
+		expect(process.querySelector('[data-tool-id="first"] .owl-tool-summary')?.getAttribute("title")).toBe("src/first.ts");
+		expect(process.querySelector('[data-tool-id="second"] .owl-tool-summary')?.getAttribute("title")).toBe("src/second.ts");
 		expect(process.textContent).not.toContain("第一项的完整输出");
 		await click(process.querySelector<HTMLButtonElement>('[data-tool-id="first"] .owl-tool-summary')!);
 		expect(process.textContent).toContain("第一项的完整输出");
 		expect(process.querySelector('[data-tool-id="second"] .owl-tool-output')).toBeNull();
-		expect(process.querySelector(".owl-work-latest-output")?.textContent).toContain("第二项的完整输出");
+		expect(process.querySelector(".owl-work-latest-output")).toBeNull();
 		expect(process.querySelector('[data-tool-id="second"] .owl-tool-summary')?.getAttribute("aria-expanded")).toBe("false");
 	});
 
@@ -146,12 +146,12 @@ describe("working through a turn in the real conversation", () => {
 			readTool("unrelated", "src/other.ts", "ok", "另一个文件读取成功"),
 		])), activity: "idle" });
 		const issue = host.querySelector(".owl-work-issue-link")!;
-		expect(issue.textContent).toContain("1 条执行异常");
+		expect(issue.textContent).toContain("1 条失败记录");
 		expect(host.querySelector(".owl-work-recovered")).toBeNull();
 		await click(issue as HTMLButtonElement);
 		expect(host.querySelector(".owl-work-process-body")).not.toBeNull();
 		expect(host.querySelector(".owl-tool-output")?.textContent).toBe("找不到被请求的文件");
-		expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条执行异常");
+		expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条失败记录");
 		expect(host.querySelector(".owl-work-issues")).toBeNull();
 	});
 
@@ -195,7 +195,7 @@ describe("working through a turn in the real conversation", () => {
 		];
 		await render({ entries: turn(assistant("work-entry", [first, second], { text: "继续检查", segments })) });
 		const processes = [...host.querySelectorAll(".owl-work-process")];
-		expect(processes).toHaveLength(1);
+		expect(processes).toHaveLength(2);
 		const tail = processes.at(-1)!;
 		await click(processToggle(tail));
 		await click(tail.querySelector<HTMLButtonElement>('[data-tool-id="second"] .owl-tool-summary')!);
@@ -204,7 +204,7 @@ describe("working through a turn in the real conversation", () => {
 			assistant("work-entry", [first, { ...second, status: "ok", finishedAt: 4000 }], { text: "继续检查", segments, endedAt: 4000 }),
 			assistant("answer-entry", [], { text: "最终检查结果已生成。", timestamp: 5000, endedAt: 6000 }),
 		), activity: "idle" });
-		const openProcess = host.querySelector(".owl-work-process-body");
+		const openProcess = [...host.querySelectorAll(".owl-work-process-body")].find((body) => body.querySelector('[data-tool-id="second"]'));
 		expect(openProcess, "the process containing the action being read stays expanded").not.toBeNull();
 		const secondButton = openProcess!.querySelector<HTMLButtonElement>('[data-tool-id="second"] .owl-tool-summary')!;
 		expect(secondButton.getAttribute("aria-expanded")).toBe("true");
@@ -246,15 +246,15 @@ describe("working through a turn in the real conversation", () => {
 		expect(host.querySelector('[data-entry-id="final-entry"][data-owl-answer="true"]')?.textContent).toContain("需要补报异常日志");
 	});
 
-	it("keeps intermediate notes folded when the final answer carries the owl-ui fence", async () => {
+	it("keeps intermediate public notes visible when the final answer carries the owl-ui fence", async () => {
 		const fence = "```owl-ui\n{\"items\":[]}\n```";
 		await render({ entries: turn(
 			assistant("note-entry", [readTool("probe", "src/b.ts")], { text: "中间说明附看板草稿。\n\n" + fence }),
 			assistant("final-entry", [], { text: "最终回答：\n\n" + fence }),
 		), activity: "idle" });
-		// 最终答案已带围栏，中间说明不提升：无答案行标记，照常留在折叠区
+		// 最终答案已带围栏，中间说明不提升为最终答案，但仍作为公开正文显示。
 		expect(host.querySelector('[data-entry-id="note-entry"][data-owl-answer="true"]')).toBeNull();
-		await click(processToggle());
-		expect(host.querySelector(".owl-work-process-body")?.textContent).toContain("中间说明附看板草稿");
+		expect(visibleText()).toContain("中间说明附看板草稿");
+		expect(host.querySelector('[data-work-kind="note"]')?.closest(".owl-work-process")).toBeNull();
 	});
 });
