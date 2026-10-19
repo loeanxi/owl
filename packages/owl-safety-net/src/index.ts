@@ -13,7 +13,7 @@
 // fails closed on pathological expansions.
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@owl/owl-coding-agent";
 import { he as auditDenial, N as guardEvaluate } from "../vendor/chunks/index-96rww7g0.js";
-import type { Denial, SafetyNetAnalysis, SafetyNetEvaluation } from "../vendor/chunks/index-gj6afr0n.js";
+import type { Denial, SafetyNetAnalysis, SafetyNetEvaluation, ShellProgram } from "../vendor/chunks/index-gj6afr0n.js";
 import {
 	d as analyzeToolCall,
 	be as denialToReason,
@@ -23,6 +23,7 @@ import {
 	xe as isAuditAllowed,
 	L as isFlagEnabled,
 	c as loadConfig,
+	h as parseProgram,
 	et as resolveConfigCwd,
 	p as SafetyNetError,
 	q as toolCallKind,
@@ -110,6 +111,41 @@ function evaluateEvent(event: ToolCallEvent, ctx: ExtensionContext): ToolCallEve
 const GIT_STASH = /\bgit\b(?:\s+(?:-C|-c)\s+\S+|\s+--[^\s;&|]+)*\s+stash\b(?:\s+([^\s;&|)]+))?/g;
 const READ_ONLY_STASH_SUBCOMMANDS = new Set(["list", "show"]);
 
+function hasStashWrite(program: ShellProgram): boolean {
+	for (const [index, node] of program.nodes.entries()) {
+		if (node.body && hasStashWrite(node.body)) return true;
+		if (node.nested?.some(hasStashWrite)) return true;
+		if (node.kind !== "command") continue;
+		const words = node.words?.map((word) => word.text) ?? [];
+		const name = (words[0] ?? "")
+			.split(/[\\/]/)
+			.pop()
+			?.replace(/\.exe$/i, "")
+			.toLowerCase();
+		// These commands treat literal arguments as data. Substitutions above still execute,
+		// and a pipe may send the text to a shell/evaluator, so keep that case conservative.
+		if (
+			/^(?:echo|printf|write-output|write-host|grep|egrep|fgrep|rg)$/.test(name ?? "") &&
+			program.nodes[index + 1]?.operator !== "|"
+		)
+			continue;
+		if (name === "git") {
+			let cursor = 1;
+			while (words[cursor]?.startsWith("-")) {
+				const option = words[cursor++]!;
+				if (/^(?:-C|-c|--git-dir|--work-tree|--namespace|--config-env)$/.test(option)) cursor++;
+			}
+			if (words[cursor] === "stash" && !READ_ONLY_STASH_SUBCOMMANDS.has(words[cursor + 1] ?? "")) return true;
+			continue;
+		}
+		// Preserve the previous conservative handling of shell -c/eval/script wrappers.
+		for (const match of (node.source ?? "").matchAll(GIT_STASH)) {
+			if (!READ_ONLY_STASH_SUBCOMMANDS.has(match[1] ?? "")) return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Owl rule, not in the vendored engine: `git stash` (push/-u/pop/apply/drop...)
  * rewrites the shared working tree. Agents used it to get a "clean baseline"
@@ -121,8 +157,14 @@ function workingTreeStashBlock(event: ToolCallEvent): ToolCallEventResult | unde
 	if (!SHELL_PROFILES.has(event.toolName)) return undefined;
 	const command = (event.input as { command?: unknown } | undefined)?.command;
 	if (typeof command !== "string") return undefined;
-	for (const match of command.matchAll(GIT_STASH)) {
-		if (READ_ONLY_STASH_SUBCOMMANDS.has(match[1] ?? "")) continue;
+	const program = parseProgram(command, SHELL_PROFILES.get(event.toolName)!);
+	// Incomplete syntax still reaches the engine's fail-closed analysis. Do not discard
+	// the old conservative check while the parser cannot distinguish commands from data.
+	const stashWrite =
+		program.status === "complete"
+			? hasStashWrite(program)
+			: [...command.matchAll(GIT_STASH)].some((match) => !READ_ONLY_STASH_SUBCOMMANDS.has(match[1] ?? ""));
+	if (stashWrite) {
 		return {
 			block: true,
 			reason: `BLOCKED by Owl Safety Net\n\nReason: \`git stash\` takes every uncommitted change out of this working tree, which other sessions or the user may be editing right now; a failed pop loses work.\n\nCommand: ${command}\n\nTo tell new test failures from old ones, compare against the repository's known-failures list (see AGENTS.md). To inspect the committed file, run \`git diff -- <path>\` or \`git show HEAD:<path>\` and read this tool's output. Do not redirect that output onto the working tree file, and do not checkout or restore the file. If the user explicitly wants a stash, ask them to run it themselves.`,

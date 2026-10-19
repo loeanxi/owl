@@ -39,6 +39,22 @@ export interface SafetyNetEvaluation {
 	[key: string]: unknown;
 }
 
+/** Shell parser fields used by Owl's local shared-working-tree rule. */
+export interface ShellProgram {
+	status: string;
+	nodes: Array<{
+		kind: string;
+		operator?: string;
+		source?: string;
+		words?: Array<{ text: string; provenance: string }>;
+		nested?: ShellProgram[];
+		body?: ShellProgram;
+	}>;
+}
+
+/** `h` — parse a shell command without executing it. */
+export declare function h(source: string, dialect: string): ShellProgram;
+
 /** Thrown by the guard when analysis itself failed; carries the best-effort verdict. */
 export declare class p extends Error {
 	stage: string;
