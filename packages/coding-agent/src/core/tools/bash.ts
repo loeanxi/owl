@@ -68,7 +68,7 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 }
 
 const GREP_NO_MATCH_STATUS =
-	'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches"; append `|| true` to the command if a no-match should not surface as a failed command.';
+	'Command exited with code 1 (grep: no lines matched — an empty result, not an execution error). Treat it as "no matches".';
 const DIFF_STATUS =
 	"Command exited with code 1 (diff/cmp: the inputs differ — that is the comparison result shown above, not an execution error).";
 const SIGPIPE_STATUS =
@@ -92,22 +92,25 @@ function commandName(stage: string): string {
 	return words[i] ?? "";
 }
 
-/** 失败时不输出任何内容的命令；空输出不能说明它们成功了。 */
-const SILENT_FAILURE_COMMAND = /^(?:test|\[|\[\[|false|grep|egrep|fgrep|rg|diff|cmp|exit|return)$/;
+/** Only known setup commands whose failures produce diagnostics can precede an empty query. */
+const DIAGNOSTIC_SETUP_COMMAND = /^(?:ls|mkdir|jar)$/;
 
 /** 只透传或截断输入、自身几乎不会以 1 失败的下游过滤器。 */
 const PASSTHROUGH_STAGE = /^(?:head|tail|sort|uniq|wc|cut|tr|cat|nl|column|tee)$/;
 
 /**
  * pipefail 下管道退出码取最右边的非零阶段。grep/rg（1 = 没匹配）或 diff/cmp（1 = 有差异）
- * 之后只剩透传过滤器时，1 就是它的答案；更前面的生产者沿用旧规则不细究。
+ * 之后只剩透传过滤器、之前只有 echo/printf 时，才能归因为查询答案。
+ * 未知生产者（如 npm test）也能以 1 失败，不能凭后面的 grep 将整条管道降级。
  */
 function pipelineAnswerKind(pipeline: string): "grep" | "diff" | undefined {
 	const stages = pipeline.split("|");
 	for (let i = stages.length - 1; i >= 0; i--) {
 		const name = commandName(stages[i]!);
-		if (/^(?:grep|egrep|fgrep|rg)$/.test(name)) return "grep";
-		if (/^(?:diff|cmp)$/.test(name)) return "diff";
+		const kind = /^(?:grep|egrep|fgrep|rg)$/.test(name) ? "grep" : /^(?:diff|cmp)$/.test(name) ? "diff" : undefined;
+		if (kind) {
+			return stages.slice(0, i).every((stage) => /^(?:echo|printf)$/.test(commandName(stage))) ? kind : undefined;
+		}
 		if (!PASSTHROUGH_STAGE.test(name)) return undefined;
 	}
 	return undefined;
@@ -131,11 +134,12 @@ function pipelineStopsEarly(pipeline: string): boolean {
  * 退出码只来自 `;`/换行分隔的最后一条语句（`a && b; c` 是 `(a && b); c`）；
  * 以 `done` 收尾的循环取循环体最后一条。命令替换、后台 `&` 无法静态判断，不纳入。
  */
-function statusStatement(command: string): string | undefined {
+function statusStatement(command: string, keepRedirections = false): string | undefined {
 	if (/`|\$\(/.test(command.replace(/'[^']*'/g, "''"))) return undefined;
-	const cleaned = withoutRedirections(withoutQuotedText(command.trim()));
+	const quoted = withoutQuotedText(command.trim());
+	const cleaned = withoutRedirections(quoted);
 	if (/&/.test(cleaned.replace(/&&|\|\|/g, " "))) return undefined;
-	const statements = cleaned
+	const statements = (keepRedirections ? quoted : cleaned)
 		.split(/\n|;/)
 		.map((statement) => statement.trim())
 		.filter(Boolean);
@@ -146,7 +150,7 @@ function statusStatement(command: string): string | undefined {
 /**
  * 答案型非零退出：grep/rg 没匹配、diff/cmp 有差异、管道下游提前收工导致的 141。
  * `&&` / `||` 可能短路，最后一条语句里的每一段都要说得通；`cd <dir>` 段在输出里
- * 没有 cd 报错时视为成功；输出为空时，失败会报错的准备段（`jar xf`、`mkdir`）也视为成功。
+ * 没有 cd 报错时视为成功；输出为空时，仅识别已知会打印失败诊断的准备段。
  * `echo boom; exit 1` 这类复合失败仍是错误。
  */
 function benignExitStatus(command: string, exitCode: number, output: string): string | undefined {
@@ -169,7 +173,7 @@ function benignExitStatus(command: string, exitCode: number, output: string): st
 		}
 		const name = commandName(piece);
 		if (name === "cd" && cdSucceeded) continue;
-		if (silent && !piece.includes("|") && !SILENT_FAILURE_COMMAND.test(name)) continue;
+		if (silent && !piece.includes("|") && DIAGNOSTIC_SETUP_COMMAND.test(name)) continue;
 		return undefined;
 	}
 	if (!kind) return undefined;
@@ -237,27 +241,44 @@ function gitNotRepositoryStatus(command: string, exitCode: number, output: strin
 }
 
 /**
- * 探测型命令的非零退出是「答案」而不是故障，不标成错误：命令里出现 `2>/dev/null`
- * 说明作者已预期可能不命中并主动压掉 stderr（如探测目录是否存在）；`ls`/`find` 等
+ * 探测型命令的非零退出是「答案」而不是故障，不标成错误：已知只读命令使用 `2>/dev/null`
+ * 时可作为路径探测；重定向本身不能把测试、构建或脚本的失败变为答案。`ls`/`find` 等
  * 只读查找带 `2>&1` 时，路径不存在（退出码 2）同样是答案。test/[、command -v、
  * which、type 的退出码本身就是判断结果（1 = 未找到/条件为假）。
  * 只认 1/2——127 起的命令缺失、137/139 的被杀崩溃仍是真失败。没加重定向的
  * `ls no-such-dir` 仍是错误。只按形态分类；`|| true` 收尾的命令退出码本来就是 0。
  */
-function isProbeExit(command: string, exitCode: number): boolean {
+function isProbeExit(command: string, exitCode: number, output: string): boolean {
 	if (exitCode !== 1 && exitCode !== 2) return false;
-	const silenced = command.split(/\n|&&|\|\||;|\||&/).some((segment) => {
-		const s = segment.trim();
-		if (!s) return false;
-		if (/2>\s*\/dev\/null/.test(s)) return true;
-		return exitCode === 1 && /^(?:command\s+-v|which|type|test|\[\[|\[)(?:\s|$)/.test(s);
-	});
-	if (silenced) return true;
-	return command.split(/\n|&&|\|\||;/).some((part) => {
-		const s = part.trim();
-		if (!/2>&1/.test(s)) return false;
-		return /(?:^|\|\s*)(?:ls|find|stat|cat|head|tail|file)\b/.test(s);
-	});
+	const statement = statusStatement(command, true);
+	if (!statement) return false;
+	const pieces = statement.split(/&&|\|\|/).map((piece) => piece.trim());
+	let hasProbe = false;
+	for (const piece of pieces) {
+		const stages = piece.split("|").map((stage) => stage.trim());
+		const first = stages[0] ?? "";
+		const name = commandName(withoutRedirections(first));
+		const predicate = exitCode === 1 && /^(?:command\s+-v|which|type|test|\[\[|\[)(?:\s|$)/.test(first);
+		const pathProbe = /^(?:ls|find|stat|cat|head|tail|file)$/.test(name) && /2>\s*(?:\/dev\/null|&1)/.test(first);
+		if (predicate || pathProbe) {
+			if (!stages.slice(1).every((stage) => PASSTHROUGH_STAGE.test(commandName(stage)))) return false;
+			hasProbe = true;
+			continue;
+		}
+		if (stages.length === 1 && /^(?:echo|printf|pwd)$/.test(name)) continue;
+		if (stages.length === 1 && name === "cd" && !/(?:^|\s)cd: /m.test(output)) continue;
+		return false;
+	}
+	return hasProbe;
+}
+
+/** Shared with background process polling; only call for Bash with retained command output. */
+export function knownBashQueryExitStatus(command: string, exitCode: number, output: string): string | undefined {
+	return (
+		benignExitStatus(command, exitCode, output) ??
+		gitNotRepositoryStatus(command, exitCode, output) ??
+		(isProbeExit(command, exitCode, output) ? `Command exited with code ${exitCode}` : undefined)
+	);
 }
 
 const bashSchema = Type.Object({
@@ -288,7 +309,7 @@ export const bashToolSystemPromptContribution = {
 		"Each bash call starts a new shell in the session working directory; a `cd` does not carry over to the next call. Use paths relative to the working directory or absolute paths, and prefix `cd <dir> &&` only when the command must run inside that directory (e.g. a package's npm or test scripts).",
 		"Verify with the narrowest check that covers your change: run the test files for the code you touched, not a whole package or the full suite, unless the user asks for it. Do not rerun an identical command expecting a different result; change something first.",
 		"For Python projects, prefer the declared project interpreter or a verified .venv interpreter. Check optional module availability with that interpreter and importlib.util.find_spec, for example `python -c \"import importlib.util; print('pytest available' if importlib.util.find_spec('pytest') is not None else 'pytest missing')\"`; a missing optional module should print missing and exit 0. Do not run an unconfirmed module with `python -m pytest --version` merely to check availability. Report missing dependencies and handle them only as authorized by the user; do not automatically install global dependencies or suppress actual execution failures.",
-		"grep/rg exit with code 1 when no lines match (code 2 on real errors). grep -c prints 0 and still exits 1. A ';' chain whose last command is grep/rg and exits 1 is an empty result, not a failure. diff/cmp exit 1 when the inputs differ, and `cmd | head` can end with 141 (SIGPIPE) once head has enough lines; both are answers. ls/find of a missing path with 2>&1, and read-only git commands that report 'not a git repository', are answers too — read the output instead of retrying the same command.",
+		"A standalone grep/rg exits with code 1 when no lines match (code 2 on real errors); grep -c prints 0 and still exits 1. In a pipeline such as `npm test | grep FAIL | head`, code 1 may come from the test runner: keep that failure and inspect its output, never suppress it with `|| true`. diff/cmp exit 1 when inputs differ, and `cmd | head` can end with 141 (SIGPIPE) once head has enough lines. Known read-only path probes and git queries that report 'not a git repository' may return answers with nonzero status; read the output instead of retrying the same command.",
 		"For change review, read a path-scoped `git diff` (add `--cached` for the index) directly, and use Git's `--stat`/`--name-only` for summaries. Do not strip diff headers with broad `+` or `-` filters: added or deleted content can begin with those same characters.",
 		"For Node scripts with async resources, await resource cleanup and set process.exitCode for a natural exit; forcing process.exit() can interrupt cleanup or output.",
 		"When invoking PowerShell through Bash on Windows, code containing variables, quoted literals, pipelines, or control flow must be written to a workspace .ps1 file and run with powershell -File <path>. Do not embed such code in nested powershell -Command strings; keep literals in the file and pass data as separate arguments.",
@@ -456,6 +477,7 @@ export function createLocalShellOperations(shellName: string, resolveShellConfig
 			return registerSessionProcess({
 				child,
 				sessionId,
+				shellName,
 				command,
 				cwd,
 				acceptsStdin: !commandFromStdin,
@@ -799,18 +821,17 @@ export function createShellToolDefinition(
 						/^(?:[^\r\n]*:[ \t]*command not found(?:[ \t]*:[^\r\n]*)?|(?:[^\r\n]*[\\/])?(?:ba|da|z|k)?sh(?:\.exe)?:[^\r\n]*:[ \t]*not found)[ \t]*\r?$/im.test(
 							fullOutput.content,
 						);
-					const answerStatus = benignExitStatus(command, exitCode, fullOutput.content);
-					const gitStatus = gitNotRepositoryStatus(command, exitCode, outputText);
+					const answerStatus = knownBashQueryExitStatus(command, exitCode, fullOutput.content);
 					const status = commandNotFound
 						? "Command exited with code 127 (the shell reported a missing command). Check the command named in the diagnostic with `command -v <cmd>` and use an available alternative."
-						: (answerStatus ?? gitStatus ?? `Command exited with code ${exitCode}`);
+						: (answerStatus ?? `Command exited with code ${exitCode}`);
 					// 探测类非零退出（grep 无匹配、diff 有差异、head 截断的 SIGPIPE、路径不存在、
 					// 不是 git 仓库等）对模型仍附带状态行，但不再标记为错误：它们是答案，UI 不应计成失败。
 					return {
 						content: [{ type: "text", text: appendStatus(outputText, status) }],
 						details,
 						structuredContent,
-						isError: !(answerStatus !== undefined || gitStatus !== undefined || isProbeExit(command, exitCode)),
+						isError: answerStatus === undefined,
 					};
 				}
 				return { content: [{ type: "text", text: outputText }], details, structuredContent };

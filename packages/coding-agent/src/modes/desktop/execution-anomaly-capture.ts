@@ -31,12 +31,13 @@ const RETRYABLE_EDIT = /^🔄 RETRYABLE —/;
  * must not trigger an execution_anomaly_report reminder.
  */
 const MODEL_MISS =
-	/^Tool \S+ not found\b|^ENOENT:|Error code: ENOENT\b|No such file or directory|Path not found|can't read |^Validation failed for tool |^Refusing to overwrite |^Structured single-child execution cannot be combined with workflow\b|^Failed to read workflow script\b|was not executed: the response hit the output token limit|本轮工具调用已达上限|已经确认不存在|没有再次执行|已经要求停止调用工具/;
+	/^Tool \S+ not found\b|^ENOENT:|Error code: ENOENT\b|No such file or directory|Path not found|can't read |^Validation failed for tool |^Refusing to overwrite |^Structured single-child execution cannot be combined with workflow\b|^Failed to read workflow script\b|was not executed: the response hit the output token limit|本轮工具调用已达上限|本轮工具调用预算为|工具调用连续 3 次被输出上限截断|已经确认不存在|没有再次执行|已经要求停止调用工具/;
 /** grep / git queries often exit 1 or 2 after printing a result. That is not a defect. */
 const QUERY_EXIT = /Command exited with code [12]\b/;
 
 /** Cancellation and recoverable computer-control waits must not become execution anomalies. */
-export function isRecordedExecutionAnomaly(toolName: string, text: string): boolean {
+export function isRecordedExecutionAnomaly(toolName: string, text: string, details?: unknown): boolean {
+	if (object(details)?.toolExecutionBlocked === true) return false;
 	const trimmed = text.trim();
 	if (
 		ABORT_TEXT.test(trimmed) ||
@@ -85,8 +86,9 @@ function captureTool(
 	toolName: string,
 	text: string,
 	timestamp?: number,
+	details?: unknown,
 ): void {
-	if (toolName === REPORT_TOOL || !isRecordedExecutionAnomaly(toolName, text)) return;
+	if (toolName === REPORT_TOOL || !isRecordedExecutionAnomaly(toolName, text, details)) return;
 	store.record({
 		...metadata,
 		toolCallId,
@@ -109,7 +111,13 @@ function captureNested(
 	if (!Array.isArray(calls)) return;
 	for (const value of calls) {
 		const call = object(value);
-		if (call?.status !== "error" || typeof call.id !== "string" || typeof call.name !== "string") continue;
+		if (
+			call?.status !== "error" ||
+			call.blocked === true ||
+			typeof call.id !== "string" ||
+			typeof call.name !== "string"
+		)
+			continue;
 		captureTool(store, metadata, call.id, call.name, typeof call.error === "string" ? call.error : "", timestamp);
 	}
 }
@@ -123,7 +131,15 @@ export function captureExecutionAnomalyMessages(
 	for (const message of messages) {
 		if (message.role === "toolResult") {
 			if (message.isError)
-				captureTool(store, metadata, message.toolCallId, message.toolName, toolText(message), message.timestamp);
+				captureTool(
+					store,
+					metadata,
+					message.toolCallId,
+					message.toolName,
+					toolText(message),
+					message.timestamp,
+					message.details,
+				);
 			captureNested(store, metadata, message.nestedCalls, message.timestamp);
 		} else if (
 			message.role === "assistant" &&
@@ -154,7 +170,16 @@ export function captureExecutionAnomalyEvent(
 		captureExecutionAnomalyMessages(store, metadata, [event.message]);
 	} else if (event.type === "tool_execution_end") {
 		const result: unknown = event.result;
-		if (event.isError) captureTool(store, metadata, event.toolCallId, event.toolName, toolText(result));
+		if (event.isError)
+			captureTool(
+				store,
+				metadata,
+				event.toolCallId,
+				event.toolName,
+				toolText(result),
+				undefined,
+				object(result)?.details,
+			);
 		captureNested(store, metadata, object(result)?.nestedCalls);
 	}
 }

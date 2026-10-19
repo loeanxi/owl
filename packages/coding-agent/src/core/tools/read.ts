@@ -32,6 +32,8 @@ export type ReadToolInput = Static<typeof readSchema>;
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
 	directory?: boolean;
+	/** The actual file read when a missing path was corrected; the notice is display-only. */
+	pathCorrection?: { requestedPath: string; resolvedPath: string };
 }
 
 /**
@@ -148,7 +150,13 @@ export function createReadToolDefinition(
 								signal?.removeEventListener("abort", onAbort);
 								resolve({
 									content: [{ type: "text", text }],
-									details: { directory: true, truncation: listing },
+									details: {
+										directory: true,
+										truncation: listing,
+										...(correctedFrom
+											? { pathCorrection: { requestedPath: correctedFrom, resolvedPath: absolutePath } }
+											: {}),
+									},
 								});
 								return;
 							}
@@ -207,7 +215,10 @@ export function createReadToolDefinition(
 								if (truncation.firstLineExceedsLimit) {
 									// First line alone exceeds the byte limit. Point the model at a bash fallback.
 									const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+									const bashPath =
+										process.platform === "win32" ? absolutePath.replaceAll("\\", "/") : absolutePath;
+									const quotedPath = `'${bashPath.replaceAll("'", "'\\''")}'`;
+									outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' -- ${quotedPath} | head -c ${DEFAULT_MAX_BYTES}]`;
 									details = { truncation };
 								} else if (truncation.truncated) {
 									// Truncation occurred. Build an actionable continuation notice.
@@ -233,6 +244,10 @@ export function createReadToolDefinition(
 							}
 
 							if (correctedFrom) {
+								details = {
+									...details,
+									pathCorrection: { requestedPath: correctedFrom, resolvedPath: absolutePath },
+								};
 								const note = pathCorrectionNote(correctedFrom, absolutePath);
 								const first = content[0];
 								if (first?.type === "text") content[0] = { type: "text", text: `${note}\n${first.text}` };

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -346,6 +346,43 @@ describe("skills", () => {
 			const result = formatSkillsForPrompt(skills);
 			expect(result).toBe("");
 		});
+
+		it("exposes escaped locations only for visible metadata skills in the compact catalog", () => {
+			const result = formatSkillsForPrompt(
+				[
+					createTestSkill({
+						name: "report",
+						description: 'Report <usage> & "sources".',
+						filePath: "D:/用户 & 项目/data/skills/report's/SKILL.md",
+						baseDir: "D:/用户 & 项目/data/skills/report's",
+						requiresMetadataTracking: true,
+					}),
+					createTestSkill({
+						name: "ordinary",
+						description: "Read this description after discovery.",
+						filePath: "D:/data/owl/skills/ordinary/SKILL.md",
+						baseDir: "D:/data/owl/skills/ordinary",
+					}),
+					createTestSkill({
+						name: "hidden-report",
+						description: "Hidden metadata instructions.",
+						filePath: "D:/private/hidden-report/SKILL.md",
+						baseDir: "D:/private/hidden-report",
+						requiresMetadataTracking: true,
+						disableModelInvocation: true,
+					}),
+				],
+				"skill_search",
+			);
+
+			expect(result).toContain("<location>D:/用户 &amp; 项目/data/skills/report&apos;s/SKILL.md</location>");
+			expect(result).toContain("Report &lt;usage&gt; &amp; &quot;sources&quot;.");
+			expect(result).toContain("\n- ordinary\n");
+			expect(result).not.toContain("Read this description after discovery.");
+			expect(result).not.toContain("D:/data/owl/skills/ordinary");
+			expect(result).not.toContain("hidden-report");
+			expect(result.match(/<location>/g)).toHaveLength(1);
+		});
 	});
 
 	describe("loadSkills with options", () => {
@@ -377,6 +414,36 @@ describe("skills", () => {
 			expect(skills).toHaveLength(1);
 			expect(skills[0].sourceInfo.scope).toBe("temporary");
 			expect(diagnostics).toHaveLength(0);
+		});
+
+		it("keeps the discovered sibling directory for mandatory metadata skill reads", () => {
+			const reportDir = join(emptyRoot, "skills", "usagereport");
+			const ordinaryDir = join(emptyAgentDir, "skills", "ordinary");
+			mkdirSync(reportDir, { recursive: true });
+			mkdirSync(ordinaryDir, { recursive: true });
+			const reportFile = join(reportDir, "SKILL.md");
+			writeFileSync(
+				reportFile,
+				"---\nname: usagereport\ndescription: Report skill use.\nrequires-metadata-tracking: true\n---\nRead from the global sibling directory.\n",
+			);
+			writeFileSync(
+				join(ordinaryDir, "SKILL.md"),
+				"---\nname: ordinary\ndescription: Ordinary skill.\n---\nRead through skill_search.\n",
+			);
+			const { skills, diagnostics } = loadSkills({
+				agentDir: emptyAgentDir,
+				cwd: emptyCwd,
+				skillPaths: [],
+				includeDefaults: true,
+			});
+			const result = formatSkillsForPrompt(skills, "skill_search");
+			const location = /<meta_skills>[\s\S]*?<location>([^<]+)<\/location>[\s\S]*?<\/meta_skills>/.exec(result)?.[1];
+
+			expect(diagnostics).toEqual([]);
+			expect(location).toBe(reportFile);
+			expect(readFileSync(location!, "utf8")).toContain("Read from the global sibling directory.");
+			expect(result).not.toContain(join(emptyAgentDir, "skills", "usagereport"));
+			expect(result).not.toContain(join(ordinaryDir, "SKILL.md"));
 		});
 
 		it("should warn when skill path does not exist", () => {

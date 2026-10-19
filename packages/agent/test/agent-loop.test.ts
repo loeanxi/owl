@@ -2359,7 +2359,7 @@ describe("tool call batch guard", () => {
 		expect(events.some((event) => event.type === "agent_end")).toBe(true);
 	});
 
-	it("does not execute a tool call that repeats arguments which already failed", async () => {
+	it("allows a bounded retry of a failed tool call before requiring a changed approach", async () => {
 		const executed: string[] = [];
 		const failing = echoTool(executed);
 		failing.execute = async (_id, params) => {
@@ -2394,7 +2394,7 @@ describe("tool call batch guard", () => {
 			},
 		);
 		for await (const event of stream) void event;
-		expect(executed).toEqual(["same"]);
+		expect(executed).toEqual(["same", "same"]);
 		expect(llmCalls).toBe(3);
 	});
 

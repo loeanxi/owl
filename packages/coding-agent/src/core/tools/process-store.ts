@@ -84,6 +84,8 @@ export interface ProcessEntry {
 	id: number;
 	/** 拥有该进程的 agent 会话；dispose 时按此清理。 */
 	sessionId: string;
+	/** Set by local shell operations; unknown/custom backends do not imply Bash semantics. */
+	shellName?: string;
 	command: string;
 	cwd: string;
 	child: ChildProcess;
@@ -114,6 +116,7 @@ let nextProcessId = 1;
 export interface RegisterProcessOptions {
 	child: ChildProcess;
 	sessionId: string;
+	shellName?: string;
 	command: string;
 	cwd: string;
 	acceptsStdin: boolean;
@@ -134,6 +137,7 @@ export function registerSessionProcess(options: RegisterProcessOptions): Process
 	const entry: ProcessEntry = {
 		id: nextProcessId++,
 		sessionId: options.sessionId,
+		shellName: options.shellName,
 		command: options.command,
 		cwd: options.cwd,
 		child,
@@ -257,22 +261,43 @@ export function killSessionProcess(entry: ProcessEntry): void {
 	if (entry.child.pid) killProcessTree(entry.child.pid);
 }
 
-/** 等待进程退出或在 yield 时限到点返回；退出时顺带等一拍让 exit 回调先落账。 */
-export async function waitSessionProcess(entry: ProcessEntry, yieldMs: number): Promise<"running" | "exited"> {
+/** Wait for exit or the yield deadline; cancellation only stops this wait, never the child. */
+export async function waitSessionProcess(
+	entry: ProcessEntry,
+	yieldMs: number,
+	signal?: AbortSignal,
+): Promise<"running" | "exited"> {
+	if (signal?.aborted) throw new Error("Operation aborted");
 	entry.lastUsedAt = Date.now();
 	if (entry.exitCode !== undefined) return "exited";
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		await Promise.race([
-			entry.exitPromise.then(() => "exited" as const),
-			new Promise<"running">((resolve) => {
-				timer = setTimeout(() => resolve("running"), yieldMs);
-			}),
-		]);
-	} finally {
-		if (timer) clearTimeout(timer);
-	}
-	return entry.exitCode !== undefined ? "exited" : "running";
+	return new Promise((resolve, reject) => {
+		let timer: NodeJS.Timeout | undefined;
+		const cleanup = () => {
+			if (timer) clearTimeout(timer);
+			entry.child.removeListener("exit", onExit);
+			entry.child.removeListener("error", onExit);
+			signal?.removeEventListener("abort", onAbort);
+		};
+		const finish = () => {
+			cleanup();
+			resolve(entry.exitCode !== undefined ? "exited" : "running");
+		};
+		const onExit = () => {
+			// The store's earlier listener records terminal state before notifying waiters.
+			// Errors on a live process do not mean it exited.
+			if (entry.exitCode !== undefined) finish();
+		};
+		const onAbort = () => {
+			cleanup();
+			reject(new Error("Operation aborted"));
+		};
+		entry.child.on("exit", onExit);
+		entry.child.on("error", onExit);
+		signal?.addEventListener("abort", onAbort, { once: true });
+		timer = setTimeout(finish, yieldMs);
+		if (signal?.aborted) onAbort();
+		else if (entry.exitCode !== undefined) finish();
+	});
 }
 
 function pruneProcessesIfNeeded(): void {

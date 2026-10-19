@@ -173,13 +173,26 @@ async function runLoop(
 	let lastCompletedTurn: PrepareNextTurnContext | undefined;
 	let explicitContinuation = false;
 	let toolExecutions = 0;
+	let truncatedToolResponses = 0;
 	const failedUnknownTools = new Set<string>();
-	const failedCallKeys = new Set<string>();
+	const failedCallKeys = new Map<string, number>();
 	let finalAnswerOnly = false;
 	let stopRequest: AgentMessage | undefined;
-	const maxToolExecutions = initialConfig.maxToolExecutions ?? DEFAULT_MAX_TOOL_EXECUTIONS;
+	const requestedToolLimit = initialConfig.maxToolExecutions;
+	const maxToolExecutions =
+		typeof requestedToolLimit === "number" && Number.isSafeInteger(requestedToolLimit) && requestedToolLimit > 0
+			? requestedToolLimit
+			: DEFAULT_MAX_TOOL_EXECUTIONS;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
+	const resetToolGuards = (): void => {
+		finalAnswerOnly = false;
+		stopRequest = undefined;
+		toolExecutions = 0;
+		truncatedToolResponses = 0;
+		failedUnknownTools.clear();
+		failedCallKeys.clear();
+	};
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
@@ -209,6 +222,7 @@ async function runLoop(
 				// otherwise one-at-a-time mode would deliver two messages in this turn.
 				if (pendingMessages.length === 0) {
 					pendingMessages = (await config.getSteeringMessages?.()) || [];
+					if (pendingMessages.length > 0) resetToolGuards();
 				}
 				await emit({ type: "turn_start" });
 			}
@@ -263,15 +277,20 @@ async function runLoop(
 
 			// Check for tool calls
 			const toolCalls = message.content.filter((c) => c.type === "toolCall");
+			truncatedToolResponses =
+				message.stopReason === "length" && toolCalls.length > 0 ? truncatedToolResponses + 1 : 0;
 
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
 			if (toolCalls.length > 0) {
+				// Discovery may have made a previously missing tool available since the last request.
+				for (const tool of currentContext.tools ?? []) failedUnknownTools.delete(tool.name);
 				const closing = finalAnswerOnly;
 				const refusal = explainToolRefusal(toolCalls, {
 					finalAnswerOnly,
 					toolExecutions,
 					maxToolExecutions,
+					truncatedToolResponses,
 					failedUnknownTools,
 					failedCallKeys,
 				});
@@ -286,8 +305,12 @@ async function runLoop(
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !refusal && !executedToolBatch.terminate;
 				if (!refusal) {
-					toolExecutions += toolResults.length;
-					rememberToolFailures(message, toolResults, failedUnknownTools, failedCallKeys);
+					// A truncated response never executed: do not blacklist the complete retry
+					// that its error message explicitly asks the model to send.
+					if (message.stopReason !== "length") {
+						toolExecutions += toolResults.length;
+						rememberToolFailures(message, toolResults, failedUnknownTools, failedCallKeys);
+					}
 				} else if (!closing) {
 					finalAnswerOnly = true;
 					stopRequest = {
@@ -317,15 +340,11 @@ async function runLoop(
 				return;
 			}
 
-			explicitContinuation = decision?.action === "continue";
+			explicitContinuation = !finalAnswerOnly && decision?.action === "continue";
 			pendingMessages = (await config.getSteeringMessages?.()) || [];
 			if (pendingMessages.length > 0) {
 				// A real user steer starts a fresh budget. Drop the synthetic stop.
-				finalAnswerOnly = false;
-				stopRequest = undefined;
-				toolExecutions = 0;
-				failedUnknownTools.clear();
-				failedCallKeys.clear();
+				resetToolGuards();
 			} else if (stopRequest) {
 				pendingMessages = [stopRequest];
 				stopRequest = undefined;
@@ -341,11 +360,7 @@ async function runLoop(
 		if (followUpMessages.length > 0) {
 			// Set as pending so inner loop processes them. A new user message gets its own tool budget.
 			explicitContinuation = false;
-			finalAnswerOnly = false;
-			stopRequest = undefined;
-			toolExecutions = 0;
-			failedUnknownTools.clear();
-			failedCallKeys.clear();
+			resetToolGuards();
 			pendingMessages = followUpMessages;
 			continue;
 		}
@@ -514,10 +529,10 @@ async function streamAssistantResponse(
 }
 
 /**
- * Tool executions one user message may run before the loop stops and asks for a
- * final answer. The system prompt tells the model to stop around this number.
+ * Successful work has no implicit lifetime cap. Callers can opt into a positive
+ * maxToolExecutions budget; repeated failures and per-message flood guards remain active.
  */
-export const DEFAULT_MAX_TOOL_EXECUTIONS = 32;
+export const DEFAULT_MAX_TOOL_EXECUTIONS = Number.POSITIVE_INFINITY;
 
 type ToolRefusal = {
 	toolMessage: string;
@@ -530,8 +545,9 @@ function explainToolRefusal(
 		finalAnswerOnly: boolean;
 		toolExecutions: number;
 		maxToolExecutions: number;
+		truncatedToolResponses: number;
 		failedUnknownTools: ReadonlySet<string>;
-		failedCallKeys: ReadonlySet<string>;
+		failedCallKeys: ReadonlyMap<string, number>;
 	},
 ): ToolRefusal | undefined {
 	if (toolCalls.length === 0) return undefined;
@@ -541,10 +557,17 @@ function explainToolRefusal(
 			userMessage: "",
 		};
 	}
-	if (state.toolExecutions >= state.maxToolExecutions) {
+	if (state.toolExecutions + toolCalls.length > state.maxToolExecutions) {
 		return {
-			toolMessage: `本轮工具调用已达上限 ${state.maxToolExecutions} 次，这些调用没有执行。`,
-			userMessage: `工具调用已达到本轮上限 ${state.maxToolExecutions} 次。不要再调用任何工具。用用户的语言用几句话说明：已经确认的事实、还没做成的部分、一个下一步。`,
+			toolMessage: `本轮工具调用预算为 ${state.maxToolExecutions} 次，已使用 ${state.toolExecutions} 次；剩余额度不足以执行本批 ${toolCalls.length} 次调用，这些调用没有执行。`,
+			userMessage: `剩余工具调用预算不足以执行本批操作（本轮上限 ${state.maxToolExecutions} 次，已使用 ${state.toolExecutions} 次）。不要再调用任何工具。用用户的语言用几句话说明：已经确认的事实、还没做成的部分、一个下一步。`,
+		};
+	}
+	if (state.truncatedToolResponses >= 3) {
+		return {
+			toolMessage: "工具调用连续 3 次被输出上限截断，未执行任何不完整调用；本轮已停止工具执行。",
+			userMessage:
+				"工具参数连续被输出上限截断。不要再调用工具，也不要声称完成；说明已完成的部分和阻塞，建议缩小单次工具参数或调整输出预算后继续。",
 		};
 	}
 	if (toolCalls.some((call) => state.failedUnknownTools.has(call.name))) {
@@ -557,9 +580,18 @@ function explainToolRefusal(
 				"你又调用了本轮已经确认不存在的工具。不要再调用任何工具，也不要再猜工具名。用用户的语言说明卡在哪里，以及用现有工具能做的下一步。",
 		};
 	}
-	if (toolCalls.some((call) => state.failedCallKeys.has(toolCallKey(call.name, call.arguments)))) {
+	const retries = new Map<string, number>();
+	if (
+		toolCalls.some((call) => {
+			const key = toolCallKey(call.name, call.arguments);
+			const failed = state.failedCallKeys.get(key) ?? 0;
+			const requested = (retries.get(key) ?? 0) + 1;
+			retries.set(key, requested);
+			return failed > 0 && failed + requested > 3;
+		})
+	) {
 		return {
-			toolMessage: "与本轮已经失败的调用参数相同，没有再次执行。",
+			toolMessage: "同一调用已达到失败重试上限，或本批重复调用将超出 3 次尝试，没有再次执行。",
 			userMessage:
 				"你在重复一组已经失败的工具参数。不要再调用任何工具。用用户的语言说明这次失败的原因，以及需要用户决定的下一步。",
 		};
@@ -593,17 +625,31 @@ function rememberToolFailures(
 	assistant: AssistantMessage,
 	results: ToolResultMessage[],
 	unknownTools: Set<string>,
-	failedKeys: Set<string>,
+	failedKeys: Map<string, number>,
 ): void {
 	const calls = new Map(
 		assistant.content.filter((block) => block.type === "toolCall").map((block) => [block.id, block]),
 	);
+	// A successful file repair starts a fresh verification window. Reads and polls
+	// must not clear unrelated failed attempts. Record this batch's failures below
+	// so parallel repairs cannot hide a simultaneous failure.
+	if (results.some((result) => !result.isError && ["edit", "write", "apply_patch"].includes(result.toolName)))
+		failedKeys.clear();
 	for (const result of results) {
-		if (!result.isError) continue;
-		const unknownName = /^Tool ([^\s.]+) not found\b/.exec(toolResultText(result))?.[1];
-		if (unknownName) unknownTools.add(unknownName);
 		const call = calls.get(result.toolCallId);
-		if (call?.type === "toolCall") failedKeys.add(toolCallKey(call.name, call.arguments));
+		if (!call) continue;
+		const key = toolCallKey(call.name, call.arguments);
+		if (!result.isError) {
+			failedKeys.delete(key);
+			continue;
+		}
+		const unknownName = /^Tool ([^\s.]+) not found\b/.exec(toolResultText(result))?.[1];
+		if (unknownName) {
+			unknownTools.add(unknownName);
+			continue;
+		}
+		failedKeys.set(key, (failedKeys.get(key) ?? 0) + 1);
+		if (failedKeys.size > 100) failedKeys.delete(failedKeys.keys().next().value!);
 	}
 }
 
@@ -963,6 +1009,7 @@ async function prepareToolCall(
 			}
 			if (beforeResult?.block) {
 				const result = createErrorToolResult(beforeResult.reason || "Tool execution was blocked");
+				result.details = { toolExecutionBlocked: true };
 				if (beforeResult.terminate === true) {
 					result.terminate = true;
 				}

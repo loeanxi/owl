@@ -30,15 +30,17 @@ export function createSkillSearchExtension(): ExtensionFactory {
 			name: "skill_search",
 			label: "Find a skill",
 			description:
-				"Find installed skills by task or exact name. Returns matching descriptions and SKILL.md paths to read before specialized work. Empty query browses with offset/limit. A skill describes a workflow; it does not prove tools or dependencies are available.",
+				"Find installed skills by task or exact name. Returns matching descriptions and SKILL.md paths to read before specialized work. Omit query or use an empty string to browse with offset/limit (default 5 results, at most 8). A skill describes a workflow; it does not prove tools or dependencies are available.",
 			promptSnippet: "Find relevant skill instructions and their file paths",
 			exposure: "model-only",
 			parameters: Type.Object({
-				query: Type.String({ description: "Task, skill name, or empty string to browse" }),
+				query: Type.Optional(
+					Type.String({ description: "Task or skill name; omit or use an empty string to browse" }),
+				),
 				offset: Type.Optional(Type.Integer({ minimum: 0 })),
 				limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
 			}),
-			async execute(_toolCallId, { query, offset = 0, limit = 5 }, _signal, _onUpdate, ctx) {
+			async execute(_toolCallId, { query = "", offset = 0, limit = 5 }, _signal, _onUpdate, ctx) {
 				const catalog = catalogs.get(ctx.sessionManager.getSessionId())?.skills ?? [];
 				const matches = searchSkills(catalog, query, offset, limit);
 				return {

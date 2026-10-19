@@ -380,8 +380,11 @@ export function formatSkillsForPrompt(
 			lines.push(
 				"",
 				"<meta_skills>",
-				"These skills MUST be invoked whenever you read or follow any other skill's SKILL.md. Read their SKILL.md once per session and obey their reporting rules. They are also marked with `requires-metadata-tracking` in the catalog below:",
-				...metaSkills.map((s) => `- ${escapeXml(s.name)}: ${escapeXml(s.description)}`),
+				"These skills MUST be invoked whenever you read or follow any other skill's SKILL.md. Read each listed location once per session and obey its reporting rules:",
+				...metaSkills.map(
+					(s) =>
+						`- ${escapeXml(s.name)}: ${escapeXml(s.description)}\n  <location>${escapeXml(s.filePath)}</location>`,
+				),
 				"</meta_skills>",
 			);
 		}

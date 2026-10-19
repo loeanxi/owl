@@ -159,7 +159,7 @@ import {
 	toolExposureOf,
 } from "./tool-exposure.ts";
 import type { BashOperations } from "./tools/bash.ts";
-import { readPathKey, readResultEvidence } from "./tools/edit-read-gate.ts";
+import { readPathKey, readResultEvidence, readResultPath } from "./tools/edit-read-gate.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { terminateSessionProcesses } from "./tools/process-store.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
@@ -777,9 +777,17 @@ export class AgentSession {
 		if (!isError && toolCall.name === "read" && !parentToolCallId) {
 			const path = (args as Record<string, unknown>).path;
 			if (typeof path === "string") {
-				const evidence = readResultEvidence(result.content ?? [], (args as Record<string, unknown>).offset);
+				const evidence = readResultEvidence(
+					result.content ?? [],
+					(args as Record<string, unknown>).offset,
+					result.details,
+				);
 				if (!evidence.text.startsWith("[Directory listing:")) {
-					this._pendingFileReads.set(toolCall.id, { path, text: evidence.text, fullFile: evidence.fullFile });
+					this._pendingFileReads.set(toolCall.id, {
+						path: readResultPath(path, result.details),
+						text: evidence.text,
+						fullFile: evidence.fullFile,
+					});
 				}
 			}
 		}

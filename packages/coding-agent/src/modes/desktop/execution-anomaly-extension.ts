@@ -114,7 +114,7 @@ export function createExecutionAnomalyExtension(options: ExecutionAnomalyExtensi
 					.filter((part) => part.type === "text" && !part.text.startsWith(EXECUTION_ANOMALY_ALERT))
 					.map((part) => (part.type === "text" ? part.text : ""))
 					.join("\n");
-				if (!isRecordedExecutionAnomaly(event.toolName, text)) return;
+				if (!isRecordedExecutionAnomaly(event.toolName, text, event.details)) return;
 				let record: ExecutionAnomalyRecord;
 				try {
 					record = options.store.record({

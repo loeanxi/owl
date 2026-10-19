@@ -84,14 +84,21 @@ export class TaskLoopGuard {
 			if (count === 3) this.stop = { reason: "repeated-error", toolName: event.toolName, count };
 			return count === 3;
 		}
+		if (event.toolName === "edit" || event.toolName === "write" || event.toolName === "apply_patch") {
+			this.reset();
+			return false;
+		}
+		// A successful retry clears only its own error. Unrelated reads and discovery
+		// cannot repair the cause, or erase a stop raised earlier in the same batch.
+		this.failures.delete(fingerprint([event.toolName, event.input]));
 		if (event.toolName !== "tool_search") {
-			if (event.toolName !== "task_check") this.reset();
+			if (event.toolName !== "task_check") this.discoveries.clear();
 			return false;
 		}
 		const result = discoveryResult(event);
 		if (!result || !Array.isArray(result.loaded)) return false;
 		if (result.loaded.length > 0) {
-			this.reset();
+			this.discoveries.clear();
 			return false;
 		}
 		if (!Array.isArray(result.steps) || result.steps.length === 0) return false;

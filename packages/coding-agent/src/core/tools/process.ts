@@ -8,6 +8,7 @@ import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Static } from "typebox";
 import { Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { knownBashQueryExitStatus } from "./bash.ts";
 import {
 	getSessionProcess,
 	killSessionProcess,
@@ -81,7 +82,8 @@ export function createProcessToolDefinition(): ToolDefinition<typeof processSche
 		parameters: processSchema,
 		outputSchema: processOutputSchema,
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
-		async execute(_toolCallId, params, _signal, _update, ctx?: ExtensionContext): Promise<ProcessToolResult> {
+		async execute(_toolCallId, params, signal, _update, ctx?: ExtensionContext): Promise<ProcessToolResult> {
+			if (signal?.aborted) throw new Error("Operation aborted");
 			const ownerId = ctx?.sessionManager?.getSessionId();
 			const yieldMs = clampNumber(params.yield_time_ms, DEFAULT_POLL_YIELD_MS, MIN_YIELD_MS, MAX_YIELD_MS);
 			const maxOutputTokens = clampNumber(params.max_output_tokens, DEFAULT_MAX_OUTPUT_TOKENS, 256, 100_000);
@@ -104,7 +106,7 @@ export function createProcessToolDefinition(): ToolDefinition<typeof processSche
 
 			if (params.action === "kill") {
 				killSessionProcess(entry);
-				await waitSessionProcess(entry, 3_000);
+				await waitSessionProcess(entry, 3_000, signal);
 				const output = takePending(entry);
 				return textResult(formatBody(entry, output, maxOutputTokens, "Kill signal sent."), entry);
 			}
@@ -120,13 +122,13 @@ export function createProcessToolDefinition(): ToolDefinition<typeof processSche
 						`Session ${entry.id} does not accept stdin input (it already exited, or its command was delivered via stdin and cannot read more input). Use action=poll to wait for output or action=kill to terminate it.`,
 					);
 				}
-				await waitSessionProcess(entry, Math.min(yieldMs, 10_000));
+				await waitSessionProcess(entry, Math.min(yieldMs, 10_000), signal);
 				const output = takePending(entry);
 				return textResult(formatBody(entry, output, maxOutputTokens), entry);
 			}
 
 			// poll
-			await waitSessionProcess(entry, yieldMs);
+			await waitSessionProcess(entry, yieldMs, signal);
 			const output = takePending(entry);
 			return textResult(formatBody(entry, output, maxOutputTokens), entry);
 		},
@@ -168,6 +170,15 @@ function formatBody(entry: ProcessEntry, output: string, maxOutputTokens: number
 }
 
 function textResult(text: string, entry: ProcessEntry): ProcessToolResult {
+	const failedExit = entry.exitCode !== undefined && entry.exitCode !== 0 && !entry.killed;
+	const retainedOutput = entry.recent.snapshot();
+	const queryStatus =
+		failedExit &&
+		entry.shellName === "bash" &&
+		typeof entry.exitCode === "number" &&
+		retainedOutput.omittedBytes === 0
+			? knownBashQueryExitStatus(entry.command, entry.exitCode, retainedOutput.content)
+			: undefined;
 	const structured = {
 		session_id: entry.id,
 		status: (entry.exitCode === undefined ? "running" : "exited") as "running" | "exited",
@@ -175,10 +186,10 @@ function textResult(text: string, entry: ProcessEntry): ProcessToolResult {
 		truncated: false,
 	};
 	return {
-		content: [{ type: "text", text }],
+		content: [{ type: "text", text: queryStatus ? `${text}\n\n${queryStatus}` : text }],
 		details: { session: sessionDetails(entry) },
 		structuredContent: structured,
-		...(entry.spawnError ? { isError: true } : {}),
+		isError: Boolean(entry.spawnError) || (failedExit && queryStatus === undefined),
 	};
 }
 

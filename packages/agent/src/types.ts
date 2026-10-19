@@ -264,9 +264,10 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	finishTurn?: FinishTurn;
 
 	/**
-	 * How many tool calls one user turn may execute before the loop stops and
-	 * asks for a final answer. Repeated unknown tool names and identical failed
-	 * arguments stop the loop earlier. Defaults to 32.
+	 * Optional positive integer cap on tool calls per user request. Omitted, zero,
+	 * or invalid values mean no total cap. A batch that would exceed the explicit
+	 * budget is refused in full. Repeated unavailable tools and three failures of
+	 * the same call without a successful file repair still stop the loop.
 	 */
 	maxToolExecutions?: number;
 

@@ -5,7 +5,7 @@ import { splitBom } from "../../utils/text.ts";
 import type { PendingNestedToolCalls } from "../nested-tool-calls.ts";
 import type { ReadonlySessionManager } from "../session-manager.ts";
 import { applyEditsToNormalizedContent, normalizeToLF } from "./edit-diff.ts";
-import { resolveReadPath } from "./path-utils.ts";
+import { pathCorrectionNote, resolveReadPath } from "./path-utils.ts";
 import { formatSize, truncateHead } from "./truncate.ts";
 
 /**
@@ -108,7 +108,9 @@ function usableReads(
 			if (whole) return [{ text: current, fullFile: true }];
 			return read.index >= turnStart ? [{ text: read.text, fullFile: false }] : [];
 		}
-		if (read.index >= turnStart || (current !== undefined && readMatchesContent(read, current))) {
+		// Another session can change a file within this same user turn. Whenever the
+		// writer has current bytes, verify them instead of treating recent reads as fresh.
+		if (current !== undefined ? readMatchesContent(read, current) : read.index >= turnStart) {
 			return [{ text: read.text, fullFile: read.fullFile, startLine: read.startLine }];
 		}
 		return [];
@@ -297,7 +299,10 @@ function collectReads(
 			if (snapshot) reads.push({ ...snapshot, index });
 			continue;
 		}
-		if (!call || readPathKey(call.path, cwd) !== wanted) continue;
+		if (!call) continue;
+		const actualPath =
+			call.name === "read" && message.toolName === "read" ? readResultPath(call.path, message.details) : call.path;
+		if (readPathKey(actualPath, cwd) !== wanted) continue;
 		if (call.name === "edit" && call.edits) {
 			const rebased = reads.flatMap((read) => rebaseRead(read, call.edits!) ?? []);
 			reads.length = 0;
@@ -315,7 +320,7 @@ function collectReads(
 			continue;
 		}
 		if (call.name !== "read" || message.toolName !== "read" || !Array.isArray(message.content)) continue;
-		const evidence = readResultEvidence(message.content, call.offset);
+		const evidence = readResultEvidence(message.content, call.offset, message.details);
 		if (!evidence.text.startsWith("[Directory listing:")) {
 			reads.push({ ...evidence, index, startLine: Math.max(1, call.offset ?? 1) });
 		}
@@ -339,8 +344,32 @@ function gateSnapshotEvidence(call: ToolCallPath, message: AgentMessage): Placed
 	return { ...readResultEvidence([{ type: "text", text: snapshot }], undefined), startLine: 1 };
 }
 
-export function readResultEvidence(content: readonly { type: string; text?: string }[], offset: unknown): TurnRead {
-	const text = textOf(content);
+function readPathCorrection(details: unknown): { requestedPath: string; resolvedPath: string } | undefined {
+	if (!details || typeof details !== "object" || !("pathCorrection" in details)) return undefined;
+	const value = details.pathCorrection;
+	if (!value || typeof value !== "object" || !("requestedPath" in value) || !("resolvedPath" in value))
+		return undefined;
+	return typeof value.requestedPath === "string" && typeof value.resolvedPath === "string"
+		? { requestedPath: value.requestedPath, resolvedPath: value.resolvedPath }
+		: undefined;
+}
+
+/** Only tool-produced metadata can change the read identity; file contents cannot redirect evidence. */
+export function readResultPath(requestedPath: string, details: unknown): string {
+	return readPathCorrection(details)?.resolvedPath ?? requestedPath;
+}
+
+export function readResultEvidence(
+	content: readonly { type: string; text?: string }[],
+	offset: unknown,
+	details?: unknown,
+): TurnRead {
+	let text = textOf(content);
+	const correction = readPathCorrection(details);
+	if (correction) {
+		const prefix = `${pathCorrectionNote(correction.requestedPath, correction.resolvedPath)}\n`;
+		if (text.startsWith(prefix)) text = text.slice(prefix.length);
+	}
 	const hasImage = content.some((block) => block.type === "image");
 	return {
 		text,

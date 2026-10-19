@@ -583,6 +583,8 @@ export interface NestedToolCallRecord {
 	durationMs?: number;
 	/** Error text, truncated. */
 	error?: string;
+	/** The host rejected execution before the target ran. The recorded status remains error. */
+	blocked?: boolean;
 	/** Completion order of file accesses within the parent call, used to expire earlier reads. */
 	completionOrder?: number;
 	/** Bounded evidence of a successful text read. Session metadata only; not sent to the model. */

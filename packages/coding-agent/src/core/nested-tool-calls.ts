@@ -16,7 +16,7 @@ import type {
 	AgentToolUpdateCallback,
 } from "@earendil-works/pi-agent-core";
 import type { JsonObject, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "@earendil-works/pi-ai";
-import { readPathKey, readResultEvidence } from "./tools/edit-read-gate.ts";
+import { readPathKey, readResultEvidence, readResultPath } from "./tools/edit-read-gate.ts";
 import { combineUsage } from "./usage-totals.ts";
 
 /**
@@ -112,14 +112,14 @@ export class NestedCallRecorder {
 			return;
 		}
 		if (this.invalidatedReads.has(record)) return;
-		const evidence = readResultEvidence(result.content ?? [], toolCall.arguments.offset);
+		const evidence = readResultEvidence(result.content ?? [], toolCall.arguments.offset, result.details);
 		if (
 			evidence.text.length > NESTED_CALL_LIMITS.maxReadCharsPerCall ||
 			this.readChars + evidence.text.length > NESTED_CALL_LIMITS.maxReadCharsTotal
 		) {
 			return;
 		}
-		record.readResult = { path, ...evidence };
+		record.readResult = { path: readResultPath(path, result.details), ...evidence };
 		this.readChars += evidence.text.length;
 	}
 
@@ -293,6 +293,16 @@ export class NestedToolCallRunner {
 		}
 
 		scope.recorder.finish(record, outcome.isError, textOf(outcome.result));
+		const details = outcome.result.details;
+		if (
+			record &&
+			outcome.isError &&
+			details &&
+			typeof details === "object" &&
+			"toolExecutionBlocked" in details &&
+			details.toolExecutionBlocked === true
+		)
+			record.blocked = true;
 		scope.recorder.recordFileAccess(record, outcome);
 		// Nested results are not persisted, so their usage is only counted through the recorder.
 		if (outcome.result.usage) scope.recorder.addUsage(outcome.result.usage);

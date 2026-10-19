@@ -393,7 +393,10 @@ describe("write tool read gate", () => {
 		const file = join(dir, "a.txt");
 		await writeFile(file, "old text");
 		const tool = createWriteToolDefinition(dir);
-		const ctx = { cwd: dir, sessionManager: session(readMessages(file)) } as ExtensionToolContext;
+		const ctx = {
+			cwd: dir,
+			sessionManager: session(readMessages(file, { text: "old text" })),
+		} as ExtensionToolContext;
 
 		await tool.execute("write-1", { path: "a.txt", content: "rewritten" }, undefined, undefined, ctx);
 
