@@ -647,7 +647,7 @@ export function Composer({
 	const nativeDropAt = useRef(0);
 	const slashMenuRef = useRef<HTMLDivElement>(null);
 	const mentionMenuRef = useRef<HTMLDivElement>(null);
-	// 斜杠命令菜单：整段输入还是单个 "/命令" token（没敲出空格）时弹出；
+	// 斜杠命令菜单：输入末尾的 "/命令" token（行首或空白之后）触发；
 	// Esc 关闭后要等输入变化才重开，避免关不掉。
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	const [slashIndex, setSlashIndex] = useState(0);
@@ -833,8 +833,6 @@ export function Composer({
 		}
 		const uriList = event.clipboardData.getData("text/uri-list");
 		if (files.length === 0 && uriList.trim() === "") return;
-		// 图片进预览。其余文件按本地路径附进本回合，没有路径就提示，不能把粘贴整段丢掉。
-		event.preventDefault();
 		const classified = classifyHtmlDrop(
 			files.map((file) => ({ name: file.name, type: file.type, path: filePathOf(file) })),
 			uriList,
@@ -843,6 +841,10 @@ export function Composer({
 			const file = files[index];
 			return file ? [file] : [];
 		});
+		// 复制的网页链接只有 uri-list、落不成图片或附件：放行默认插入，别把粘贴整段吞掉。
+		if (imageFiles.length === 0 && classified.attachmentPaths.length === 0 && classified.unnamedCount === 0) return;
+		// 图片进预览。其余文件按本地路径附进本回合，没有路径就提示。
+		event.preventDefault();
 		if (imageFiles.length > 0) addImageFiles(imageFiles);
 		if (classified.attachmentPaths.length > 0) addAttachmentPaths(classified.attachmentPaths);
 		if (classified.unnamedCount > 0) showHint(t("composer.dropNoPath", { count: classified.unnamedCount }));
@@ -1088,7 +1090,7 @@ export function Composer({
 
 	// 斜杠过滤：前缀命中排前，其次子串；上限 30 条防长清单卡顿。
 	// exec 不命中返回 null（≠ undefined），用 null 判「不在输入命令」。
-	const slashExec = slashDismissed ? null : /^\/([a-zA-Z0-9:_-]*)$/.exec(value);
+	const slashExec = slashDismissed ? null : /(?:^|\s)\/([a-zA-Z0-9:_-]*)$/.exec(value);
 	const slashItems: SlashCommandEntry[] = [];
 	if (slashExec) {
 		const query = slashExec[1].toLowerCase();
@@ -1144,15 +1146,34 @@ export function Composer({
 	};
 
 	const acceptSlashCommand = (entry: SlashCommandEntry): void => {
-		// 填入命令留个空格：想带参数直接打字，不带就回车执行（此时菜单已因空格自动收起）
-		setDraftValue(`/${entry.name} `);
-		// 菜单只在整段输入是 `/查询` 时出现，所以整段换成命令，不能只往后追加。
 		const editor = editorRef.current;
-		clearEditorContent(editor);
-		insertPlainText(editor, `/${entry.name} `);
+		if (!editor || !slashExec) return;
+		// 后端只执行开头的命令。把选中的命令放到开头，原有正文作为参数保留。
+		// 只删末尾查询的文本，保留正文里的文件芯片及其附件关联。
+		const textNodes: Text[] = [];
+		const collectText = (node: Node): void => {
+			if (node.nodeType === Node.TEXT_NODE) textNodes.push(node as Text);
+			else if (node.nodeType === Node.ELEMENT_NODE && !(node as Element).classList.contains("owl-mention-chip")) {
+				for (const child of Array.from(node.childNodes)) collectText(child);
+			}
+		};
+		collectText(editor);
+		const text = textNodes.map((node) => node.textContent ?? "").join("");
+		const token = /\/([a-zA-Z0-9:_-]*)\s*$/.exec(text);
+		if (!token || token[1] !== slashExec[1]) return;
+		let remaining = text.length - token.index;
+		for (let index = textNodes.length - 1; index >= 0 && remaining > 0; index--) {
+			const node = textNodes[index];
+			const content = node.textContent ?? "";
+			const removed = Math.min(remaining, content.length);
+			node.textContent = content.slice(0, content.length - removed);
+			remaining -= removed;
+		}
+		editor.insertBefore(document.createTextNode(`/${entry.name} `), editor.firstChild);
+		const prefix = value.slice(0, slashExec.index + slashExec[0].indexOf("/"));
+		setDraftValue(`/${entry.name} ${prefix}`);
 		setSlashDismissed(false);
 		setSlashIndex(0);
-		if (!editor) return;
 		editor.focus();
 		const selection = window.getSelection();
 		if (selection) {

@@ -127,10 +127,15 @@ describe("ResearchPage artifact ownership in the real chat stream", () => {
 		seam.state.results = [live];
 		seam.state.running = true;
 		const html = render();
-		const activityPosition = html.indexOf('class="owl-response-activity"');
-		expect(activityPosition).toBeGreaterThanOrEqual(0);
+		const { document } = parseHTML(html);
+		// The running status belongs to the work process now; artifacts must remain
+		// visible outside its collapsed details before any final answer exists.
+		expect(document.querySelector('.owl-work-process[data-state="running"] [role="status"]')).not.toBeNull();
+		const card = document.querySelector(".research-result-card");
+		expect(card).not.toBeNull();
+		expect(card!.closest('[hidden], .owl-work-process-body[data-open="false"]')).toBeNull();
+		expect(document.querySelector(".owl-answer")).toBeNull();
 		expect(cardPosition(html, live.title)).toBeGreaterThan(userPosition(html, "继续分析"));
-		expect(cardPosition(html, live.title)).toBeLessThan(activityPosition);
 	});
 
 	it("uses the latest published revision within one turn while keeping earlier turns independent", () => {

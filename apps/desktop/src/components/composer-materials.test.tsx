@@ -125,6 +125,25 @@ describe("Composer compact materials", () => {
 		expect(container.textContent).toContain("notes.md");
 	});
 
+	it("attaches a pasted file link by its local path", async () => {
+		await render({ draftRequest: undefined });
+		const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+		Object.assign(paste, { clipboardData: { items: [], getData: (type: string) => (type === "text/uri-list" ? "file:///D:/project/notes.md" : "") } });
+		await act(async () => editor().dispatchEvent(paste));
+		expect(paste.defaultPrevented).toBe(true);
+		expect(container.textContent).toContain("notes.md");
+	});
+
+	it("keeps a pasted hyperlink as text when it carries no local path", async () => {
+		await render({ draftRequest: undefined });
+		const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+		Object.assign(paste, { clipboardData: { items: [], getData: (type: string) => (type === "text/uri-list" ? "https://example.com/issue/123" : "https://example.com/issue/123") } });
+		await act(async () => editor().dispatchEvent(paste));
+		// 拦下默认行为但什么都不产出 = 粘贴被吞：必须放行默认插入。
+		expect(paste.defaultPrevented).toBe(false);
+		expect(container.querySelector(".owl-composer-materials")).toBeNull();
+	});
+
 	it("does not offer the previous mention results while the next search is pending", async () => {
 		vi.stubGlobal("NodeFilter", { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 });
 		const pending = Promise.withResolvers<{ path: string; isDir: boolean }[]>();

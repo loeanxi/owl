@@ -321,7 +321,9 @@ function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string,
 		if (typeof call.id !== "string" || typeof call.name !== "string") continue;
 		const card = upsertTool(entry, call.id, call.name, call.arguments);
 		card.parentToolCallId = parentToolCallId;
-		card.status = call.status === "unfinished" ? "cancelled" : call.status === "error" ? "error" : call.status === "ok" ? "ok" : "pending";
+		card.status = call.status === "unfinished" ? "cancelled" : call.status === "error"
+			? resultStatus({ content: [{ type: "text", text: typeof call.error === "string" ? call.error : "" }] }, true)
+			: call.status === "ok" ? "ok" : "pending";
 		// Nested snapshots persist errors/arguments, but do not contain successful result bodies.
 		if (typeof call.error === "string" && !card.output) card.output = { text: call.error, totalLines: call.error.split("\n").length };
 	}

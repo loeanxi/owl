@@ -51,9 +51,9 @@
 	gap: 0;
 	padding: 0;
 }
-.owl-composer-materials .owl-composer-material-preview { display: block; width: 100%; height: 100%; flex: 1; overflow: hidden; border-radius: inherit; background: var(--owl-ui-bg, var(--color-owl-bg)); cursor: zoom-in; }
+.owl-composer-materials .owl-composer-material-preview { display: block; width: 100%; height: 100%; flex: 1; overflow: hidden; border-radius: inherit; background: var(--owl-ui-canvas, var(--color-owl-bg)); cursor: zoom-in; }
 .owl-composer-materials .owl-composer-material-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.owl-composer-materials .owl-composer-material-file { display: flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; border-radius: 5px; background: var(--owl-ui-bg, var(--color-owl-bg)); color: var(--color-owl-accent); }
+.owl-composer-materials .owl-composer-material-file { display: flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; border-radius: 5px; background: var(--owl-ui-canvas, var(--color-owl-bg)); color: var(--color-owl-accent); }
 .owl-composer-materials .owl-composer-material-file > svg { width: 22px; height: 22px; }
 .owl-composer-materials .owl-composer-material-copy { min-width: 0; flex: 1; }
 .owl-composer-materials .owl-composer-material-name { display: block; min-width: 0; overflow: hidden; color: var(--owl-ui-text, var(--color-owl-text)); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
