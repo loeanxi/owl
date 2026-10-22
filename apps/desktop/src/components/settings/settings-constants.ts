@@ -16,6 +16,18 @@ export const CHAT_READING_FIELDS = [
 	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
 ] as const;
 
+/** 工作过程动效逐条开关：id 与 work-process-effects.ts 的清单一致，顺序即展示顺序。 */
+export const WORK_EFFECT_FIELDS = [
+	{ id: "rail", titleKey: "settings.general.workEffectRail", descKey: "settings.general.workEffectRailDesc" },
+	{ id: "enter", titleKey: "settings.general.workEffectEnter", descKey: "settings.general.workEffectEnterDesc" },
+	{ id: "morph", titleKey: "settings.general.workEffectMorph", descKey: "settings.general.workEffectMorphDesc" },
+	{ id: "count", titleKey: "settings.general.workEffectCount", descKey: "settings.general.workEffectCountDesc" },
+	{ id: "spine", titleKey: "settings.general.workEffectSpine", descKey: "settings.general.workEffectSpineDesc" },
+	{ id: "stream", titleKey: "settings.general.workEffectStream", descKey: "settings.general.workEffectStreamDesc" },
+	{ id: "breathe", titleKey: "settings.general.workEffectBreathe", descKey: "settings.general.workEffectBreatheDesc" },
+	{ id: "nudge", titleKey: "settings.general.workEffectNudge", descKey: "settings.general.workEffectNudgeDesc" },
+] as const;
+
 /** 强调色预置色板（跟随主题的默认松石绿居首；自定义走原生拾色器）。 */
 export const ACCENT_PRESETS = [
 	{ value: "", labelKey: "settings.appearance.accentDefault" },

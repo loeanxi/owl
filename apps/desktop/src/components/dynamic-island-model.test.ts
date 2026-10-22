@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	dismissFinished,
+	dismissFinishedAll,
 	formatRunClock,
+	islandBatchAckVisible,
 	islandCompactAction,
 	islandCanReply,
 	islandFace,
@@ -31,7 +33,7 @@ test("idle when nothing is running and nothing is waiting to be opened", () => {
 
 test("compact names the session that most recently produced, with a total count", () => {
 	const face = islandFace([session("a", 10), session("b", 30), session("c", 20)], []);
-	assert.deepEqual(face, { kind: "live", id: "b", title: "b", waiting: false, waitKind: "", count: 3 });
+	assert.deepEqual(face, { kind: "live", id: "b", title: "b", waiting: false, waitKind: "", count: 3, disconnected: false });
 	assert.deepEqual(islandCompactAction(face), { type: "toggle" });
 });
 
@@ -61,7 +63,7 @@ test("a permission wait outranks a newer question", () => {
 
 test("the shortcut opens whoever the pill is naming", () => {
 	assert.equal(islandJumpTarget({ kind: "idle" }), null);
-	assert.equal(islandJumpTarget({ kind: "live", id: "gate", title: "gate", waiting: true, waitKind: "permission", count: 2 }), "gate");
+	assert.equal(islandJumpTarget({ kind: "live", id: "gate", title: "gate", waiting: true, waitKind: "permission", count: 2, disconnected: false }), "gate");
 	assert.equal(islandJumpTarget({ kind: "done", id: "c", title: "c", count: 3, outcome: "done" }), "c");
 });
 
@@ -96,7 +98,7 @@ test("the run clock stays compact", () => {
 test("a finished session stays beside work that is still running", () => {
 	const running = [session("a", 10), session("b", 20)];
 	const finished = [done("c", 30)];
-	assert.deepEqual(islandFace(running, finished), { kind: "live", id: "b", title: "b", waiting: false, waitKind: "", count: 2 });
+	assert.deepEqual(islandFace(running, finished), { kind: "live", id: "b", title: "b", waiting: false, waitKind: "", count: 2, disconnected: false });
 	assert.deepEqual(visibleFinished(running, finished).map((item) => item.id), ["c"]);
 });
 
@@ -128,6 +130,18 @@ test("checking off a completion removes only that one", () => {
 	const next = dismissFinished(kept, "a");
 	assert.deepEqual(next.map((item) => item.id), ["b"]);
 	assert.equal(dismissFinished(next, "missing"), next);
+});
+
+test("the batch check waits until more than eight completions pile up", () => {
+	assert.equal(islandBatchAckVisible(8), false);
+	assert.equal(islandBatchAckVisible(9), true);
+});
+
+test("checking off everything removes exactly the visible batch", () => {
+	const kept = [done("a", 1), done("b", 2), done("c", 3)];
+	const next = dismissFinishedAll(kept, [kept[0], kept[2]]);
+	assert.deepEqual(next.map((item) => item.id), ["b"]);
+	assert.equal(dismissFinishedAll(kept, []), kept);
 });
 
 test("a session that starts again is no longer listed as finished", () => {

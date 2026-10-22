@@ -1,4 +1,6 @@
 /** Reading preferences apply to chat content, without changing the app or composer font. */
+import { applyWorkEffects, DEFAULT_WORK_EFFECTS, parseWorkEffects, type WorkEffects } from "./components/work-process-effects.ts";
+
 export interface ChatAppearance {
 	fontSize: number;
 	codeFontSize: number;
@@ -6,6 +8,8 @@ export interface ChatAppearance {
 	width: number;
 	toolRecords: "compact" | "expanded";
 	motion: boolean;
+	/** 工作过程动效逐条开关。 */
+	workEffects: WorkEffects;
 }
 
 export const DEFAULT_CHAT_APPEARANCE: Readonly<ChatAppearance> = Object.freeze({
@@ -15,6 +19,7 @@ export const DEFAULT_CHAT_APPEARANCE: Readonly<ChatAppearance> = Object.freeze({
 	width: 880,
 	toolRecords: "compact",
 	motion: true,
+	workEffects: DEFAULT_WORK_EFFECTS,
 });
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number, step: number): number {
@@ -35,6 +40,7 @@ export function parseChatAppearance(raw: unknown): ChatAppearance {
 		width: boundedNumber(value.width, DEFAULT_CHAT_APPEARANCE.width, 640, 960, 1),
 		toolRecords: value.toolRecords === "expanded" ? "expanded" : "compact",
 		motion: typeof value.motion === "boolean" ? value.motion : DEFAULT_CHAT_APPEARANCE.motion,
+		workEffects: parseWorkEffects(value.workEffects),
 	};
 }
 
@@ -48,5 +54,7 @@ export function applyChatAppearance(value: ChatAppearance): void {
 	root.style.setProperty("--owl-chat-width", `${value.width}px`);
 	root.dataset.owlToolRecords = value.toolRecords;
 	root.dataset.owlChatMotion = value.motion ? "on" : "off";
+	// 工作过程动效逐条开关：落 dataset，组件订阅同一份值。
+	applyWorkEffects(value.workEffects);
 	window.dispatchEvent(new Event("owl-chat-appearance-change"));
 }

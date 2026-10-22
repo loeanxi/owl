@@ -75,16 +75,28 @@ test("applying preferences changes only chat variables and publishes the complet
 		"--owl-chat-line-height": "1.9",
 		"--owl-chat-width": "920px",
 	});
-	assert.deepEqual(dataset, { owlTheme: "dark", owlToolRecords: "expanded", owlChatMotion: "off" });
+	assert.deepEqual(dataset, { owlTheme: "dark", owlToolRecords: "expanded", owlChatMotion: "off", owlWorkEffects: "rail enter morph count spine stream breathe nudge" });
 	assert.deepEqual(notifications, ["owl-chat-appearance-change:expanded:off:20px"]);
 
 	applyChatAppearance(parseChatAppearance(undefined));
 	assert.equal(dataset.owlToolRecords, "compact");
 	assert.equal(dataset.owlChatMotion, "on");
+	assert.equal(dataset.owlWorkEffects, "rail enter morph count spine stream breathe nudge");
 	assert.deepEqual(notifications, [
 		"owl-chat-appearance-change:expanded:off:20px",
 		"owl-chat-appearance-change:compact:on:16px",
 	]);
+});
+
+test("work process effects are parsed per item and written to the dataset as enabled tokens", () => {
+	const parsed = parseChatAppearance({ workEffects: { rail: false, spine: true, bogus: true } });
+	assert.equal(parsed.workEffects.rail, false);
+	assert.equal(parsed.workEffects.spine, true);
+	// 没提到的项各自回落到默认开启，不受同组坏值影响。
+	assert.equal(parsed.workEffects.morph, true);
+	assert.equal(parsed.workEffects.nudge, true);
+	assert.deepEqual(parseChatAppearance({ workEffects: "not-an-object" }).workEffects, DEFAULT_CHAT_APPEARANCE.workEffects);
+	assert.deepEqual(parseChatAppearance({ workEffects: { rail: "off" } }).workEffects, DEFAULT_CHAT_APPEARANCE.workEffects);
 });
 
 test("preferences can be loaded outside the desktop browser without accessing the DOM", () => {

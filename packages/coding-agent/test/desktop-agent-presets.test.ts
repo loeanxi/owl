@@ -243,6 +243,8 @@ it("isolates Pi resources and preserves session settings when switching and resu
 		expect(services.resourceLoader.getExtensions().extensions.map((extension) => extension.path)).toEqual([
 			"<inline:owl-permissions>",
 			"<inline:owl-execution-anomalies>",
+			// 扩展始终加载，但 Pi 的工具白名单把它的 research_rea 工具排除在外。
+			"<inline:owl-static-analysis>",
 		]);
 		expect(session.systemPrompt).toContain("expert coding assistant");
 		expect(session.systemPrompt).toContain("fixture_project_instructions");

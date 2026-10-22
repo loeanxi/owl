@@ -32,6 +32,10 @@
               "path": "tool-discovery.md"
             },
             {
+              "title": "Drive the Desktop Browser",
+              "path": "browser-control.md"
+            },
+            {
               "title": "News",
               "path": "news.md"
             }

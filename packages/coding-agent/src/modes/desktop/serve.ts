@@ -48,6 +48,7 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 } from "../../core/agent-session-services.ts";
+import { installBundledSkills } from "../../core/bundled-skills.ts";
 import {
 	type ContextInsightData,
 	contextDetailOf,
@@ -61,7 +62,6 @@ import { setDiffApprovalBroadcaster } from "../../core/diff-approval/registry.ts
 import { EvaluationService, type EvaluationServiceOptions } from "../../core/evaluation/service.ts";
 import type { InlineExtension, ToolDefinition } from "../../core/extensions/index.ts";
 import { importExtensionRuntimeModule } from "../../core/extensions/loader.ts";
-import { installHtmlPlanSkill } from "../../core/html-plan-skill.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import {
 	createMailTools,
@@ -100,10 +100,12 @@ import {
 } from "../../core/research/agent.ts";
 import { RESEARCH_CHECKPOINT_TOOL } from "../../core/research/checkpoint.ts";
 import { getResearchDiagnosis } from "../../core/research/diagnosis.ts";
+import { createStaticAnalysisExtension } from "../../core/research/rea-extension.ts";
 import { getResearchTask, RESEARCH_TASK_TOOL } from "../../core/research/task.ts";
 import { researchToolLoadout } from "../../core/research/tool-loadout.ts";
 import { listRewindTargets } from "../../core/rewind/engine.ts";
 import { disposeSessionRewindTracker, getSessionRewindTracker } from "../../core/rewind/registry.ts";
+import { fallbackNoticeText } from "../../core/sdk.ts";
 import {
 	buildSessionExportFilename,
 	filterEntriesToTurns,
@@ -135,7 +137,7 @@ import {
 	loadBridgePlugins,
 } from "./bridge-plugins.ts";
 import { BrowserHub } from "./browser-hub.ts";
-import { isReadOnlyDesktopTool } from "./browser-permissions.ts";
+import { isReadOnlyDesktopTool, requiresDesktopConfirmation } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
 import { DesktopEventFanout } from "./event-fanout.ts";
 import { ExecutionAnomalyStore } from "./execution-anomalies.ts";
@@ -302,9 +304,9 @@ export interface DesktopServerHandle {
 export async function startDesktopServer(options: DesktopServerOptions = {}): Promise<DesktopServerHandle> {
 	const onDiagnostic = options.onDiagnostic ?? ((message: string) => console.error(`[owl] ${message}`));
 	try {
-		installHtmlPlanSkill(options.agentDir ?? getAgentDir());
+		installBundledSkills(options.agentDir ?? getAgentDir());
 	} catch (error) {
-		onDiagnostic(`html-plan skill install failed: ${error instanceof Error ? error.message : String(error)}`);
+		onDiagnostic(`bundled skill install failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 	// 桥进程不经过 main.ts，需自行装代理 dispatcher：fetch 只有装了 EnvHttpProxyAgent
 	// 才认 HTTP(S)_PROXY，否则 OAuth 设备码请求直连 github.com，直连不通时就地超时——
@@ -883,7 +885,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				resourceLoaderOptions: {
 					extensionFactories: [
 						...extensionFactories,
-						...(researchMode ? [createResearchExtension(runtimeOptions.sessionManager, agentDir)] : []),
+						// 研究会话拿到整套研究工具；普通对话只借用 REA 静态分析，工具白名单与证据留存完全一致。
+						...(researchMode
+							? [createResearchExtension(runtimeOptions.sessionManager, agentDir)]
+							: [createStaticAnalysisExtension(runtimeOptions.sessionManager, agentDir)]),
 					],
 					...(preset.runtime === "pi"
 						? piResourceLoaderOptions(appendSystemPrompt)
@@ -1176,6 +1181,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		const model = session.model;
 		const stats = session.getSessionStats();
 		const contextUsage = session.getContextUsage();
+		// 会话模型被悄悄替换时把原因一并送出：这是以前只存在于日志里、用户看不到的信息。
+		// 保留在快照里（不一次性消费），多窗口/重启后读数一致；去重展示由前端负责。
+		const fallback = sessions.get(session.sessionId)?.runtime.modelFallback;
 		return {
 			...(model
 				? {
@@ -1189,6 +1197,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			thinkingLevel: session.thinkingLevel,
 			availableThinkingLevels: session.getAvailableThinkingLevels(),
 			supportsThinking: session.supportsThinking(),
+			...(fallback ? { modelFallback: { ...fallback, message: fallbackNoticeText(fallback) } } : {}),
 			...(contextUsage ? { contextUsage } : {}),
 			stats: {
 				userMessages: stats.userMessages,
@@ -1314,7 +1323,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						};
 					}
 					// auto（以及 plan 下的只读工具）：不询问直接放行
-					if (mode !== "confirm") return {};
+					if (!requiresDesktopConfirmation(event.toolName, event.input, mode)) return {};
 					const requestId = randomUUID();
 					const message: PermissionRequestMessage = {
 						type: "permission_request",

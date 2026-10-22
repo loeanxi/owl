@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
 import { errorKindOf, exitCodeOf } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
@@ -28,6 +28,7 @@ import "./chat-history-message.css";
 import { collectAttachmentReceipts, type AttachmentReceipt as Receipt } from "../hooks/attachment-receipts.ts";
 import { AttachmentReceipt } from "./AttachmentReceipt.tsx";
 import { useWorkProcessText, workProcessText } from "./work-process-copy.ts";
+import { enabledWorkEffectIds, useWorkEffects } from "./work-process-effects.ts";
 import { workActionFacts, workActionPath, workActionStatus, workActionTitle, workLatestOutput, type WorkAction } from "./work-process-model.ts";
 import type { ExecutionView } from "./execution-view.ts";
 import "./chat-work-process.css";
@@ -43,6 +44,9 @@ type WorkPresentation = {
 	focus?: { key: string; index: number; element: Element };
 };
 const WorkPresentationContext = createContext<WorkPresentation | undefined>(undefined);
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+/** 本次运行中才出现的工具行，键是 ToolRowView 用的 `ownerIndex:toolId`。会话恢复的老行不在其中。 */
+const WorkArrivedContext = createContext<ReadonlySet<string>>(EMPTY_KEYS);
 const ExecutionViewContext = createContext<{ view: ExecutionView; onInspectTool?: (card: ToolCard, ownerIndex?: number) => void }>({ view: "normal" });
 
 export type { MessageSearchTarget } from "./chat-message-navigation.ts";
@@ -52,6 +56,43 @@ const OUTPUT_PREVIEW_LINES = 10;
 
 /** 截图类工具：产物是「给用户看的屏幕画面」，进最新截图 Dock 与轮末截图条。 */
 const SCREENSHOT_TOOL_PATTERN = /^(computer_screenshot|computer_observe|computer_act|browser_screenshot|mcp_playwright_\w*screenshot\w*|iab_screenshot)$/i;
+
+/**
+ * 行内容缓存：转录更新是不可变的（未动条目保持引用），流式 batch 之间据此复用
+ * 同一元素引用——React 对相同引用的子树直接跳过调和，历史回答不再每个 batch
+ * 重跑一次 markdown 解析。键值元素闭包里的回调必须传稳定身份（见 useStableOption）。
+ */
+type CachedItems = { scope: string; items: Map<string, React.JSX.Element> };
+const assistantItemCache = new WeakMap<object, CachedItems>();
+
+function cachedAssistantItem(entry: object, scope: string, key: string, build: () => React.JSX.Element): React.JSX.Element {
+	let cache = assistantItemCache.get(entry);
+	if (cache === undefined || cache.scope !== scope) {
+		cache = { scope, items: new Map() };
+		assistantItemCache.set(entry, cache);
+	}
+	const hit = cache.items.get(key);
+	if (hit !== undefined) return hit;
+	const element = build();
+	cache.items.set(key, element);
+	return element;
+}
+
+/** 桥客户端实例的稳定编号：缓存域要区分它（元素闭包里捕获了 client）。 */
+const clientStamps = new WeakMap<object, number>();
+let nextClientStamp = 1;
+function clientStampOf(client: BridgeClient | undefined): string {
+	if (client === undefined) return "-";
+	let stamp = clientStamps.get(client);
+	if (stamp === undefined) {
+		stamp = nextClientStamp++;
+		clientStamps.set(client, stamp);
+	}
+	return String(stamp);
+}
+
+/** 跨条目的工具批次元素缓存：一个批次可横跨多条 assistant 消息，不能按条目做键。 */
+type BatchItem = { sig: string; element: React.JSX.Element };
 
 export function renderMarkdown(text: string): string {
 	return renderPlainMarkdown(text);
@@ -160,6 +201,8 @@ function isHardFailure(card: ToolCard): boolean {
 function StatusIcon({ status, errorKind }: { status: ToolStatus; errorKind?: ReturnType<typeof errorKindOf> }): React.JSX.Element {
 	if (status === "error" && errorKind === "blocked") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-warning" />;
 	if (status === "error" && errorKind === "exit") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
+	// 调用本身无效（工具不存在、参数没通过校验）：模型的下一次调用会改对，用中性色，不标红。
+	if (status === "error" && errorKind === "invalid") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "pending") return <IconClock className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
 	if (status === "cancelled") return <span className="h-3.5 w-3.5 shrink-0 text-center text-owl-faint" aria-label={t("chat.cancelled")}>—</span>;
 	if (status === "running") {
@@ -172,6 +215,15 @@ function StatusIcon({ status, errorKind }: { status: ToolStatus; errorKind?: Ret
 	}
 	if (status === "error") return <IconAlert className="h-3.5 w-3.5 shrink-0 text-owl-danger" />;
 	return <IconCheck className="h-3.5 w-3.5 shrink-0 text-owl-faint" />;
+}
+
+/**
+ * 工作过程里参与 morph / breathe 的状态图标槽：给图标一个与自身同尺寸的定位上下文，
+ * 扩散环和光晕画在槽的伪元素上，不额外占布局。
+ * 「最近状态」行不要用这个槽 —— 那里的尺寸靠 .owl-work-latest-state > svg 约束，多包一层会撑爆整行。
+ */
+function StatusSlot({ status, errorKind, justDone }: { status: ToolStatus; errorKind?: ReturnType<typeof errorKindOf>; justDone?: boolean }): React.JSX.Element {
+	return <span className="owl-status-slot" data-just-done={justDone ? "true" : "false"}><StatusIcon status={status} errorKind={errorKind} /></span>;
 }
 
 /** 思考过程：整轮合并成一条轻量折叠行，默认收起，不再一段一个全宽条。 */
@@ -221,6 +273,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 	const receiptTarget = useContext(AttachmentToolContext);
 	const focusTarget = useContext(WorkToolFocusContext);
 	const presentation = useContext(WorkPresentationContext);
+	const arrived = useContext(WorkArrivedContext);
 	const { view, onInspectTool } = useContext(ExecutionViewContext);
 	const presentationKey = String(ownerIndex) + ":" + card.id;
 	const revealsReceipt = (receiptTarget?.toolId === card.id && receiptTarget?.ownerIndex === ownerIndex) || (focusTarget?.toolId === card.id && focusTarget?.ownerIndex === ownerIndex);
@@ -235,6 +288,17 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 		presentation?.tools.set(presentationKey, !value);
 		return !value;
 	});
+	// 完成跃迁只认「这一行从活动态转入终态」的那一次转变。会话恢复时首帧就已是终态，不触发。
+	const [justDone, setJustDone] = useState(false);
+	const previousStatus = useRef(card.status);
+	useEffect(() => {
+		const before = previousStatus.current;
+		previousStatus.current = card.status;
+		if (before === card.status) return;
+		if (before !== "running" && before !== "pending") return;
+		if (card.status === "running" || card.status === "pending") return;
+		setJustDone(true);
+	}, [card.status]);
 	useLayoutEffect(() => {
 		const focused = presentation?.focus;
 		if (focused?.key === presentationKey && !focused.element.isConnected) {
@@ -270,7 +334,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 	const input = card.detail || (processView ? card.args : "");
 
 	return (
-		<div ref={toolRoot} className="owl-tool-row" data-entry-id={entryId} data-tool-id={card.id} data-tool-owner={ownerIndex} data-status={card.status} data-error-kind={errorKind}>
+		<div ref={toolRoot} className="owl-tool-row" data-entry-id={entryId} data-tool-id={card.id} data-tool-owner={ownerIndex} data-status={card.status} data-error-kind={errorKind} data-fresh={arrived.has(presentationKey) ? "true" : "false"}>
 			<div className="flex items-center gap-1">
 			<button
 				type="button"
@@ -279,7 +343,7 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 				onClick={() => opensSubagent ? onOpenSubagent(card) : toggleTool()}
 				className="owl-tool-summary min-w-0 flex-1"
 			>
-				<StatusIcon status={card.status} errorKind={errorKind} />
+				<StatusSlot status={card.status} errorKind={errorKind} justDone={justDone} />
 				<span
 					className={`${processView ? "owl-work-action-copy" : "min-w-0 flex-1 truncate"} ${errorKind === "failed" ? "text-owl-danger" : card.name === "subagent" ? "text-owl-accent" : "text-owl-muted"}`}
 				>
@@ -390,6 +454,8 @@ type WorkProcessItem = {
 	entryIds?: ReadonlyMap<number, string>;
 	thinking?: string;
 	interactive?: boolean;
+	/** 公开进展：折叠时也保持可见，不随工具行一起收起。 */
+	note?: boolean;
 };
 
 type WorkProcessScope = {
@@ -405,6 +471,10 @@ type WorkProcessScope = {
 	lastEntryIndex: number;
 };
 
+/**
+ * 工作过程动效：开着的动效由用户设置决定（聊天阅读 → 工作过程动效）。
+ * 开关表落在根节点 data-fx 上，CSS 用 [data-fx~="rail"] 之类匹配。
+ */
 function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	scopes: readonly WorkProcessScope[];
 	hasAnswer: boolean;
@@ -414,6 +484,7 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const copy = useWorkProcessText();
 	const root = useRef<HTMLDivElement>(null);
 	const { view, onInspectTool } = useContext(ExecutionViewContext);
+	const workEffects = useWorkEffects();
 	const panelId = useId();
 	const items = useMemo(() => scopes.flatMap((scope) => scope.items), [scopes]);
 	const activeScope = scopes.findLast((scope) => scope.running);
@@ -452,6 +523,30 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const actions = useMemo<WorkAction[]>(() => scopes.flatMap((scope) => scope.items.flatMap((item) => (item.cards ?? []).map((card) => ({
 		key: String(item.owners?.get(card)) + ":" + card.id, card, ownerIndex: item.owners?.get(card), entryId: item.entryIds?.get(item.owners?.get(card) ?? -1), scope: scope.id,
 	})))), [scopes]);
+	// 新行落位只认本次运行中追加的条目：首次渲染先把现有条目全部登记为已见，之后新出现的 key 才标记。
+	// 这样会话恢复不会把历史记录整段重播一遍。工具行落在 .owl-tool-row 上而不是外层 item，
+	// 因为一个 item 会合并同一段里的多次工具调用，只有行才是逐条出现的。
+	const [arrivedItems, setArrivedItems] = useState<ReadonlySet<string>>(EMPTY_KEYS);
+	const [arrivedActions, setArrivedActions] = useState<ReadonlySet<string>>(EMPTY_KEYS);
+	const seenItems = useRef<Set<string> | null>(null);
+	const seenActions = useRef<Set<string> | null>(null);
+	useEffect(() => {
+		if (seenItems.current === null || seenActions.current === null) {
+			seenItems.current = new Set(items.map((item) => item.key));
+			seenActions.current = new Set(actions.map((action) => action.key));
+			return;
+		}
+		const itemsNow = items.filter((item) => !seenItems.current!.has(item.key)).map((item) => item.key);
+		const actionsNow = actions.filter((action) => !seenActions.current!.has(action.key)).map((action) => action.key);
+		if (itemsNow.length > 0) {
+			for (const key of itemsNow) seenItems.current.add(key);
+			setArrivedItems((current) => new Set([...current, ...itemsNow]));
+		}
+		if (actionsNow.length > 0) {
+			for (const key of actionsNow) seenActions.current.add(key);
+			setArrivedActions((current) => new Set([...current, ...actionsNow]));
+		}
+	}, [items, actions]);
 	const facts = workActionFacts(actions);
 	const thinkingSegments = items.filter((item) => item.thinking !== undefined).map((item) => ({ key: item.key, entryId: item.entryId, text: item.thinking! }));
 	const searchedAction = searchTarget ? actions.find((action) => action.entryId === searchTarget.entryId && [action.card.summary, action.card.detail, action.card.output?.text].some((text) => text?.toLocaleLowerCase().includes(searchTarget.query.toLocaleLowerCase()))) : undefined;
@@ -466,6 +561,8 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const latestOutput = running ? reviewIssue?.card.output?.text.trim() ? reviewIssue : workLatestOutput(activeActions, current) : undefined;
 	const latestStatus = running ? reviewIssue ?? activeFacts.recent.at(-1) : undefined;
 	const issueKind = facts.issues.some(({ card }) => isHardFailure(card)) ? "failed" : facts.issues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
+	// 耗时单独成节点，好让 count 动效只改它的 opacity，不牵动整行的排版。
+	const metadataTail = [actions.length ? copy("stepCount", { n: actions.length }) : undefined, facts.recovered.length ? copy("recoveredCount", { n: facts.recovered.length }) : undefined].filter(Boolean).join(" · ");
 	const hasOrdinaryItems = items.some((item) => !item.interactive);
 	useEffect(() => {
 		if (!open || !focusedTool) return;
@@ -508,12 +605,13 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	};
 	return (
 		<WorkToolFocusContext.Provider value={searchFocus ?? focusedTool}>
-		<div ref={root} className="owl-work-process" data-state={waiting ? "waiting" : running ? "running" : "finished"} data-view={view} data-failed-count={scopes.reduce((sum, scope) => sum + scope.failed, 0)}>
+		<WorkArrivedContext.Provider value={arrivedActions}>
+		<div ref={root} className="owl-work-process" data-state={waiting ? "waiting" : running ? "running" : "finished"} data-view={view} data-fx={enabledWorkEffectIds(workEffects).join(" ")} data-failed-count={scopes.reduce((sum, scope) => sum + scope.failed, 0)}>
 			{hasOrdinaryItems && <div className="owl-work-process-header" data-message-action-ui="">
 				<button type="button" aria-expanded={open} aria-controls={panelId} data-work-reading="" onClick={() => setProcessOpen(!open)} className="owl-tool-summary owl-work-process-summary">
-					{waiting ? <IconClock className="h-3.5 w-3.5 shrink-0" /> : running ? current ? <StatusIcon status={current.card.status} /> : <IconLightbulb className="h-3.5 w-3.5 shrink-0" /> : <IconTerminal className="h-3.5 w-3.5 shrink-0" />}
+					{waiting ? <span className="owl-status-slot"><IconClock className="h-3.5 w-3.5 shrink-0" /></span> : running ? current ? <StatusSlot status={current.card.status} justDone={current.card.status !== "running" && current.card.status !== "pending"} /> : <span className="owl-status-slot"><IconLightbulb className="h-3.5 w-3.5 shrink-0" /></span> : <span className="owl-status-slot"><IconTerminal className="h-3.5 w-3.5 shrink-0" /></span>}
 					<span className="owl-work-primary" role={running ? "status" : undefined} aria-live={running ? "polite" : undefined}>{current && workActionPath(current.card) ? primary : <InlineSummary text={primary} />}</span>
-					<span className="owl-work-metadata">{[elapsed !== undefined ? formatDuration(elapsed) : undefined, actions.length ? copy("stepCount", { n: actions.length }) : undefined, facts.recovered.length ? copy("recoveredCount", { n: facts.recovered.length }) : undefined].filter(Boolean).join(" · ")}</span>
+					<span className="owl-work-metadata">{elapsed !== undefined && <span className="owl-work-secs">{formatDuration(elapsed)}</span>}{elapsed !== undefined && metadataTail !== "" ? " · " : ""}{metadataTail}</span>
 					<IconChevron className={"owl-work-summary-chevron h-3 w-3 shrink-0 transition-transform " + (open ? "rotate-90" : "")} />
 				</button>
 				{facts.issues.length > 0 && <button type="button" className="owl-work-issue-link" data-error-kind={issueKind} data-work-reading="" title={copy("issueHint")} onClick={() => {
@@ -524,8 +622,8 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 			</div>}
 			{activeScope?.subagents.some((card) => card.status === "running" || card.status === "pending") && <div className="owl-work-delegations">{activeScope.subagents.filter((card) => card.status === "running" || card.status === "pending").map((card) => <SubagentLiveLine key={card.id} card={card} onOpen={() => onOpenSubagent ? onOpenSubagent(card) : setProcessOpen(true)} />)}</div>}
 			<div id={panelId} className="owl-tool-group-body owl-work-process-body" data-open={open}>
-				{items.filter((item) => !item.thinking && (open || item.interactive)).map((item) => <div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.cards ? "tool" : "note"}>{item.content}</div>)}
-				{thinkingSegments.length > 0 && <div className="owl-work-process-item" data-work-kind="thinking" hidden={!open && view === "normal"}>{open || view !== "normal" ? <ThinkingRow thinking={thinkingSegments.map((segment) => segment.text).join("\n\n")} segments={thinkingSegments} searchTarget={searchTarget} /> : null}</div>}
+				{items.filter((item) => !item.thinking && (open || item.interactive || item.note)).map((item) => <div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.note ? "note" : item.cards ? "tool" : "note"} data-fresh={item.cards ? "false" : arrivedItems.has(item.key) ? "true" : "false"}>{item.content}</div>)}
+				{thinkingSegments.length > 0 && <div className="owl-work-process-item" data-work-kind="thinking" data-fresh={arrivedItems.has(thinkingSegments[0]!.key) ? "true" : "false"} hidden={!open && view === "normal"}>{open || view !== "normal" ? <ThinkingRow thinking={thinkingSegments.map((segment) => segment.text).join("\n\n")} segments={thinkingSegments} searchTarget={searchTarget} /> : null}</div>}
 			</div>
 			{latestStatus && <div className="owl-work-latest-state" data-status={latestStatus.card.status}>
 				<span className="owl-work-record-label">{copy(reviewIssue ? "reviewIssue" : "latestStatus")}</span>
@@ -544,6 +642,7 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 				<button type="button" data-work-reading="" onClick={collapseProcess}>{copy("collapse")}</button>
 			</div>}
 		</div>
+		</WorkArrivedContext.Provider>
 		</WorkToolFocusContext.Provider>
 	);
 }
@@ -617,7 +716,7 @@ function UsageDetails({ usage, requestCount, rate }: { usage?: MessageUsage; req
 			</summary>
 			<div className="owl-response-metrics">
 				{totalTokens > 0 && <span>{t("chat.activityTokens", { output: formatTokenCount(usage!.output), n: formatTokenCount(totalTokens) })}</span>}
-				{rate && <span>{t(rate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: compactNumber(rate.tps) })}</span>}
+				{rate && <span>{t(rate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: compactNumber(Math.floor(rate.tps)) })}</span>}
 				{usageTitle && <p className="owl-response-usage">{usageTitle}</p>}
 			</div>
 		</details>
@@ -671,7 +770,7 @@ function UserText({ text }: { text: string }): React.JSX.Element {
 }
 
 /** 用户提问行：随消息附的图片缩略图（点击放大）+ 文本气泡 + 悬停浮现的 编辑/复制/回退 按钮。 */
-function UserRowView({
+function UserRowViewInner({
 	entry,
 	busy,
 	onRewind,
@@ -785,6 +884,9 @@ function UserRowView({
 	);
 }
 
+/** 已落盘的用户行 props 全部稳定（回调经 useStableOption 转换），memo 让流式 batch 直接跳过。 */
+const UserRowView = memo(UserRowViewInner);
+
 /** buildRows 的上下文：渲染回调 + 消息操作（编辑/分支/重新生成）的可用性。 */
 type RowOptions = {
 	entries: ChatEntry[];
@@ -815,10 +917,14 @@ type RowOptions = {
 	client?: BridgeClient;
 	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
 	busy: boolean;
+	/** 行内容缓存域（profile/session/cwd/客户端）：条目元素按它分桶，切会话不串。 */
+	cacheScope: string;
+	/** 跨条目的工具批次元素缓存（一个工具批次可横跨多条 assistant 消息）。 */
+	batchItems: Map<string, BatchItem>;
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy }: RowOptions): TimelineRow[] {
+function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy, cacheScope, batchItems }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	const attachmentReceipts = collectAttachmentReceipts(entries, cwd);
 	const toolOwners = new Map<ToolCard, number>();
@@ -988,13 +1094,23 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			const entry = owner === undefined ? undefined : entries[owner];
 			return owner !== undefined && entry?.kind === "assistant" && entry.entryId ? [[owner, entry.entryId] as const] : [];
 		}));
+		// 工具批次元素按内容签名缓存：卡片对象在条目重建时换新身份，但内容不变就复用，
+		// React 对相同引用的整棵工具树跳过调和（批次可能横跨多条 assistant，不能按条目缓存）。
+		const batchSig = cards.map((card) => `${card.id}:${card.status}:${card.output === undefined ? "" : "o"}`).join("|");
+		const batchKey = `tools:${expandedTools ? "expanded" : "collapsed"}:${cards[0]!.id}:${cards.length}`;
+		const cachedBatch = batchItems.get(batchKey);
+		const content = cachedBatch !== undefined && cachedBatch.sig === batchSig ? cachedBatch.element : (() => {
+			const element = <ToolRecords cards={cards} owners={toolOwners} entryIds={entryIds} expanded={expandedTools} onOpenSubagent={onOpenSubagent} />;
+			batchItems.set(batchKey, { sig: batchSig, element });
+			return element;
+		})();
 		workRows.push({
 			key: "tools-" + toolOwners.get(cards[0]!) + ":" + cards[0]!.id,
 			toolIds: cards.map((card) => `${toolOwners.get(card)}:${card.id}`),
 			cards,
 			owners: toolOwners,
 			entryIds,
-			content: <ToolRecords cards={cards} owners={toolOwners} entryIds={entryIds} expanded={expandedTools} onOpenSubagent={onOpenSubagent} />,
+			content,
 		});
 	};
 	// Preserve emitted segment order. Only the latest segment owned by the active run is live.
@@ -1126,20 +1242,25 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 				flushWork();
 				turnProcess = undefined;
 				workBoundary = "interactive-" + index + ":" + card.id;
-				rows.push({ key: "genui-" + index + ":" + card.id, entryId: entry.entryId, content: <div data-work-kind="interactive" data-tool-id={card.id} data-tool-owner={index}><GenuiToolCardView card={card} /></div> });
+				rows.push({ key: "genui-" + index + ":" + card.id, entryId: entry.entryId, content: cachedAssistantItem(entry, cacheScope, "genui:" + card.id, () => (
+					<div data-work-kind="interactive" data-tool-id={card.id} data-tool-owner={index}><GenuiToolCardView card={card} /></div>
+				)) });
 			} else {
 				workPendingTools.push(card);
 			}
 		};
-		const answerCard = (segmentIndex: number, text: string): React.JSX.Element => (
-			<GenuiAnswerCard
-				key={segmentIndex}
-				text={text}
-				identity={`msg${index}-seg${segmentIndex}`}
-				settled={index !== lastAssistantIndex}
-				renderMarkdown={renderAnswerMarkdown}
-			/>
-		);
+		// 回答段元素按条目身份缓存：settled 与否进键（流式中的最后一条回答每 batch
+		// 都是新条目对象，天然缓存未命中）。历史回答不再每 batch 重跑一次 markdown 解析。
+		const answerCard = (segmentIndex: number, text: string): React.JSX.Element =>
+			cachedAssistantItem(entry, cacheScope, `seg:${segmentIndex}:${index === lastAssistantIndex ? "live" : "settled"}`, () => (
+				<GenuiAnswerCard
+					key={segmentIndex}
+					text={text}
+					identity={`msg${index}-seg${segmentIndex}`}
+					settled={index !== lastAssistantIndex}
+					renderMarkdown={renderAnswerMarkdown}
+				/>
+			));
 		// 同一轮结论的多段正文合成一块，段与段之间不再各占一行、各留一段空隙。
 		const answerParts: React.JSX.Element[] = [];
 		const pushAnswer = (): void => {
@@ -1170,14 +1291,20 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			}
 			const followedByTool = segment.phase !== "final_answer" && !segment.text.includes("```owl-ui") && segments.slice(segmentIndex + 1).some((later) => later.kind === "tool");
 			if (segment.phase === "commentary" || followedByTool || (!answerEntries.has(index) && !promotedFenceEntries.has(index))) {
-				// 公开进展按真实顺序留在工具组之间；thinking 走独立原文入口。
-				flushWork();
-				turnProcess = undefined;
-				workBoundary = "note-" + index + "-" + segmentIndex;
-				rows.push({
+				// 公开进展是本轮工作过程的一部分：作为 note 项并进本轮的折叠块，不再自成一行的顶层 row。
+				// 原先这里收口并断开 turnProcess，一段说明就把一轮切成多块，
+				// 「说明 / 工作过程 / 说明 / 工作过程 / 答案」交替堆叠，读起来像五条消息。
+				// note 项在折叠时也保持可见（只有工具行随折叠收起），进展不因折叠而消失。
+				// 工具是批量入列的（一次工具组一个 item），先把它落盘，note 才排在它后面：
+				// 否则说明会插到本段工具之前，真实顺序就错了。
+				flushWorkTools();
+				workSteps += 1;
+				recordWork(entry, index);
+				workRows.push({
 					key: "note-" + index + "-" + segmentIndex,
 					entryId: entry.entryId,
-					content: <div className="owl-work-progress" data-work-kind="note">{answerCard(segmentIndex, segment.text)}</div>,
+					note: true,
+					content: <div className="owl-work-progress">{answerCard(segmentIndex, segment.text)}</div>,
 				});
 				return;
 			}
@@ -1326,48 +1453,6 @@ function QuestionMinimap({ questions, active, onJump }: {
 
 export type ChatActivity = "idle" | "working" | "waiting" | "disconnected";
 
-function ResponseActivity({ entries, activity, showStatus = true }: { entries: ChatEntry[]; activity: ChatActivity; showStatus?: boolean }): React.JSX.Element | null {
-	// 实时状态行突出当前动作与耗时；tokens、速度与用量口径放进可展开明细。
-	// 时长从本轮用户消息发出时刻起跳（旧会话消息缺时间戳则不显示），tokens 为本轮
-	// 已回传用量之和；末尾的 tok/s 取本轮最近一条可测速回复（流式中为估算，带 ~）。
-	// 每秒更新耗时，主状态独立通知，避免辅助指标反复触发读屏播报。
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		const timer = window.setInterval(() => setNow(Date.now()), 1000);
-		return () => window.clearInterval(timer);
-	}, []);
-	if (activity === "idle") return null;
-	let executing = false;
-	let userTs: number | undefined;
-	let usage: MessageUsage | undefined;
-	let rate: ReturnType<typeof outputRate>;
-	let requestCount = 0;
-	for (let index = entries.length - 1; index >= 0; index--) {
-		const entry = entries[index]!;
-		if (entry.kind === "user") {
-			userTs = entry.timestamp;
-			break;
-		}
-		if (entry.kind === "assistant") {
-			usage = addUsage(entry.usage, usage);
-			if (entry.usage) requestCount++;
-			rate ??= outputRate(entry);
-			if (entry.tools.some((tool) => tool.status === "running")) executing = true;
-		}
-	}
-	const label = activity === "waiting" ? t("chat.activityWaiting") : activity === "disconnected" ? t("chat.activityDisconnected") : executing ? t("chat.activityExecuting") : t("chat.activityGenerating");
-	const elapsed = userTs !== undefined ? formatDuration(Math.max(0, now - userTs)) : undefined;
-	if (!showStatus && !usage && !rate) return null;
-	return (
-		<div className={"owl-response-activity" + (showStatus ? "" : " owl-response-activity-compact")} data-state={activity}>
-			{showStatus && <img src="/owl.svg" alt="" aria-hidden="true" className="owl-response-mark" />}
-			{showStatus && <span className="owl-response-label" role="status" aria-live="polite" aria-atomic="true">{label}</span>}
-			{showStatus && elapsed && <span className="owl-response-timing">{elapsed}</span>}
-			<UsageDetails usage={usage} requestCount={requestCount} rate={rate} />
-		</div>
-	);
-}
-
 /**
  * 轮末截图条：本轮 agent 截过的屏幕画面在最终回答之后平铺展示，不用翻
  * 工作过程折叠行找图；点缩略图开灯箱看全图。只收截图类工具（生图类工具的
@@ -1468,7 +1553,50 @@ export function ChatStream({
 	const container = useRef<HTMLElement>(null);
 	const receiptScope = JSON.stringify([profile, sessionId, cwd]);
 	const workPresentation = useMemo<WorkPresentation>(() => ({ processes: new Map(), tools: new Map(), outputs: new Map(), thoughts: new Map() }), [receiptScope]);
-	const executionPresentation = useMemo(() => ({ view: executionView, onInspectTool }), [executionView, onInspectTool]);
+	// App 每次渲染都会传新的回调引用；经 ref 委托转成稳定身份，行内容缓存与 rows
+	// memo 才不会被无关的 App 重渲染打断。语义不变：调用时取最新闭包。
+	const onRewindRef = useRef(onRewind);
+	onRewindRef.current = onRewind;
+	const onEditMessageRef = useRef(onEditMessage);
+	onEditMessageRef.current = onEditMessage;
+	const onOpenSubagentRef = useRef(onOpenSubagent);
+	onOpenSubagentRef.current = onOpenSubagent;
+	const onOpenFileRef = useRef(onOpenFile);
+	onOpenFileRef.current = onOpenFile;
+	const onOpenReviewRef = useRef(onOpenReview);
+	onOpenReviewRef.current = onOpenReview;
+	const onRegenerateRef = useRef(onRegenerate);
+	onRegenerateRef.current = onRegenerate;
+	const onBranchRef = useRef(onBranch);
+	onBranchRef.current = onBranch;
+	const onOpenAutomationRef = useRef(onOpenAutomation);
+	onOpenAutomationRef.current = onOpenAutomation;
+	const onInspectToolRef = useRef(onInspectTool);
+	onInspectToolRef.current = onInspectTool;
+	const hasRewind = onRewind !== undefined;
+	const hasEditMessage = onEditMessage !== undefined;
+	const hasOpenSubagent = onOpenSubagent !== undefined;
+	const hasOpenFile = onOpenFile !== undefined;
+	const hasOpenReview = onOpenReview !== undefined;
+	const hasRegenerate = onRegenerate !== undefined;
+	const hasBranch = onBranch !== undefined;
+	const hasOpenAutomation = onOpenAutomation !== undefined;
+	const hasInspectTool = onInspectTool !== undefined;
+	const rewindStable = useMemo(() => (hasRewind ? (entryId: string): void => onRewindRef.current?.(entryId) : undefined), [hasRewind]);
+	const editMessageStable = useMemo(() => (hasEditMessage ? (entryId: string, text: string, images?: ToolResultImage[]): boolean | void | Promise<boolean | void> => onEditMessageRef.current?.(entryId, text, images) : undefined), [hasEditMessage]);
+	const openSubagentStable = useMemo(() => (hasOpenSubagent ? (card: ToolCard): void => onOpenSubagentRef.current?.(card) : undefined), [hasOpenSubagent]);
+	const openFileStable = useMemo(() => (hasOpenFile ? (path: string): void => onOpenFileRef.current?.(path) : undefined), [hasOpenFile]);
+	const openReviewStable = useMemo(() => (hasOpenReview ? (focusPath: string): void => onOpenReviewRef.current?.(focusPath) : undefined), [hasOpenReview]);
+	const regenerateStable = useMemo(() => (hasRegenerate ? (): void => onRegenerateRef.current?.() : undefined), [hasRegenerate]);
+	const branchStable = useMemo(() => (hasBranch ? (entryId: string): void => onBranchRef.current?.(entryId) : undefined), [hasBranch]);
+	const openAutomationStable = useMemo(() => (hasOpenAutomation ? (): void => onOpenAutomationRef.current?.() : undefined), [hasOpenAutomation]);
+	const inspectToolStable = useMemo(() => (hasInspectTool ? (card: ToolCard, ownerIndex?: number): void => onInspectToolRef.current?.(card, ownerIndex) : undefined), [hasInspectTool]);
+	const executionPresentation = useMemo(() => ({ view: executionView, onInspectTool: inspectToolStable }), [executionView, inspectToolStable]);
+	// 行内容缓存域（profile/session/cwd/客户端）+ 跨条目工具批次缓存：换会话整体作废。
+	const cacheScope = `${receiptScope}:${clientStampOf(client)}`;
+	const batchItemCache = useRef<{ scope: string; items: Map<string, BatchItem> }>({ scope: "", items: new Map() });
+	if (batchItemCache.current.scope !== cacheScope) batchItemCache.current = { scope: cacheScope, items: new Map() };
+	const batchItems = batchItemCache.current.items;
 	const receiptSequence = useRef(0);
 	const [requestedReceipt, setRequestedReceipt] = useState<{ scope: string; toolId: string; ownerIndex?: number; requestId: number }>();
 	const receiptTarget = requestedReceipt?.scope === receiptScope ? requestedReceipt : undefined;
@@ -1585,11 +1713,11 @@ export function ChatStream({
 		return () => window.removeEventListener("owl-chat-appearance-change", update);
 	}, []);
 	const turnCard = useMemo(() => {
-		if (cwd === undefined || client === undefined || onOpenReview === undefined) return undefined;
+		if (cwd === undefined || client === undefined || openReviewStable === undefined) return undefined;
 		return (turnArtifacts: FileArtifact[]): React.JSX.Element | null => (
-			<TurnArtifacts artifacts={turnArtifacts} cwd={cwd} client={client} sessionId={sessionId} disabled={activity !== "idle"} onOpenFile={onOpenFile ?? (() => undefined)} onOpenReview={onOpenReview} />
+			<TurnArtifacts artifacts={turnArtifacts} cwd={cwd} client={client} sessionId={sessionId} disabled={activity !== "idle"} onOpenFile={openFileStable ?? (() => undefined)} onOpenReview={openReviewStable} />
 		);
-	}, [cwd, client, sessionId, activity, onOpenFile, onOpenReview]);
+	}, [cwd, client, sessionId, activity, openFileStable, openReviewStable]);
 	// 会话忙（生成/工具执行/提交中）：暂停重新生成与用户消息编辑，避免与运行中的轮次互相踩
 	const busy = activity !== "idle";
 	// 重新生成的目标 = 最后一条用户消息；它还没有 entryId（乐观行未确认）时无从回退，先不挂按钮
@@ -1609,23 +1737,25 @@ export function ChatStream({
 				onLocateAttachment,
 				searchTarget: activeSearch,
 				expandedTools,
-				onRewind,
+				onRewind: rewindStable,
 				cwd,
-				onOpenFile,
+				onOpenFile: openFileStable,
 				turnCard,
 				renderTurnArtifacts,
 				streaming: activity === "working",
 				runActive: activity === "working" || activity === "waiting",
 				canRegenerate,
-				onRegenerate,
-				onEditMessage,
-				onBranch,
-				onOpenAutomation,
-				onOpenSubagent,
+				onRegenerate: regenerateStable,
+				onEditMessage: editMessageStable,
+				onBranch: branchStable,
+				onOpenAutomation: openAutomationStable,
+				onOpenSubagent: openSubagentStable,
 				client,
 				busy,
+				cacheScope,
+				batchItems,
 			}),
-		[entries, sessionId, onLocateAttachment, activeSearch, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, activity, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, client, busy],
+		[entries, sessionId, onLocateAttachment, activeSearch, expandedTools, rewindStable, cwd, openFileStable, turnCard, renderTurnArtifacts, activity, canRegenerate, regenerateStable, editMessageStable, branchStable, openAutomationStable, openSubagentStable, client, busy, cacheScope, batchItems],
 	);
 	const rememberWorkReading = (): void => {
 		const el = container.current;
@@ -1913,7 +2043,6 @@ export function ChatStream({
 						{isStartPage && <StartPage client={startReady ? client : undefined} profile={startReady ? profile : undefined} />}
 						{rows.map((row) => <div key={row.key} data-entry-id={row.entryId} data-qidx={row.questionIndex} data-delivery-turn={row.deliveryTurn} data-owl-answer={row.answer ? "true" : undefined} className={row.questionIndex ? "owl-chat-question" : row.quiet ? "owl-chat-row owl-chat-row-quiet" : row.compact ? "owl-chat-row owl-chat-row-compact" : "owl-chat-row"}>{row.content}</div>)}
 						{artifacts != null && <div className="owl-chat-row owl-chat-row-quiet">{artifacts}</div>}
-						<ResponseActivity entries={entries} activity={activity} showStatus={!rows.some((row) => row.workRunning)} />
 					</div>
 				</main>
 			</div>

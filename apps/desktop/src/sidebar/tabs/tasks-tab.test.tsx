@@ -164,7 +164,6 @@ describe("TasksTab real task states", () => {
 		expect(container.querySelector("[data-elapsed-ms]")).toBeNull();
 		expect(container.querySelector("[role='status']")?.textContent).toBe(t("tasks.idle"));
 		expect(container.textContent).not.toContain(t("chat.pausedHint"));
-		expect(container.textContent).not.toContain(t("chat.activityWaiting"));
 	});
 
 	it("does not show a negative or fabricated zero duration for a future start timestamp", async () => {

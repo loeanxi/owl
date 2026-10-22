@@ -38,7 +38,7 @@
 	grid-row: 1;
 }
 
-.owl-desktop-shell .owl-chat-header .owl-view-tabs button {
+.owl-desktop-shell .owl-chat-header .owl-view-tabs .owl-view-tabs-trigger {
 	padding-inline: 12px;
 }
 

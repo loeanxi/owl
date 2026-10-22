@@ -492,6 +492,14 @@ html[data-owl-preset="quiet-light"] .owl-desktop-shell {
 }
 .owl-island-check:hover,
 .owl-island-check:focus-visible { background: rgb(255 255 255 / 14%); }
+/* 批量勾带着条数，撑成小胶囊；单勾保持 18px 圆。 */
+.owl-island-check.is-batch {
+	width: auto;
+	min-width: 18px;
+	padding: 0 5px;
+	font-size: 10px;
+	letter-spacing: 0.3px;
+}
 .owl-island.is-done .owl-island-face,
 .owl-island-row:has(.owl-island-check) { padding-right: 8px; }
 .owl-island-title {
@@ -575,6 +583,8 @@ html[data-owl-preset="quiet-light"] .owl-desktop-shell {
 .owl-island-block { --owl-island-state-color: var(--owl-island-accent); display: flex; flex-direction: column; }
 .owl-island[data-waiting="true"],
 .owl-island-block[data-waiting="true"] { --owl-island-state-color: #f1ca8c; }
+.owl-island[data-disconnected="true"],
+.owl-island-block[data-disconnected="true"] { --owl-island-state-color: #f5a3a3; }
 .owl-island[data-outcome="error"],
 .owl-island-block[data-outcome="error"] { --owl-island-state-color: #f5a3a3; }
 .owl-island[data-outcome="aborted"],
@@ -724,6 +734,7 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 
 /* 顶栏「对话/上下文」视图 tab（主区随 tab 切换，见 App.tsx conversationView） */
 .owl-view-tabs {
+	position: relative;
 	display: flex;
 	flex-shrink: 0;
 	align-items: center;
@@ -732,16 +743,73 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 	background: var(--owl-ui-sidebar);
 	border-radius: 8px;
 }
-.owl-view-tabs button {
+/* 默认只露出当前视图名；悬停弹出小列表切换。 */
+.owl-view-tabs .owl-view-tabs-trigger {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 6px 10px 6px 14px;
+	border-radius: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--owl-ui-text);
+	background: var(--owl-ui-panel);
+	white-space: nowrap;
+}
+.owl-view-tabs .owl-view-tabs-trigger:hover { background: var(--owl-ui-hover); }
+.owl-view-tabs .owl-view-tabs-trigger:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-view-tabs-chevron {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--owl-ui-muted);
+	transition: transform 0.15s ease;
+}
+.owl-view-tabs .owl-view-tabs-trigger.is-open .owl-view-tabs-chevron { transform: rotate(180deg); }
+.owl-view-tabs-popover {
+	position: absolute;
+	top: calc(100% + 5px);
+	left: 0;
+	z-index: 30;
+	min-width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 5px;
+	border: 1px solid var(--owl-ui-border);
+	border-radius: 8px;
+	background: var(--owl-ui-panel);
+	box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+}
+.owl-view-tabs-popover button {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 7px 11px;
+	border-radius: 5px;
+	font-size: 12px;
+	color: var(--owl-ui-muted);
+	white-space: nowrap;
+	text-align: left;
+}
+.owl-view-tabs-popover button:hover,
+.owl-view-tabs-popover button:focus-visible { background: var(--owl-ui-menu-hover); color: var(--owl-ui-text); }
+.owl-view-tabs-popover button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-view-tabs-popover button.is-current { color: var(--owl-ui-text); font-weight: 600; }
+.owl-view-tabs-label { overflow: hidden; text-overflow: ellipsis; }
+.owl-view-tabs-check { flex: none; width: 13px; height: 13px; color: var(--color-owl-accent); }
+/* 平铺 tab 行（专家面板头部的对话/上下文/轨迹）：保留原有的并排三键样式。 */
+.owl-view-tabs > button {
 	padding: 6px 17px;
 	border-radius: 6px;
 	font-size: 12px;
 	color: var(--owl-ui-muted);
 	white-space: nowrap;
 }
-.owl-view-tabs button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
-.owl-view-tabs button[aria-selected="true"] { background: var(--owl-ui-panel); color: var(--owl-ui-text); font-weight: 600; }
-.owl-view-tabs button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
+.owl-view-tabs > button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
+.owl-view-tabs > button[aria-selected="true"] { background: var(--owl-ui-panel); color: var(--owl-ui-text); font-weight: 600; }
+.owl-view-tabs > button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 
 /* 空闲时让阅读区安静；悬停/键盘聚焦仍有一次轻微回应，点击跳跃与工作姿势保留。 */
 .owl-desktop-shell .owl-mascot[data-pose="idle"] .owl-mascot-plumage,
@@ -1103,12 +1171,14 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-o
 	border-radius: 10px;
 	background: var(--owl-lg-well);
 }
-html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs button {
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs .owl-view-tabs-trigger {
 	border-radius: 8px;
-}
-html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs button[aria-selected="true"] {
 	background: var(--owl-lg-thumb);
 	box-shadow: var(--owl-lg-rim), 0 2px 8px rgb(0 0 0 / 12%);
+}
+html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-wallpaper="on"]) .owl-view-tabs-popover {
+	background: var(--owl-lg-well);
+	box-shadow: var(--owl-lg-rim), 0 10px 28px rgb(0 0 0 / 30%);
 }
 
 /* 对话区：阅读色改半透明，代码块/引用块透出底下的玻璃。 */

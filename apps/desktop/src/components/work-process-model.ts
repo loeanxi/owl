@@ -1,4 +1,4 @@
-import { summarizeToolCall } from "../hooks/summarize.ts";
+import { isInvalidToolCall, summarizeToolCall } from "../hooks/summarize.ts";
 import type { ToolCard } from "../hooks/transcript.ts";
 import { workProcessText } from "./work-process-copy.ts";
 
@@ -99,7 +99,9 @@ export function workActionFacts(actions: readonly WorkAction[]): {
 			if (operation !== undefined) laterSuccesses.add(operation);
 		} else if (operation !== undefined && laterSuccesses.has(operation)) {
 			recovered.push(action);
-		} else {
+		} else if (!isInvalidToolCall(card.output?.text)) {
+			// 调用本身无效（工具不存在、参数没通过校验）是模型的探索与自我修正，不是任务失败：
+			// 下一次调用就会用对的工具或对的参数，不该在界面上留下「失败记录」。
 			issues.push(action);
 		}
 	}

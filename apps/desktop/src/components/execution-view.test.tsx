@@ -261,15 +261,17 @@ it.each(["normal", "thinking", "verbose"] as ExecutionView[])("keeps progress, t
 		assistant("discovery", [tool("edit")], { text: "发现状态误判，接着修复分支。", segments: [{ kind: "text", text: "发现状态误判，接着修复分支。" }, { kind: "tool", toolId: "edit" }] }),
 		assistant("final", [], { text: "已修复，结果如下。" }),
 	) });
-	const sequence = [...host.querySelector(".owl-chat-column")!.children].flatMap((row) => row.querySelector('[data-work-kind="note"]') ? [row.textContent?.trim()] : row.querySelector(".owl-work-process") ? ["tool-group"] : []);
-	expect(sequence).toEqual(["先检查当前实现。", "tool-group", "发现状态误判，接着修复分支。", "tool-group"]);
+	const sequence = [...host.querySelector(".owl-chat-column")!.children].flatMap((row) => row.querySelector(".owl-work-process") ? [...row.querySelectorAll(".owl-work-process-body > .owl-work-process-item")].map((item) => item.getAttribute("data-work-kind") === "note" ? "note:" + item.textContent?.trim() : "tool-group") : []);
+	// 一轮只有一个折叠行：说明与工具组同处其中，并按真实顺序交错。
+	// 折叠状态下工具行收起，公开进展仍然可见。
+	expect(sequence).toEqual(executionView === "verbose" ? ["note:先检查当前实现。", "tool-group", "note:发现状态误判，接着修复分支。", "tool-group"] : ["note:先检查当前实现。", "note:发现状态误判，接着修复分支。"]);
 	expect(visibleText()).toContain("先检查当前实现。");
 	expect(visibleText()).toContain("发现状态误判，接着修复分支。");
 	expect(host.querySelectorAll('[data-owl-answer="true"]')).toHaveLength(1);
 	expect(host.querySelector('[data-owl-answer="true"]')?.textContent).toContain("已修复，结果如下。");
 	if (executionView !== "verbose") {
 		expect(host.querySelectorAll(".owl-work-history-toggle")).toHaveLength(0);
-		expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(2);
+		expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(1);
 		expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
 	}
 });

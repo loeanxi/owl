@@ -474,6 +474,7 @@ export function Composer({
 	connected,
 	disabled,
 	running,
+	turnRate,
 	paused = false,
 	hideEnvironment = false,
 	environmentAccessory,
@@ -519,12 +520,15 @@ export function Composer({
 	onQueueChange,
 	followUp,
 	hideMascot = false,
+	questionPending = false,
 }: {
 	client: BridgeClient;
 	/** 桥连接状态：本地 chip 上展示运行环境健康度。 */
 	connected: boolean;
 	disabled: boolean;
 	running: boolean;
+	/** 本轮最近一条可测速回复的 tok/s（流式中为估算）。并入上下文计数展示，undefined 表示暂时测不了。 */
+	turnRate?: { tps: number; estimated: boolean };
 	/** 当前会话处于「已暂停」态：按钮显示继续，点击可从中断处接着跑。 */
 	paused?: boolean;
 	/** Hide secondary environment controls while the active conversation needs attention. */
@@ -544,6 +548,8 @@ export function Composer({
 	followUp?: { user: string; assistant: string };
 	/** 输入框上方已经有排队或任务清单时，把沿口上的猫头鹰收起来。 */
 	hideMascot?: boolean;
+	/** 上方贴着待答题卡片时同样让位：吉祥物探出沿口会压住卡片底边和「展开」。 */
+	questionPending?: boolean;
 	onAbort: () => void;
 	/** 提供时运行中按钮显示「暂停」而不是直接中止。 */
 	onPause?: () => void;
@@ -1520,7 +1526,7 @@ export function Composer({
 		`${modelDisplayName(providers, model, t("composer.defaultModel"))} · ${thinkingName}`,
 	].filter(Boolean).join(" · ");
 	const settingsTitle = `${settingsSummary}\n${approvalMode === "auto" ? `${t("composer.owlAutoWarning")}\n` : ""}${t("composer.owlSettings")}`;
-	const mascotHidden = hideMascot || Boolean(queued?.steering.length || queued?.followUp.length);
+	const mascotHidden = hideMascot || questionPending || Boolean(queued?.steering.length || queued?.followUp.length);
 
 	return (
 		<div
@@ -1752,6 +1758,7 @@ export function Composer({
 									<span>{contextTokens !== null ? formatTokens(contextTokens) : sessionInfo?.contextUsage ? "—" : "0"}</span>
 									{contextWindow ? <span className="owl-context-gauge__capacity">/ {formatTokens(contextWindow)}</span> : null}
 									{percent !== null && percent >= 60 ? <span className="owl-context-gauge__percent">{Math.round(percent)}%</span> : null}
+									{running && turnRate ? <span className="owl-context-gauge__rate">{t(turnRate.estimated ? "chat.activityTpsEstimated" : "chat.activityTps", { n: formatTokens(Math.floor(turnRate.tps)) })}</span> : null}
 								</>
 							}
 						>

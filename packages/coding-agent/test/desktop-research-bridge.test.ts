@@ -188,7 +188,8 @@ it("keeps ordinary and research scopes separate through the real bridge and rest
 		expect(observed[0].mode).toBeUndefined();
 		expect(observed[0].instructions).toBeUndefined();
 		expect(observed[0].tools).not.toContain(RESEARCH_PUBLISH_TOOL);
-		expect(observed[0].tools).not.toContain(RESEARCH_REA_TOOL);
+		// 普通对话借用 REA 静态分析能力，研究工作台专属工具仍然不注册。
+		expect(observed[0].tools).toContain(RESEARCH_REA_TOOL);
 		for (const tool of [RESEARCH_EXECUTABLE_TOOL, RESEARCH_DECOMPILE_TOOL, RESEARCH_MODEL_LAB_TOOL]) {
 			expect(observed[0].tools).not.toContain(tool);
 		}

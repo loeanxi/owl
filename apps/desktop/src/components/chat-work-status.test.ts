@@ -43,7 +43,7 @@ function render(entries: ChatEntry[], activity: "idle" | "working" | "waiting" =
 }
 
 describe("chat work segment status", () => {
-	it("keeps the current action visible while usage metrics stay in expandable details", () => {
+	it("renders no global activity status row; state text lives in the island and composer", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([], {
@@ -51,17 +51,8 @@ describe("chat work segment status", () => {
 				stream: { firstAt: 1000, lastAt: 3000, estTokens: 40 },
 			}),
 		];
-		const { document } = parseHTML(render(entries).html);
-		const status = document.querySelector('.owl-response-label[role="status"]');
-		const details = document.querySelector("details.owl-response-details");
-		expect(status?.textContent).toBe("正在生成回答");
-		expect(status?.closest("details")).toBeNull();
-		expect(details?.hasAttribute("open")).toBe(false);
-		expect(details?.querySelector("summary")?.getAttribute("aria-label")).toBe("本轮累计 200 tok（含缓存） · 1 次调用");
-		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("输出 40 / 总 200 tokens");
-		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("~20 tok/s");
-		expect(details?.querySelector(".owl-response-usage")?.textContent).toContain("未缓存输入 100 · 输出 40 · 缓存读 60 · 缓存写 0");
-		expect(parseHTML(render(entries, "waiting").html).document.querySelector(".owl-response-label")?.textContent).toBe("等待你的确认或回答");
+		expect(parseHTML(render(entries).html).document.querySelector(".owl-response-activity")).toBeNull();
+		expect(parseHTML(render(entries, "waiting").html).document.querySelector(".owl-response-activity")).toBeNull();
 	});
 
 	it("keeps the same usage details on the completed answer actions, aligned to the right", () => {
@@ -86,7 +77,7 @@ describe("chat work segment status", () => {
 		expect(footer?.lastElementChild).toBe(details);
 	});
 
-	it.each(["working", "waiting"] as const)("splits at public progress while only the current segment owns the live timer during %s", (activity) => {
+	it.each(["working", "waiting"] as const)("keeps one live timer for the turn when public progress sits inside the work process during %s", (activity) => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "running")], {
@@ -95,9 +86,11 @@ describe("chat work segment status", () => {
 			}),
 		];
 		const { labels, live } = render(entries, activity);
-		expect(labels).toHaveLength(2);
+		// 公开进展并进工作过程后，一轮只有一个折叠行，也只有一个计时器：
+		// 已完成的 5s 与仍在跑的 24s 合起来是本轮连续工作的 29s。
+		expect(labels).toHaveLength(1);
 		expect(live).toHaveLength(1);
-		expect(labels).toEqual(["工作了 5s", "正在工作 24s"]);
+		expect(labels).toEqual(["正在工作 29s"]);
 	});
 
 	it("does not revive a sealed segment even when its tool has a stale running status", () => {
@@ -109,9 +102,9 @@ describe("chat work segment status", () => {
 			}),
 		];
 		expect(render(entries).live).toHaveLength(1);
-		expect(render(entries).labels).toEqual(["工作了 5s", "正在工作 24s"]);
+		expect(render(entries).labels).toEqual(["正在工作 29s"]);
 		vi.setSystemTime(45_000);
-		expect(render(entries).labels).toEqual(["工作了 5s", "正在工作 39s"]);
+		expect(render(entries).labels).toEqual(["正在工作 44s"]);
 	});
 
 	it("keeps a paused segment fixed and starts continuation timing after the pause", () => {
@@ -155,7 +148,7 @@ describe("chat work segment status", () => {
 		expect(render(entries, "idle").labels).toEqual(["工作了 9s"]);
 	});
 
-	it("keeps visible segments on their separate timing origins", () => {
+	it("keeps one timing origin for the turn when public progress sits inside the work process", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "ok", 9000)], {
@@ -163,7 +156,8 @@ describe("chat work segment status", () => {
 				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
 			}),
 		];
-		expect(render(entries, "idle").labels).toEqual(["工作了 5s", "工作了 3s"]);
+		// 一轮只有一个折叠行，耗时按本轮连续工作时间合并（5s + 3s = 8s）。
+		expect(render(entries, "idle").labels).toEqual(["工作了 8s"]);
 	});
 
 	it("uses the real continuation run boundary even without a new user or an aborted message", () => {

@@ -74,6 +74,17 @@ Pi accepts some standalone Markdown skills, but a directory containing `SKILL.md
 
 Project skills can instruct the model to run scripts or modify files. Review unfamiliar skills and their supporting files before granting project trust.
 
+## Bundled skills
+
+Some skills ship with the app and are copied into the global scope (`~/.owl/skills/` by default, next to the agent dir) on every start:
+
+| Skill | Purpose |
+|---|---|
+| `html-plan` | Write an implementation plan as one interactive HTML page. |
+| `control-in-app-browser` | Drive the desktop app's right-sidebar browser. See [Drive the Desktop Browser](browser-control.md). |
+
+A bundled copy is refreshed on every start, so edits made directly in `~/.owl/skills/` are overwritten. Disabling a bundled skill still sticks: the `disable-model-invocation: true` switch is re-applied after the refresh, and `/skill:name` keeps working.
+
 ## Write portable frontmatter
 
 The Agent Skills specification defines these fields:

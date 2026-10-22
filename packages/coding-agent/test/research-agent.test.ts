@@ -101,6 +101,8 @@ describe("research conversation and result contract", () => {
 	});
 
 	it("does not add research tools or research instructions to ordinary Agent sessions", async () => {
+		// 这里验证的是研究扩展自身不泄漏：普通对话的 REA 静态分析由静态分析扩展提供，
+		// 见 test/research-rea-static-analysis.test.ts。
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("普通回答")]);

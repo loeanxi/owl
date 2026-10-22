@@ -1222,6 +1222,7 @@ export function MyselfPanel({
 					connected={connected}
 					disabled={!connected || !chat.ready || chat.running || chat.busy || saving}
 					running={chat.running}
+					questionPending={Boolean(sessionQuestions[0])}
 					onSend={(value, images, attachedPaths) => {
 						void sendChat(value, images, attachedPaths);
 					}}

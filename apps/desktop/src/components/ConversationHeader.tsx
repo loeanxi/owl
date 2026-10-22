@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/index.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { IconDownload, IconFolder, IconPanelBottom, IconPanelRight } from "../sidebar/icons.tsx";
@@ -10,6 +10,8 @@ export type SessionExportFormat = "jsonl" | "markdown";
 
 const exportItemClass =
 	"flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-owl-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent";
+
+const VIEW_OPTIONS = ["chat", "context", "trajectory"] as const satisfies readonly ConversationView[];
 
 /** Shared conversation chrome for ordinary and research sessions. */
 export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, sessionId, exporting, onExport, onExportTurns, actions }: {
@@ -37,6 +39,47 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 }): React.JSX.Element {
 	const t = useT();
 	useProjectSidebarRevision();
+	const viewLabels: Record<ConversationView, string> = {
+		chat: t("app.viewChat"),
+		context: t("app.viewContext"),
+		trajectory: t("app.viewTrajectory"),
+	};
+	// 视图切换收进悬停小列表：默认只露出当前视图名，降低顶栏常驻按钮。
+	const [viewMenuOpen, setViewMenuOpen] = useState(false);
+	const viewMenuRootRef = useRef<HTMLDivElement>(null);
+	const viewMenuCloseTimer = useRef<number | null>(null);
+
+	useEffect(() => () => {
+		if (viewMenuCloseTimer.current !== null) window.clearTimeout(viewMenuCloseTimer.current);
+	}, []);
+
+	useEffect(() => {
+		if (!viewMenuOpen) return;
+		const onPointerDown = (event: MouseEvent): void => {
+			if (!viewMenuRootRef.current?.contains(event.target as Node)) setViewMenuOpen(false);
+		};
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") setViewMenuOpen(false);
+		};
+		document.addEventListener("mousedown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [viewMenuOpen]);
+
+	const openViewMenu = (): void => {
+		if (viewMenuCloseTimer.current !== null) {
+			window.clearTimeout(viewMenuCloseTimer.current);
+			viewMenuCloseTimer.current = null;
+		}
+		setViewMenuOpen(true);
+	};
+	const scheduleCloseViewMenu = (): void => {
+		if (viewMenuCloseTimer.current !== null) window.clearTimeout(viewMenuCloseTimer.current);
+		viewMenuCloseTimer.current = window.setTimeout(() => setViewMenuOpen(false), 150);
+	};
 	return <header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
 		<div className="owl-shell-header-info">
 			<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={title}>{title}</h1>
@@ -51,10 +94,40 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 				<span className="owl-shell-project" title={workspaceDir}><IconFolder size={12} /><span className="owl-shell-project-label">{getProjectDisplayName(workspaceDir)}</span></span>
 			)}
 		</div>
-		<div className="owl-view-tabs" role="tablist" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false">
-			<button type="button" role="tab" aria-selected={view === "chat"} title={t("app.viewChat")} onClick={() => onViewChange("chat")}>{t("app.viewChat")}</button>
-			<button type="button" role="tab" aria-selected={view === "context"} title={t("composer.context")} onClick={() => onViewChange("context")}>{t("composer.context")}</button>
-			<button type="button" role="tab" aria-selected={view === "trajectory"} title={t("app.viewTrajectory")} onClick={() => onViewChange("trajectory")}>{t("app.viewTrajectory")}</button>
+		<div className="owl-view-tabs" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false" ref={viewMenuRootRef} onMouseEnter={openViewMenu} onMouseLeave={scheduleCloseViewMenu}>
+			<button
+				type="button"
+				className={`owl-view-tabs-trigger${viewMenuOpen ? " is-open" : ""}`}
+				title={t("app.viewSwitchTitle")}
+				aria-haspopup="menu"
+				aria-expanded={viewMenuOpen}
+				onClick={() => setViewMenuOpen((value) => !value)}
+			>
+				{viewLabels[view]}
+				<svg className="owl-view-tabs-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 6l4 4 4-4" /></svg>
+			</button>
+			{viewMenuOpen && (
+				<div className="owl-view-tabs-popover" role="menu">
+					{VIEW_OPTIONS.map((candidate) => (
+						<button
+							key={candidate}
+							type="button"
+							role="menuitemradio"
+							aria-checked={candidate === view}
+							className={candidate === view ? "is-current" : undefined}
+							onClick={() => {
+								setViewMenuOpen(false);
+								onViewChange(candidate);
+							}}
+						>
+							<span className="owl-view-tabs-label">{viewLabels[candidate]}</span>
+							{candidate === view && (
+								<svg className="owl-view-tabs-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 8.5l3.5 3.5L13 5" /></svg>
+							)}
+						</button>
+					))}
+				</div>
+			)}
 		</div>
 		<div className="owl-shell-header-actions" data-tauri-drag-region="false">
 			{actions !== undefined ? actions : <>

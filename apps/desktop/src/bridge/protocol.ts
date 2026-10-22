@@ -127,6 +127,7 @@ export type {
 	SessionTurnsResult,
 	SessionStatsRequest,
 	SessionStatsResult,
+	ModelFallbackNotice,
 	SessionRunningRequest,
 	SessionRunningResult,
 	SettingsGetRequest,

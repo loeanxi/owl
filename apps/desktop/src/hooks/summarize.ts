@@ -64,14 +64,31 @@ export function exitCodeOf(output: string | undefined): number | undefined {
 const GATE_SNAPSHOT_MARKER = "[Current file content follows. It counts as your read of this file";
 
 /**
+ * 调用本身无效的两种形态：工具名不存在、参数没通过校验。
+ * 两者都说明「这次调用没成立」，而不是「任务这一步失败了」——模型下一次会用对的参数或对的工具再来。
+ */
+const TOOL_NOT_FOUND_PATTERN = /^Tool\s+\S+\s+not found\./;
+const TOOL_ARGUMENT_INVALID_PATTERN = /^Validation failed for tool\s+"[^"]+":/;
+
+/** 工具名不存在或参数校验不通过：模型的探索与自我修正，不算任务失败。 */
+export function isInvalidToolCall(outputText: string | undefined): boolean {
+	if (!outputText) return false;
+	const text = outputText.trimStart();
+	return TOOL_NOT_FOUND_PATTERN.test(text) || TOOL_ARGUMENT_INVALID_PATTERN.test(text);
+}
+
+/**
  * 出错工具调用的种类：
  * - exit：shell 命令跑完了、有输出，只是退出码非零（多为 grep 没搜到），不算失败；
  *   126/127（不可执行/找不到命令）仍是真失败；
  * - blocked：写入守卫拦下并已把当前内容交给模型，下一次调用即可成功；
+ * - invalid：调用本身无效（工具不存在、参数没通过校验）。模型在探索工具面时
+ *   会先撞一次再改对，这属于自我修正，不是任务失败，不计入「N 条失败记录」；
  * - failed：其它真失败。
  */
-export function errorKindOf(name: string, outputText: string | undefined): "exit" | "blocked" | "failed" {
+export function errorKindOf(name: string, outputText: string | undefined): "exit" | "blocked" | "invalid" | "failed" {
 	if (outputText?.includes(GATE_SNAPSHOT_MARKER)) return "blocked";
+	if (isInvalidToolCall(outputText)) return "invalid";
 	if (name === "bash" || name === "powershell") {
 		const code = exitCodeOf(outputText);
 		const printed = outputText?.replace(/Command exited with code \d+/g, "").trim();

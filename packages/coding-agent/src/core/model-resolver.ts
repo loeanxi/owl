@@ -606,10 +606,67 @@ export function resolveCliModel(options: {
 	};
 }
 
+/**
+ * Why a saved model selection could not be used again.
+ *
+ * - `model-missing`: the catalog no longer contains it (provider removed the model, account switch, offline catalog).
+ * - `no-auth`: the model exists but its provider has no usable credential.
+ */
+export interface ModelFallback {
+	reason: "model-missing" | "no-auth";
+	/** The model the session (or settings) asked for. */
+	saved: { provider: string; id: string };
+	/** The model actually selected instead. */
+	used: { provider: string; id: string };
+	/** True when the replacement lives on another provider — the most surprising case for the user. */
+	crossProvider: boolean;
+}
+
+/**
+ * Pick the replacement for a saved selection that can no longer be used.
+ *
+ * The order is explicit so a fallback never drifts to whichever provider happens to
+ * come first in the catalog (which made an account switch silently move a session
+ * onto an unrelated vendor):
+ *   1. the saved provider's declared default model
+ *   2. the saved provider's first available model
+ *   3. any provider's declared default, in `defaultModelPerProvider` order
+ *   4. the first available model — only when nothing declared a default
+ *
+ * `allowOtherProviders: false` stops after step 2, so a caller can decide for itself
+ * whether leaving the provider is acceptable (the host prefers the user's own default).
+ */
+export function pickFallbackModel(
+	savedProvider: string,
+	availableModels: readonly Model<Api>[],
+	options?: { allowOtherProviders?: boolean },
+): Model<Api> | undefined {
+	if (availableModels.length === 0) return undefined;
+
+	const sameProvider = availableModels.filter((model) => model.provider === savedProvider);
+	const declaredForSaved = defaultModelPerProvider[savedProvider as KnownProvider];
+	if (declaredForSaved) {
+		const declared = sameProvider.find((model) => model.id === declaredForSaved);
+		if (declared) return declared;
+	}
+	if (sameProvider.length > 0) return sameProvider[0];
+	if (options?.allowOtherProviders === false) return undefined;
+
+	for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
+		const defaultId = defaultModelPerProvider[provider];
+		const match = availableModels.find((model) => model.provider === provider && model.id === defaultId);
+		if (match) return match;
+	}
+
+	return availableModels[0];
+}
+
 export interface InitialModelResult {
 	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
 	fallbackMessage: string | undefined;
+	/** Structured form of `fallbackMessage`; set only when a saved selection was replaced. */
+	fallback?: ModelFallback;
 }
 
 /**
@@ -658,7 +715,13 @@ export async function findInitialModel(options: {
 			process.exit(1);
 		}
 		if (resolved.model) {
-			return { model: resolved.model, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+			// Keep the thinking level parsed from `--model <pattern>:<level>`; dropping it here
+			// silently downgraded an explicit `:high` request to the default level.
+			return {
+				model: resolved.model,
+				thinkingLevel: resolved.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
+				fallbackMessage: undefined,
+			};
 		}
 	}
 
@@ -688,21 +751,12 @@ export async function findInitialModel(options: {
 		}
 	}
 
-	// 4. Try first available model with valid API key
+	// 4. Fall back to a declared provider default, in an explicit order
 	const availableModels = [...modelRuntime.getAvailableSnapshot()];
 
 	if (availableModels.length > 0) {
-		// Try to find a default model from known providers
-		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
-			const defaultId = defaultModelPerProvider[provider];
-			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
-			if (match) {
-				return { model: match, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
-			}
-		}
-
-		// If no default found, use first available
-		return { model: availableModels[0], thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
+		const fallbackModel = pickFallbackModel("", availableModels)!;
+		return { model: fallbackModel, thinkingLevel: DEFAULT_THINKING_LEVEL, fallbackMessage: undefined };
 	}
 
 	// 5. No model found
@@ -718,7 +772,13 @@ export async function restoreModelFromSession(
 	currentModel: Model<Api> | undefined,
 	shouldPrintMessages: boolean,
 	modelRuntime: ModelRuntime,
-): Promise<{ model: Model<Api> | undefined; fallbackMessage: string | undefined }> {
+	/**
+	 * `autoFallback: false` reports why the saved model is unusable and stops there,
+	 * leaving the choice of a replacement to the caller. The host uses this so the
+	 * user's own default model (settings) wins over a hardcoded provider order.
+	 */
+	options?: { autoFallback?: boolean },
+): Promise<{ model: Model<Api> | undefined; fallbackMessage: string | undefined; fallback?: ModelFallback }> {
 	const restoredModel = modelRuntime.getModel(savedProvider, savedModelId);
 
 	// Check if restored model exists and still has auth configured
@@ -732,10 +792,11 @@ export async function restoreModelFromSession(
 	}
 
 	// Model not found or no API key - fall back
-	const reason = !restoredModel ? "model no longer exists" : "no auth configured";
+	const reason: ModelFallback["reason"] = !restoredModel ? "model-missing" : "no-auth";
+	const reasonText = !restoredModel ? "model no longer exists" : "no auth configured";
 
 	if (shouldPrintMessages) {
-		console.error(chalk.yellow(`Warning: Could not restore model ${savedProvider}/${savedModelId} (${reason}).`));
+		console.error(chalk.yellow(`Warning: Could not restore model ${savedProvider}/${savedModelId} (${reasonText}).`));
 	}
 
 	// If we already have a model, use it as fallback
@@ -745,40 +806,59 @@ export async function restoreModelFromSession(
 		}
 		return {
 			model: currentModel,
-			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${currentModel.provider}/${currentModel.id}.`,
+			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reasonText}). Using ${currentModel.provider}/${currentModel.id}.`,
+			fallback: buildModelFallback(
+				reason,
+				{ provider: savedProvider, id: savedModelId },
+				{ provider: currentModel.provider, id: currentModel.id },
+			),
 		};
 	}
 
-	// Try to find any available model
-	const availableModels = [...modelRuntime.getAvailableSnapshot()];
+	// Fall back in an explicit order: same provider first, then declared defaults.
+	// Unless the caller decides the replacement itself.
+	if (options?.autoFallback === false) {
+		return {
+			model: undefined,
+			fallbackMessage: undefined,
+			fallback: buildModelFallback(
+				reason,
+				{ provider: savedProvider, id: savedModelId },
+				{
+					provider: savedProvider,
+					id: savedModelId,
+				},
+			),
+		};
+	}
 
-	if (availableModels.length > 0) {
-		// Try to find a default model from known providers
-		let fallbackModel: Model<Api> | undefined;
-		for (const provider of Object.keys(defaultModelPerProvider) as KnownProvider[]) {
-			const defaultId = defaultModelPerProvider[provider];
-			const match = availableModels.find((m) => m.provider === provider && m.id === defaultId);
-			if (match) {
-				fallbackModel = match;
-				break;
-			}
-		}
+	const fallbackModel = pickFallbackModel(savedProvider, modelRuntime.getAvailableSnapshot());
 
-		// If no default found, use first available
-		if (!fallbackModel) {
-			fallbackModel = availableModels[0];
-		}
-
+	if (fallbackModel) {
 		if (shouldPrintMessages) {
 			console.log(chalk.dim(`Falling back to: ${fallbackModel.provider}/${fallbackModel.id}`));
 		}
 
 		return {
 			model: fallbackModel,
-			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reason}). Using ${fallbackModel.provider}/${fallbackModel.id}.`,
+			fallbackMessage: `Could not restore model ${savedProvider}/${savedModelId} (${reasonText}). Using ${fallbackModel.provider}/${fallbackModel.id}.`,
+			fallback: buildModelFallback(
+				reason,
+				{ provider: savedProvider, id: savedModelId },
+				{ provider: fallbackModel.provider, id: fallbackModel.id },
+			),
 		};
 	}
 
 	// No models available
 	return { model: undefined, fallbackMessage: undefined };
+}
+
+/** Build the structured (UI-facing) form of a model fallback. */
+export function buildModelFallback(
+	reason: ModelFallback["reason"],
+	saved: { provider: string; id: string },
+	used: { provider: string; id: string },
+): ModelFallback {
+	return { reason, saved, used, crossProvider: saved.provider !== used.provider };
 }

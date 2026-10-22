@@ -7,8 +7,8 @@ import { applyPermissionQueueEvent, approvalModeFromEvent } from "./bridge/permi
 import { PendingResponses, PendingResponsesContext } from "./bridge/pending-responses.ts";
 import { describeToolInput } from "./hooks/summarize.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen, startDebugRebuild } from "./bridge/native.ts";
-import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
+import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, ModelFallbackNotice as ModelFallbackNoticePayload, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
+import { applyEvent, applyRetryEvent, outputRate, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
 import { useSubagents } from "./hooks/use-subagents.ts";
 import { useStartRecentSessions } from "./hooks/use-start-recent-sessions.ts";
 import { createFrameBatcher, isStreamingDeltaEvent } from "./hooks/event-batch.ts";
@@ -55,6 +55,7 @@ import { ConversationHeader, type ConversationView, type SessionExportFormat } f
 import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerDraftRequest, type ComposerImage } from "./components/Composer.tsx";
 import { TaskRecoveryNotice } from "./components/TaskRecoveryNotice.tsx";
+import { ModelFallbackNotice } from "./components/ModelFallbackNotice.tsx";
 import { continueTask, taskRecovery } from "./hooks/task-recovery.ts";
 import { messageInputOf } from "./hooks/message-input.ts";
 import { useModelSelection } from "./hooks/use-model-selection.ts";
@@ -141,6 +142,7 @@ const TERMINAL_OPEN_KEY = "owl.terminal.open";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
 const EXECUTION_VIEW_KEY = "owl.execution.view";
+const EXECUTION_TOOLBAR_COLLAPSED_KEY = "owl.execution.toolbarCollapsed";
 const RESEARCH_CONVERSATION_VIEW_KEY = "owl.research.conversation.view";
 const ZOOM_KEY = "owl.ui.zoom";
 /** 缩放挡位（对照浏览器 Ctrl+- / Ctrl+Shift+= / Ctrl+0），实际大小 = 1。 */
@@ -242,6 +244,15 @@ export default function App(): React.JSX.Element {
 	const deliverySequence = useRef(0);
 	const [projectRestoring, setProjectRestoring] = useState<{ scope: "chat" | "research"; path: string; token: number }>();
 	const [projectNotice, setProjectNotice] = useState<string>();
+	// 会话打开在途/失败：打开历史会话时给一行状态，失败给重试入口（silent 的自动恢复也能看到）。
+	// 项目恢复已有 projectRestoring 提示，openSession 在那条路上不再重复设置。
+	const [sessionOpening, setSessionOpening] = useState<{ id: string; token: number }>();
+	const [sessionOpenFailed, setSessionOpenFailed] = useState<{ id: string; message: string }>();
+	/**
+	 * 已忽略的模型替换提示。按「原模型 → 现在的模型」记，所以同一个替换只提示一次，
+	 * 而切到别的会话、或又换到一个新模型时会重新提示。
+	 */
+	const [dismissedModelFallbacks, setDismissedModelFallbacks] = useState<string[]>([]);
 	const [activityRailCollapsed, setActivityRailCollapsed] = useState(() => {
 		try { return localStorage.getItem(ACTIVITY_RAIL_COLLAPSED_KEY) === "1"; } catch { return false; }
 	});
@@ -453,6 +464,16 @@ export default function App(): React.JSX.Element {
 	const setExecutionViewPersisted = (view: ExecutionView): void => {
 		setExecutionView(view);
 		try { localStorage.setItem(EXECUTION_VIEW_KEY, view); } catch { /* Display remains usable without persistence. */ }
+	};
+	const [executionToolbarCollapsed, setExecutionToolbarCollapsed] = useState(() => {
+		try { return localStorage.getItem(EXECUTION_TOOLBAR_COLLAPSED_KEY) === "1"; } catch { return false; }
+	});
+	const toggleExecutionToolbar = (): void => {
+		setExecutionToolbarCollapsed((current) => {
+			const next = !current;
+			try { localStorage.setItem(EXECUTION_TOOLBAR_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* The toggle stays usable without persistence. */ }
+			return next;
+		});
 	};
 	const [appKeybindings, setAppKeybindings] = useState(() => loadAppKeybindings(localStorage));
 	const appKeybindingsRef = useRef(appKeybindings);
@@ -1360,6 +1381,18 @@ export default function App(): React.JSX.Element {
 		return { provider: value.slice(0, slash), model: value.slice(slash + 1) };
 	}
 
+	/** 模型替换提示的去重键：同一个「原模型 → 新模型」只提一次。 */
+	function modelFallbackKey(fallback: ModelFallbackNoticePayload): string {
+		return `${fallback.saved.provider}/${fallback.saved.id}->${fallback.used.provider}/${fallback.used.id}`;
+	}
+
+	/** 当前要展示的模型替换提示（已点过「知道了」的不再出现）。 */
+	const modelFallbackNotice = useMemo(() => {
+		const fallback = sessionInfo?.modelFallback;
+		if (!fallback) return undefined;
+		return dismissedModelFallbacks.includes(modelFallbackKey(fallback)) ? undefined : fallback;
+	}, [sessionInfo?.modelFallback, dismissedModelFallbacks]);
+
 	// 会话状态（模型/思考/上下文用量）：创建、恢复、每轮对话结束后刷新。
 	async function refreshStats(id?: string): Promise<void> {
 		const target = id ?? sessionIdRef.current;
@@ -1500,6 +1533,8 @@ export default function App(): React.JSX.Element {
 		setSearchTarget(undefined);
 		setProjectNotice(undefined);
 		setProjectRestoring(undefined);
+		setSessionOpening(undefined);
+		setSessionOpenFailed(undefined);
 		setSubagentSelection(undefined);
 		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
@@ -1540,6 +1575,8 @@ export default function App(): React.JSX.Element {
 	const resetToWorkspace = async (path: string): Promise<boolean> => {
 		if (!await prepareWorkspaceChange(path)) return false;
 		setProjectRestoring(undefined);
+		setSessionOpening(undefined);
+		setSessionOpenFailed(undefined);
 		setSearchHistory(undefined);
 		sessionViewSeq.current += 1;
 		sessionIdRef.current = undefined;
@@ -1613,15 +1650,10 @@ export default function App(): React.JSX.Element {
 		const currentId = scope === "research" ? researchSessionIdRef.current : sessionIdRef.current;
 		if (samePath(path, currentPath) && currentId) return;
 		const profile = agentDirRef.current;
-		if (scope === "research") {
-			resetResearchWorkspace(path);
-			setResearchWorkspaceSelected(true);
-			localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
-		} else {
-			if (!await resetToWorkspace(path)) return;
-			setWorkspaceSelected(true);
-			localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
-		}
+		// 查到目标会话之前不动现有画面：先只作废在途会话视图，等会话数据就绪后由
+		// openSession 一次性换屏。先清空（旧 resetToWorkspace 路径）会让 ChatStream 的
+		// key 短暂落到起始页再重建，看起来是整屏闪一下。
+		sessionViewSeq.current += 1;
 		const token = sessionViewSeq.current;
 		setProjectRestoring({ scope, path, token });
 		setProjectNotice(undefined);
@@ -1631,13 +1663,15 @@ export default function App(): React.JSX.Element {
 			if (!response.ok || !response.result) throw new Error(response.error ?? t("app.projectRestoreFailed"));
 			const choice = resolveProjectSession(localStorage, profile, scope, path, response.result);
 			if (scope === "research") {
+				try { if (choice.sessionId) localStorage.setItem(researchSessionKey(path), choice.sessionId); else localStorage.removeItem(researchSessionKey(path)); } catch { /* The explicit resume request is authoritative. */ }
+				resetResearchWorkspace(path);
+				setResearchWorkspaceSelected(true);
+				localStorage.setItem(RESEARCH_WORKSPACE_SELECTED_KEY, "1");
 				if (choice.sessionId) {
-					try { localStorage.setItem(researchSessionKey(path), choice.sessionId); } catch { /* The explicit resume request is authoritative. */ }
 					pendingResearchRestoreId.current = choice.sessionId;
 					setResearchSessionId(choice.sessionId);
 					setResearchResumeRequest({ id: choice.sessionId, revision: ++researchActionSequence.current });
 				} else {
-					try { localStorage.removeItem(researchSessionKey(path)); } catch { /* Controller reset also clears the in-memory binding. */ }
 					setResearchNewConversationRequest((current) => current + 1);
 				}
 			} else if (choice.sessionId) {
@@ -1645,6 +1679,13 @@ export default function App(): React.JSX.Element {
 				const restoreSeq = sessionViewSeq.current;
 				await opening;
 				if (restoreSeq !== sessionViewSeq.current || sessionIdRef.current !== choice.sessionId) return;
+				setWorkspaceSelected(true);
+				localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
+			} else {
+				// 该项目没有可恢复的会话：唯一需要清屏的情况，落到绑定新目录的全新起始页。
+				if (!await resetToWorkspace(path)) return;
+				setWorkspaceSelected(true);
+				localStorage.setItem(WORKSPACE_SELECTED_KEY, "1");
 			}
 			if (choice.fallback) setProjectNotice(t(choice.sessionId ? "app.projectRestoreFallback" : "app.projectRestoreEmpty"));
 		} catch (error) {
@@ -1677,74 +1718,81 @@ export default function App(): React.JSX.Element {
 		setProjectNotice(undefined);
 		setSubagentSelection(undefined);
 		const requestSeq = ++sessionViewSeq.current;
+		setSessionOpenFailed(undefined);
+		if (!options?.projectRestore) setSessionOpening({ id: targetSessionId, token: requestSeq });
 		const queueProfile = agentDirRef.current;
-		const response = await client.request<{
-			sessionId: string;
-			cwd: string;
-			messages: Record<string, unknown>[];
-			messageEntryIds?: (string | undefined)[];
-			running?: boolean;
-			queue?: SessionQueueSnapshot;
-			run?: DesktopRunTiming;
-			runStartMessageIndex?: number;
-			researchMode?: ResearchMode;
-			/** 会话头（含 parentSession）：分支出来的无名会话顶栏标题要加「· 分支」后缀 */
-			header?: { parentSession?: string };
-			/** 会话持久化显示名（session_info，如分支的「fork2 · 来自「你好」」） */
-			name?: string;
-			/** 会话绑定的 Agent 预设 id：顶栏标签与选择器显示它。 */
-			agentPreset?: string;
-			approvalMode?: ApprovalMode;
-		}>({
-			type: "session.resume",
-			sessionId: targetSessionId,
-			approvalModeFallback: approvalMode,
-			...selectedModel(),
-		});
-		// 响应落地前用户又做了新的会话切换：这份过期响应整体丢弃（含错误横幅，
-		// 免得旧会话的失败盖在别的会话视图上）
-		if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
-		if (!response.ok || !response.result) {
-			console.error("session.resume failed:", response.error);
-			if (options?.canApply) throw new Error(response.error ?? t("app.sessionRestoreFailed"));
-			// 还没切换会话：失败只出提示，不能用一条错误替换当前对话。
-			if (!options?.silent) setProjectNotice(response.error ? `${t("app.sessionRestoreFailed")}：${response.error}` : t("app.sessionRestoreFailed"));
-			return;
+		try {
+			const response = await client.request<{
+				sessionId: string;
+				cwd: string;
+				messages: Record<string, unknown>[];
+				messageEntryIds?: (string | undefined)[];
+				running?: boolean;
+				queue?: SessionQueueSnapshot;
+				run?: DesktopRunTiming;
+				runStartMessageIndex?: number;
+				researchMode?: ResearchMode;
+				/** 会话头（含 parentSession）：分支出来的无名会话顶栏标题要加「· 分支」后缀 */
+				header?: { parentSession?: string };
+				/** 会话持久化显示名（session_info，如分支的「fork2 · 来自「你好」」） */
+				name?: string;
+				/** 会话绑定的 Agent 预设 id：顶栏标签与选择器显示它。 */
+				agentPreset?: string;
+				approvalMode?: ApprovalMode;
+			}>({
+				type: "session.resume",
+				sessionId: targetSessionId,
+				approvalModeFallback: approvalMode,
+				...selectedModel(),
+			});
+			// 响应落地前用户又做了新的会话切换：这份过期响应整体丢弃（含错误横幅，
+			// 免得旧会话的失败盖在别的会话视图上）
+			if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
+			if (!response.ok || !response.result) {
+				console.error("session.resume failed:", response.error);
+				// 恢复失败行自带「重试」入口，silent 的自动恢复失败也记录；替代原 projectNotice 单行提示。
+				setSessionOpenFailed({ id: targetSessionId, message: response.error ?? t("app.sessionRestoreFailed") });
+				if (options?.canApply) throw new Error(response.error ?? t("app.sessionRestoreFailed"));
+				return;
+			}
+			const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
+			if (response.result.run) updateRunTiming(resumedId, response.result.run);
+			if (researchMode !== undefined) {
+				if (options?.preserveRail) return;
+				if (options?.silent && railViewRef.current !== "chat") return;
+				if (!samePath(cwd, researchWorkspaceRef.current)) resetResearchWorkspace(cwd);
+				setShowSettings(false);
+				setResearchMounted(true);
+				setRailView("research");
+				pendingResearchRestoreId.current = resumedId;
+				researchSessionIdRef.current = resumedId;
+				setResearchSessionId(resumedId);
+				setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
+				return;
+			}
+			if (!await prepareWorkspaceChange(cwd)) return;
+			if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
+			if (!options?.preserveRail && !options?.silent && railViewRef.current === "research") setRailView("chat");
+			setWorkspaceDir(cwd);
+			localStorage.setItem(WORKSPACE_KEY, cwd);
+			setSessionId(resumedId);
+			sessionIdRef.current = resumedId;
+			if (response.result.queue) setPromptQueues((current) => ({ ...current, [promptQueueKey(queueProfile, resumedId)]: response.result!.queue! }));
+			transcriptBatchRef.current.clear();
+			setEntries(rebuild(messages, messageEntryIds, {
+				running: response.result.running ?? runningSessionsRef.current.has(resumedId),
+				runStartMessageIndex: response.result.runStartMessageIndex,
+			}));
+			setRetryStatus(null);
+			setSessionBranched(Boolean(response.result.header?.parentSession));
+			setSessionName(response.result.name);
+			setSessionPreset(response.result.agentPreset);
+			if (response.result.approvalMode) setObservedApprovalMode({ sessionId: resumedId, mode: response.result.approvalMode });
+			void refreshStats(resumedId);
+		} finally {
+			// 出口统一清掉在途标记（过期响应/失败/转研究视图/成功都算走完）；更新的打开请求不受影响。
+			setSessionOpening((current) => (current?.token === requestSeq ? undefined : current));
 		}
-		const { sessionId: resumedId, cwd, messages, messageEntryIds, researchMode } = response.result;
-		if (response.result.run) updateRunTiming(resumedId, response.result.run);
-		if (researchMode !== undefined) {
-			if (options?.preserveRail) return;
-			if (options?.silent && railViewRef.current !== "chat") return;
-			if (!samePath(cwd, researchWorkspaceRef.current)) resetResearchWorkspace(cwd);
-			setShowSettings(false);
-			setResearchMounted(true);
-			setRailView("research");
-			pendingResearchRestoreId.current = resumedId;
-			researchSessionIdRef.current = resumedId;
-			setResearchSessionId(resumedId);
-			setResearchResumeRequest({ id: resumedId, revision: ++researchActionSequence.current });
-			return;
-		}
-		if (!await prepareWorkspaceChange(cwd)) return;
-		if (requestSeq !== sessionViewSeq.current || (options?.canApply && !options.canApply())) return;
-		if (!options?.preserveRail && !options?.silent && railViewRef.current === "research") setRailView("chat");
-		setWorkspaceDir(cwd);
-		localStorage.setItem(WORKSPACE_KEY, cwd);
-		setSessionId(resumedId);
-		sessionIdRef.current = resumedId;
-		if (response.result.queue) setPromptQueues((current) => ({ ...current, [promptQueueKey(queueProfile, resumedId)]: response.result!.queue! }));
-		transcriptBatchRef.current.clear();
-		setEntries(rebuild(messages, messageEntryIds, {
-			running: response.result.running ?? runningSessionsRef.current.has(resumedId),
-			runStartMessageIndex: response.result.runStartMessageIndex,
-		}));
-		setRetryStatus(null);
-		setSessionBranched(Boolean(response.result.header?.parentSession));
-		setSessionName(response.result.name);
-		setSessionPreset(response.result.agentPreset);
-		if (response.result.approvalMode) setObservedApprovalMode({ sessionId: resumedId, mode: response.result.approvalMode });
-		void refreshStats(resumedId);
 	};
 
 	const openSearchHit = async (hit: SessionSearchHit, query: string): Promise<void> => {
@@ -2533,8 +2581,21 @@ export default function App(): React.JSX.Element {
 			waiting: needsPermission || needsQuestion,
 			waitKind: needsPermission ? "permission" as const : needsQuestion ? "question" as const : "" as const,
 			whisper: islandWhisper(asked?.questions[0]?.header || asked?.questions[0]?.question || ""),
+			disconnected: !connected,
 		};
 	});
+	/** 本轮最近一条可测速回复：并入输入框上下文计数的实时 tok/s（流式中为估算）。 */
+	const composerTurnRate = ((): { tps: number; estimated: boolean } | undefined => {
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index];
+			if (!entry || entry.kind === "user") break;
+			if (entry.kind === "assistant") {
+				const rate = outputRate(entry);
+				if (rate) return { tps: rate.tps, estimated: rate.estimated };
+			}
+		}
+		return undefined;
+	})();
 
 	return (
 		<PendingResponsesContext.Provider value={pendingResponses}>
@@ -2848,6 +2909,20 @@ export default function App(): React.JSX.Element {
 				)}
 				{projectRestoring && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{t("app.projectRestoring")}</p>}
 				{projectNotice && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{projectNotice}</p>}
+				{sessionOpening && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{t("app.sessionOpening")}</p>}
+				{sessionOpenFailed && (
+					<p className="px-5 py-1.5 text-xs text-owl-muted" role="status">
+						<span>{`${t("app.sessionRestoreFailed")}：${sessionOpenFailed.message}`}</span>
+						<button type="button" className="owl-model-fallback-action" onClick={() => { setSessionOpenFailed(undefined); void openSession(sessionOpenFailed.id); }}>{t("app.sessionRetry")}</button>
+					</p>
+				)}
+				{modelFallbackNotice && (
+					<ModelFallbackNotice
+						fallback={modelFallbackNotice}
+						onChooseModel={() => openSettings("models")}
+						onDismiss={() => setDismissedModelFallbacks((current) => [...current, modelFallbackKey(modelFallbackNotice)])}
+					/>
+				)}
 				{/* 双面板常挂载：owl-shell-content-main 是「对话 + 终端底栏」的纵列，
 				    工具侧栏是右列 —— 底栏与侧栏互不依赖，可同时展开。 */}
 				<div className={"owl-shell-content" + (questions.some((request) => request.sessionId === (railView === "research" ? researchSessionId : sessionId)) ? " has-pending-question" : "")}>
@@ -2883,7 +2958,7 @@ export default function App(): React.JSX.Element {
 						</div>}
 						<AgentConversation
 							hidden={railView === "research" || Boolean(visibleSubagent)}
-							header={conversationView === "chat" && entries.length > 0 ? <ExecutionToolbar view={executionView} onView={setExecutionViewPersisted} shortcut={appKeybindings.cycleExecutionView[0]} onShortcut={setExecutionShortcut} onTerminal={toggleTerminalPanel} onTasks={() => openExecution("tasks")} onChanges={() => requestOpenKind("changes")} terminalOpen={terminalOpen} changeCount={changeCount} plan={<TodoPin entries={entries} presentation="summary" />} /> : undefined}
+							header={conversationView === "chat" && entries.length > 0 ? <ExecutionToolbar view={executionView} onView={setExecutionViewPersisted} shortcut={appKeybindings.cycleExecutionView[0]} onShortcut={setExecutionShortcut} onTerminal={toggleTerminalPanel} onTasks={() => openExecution("tasks")} onChanges={() => requestOpenKind("changes")} terminalOpen={terminalOpen} changeCount={changeCount} collapsed={executionToolbarCollapsed} onToggleCollapsed={toggleExecutionToolbar} plan={<TodoPin entries={entries} presentation="summary" />} /> : undefined}
 							view={conversationView}
 							trajectory={(
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
@@ -2921,8 +2996,10 @@ export default function App(): React.JSX.Element {
 								connected={connected}
 								disabled={submitting || !connected || projectRestoring?.scope === "chat"}
 								running={running}
+								turnRate={running ? composerTurnRate : undefined}
 								paused={Boolean(sessionId && pausedSessions.has(sessionId))}
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
+							questionPending={Boolean(activeQuestion)}
 								onSend={sendPrompt}
 								queued={profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined}
 								queueSessionId={sessionId}

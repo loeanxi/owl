@@ -144,9 +144,38 @@ describe("Appearance settings real-page integration", () => {
 		expect(settingWrites()).toEqual([]);
 		expect(document.documentElement.style.getPropertyValue("--owl-chat-font-size")).toBeUndefined();
 		await act(async () => buttonWithin(group("reading"), t("settings.general.saveReading")).click());
-		expect(settingWrites()).toEqual([{ type: "settings.set", values: { desktopChatAppearance: { fontSize: 20, codeFontSize: 14, lineHeight: 1.8, width: 860, toolRecords: "expanded", motion: false } } }]);
+		expect(settingWrites()).toEqual([{ type: "settings.set", values: { desktopChatAppearance: { fontSize: 20, codeFontSize: 14, lineHeight: 1.8, width: 860, toolRecords: "expanded", motion: false, workEffects: { rail: true, enter: true, morph: true, count: true, spine: true, stream: true, breathe: true, nudge: true } } } }]);
 		expect(document.documentElement.style.getPropertyValue("--owl-chat-font-size")).toBe("20px");
 		expect(props.onWallpaperChange).not.toHaveBeenCalled();
+	});
+
+	it("lets the user turn individual work process effects off and keeps the choice", async () => {
+		await render();
+		const effectTitles = [
+			"settings.general.workEffectRail",
+			"settings.general.workEffectEnter",
+			"settings.general.workEffectMorph",
+			"settings.general.workEffectCount",
+			"settings.general.workEffectSpine",
+			"settings.general.workEffectStream",
+			"settings.general.workEffectBreathe",
+			"settings.general.workEffectNudge",
+		] as const;
+		const effectSwitches = effectTitles.map((title) => group("reading").querySelector<HTMLElement>(`[role="switch"][title="${t(title)}"]`));
+		for (const element of effectSwitches) expect(element).not.toBeNull();
+		expect(effectSwitches.every((element) => element?.getAttribute("aria-checked") === "true")).toBe(true);
+
+		await act(async () => effectSwitches[0]!.click());
+		expect(effectSwitches[0]!.getAttribute("aria-checked")).toBe("false");
+		expect(effectSwitches[1]!.getAttribute("aria-checked")).toBe("true");
+		// 草稿阶段不落盘。
+		expect(settingWrites()).toEqual([]);
+
+		await act(async () => buttonWithin(group("reading"), t("settings.general.saveReading")).click());
+		const saved = (settingWrites().at(-1)!.values as Record<string, unknown>).desktopChatAppearance as { workEffects: Record<string, boolean> };
+		expect(saved.workEffects.rail).toBe(false);
+		expect(saved.workEffects.enter).toBe(true);
+		expect(saved.workEffects.nudge).toBe(true);
 	});
 
 	it("keeps glass, wallpaper, local-file and rotation options conditional on their original settings", async () => {

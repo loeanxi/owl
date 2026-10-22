@@ -65,6 +65,71 @@ const REF_SETUP = `
 	})()
 `;
 
+/**
+ * browser_query 的页面侧脚本：按 kind 读页面。
+ *
+ * 命中的元素会登记进同一套 __owlRefs 记账器，所以 browser_query 返回的 ref 与
+ * browser_snapshot 的 ref 同源，可以直接交给后续动作使用。
+ */
+const QUERY_SCRIPT = `
+	(() => {
+		const args = __OWL_QUERY_ARGS__;
+		const refs = window.__owlRefs ?? (window.__owlRefs = { next: args.seed, map: new Map() });
+		refs.next = Math.max(refs.next, args.seed);
+		const register = (el) => { const r = refs.next++; refs.map.set(r, el); return r; };
+		const maxChars = args.maxChars;
+		const describe = (el) => {
+			const labels = el.labels ? Array.from(el.labels).map((l) => (l.innerText || "").trim()) : [];
+			const label =
+				el.getAttribute("aria-label") ||
+				el.getAttribute("title") ||
+				el.getAttribute("placeholder") ||
+				el.getAttribute("name") ||
+				labels[0] ||
+				(el.innerText || "").trim().slice(0, 60);
+			return {
+				ref: register(el),
+				tag: el.tagName.toLowerCase(),
+				type: el.getAttribute("type") || undefined,
+				label,
+				visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+			};
+		};
+		if (args.kind === "text") {
+			const root = args.selector ? document.querySelector(args.selector) : document.body;
+			if (!root) return { kind: "text", found: false, reason: "selector 未匹配到元素", nextRef: refs.next };
+			const raw = root.innerText || "";
+			return { kind: "text", found: true, text: raw.slice(0, maxChars), length: raw.length, truncated: raw.length > maxChars, nextRef: refs.next };
+		}
+		if (args.kind === "dom") {
+			const html = document.documentElement.outerHTML;
+			return { kind: "dom", found: true, html: html.slice(0, maxChars), length: html.length, truncated: html.length > maxChars, nextRef: refs.next };
+		}
+		if (args.kind === "editable") {
+			const nodes = Array.from(
+				document.querySelectorAll(
+					'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea, select, [contenteditable="true"]',
+				),
+			);
+			return { kind: "editable", found: true, total: nodes.length, elements: nodes.slice(0, 40).map(describe), nextRef: refs.next };
+		}
+		const wanted = (args.name || "").trim().toLowerCase();
+		if (!wanted) return { kind: "semantic", found: false, reason: "kind=semantic 需要提供 name", nextRef: refs.next };
+		const candidates = Array.from(
+			document.querySelectorAll(
+				'button, a[href], input, textarea, select, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [aria-label], [title]',
+			),
+		);
+		const hit = candidates.find((el) => {
+			const labels = el.labels ? Array.from(el.labels).map((l) => (l.innerText || "").trim()) : [];
+			const text = (el.getAttribute("aria-label") || el.getAttribute("title") || labels[0] || el.innerText || el.value || "").trim().toLowerCase();
+			return text === wanted || text.startsWith(wanted);
+		});
+		if (!hit) return { kind: "semantic", found: false, reason: "未找到可访问名匹配的元素", nextRef: refs.next };
+		return { kind: "semantic", found: true, elements: [describe(hit)], nextRef: refs.next };
+	})()
+`;
+
 export class BrowserHub {
 	private readonly callbacks: BrowserHubCallbacks;
 	private browser: Browser | null = null;
@@ -989,6 +1054,137 @@ export class BrowserHub {
 						return json(await entry.network.detail(params.requestId, params));
 					}
 					return json(entry.network.list(params));
+				},
+			}),
+			defineTool({
+				name: "browser_query",
+				label: "浏览器：按需读取页面",
+				description:
+					"按指定方式读取本聊天页面：text 读可见文本；dom 读 DOM 标记；editable 列出可编辑控件；semantic 按可访问名定位元素。命中元素带 ref，与 browser_snapshot 同源，可直接交给后续动作。",
+				promptSnippet: "browser_query: 用 text/dom/editable/semantic 读取页面",
+				promptGuidelines: [
+					"先 browser_snapshot 观察；快照没给出所需信息时再用 browser_query 按形态补读，不要反复快照。",
+					"browser_query 的 ref 与 browser_snapshot 的 ref 同源，导航后一律重新读取。",
+				],
+				parameters: Type.Object({
+					...pageFields,
+					kind: Type.Union([
+						Type.Literal("text"),
+						Type.Literal("dom"),
+						Type.Literal("editable"),
+						Type.Literal("semantic"),
+					]),
+					selector: Type.Optional(
+						Type.String({ minLength: 1, description: "kind=text 时的 CSS 选择器，省略读整页" }),
+					),
+					name: Type.Optional(Type.String({ minLength: 1, description: "kind=semantic 时的可访问名" })),
+					maxChars: Type.Optional(
+						Type.Number({ minimum: 1, maximum: 200_000, description: "读取长度上限，默认 20000" }),
+					),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					const result = (await entry.page.evaluate(
+						QUERY_SCRIPT.replace(
+							"__OWL_QUERY_ARGS__",
+							JSON.stringify({
+								kind: params.kind,
+								selector: params.selector ?? null,
+								name: params.name ?? null,
+								maxChars: params.maxChars ?? 20_000,
+								seed: entry.nextRefSeed,
+							}),
+						),
+					)) as { nextRef?: number } & Record<string, unknown>;
+					if (typeof result.nextRef === "number") entry.nextRefSeed = Math.max(entry.nextRefSeed, result.nextRef);
+					return json(result);
+				},
+			}),
+			defineTool({
+				name: "browser_history",
+				label: "浏览器：历史导航",
+				description: "后退、前进或刷新本聊天当前页。导航后 ref 失效，必须重新 browser_snapshot。",
+				promptSnippet: "browser_history: 后退 / 前进 / 刷新",
+				parameters: Type.Object({
+					...pageFields,
+					action: Type.Union([Type.Literal("back"), Type.Literal("forward"), Type.Literal("reload")]),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					if (params.action === "back") await entry.page.goBack({ waitUntil: "load", timeout: 15_000 });
+					else if (params.action === "forward") await entry.page.goForward({ waitUntil: "load", timeout: 15_000 });
+					else await entry.page.reload({ waitUntil: "load", timeout: 20_000 });
+					await this.refreshPageMeta(entry);
+					return json({ url: entry.info.url, title: entry.info.title });
+				},
+			}),
+			defineTool({
+				name: "browser_check",
+				label: "浏览器：勾选或取消勾选",
+				description:
+					"幂等设置 checkbox / radio 的勾选状态并读回校验；状态已一致时不重复触发 change。ref 与 selector 只提供一个。",
+				promptSnippet: "browser_check: 幂等设置勾选状态",
+				parameters: Type.Object({ ...pageFields, ...targetFields, checked: Type.Boolean() }, requiredTargetOptions),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					return json(await entry.interaction.setChecked(params, params.checked));
+				},
+			}),
+			defineTool({
+				name: "browser_drag",
+				label: "浏览器：拖拽元素",
+				description:
+					"把源元素拖到目标元素上（HTML5 drag 或指针拖动）。源与目标各用 ref 或 selector 定位；目标需要显式可定位区域。",
+				promptSnippet: "browser_drag: 拖拽元素到目标",
+				parameters: Type.Object({
+					...pageFields,
+					source: Type.Object({ ...targetFields }, requiredTargetOptions),
+					target: Type.Object({ ...targetFields }, requiredTargetOptions),
+				}),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					const locator = (target: { ref?: number; selector?: string }) =>
+						entry.page.locator(target.ref !== undefined ? `owl_ref=${target.ref}` : `css=${target.selector}`);
+					await locator(params.source).dragTo(locator(params.target));
+					await sleep(ACTION_SETTLE_MS);
+					return text("已拖拽。用 browser_snapshot 确认结果。");
+				},
+			}),
+			defineTool({
+				name: "browser_click_and_wait",
+				label: "浏览器：点击并等待导航",
+				description:
+					"点击可能触发页面跳转的元素，并等到新文档加载完成再返回；没有发生导航时如实说明而不是报错。ref 与 selector 只提供一个。",
+				promptSnippet: "browser_click_and_wait: 点击并等待导航完成",
+				parameters: Type.Object(
+					{
+						...pageFields,
+						...targetFields,
+						button: Type.Optional(
+							Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")]),
+						),
+						clickCount: Type.Optional(Type.Union([Type.Literal(1), Type.Literal(2)])),
+					},
+					requiredTargetOptions,
+				),
+				execute: async (_id, params) => {
+					const entry = await this.agentPage(sessionId, params.pageId);
+					const locator =
+						params.ref !== undefined
+							? entry.page.locator(`owl_ref=${params.ref}`)
+							: entry.page.locator(`css=${params.selector}`);
+					const navigated = entry.page
+						.waitForNavigation({ waitUntil: "load", timeout: 20_000 })
+						.then(() => true)
+						.catch(() => false);
+					await locator.click({ button: params.button, clickCount: params.clickCount });
+					const moved = await navigated;
+					await this.refreshPageMeta(entry);
+					return json({
+						navigated: moved,
+						url: entry.info.url,
+						title: entry.info.title,
+					});
 				},
 			}),
 			defineTool({

@@ -12,9 +12,11 @@ import {
 	defaultModelPerProvider,
 	findInitialModel,
 	parseModelPattern,
+	pickFallbackModel,
 	resolveCliModel,
 	resolveModelScope,
 	resolveModelScopeWithDiagnostics,
+	restoreModelFromSession,
 } from "../src/core/model-resolver.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -916,6 +918,119 @@ describe("default model selection", () => {
 				`${sonnet.provider}/${sonnet.id}`,
 			]);
 			expect(settingsManager.getEnabledModels()).toEqual([`${sonnet.provider}/${sonnet.id}`]);
+		});
+	});
+
+	describe("fallbacks for a saved model that can no longer be used", () => {
+		function makeModel(provider: string, id: string): Model<"anthropic-messages"> {
+			return {
+				id,
+				name: id,
+				api: "anthropic-messages",
+				provider,
+				baseUrl: "http://127.0.0.1:1",
+				reasoning: true,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 128000,
+				maxTokens: 4096,
+			};
+		}
+
+		test("prefers the saved provider's declared default over another provider's model", () => {
+			// Catalog order puts the unrelated provider first — exactly what used to win silently.
+			const stranger = makeModel("spark-two", "saved-model");
+			const sameProviderDefault = makeModel("anthropic", defaultModelPerProvider.anthropic!);
+			expect(pickFallbackModel("anthropic", [stranger, sameProviderDefault])).toBe(sameProviderDefault);
+		});
+
+		test("falls back to the saved provider's first model when it has no declared default", () => {
+			const localFirst = makeModel("my-local", "first");
+			const localSecond = makeModel("my-local", "second");
+			const stranger = makeModel("openai", "gpt-5.5");
+			expect(pickFallbackModel("my-local", [stranger, localFirst, localSecond])).toBe(localFirst);
+		});
+
+		test("stays inside the saved provider when asked to", () => {
+			const declared = makeModel("openai", defaultModelPerProvider.openai!);
+			// 调用方自己决定替代（宿主想优先用用户设置的默认模型）时，不允许静默换厂商。
+			expect(pickFallbackModel("gone-provider", [declared], { allowOtherProviders: false })).toBeUndefined();
+		});
+
+		test("leaves the provider only when it has nothing left", () => {
+			const declared = makeModel("openai", defaultModelPerProvider.openai!);
+			const stranger = makeModel("spark-two", "anything");
+			expect(pickFallbackModel("gone-provider", [stranger, declared])).toBe(declared);
+		});
+
+		test("reports what was replaced, why, and whether the provider changed", async () => {
+			const savedProvider = "gone-provider";
+			const replacement = makeModel("spark-two", "replacement");
+			const registry = {
+				getModel: () => undefined,
+				hasConfiguredAuth: () => false,
+				getAvailableSnapshot: () => [replacement],
+			} as unknown as Parameters<typeof restoreModelFromSession>[4];
+
+			const restored = await restoreModelFromSession(savedProvider, "retired-model", undefined, false, registry);
+
+			expect(restored.model).toBe(replacement);
+			expect(restored.fallback).toEqual({
+				reason: "model-missing",
+				saved: { provider: savedProvider, id: "retired-model" },
+				used: { provider: "spark-two", id: "replacement" },
+				crossProvider: true,
+			});
+		});
+
+		test("distinguishes a missing credential from a missing model", async () => {
+			const saved = makeModel("anthropic", "claude-sonnet-4-5");
+			const registry = {
+				getModel: (provider: string, id: string) =>
+					provider === saved.provider && id === saved.id ? saved : undefined,
+				hasConfiguredAuth: () => false,
+				getAvailableSnapshot: () => [],
+			} as unknown as Parameters<typeof restoreModelFromSession>[4];
+
+			const restored = await restoreModelFromSession("anthropic", "claude-sonnet-4-5", undefined, false, registry);
+
+			expect(restored.model).toBeUndefined();
+			expect(restored.fallback).toBeUndefined();
+		});
+
+		test("keeps a valid saved model as-is and reports no fallback", async () => {
+			const saved = makeModel("anthropic", "claude-sonnet-4-5");
+			const registry = {
+				getModel: () => saved,
+				hasConfiguredAuth: () => true,
+				getAvailableSnapshot: () => [saved],
+			} as unknown as Parameters<typeof restoreModelFromSession>[4];
+
+			const restored = await restoreModelFromSession("anthropic", "claude-sonnet-4-5", undefined, false, registry);
+
+			expect(restored.model).toBe(saved);
+			expect(restored.fallback).toBeUndefined();
+			expect(restored.fallbackMessage).toBeUndefined();
+		});
+
+		test("findInitialModel keeps the thinking level parsed from --model", async () => {
+			const model = makeModel("anthropic", "claude-sonnet-4-5");
+			const registry = {
+				getModels: () => [model],
+				getAvailableSnapshot: () => [model],
+				hasConfiguredAuth: () => true,
+			} as unknown as Parameters<typeof findInitialModel>[0]["modelRuntime"];
+
+			const result = await findInitialModel({
+				cliProvider: "anthropic",
+				cliModel: "claude-sonnet-4-5:high",
+				scopedModels: [],
+				isContinuing: false,
+				modelRuntime: registry,
+			});
+
+			expect(result.model?.id).toBe("claude-sonnet-4-5");
+			expect(result.thinkingLevel).toBe("high");
 		});
 	});
 });

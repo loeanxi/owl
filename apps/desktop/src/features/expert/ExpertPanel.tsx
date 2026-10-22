@@ -12,6 +12,8 @@ import { TrajectoryView } from "../trajectory/TrajectoryView.tsx";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
 import { MyselfChatController, type MyselfChatState } from "../myself/myself-chat-controller.ts";
 import {
+	appendExpertMemory,
+	appendGroupMemory,
 	createCustomExpert,
 	createExpertGroup,
 	divisionLabel,
@@ -36,13 +38,16 @@ import {
 	listCustomExperts,
 	listExpertGroups,
 	logExpertChatLine,
+	parseMemoryEntries,
 	type ExpertFileStatus,
 	type ExpertGroup,
 	type ExpertPersona,
 	type ExpertScope,
+	type MemoryEntry,
 	readExpertMemory,
 	readGroupMemory,
 	setExpertScope,
+	stripMemoryLines,
 	updateExpertGroup,
 } from "./expert-data.ts";
 import "./expert.css";
@@ -188,6 +193,12 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 	const chatController = useMemo(() => {
 		if (!cwd || !target || primerText === undefined) return undefined;
 		const who = target.kind === "expert" ? bySlug(target.slug)?.name ?? "专家" : target.name;
+		/** 记忆写入目标：1:1 写专家目录，群聊（共享记忆模式）写群目录。 */
+		const memorySink = target.kind === "expert"
+			? (entries: MemoryEntry[]) => appendExpertMemory(client, target.slug, entries)
+			: target.memory !== "own"
+				? (entries: MemoryEntry[]) => appendGroupMemory(client, target.id, entries)
+				: undefined;
 		return new MyselfChatController(
 			client,
 			localStorage,
@@ -196,13 +207,18 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 			() => primerText,
 			{
 				keyPrefix: "owl.expert.chat",
-				// 一轮结束：把回答落进当天 md（群聊以群名落，1:1 以专家名落）。
+				// 一轮结束：解析「记忆+」行收进长期记忆，其余正文落进当天 md（群聊以群名落，1:1 以专家名落）。
 				onSettled: (entries) => {
 					for (let i = entries.length - 1; i >= 0; i--) {
 						const entry = entries[i]!;
 						if (entry.kind === "user") break;
 						if (entry.kind === "assistant") {
-							if (!entry.aborted && entry.text.trim()) void logExpertChatLine(client, cwd, who, entry.text).catch(() => {});
+							if (!entry.aborted && entry.text.trim()) {
+								const remembered = parseMemoryEntries(entry.text);
+								const clean = stripMemoryLines(entry.text);
+								if (remembered.length && memorySink) void memorySink(remembered).catch(() => {});
+								if (clean.trim()) void logExpertChatLine(client, cwd, who, clean).catch(() => {});
+							}
 							break;
 						}
 					}
@@ -211,6 +227,11 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 		);
 	}, [client, cwd, target, primerText, defaultModel, defaultThinkingLevel, defaultApprovalMode, bySlug]);
 	const chat = useSyncExternalStore(chatController?.subscribe ?? noopSubscribe, chatController?.getSnapshot ?? (() => EMPTY_CHAT));
+	// 聊天流里隐藏「记忆+ …」行（已收进 memory.md）；轨迹视图保留原文便于排查。
+	const displayEntries = useMemo(
+		() => chat.entries.map((entry) => (entry.kind === "assistant" ? { ...entry, text: stripMemoryLines(entry.text) } : entry)),
+		[chat.entries],
+	);
 
 	useEffect(() => {
 		if (!chatController) return;
@@ -453,7 +474,7 @@ export function ExpertPanel({ active, client, connected, providers, defaultModel
 							<ContextView key={`expert-context:${cwd}:${chat.sessionId ?? ""}`} client={client} cwd={cwd} sessionId={chat.sessionId} requireSession active={active && connected} />
 						) : chat.entries.length ? (
 							<GenuiSessionProvider client={client} sessionId={chat.sessionId}>
-								<ChatStream entries={chat.entries} activity={chatActivity} client={client} cwd={cwd} />
+								<ChatStream entries={displayEntries} activity={chatActivity} client={client} cwd={cwd} />
 							</GenuiSessionProvider>
 						) : (
 							<div className="owl-expert-chathint">

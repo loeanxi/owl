@@ -12,8 +12,8 @@
  * 单例语义与 question-channel 相同：桥与插件运行在同一进程，插件经
  * @owl/owl-coding-agent 别名拿到的是同一份模块实例，这里就是两边共享的接缝。
  *
- * 估算口径与 core/compaction 的 estimateTokens 一致：chars/4 启发式、图片按
- * 4800 字符折算——对中文明显偏低，只做构成占比参考。实测口径（provider 计费）
+ * 估算口径与 core/compaction 的 estimateTokens 一致：CJK ≈ 1 token/字、其余
+ * chars/4，图片按 4800 字符折算——只做构成占比参考。实测口径（provider 计费）
  * 走 usage：下一轮请求组装时补填上一行，另外 message_end 一到就当场回填最后一行，
  * 单轮会话也能立刻看到实测值。
  */
@@ -21,6 +21,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { getCurrentTools, type TranscriptMessages } from "@earendil-works/pi-ai";
 
+import { weightedTextChars } from "./compaction/compaction.ts";
 import type { ProjectedSessionEntry } from "./session-manager.ts";
 
 // ---------------------------------------------------------------------------
@@ -305,11 +306,11 @@ function contentBlocks(content: unknown): ContentBlock[] {
 function blocksToChars(blocks: ContentBlock[]): number {
 	let chars = 0;
 	for (const block of blocks) {
-		if (block.type === "text" && block.text) chars += block.text.length;
+		if (block.type === "text" && block.text) chars += weightedTextChars(block.text);
 		else if (block.type === "image") chars += IMAGE_CHARS;
-		else if (block.type === "thinking" && block.thinking) chars += block.thinking.length;
+		else if (block.type === "thinking" && block.thinking) chars += weightedTextChars(block.thinking);
 		else if (block.type === "toolCall") {
-			chars += (block.name?.length ?? 0) + JSON.stringify(block.arguments ?? {}).length;
+			chars += weightedTextChars((block.name ?? "") + JSON.stringify(block.arguments ?? {}));
 		}
 	}
 	return chars;
@@ -323,7 +324,7 @@ function systemMessageChars(message: { content?: unknown; sections?: unknown }):
 	let sections = 0;
 	if (message.sections && typeof message.sections === "object") {
 		for (const value of Object.values(message.sections as Record<string, unknown>)) {
-			if (typeof value === "string") sections += value.length;
+			if (typeof value === "string") sections += weightedTextChars(value);
 		}
 	}
 	return { base, sections };
@@ -396,7 +397,7 @@ export interface ToolDeclarationEstimate {
 }
 
 function toolSchemaChars(tool: { name: string; description: string; parameters: unknown }): number {
-	return tool.name.length + tool.description.length + JSON.stringify(tool.parameters ?? {}).length;
+	return weightedTextChars(tool.name + tool.description + JSON.stringify(tool.parameters ?? {}));
 }
 
 /**
@@ -660,7 +661,7 @@ export function contextItemsOf(
 									key: `sec:${name}`,
 									label: name,
 									chip: "段落",
-									tokens: toTokens(value.length),
+									tokens: toTokens(weightedTextChars(value)),
 									...meta,
 								});
 						}
@@ -1073,7 +1074,7 @@ export function reconstructContextInsight(projected: ReadonlyArray<ProjectedSess
 									ts: messageTs,
 									kind: "inject",
 									label: `段落注入 · ${name}`,
-									delta: toTokens(value.length),
+									delta: toTokens(weightedTextChars(value)),
 									itemKey: `sec:${name}`,
 								});
 							}
@@ -1277,7 +1278,11 @@ function injectEntriesOf(messages: readonly AgentMessage[]): Array<{ key: string
 			leadingSeen = true;
 			for (const [name, value] of Object.entries((message.sections ?? {}) as Record<string, unknown>)) {
 				if (typeof value === "string" && !BASE_SYSTEM_SECTIONS.has(name)) {
-					entries.push({ key: `sec:${name}`, label: `段落注入 · ${name}`, tokens: toTokens(value.length) });
+					entries.push({
+						key: `sec:${name}`,
+						label: `段落注入 · ${name}`,
+						tokens: toTokens(weightedTextChars(value)),
+					});
 				}
 			}
 			return;

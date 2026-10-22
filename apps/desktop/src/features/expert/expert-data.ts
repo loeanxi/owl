@@ -286,8 +286,117 @@ export function personaMarkdown(p: ExpertPersona): string {
 
 const MEMORY_TEMPLATE = `# 长期记忆（与用户合作累积）
 
-> 用条目记录偏好、进行中的事与结论；每行一条，新的写下面。会话开场会把本文件尾部带进上下文。
+> 每条一行，格式 \`- [MM-DD] 内容\`，写在对应分区末尾；会话开场把本文件尾部带进上下文。
+
+## 偏好
+
+## 进行中
+
+## 已定结论
+
+## 纠偏记录
 `;
+
+// ---------------------------------------------------------------------------
+// 记忆协议：模型在回答末尾用「记忆+ 分类｜一句话」上报，应用侧解析后写进 memory.md
+//（不依赖模型自己调文件工具；显示与日志会剔除这些行）。
+// ---------------------------------------------------------------------------
+
+export type MemoryCategory = "偏好" | "进行中" | "结论" | "纠偏";
+
+export interface MemoryEntry {
+	category: MemoryCategory;
+	text: string;
+}
+
+/** 分类 → memory.md 里的分区标题。 */
+const MEMORY_SECTIONS: Record<MemoryCategory, string> = {
+	"偏好": "偏好",
+	"进行中": "进行中",
+	"结论": "已定结论",
+	"纠偏": "纠偏记录",
+};
+
+const MEMORY_LINE = /^[-*]?\s*记忆[+＋]\s+(.+)$/;
+const MEMORY_CATEGORIZED = /^(偏好|进行中|结论|纠偏)\s*[｜|:：]\s*(.*)$/;
+
+/** 从一轮回答里解析「记忆+ 分类｜内容」行；省略分类按「结论」收，只有分类没有内容的不收。 */
+export function parseMemoryEntries(text: string): MemoryEntry[] {
+	return text.split(/\r?\n/).flatMap((line) => {
+		const match = MEMORY_LINE.exec(line.trim());
+		if (!match) return [];
+		const body = match[1]!.trim();
+		if (!body) return [];
+		const categorized = MEMORY_CATEGORIZED.exec(body);
+		if (categorized) {
+			if (!categorized[2]!.trim()) return [];
+			return [{ category: categorized[1] as MemoryCategory, text: categorized[2]!.trim() }];
+		}
+		return [{ category: "结论", text: body }];
+	});
+}
+
+/** 去掉「记忆+ …」行并把连续空行压成一个，用于显示与会话日志。 */
+export function stripMemoryLines(text: string): string {
+	return text.split(/\r?\n/).filter((line) => !MEMORY_LINE.test(line.trim())).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function todayMMDD(): string {
+	const at = new Date();
+	return `${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
+
+function appendUnderSection(lines: string[], heading: string, entry: string): boolean {
+	const start = lines.findIndex((line) => new RegExp(`^##\\s*${heading}\\s*$`).test(line.trim()));
+	if (start < 0) return false;
+	let end = lines.length;
+	for (let i = start + 1; i < lines.length; i++) {
+		if (/^#{1,2} /.test(lines[i]!.trim())) { end = i; break; }
+	}
+	let insertAt = end;
+	// 空分区保留标题后的一个空行；有内容时紧接最后一条之后追加。
+	while (insertAt > start + 2 && lines[insertAt - 1]!.trim() === "") insertAt--;
+	lines.splice(insertAt, 0, entry);
+	return true;
+}
+
+/** 把记忆条目按分类追加进 memory.md 原文（缺分区就按固定顺序补建）。 */
+export function appendMemoryEntries(raw: string, entries: MemoryEntry[], date = todayMMDD()): string {
+	const newline = raw.includes("\r\n") ? "\r\n" : "\n";
+	const lines = raw.replace(/\r\n/g, "\n").split("\n");
+	for (const entry of entries) {
+		const stamped = `- [${date}] ${entry.text}`;
+		if (!appendUnderSection(lines, MEMORY_SECTIONS[entry.category], stamped)) {
+			while (lines.length && lines[lines.length - 1]!.trim() === "") lines.pop();
+			lines.push("", `## ${MEMORY_SECTIONS[entry.category]}`, "", stamped, "");
+		}
+	}
+	return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "")}${newline}`;
+}
+
+/** 开场带进上下文的记忆视图：短文件全带，长文件带尾部，并提示有略。 */
+export function memoryContext(raw: string, limit = 40): string {
+	const trimmed = raw.trim();
+	if (!trimmed) return "";
+	const lines = trimmed.split(/\r?\n/);
+	return lines.length <= limit ? trimmed : `（更早的条目略）\n${lines.slice(-limit).join("\n")}`;
+}
+
+/** 解析出的条目写进某专家的 memory.md（文件缺失按模板新建）。 */
+export async function appendExpertMemory(client: BridgeClient, slug: string, entries: MemoryEntry[]): Promise<void> {
+	if (!entries.length) return;
+	const dir = expertDir(slug);
+	const raw = (await readText(client, dir, "memory.md")) ?? MEMORY_TEMPLATE;
+	await writeText(client, dir, "memory.md", appendMemoryEntries(raw, entries));
+}
+
+/** 解析出的条目写进群共享记忆（文件缺失按群模板新建）。 */
+export async function appendGroupMemory(client: BridgeClient, groupId: string, entries: MemoryEntry[]): Promise<void> {
+	if (!entries.length) return;
+	const dir = expertGroupDir(groupId);
+	const raw = (await readText(client, dir, "memory.md")) ?? "# 群共享记忆\n\n> 全员可读写；每行一条，新的写下面。\n";
+	await writeText(client, dir, "memory.md", appendMemoryEntries(raw, entries));
+}
 
 /**
  * 确保某专家的目录就绪：persona.md 缺失时落盘（目录专家用原始档案，内置用再生成；
@@ -404,10 +513,10 @@ export async function ensureGroupDir(client: BridgeClient, groupId: string, memo
 // Primer：新线程首轮提示词的角色铺垫（之后靠会话记忆，不重复）
 // ---------------------------------------------------------------------------
 
-/** 1:1 专家会话：人格档案 + 记忆尾部 + 数据目录说明。 */
+/** 1:1 专家会话：人格档案 + 记忆尾部 + 数据目录说明 + 记忆协议。 */
 export async function expertPrimer(client: BridgeClient, p: ExpertPersona): Promise<string> {
 	const memory = await readExpertMemory(client, p.slug);
-	const memoryTail = memory.trim().split(/\r?\n/).slice(-24).join("\n");
+	const memoryTail = memoryContext(memory);
 	return [
 		`你是「${p.name}」，owl「专家顾问」面板里的专家——${p.title}（${divisionLabel(p.division)}）。`,
 		`人格档案如下，全程保持这个人格、口吻与工作方式作答：`,
@@ -418,8 +527,14 @@ export async function expertPrimer(client: BridgeClient, p: ExpertPersona): Prom
 		`- 常规交付物：${p.deliv.join("；")}`,
 		`- 工作流程：${p.flow.map(([name, detail]) => `${name}（${detail}）`).join(" → ")}`,
 		`- 成功指标：${p.metrics.join("；")}`,
-		`你的数据目录是 owl-expert/${p.slug}/：persona.md 是人格档案（用户可改，改了以文件为准），memory.md 是与用户的长期记忆（重要偏好与结论记一行进去），YYYY-MM-DD.md 是会话记录。`,
-		memoryTail ? `记忆（最近几条）：\n${memoryTail}` : `记忆还是空的——第一次与用户合作。`,
+		`你的数据目录是 owl-expert/${p.slug}/：persona.md 是人格档案（用户可改，改了以文件为准），memory.md 是与用户的长期记忆，YYYY-MM-DD.md 是会话记录。`,
+		memoryTail ? `与用户的合作记忆（最近条目，直接沿用，不要让用户重复已在这里的事）：\n${memoryTail}` : `记忆还是空的——第一次与用户合作。`,
+		`记忆协议：当你从对话中确认了值得跨会话记住的信息，在本次回答的最后另起一行输出一条记忆，应用会自动收进 memory.md（用户界面与会话日志不显示这一行）：`,
+		`  记忆+ 分类｜一句话`,
+		`- 分类四选一：偏好（用户的习惯与喜好）、进行中（正在推进的事及其背景）、结论（本次明确得出的结论或决定）、纠偏（用户纠正过你做法的方式）；`,
+		`- 一行只记一件事，写得具体、自含——之后只读到这一行也能懂；`,
+		`- 闲聊、一次性细节、以及记忆里已有的内容不要重复输出；没有值得记的就什么都不输出，不要为了记而记；`,
+		`- 不要在正文里宣称「我已记下」却不输出对应记忆行。`,
 		`回答简洁、直接进入专家角色，不说「作为 AI」。人格档案是英文时照常工作，但回答语言跟随用户提问的语言。`,
 		`---`,
 		``,
@@ -438,7 +553,7 @@ export function expertGroupPrimer(group: ExpertGroup, members: ExpertPersona[]):
 		`- 多数成员已作答后，输出一段「【主持人·综合】」：拎出共识、分歧与建议动作（可分工到人）；`,
 		`- 每位专家严格遵守各自人格（领域规则与工作流程），不要互相客套；`,
 		group.memory === "shared"
-			? `- 群共享记忆在本目录 memory.md，重要的共识与结论记一行进去。`
+			? `- 群共享记忆在本目录 memory.md：讨论得出共识、结论或分工时，主持人在「【主持人·综合】」末尾按一行一条输出「记忆+ 结论｜一句话」，应用会自动收进 memory.md（用户界面不显示这一行）；`
 			: `- 本群不设共享记忆：各专家的长期记忆在各自目录（owl-expert/<slug>/memory.md），涉及结论时各自记到自己的记忆里。`,
 		`回答语言跟随用户。`,
 		`---`,

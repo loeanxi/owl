@@ -17,7 +17,7 @@ import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
-import { findInitialModel } from "./model-resolver.ts";
+import { findInitialModel, type ModelFallback, restoreModelFromSession } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
@@ -108,6 +108,19 @@ export interface CreateAgentSessionResult {
 	extensionsResult: LoadExtensionsResult;
 	/** Warning if session was restored with a different model than saved */
 	modelFallbackMessage?: string;
+	/** Structured form of `modelFallbackMessage`: what was asked for, what is in use, and why. */
+	modelFallback?: ModelFallback;
+}
+
+/** One human-readable line for a replaced model selection (UI surfaces it as-is). */
+export function fallbackNoticeText(fallback: ModelFallback): string {
+	const saved = `${fallback.saved.provider}/${fallback.saved.id}`;
+	const used = `${fallback.used.provider}/${fallback.used.id}`;
+	const reason =
+		fallback.reason === "model-missing"
+			? `${saved} 已不在模型目录中（模型下线、账号切换或目录未刷新）`
+			: `${saved} 所属厂商没有可用凭据`;
+	return `${reason}，已改用 ${used}。`;
 }
 
 // Re-exports
@@ -208,6 +221,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
+	let modelFallback: ModelFallback | undefined;
 
 	// Assistant messages name the physical model that answered, so a virtual selection is only in
 	// model_change entries.
@@ -215,15 +229,21 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		modelRuntime.getModel(provider, modelId),
 	);
 
-	// If session has data, try to restore model from it
+	// If session has data, restore model from it. `restoreModelFromSession` is the single
+	// implementation of "saved model is gone" handling: the reasons, the replacement order,
+	// and the message the UI shows all come from one place.
 	if (!model && hasExistingSession && sessionModel) {
-		const restoredModel = modelRuntime.getModel(sessionModel.provider, sessionModel.modelId);
-		if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
-			model = restoredModel;
-		}
-		if (!model) {
-			modelFallbackMessage = `Could not restore model ${sessionModel.provider}/${sessionModel.modelId}`;
-		}
+		const restored = await restoreModelFromSession(
+			sessionModel.provider,
+			sessionModel.modelId,
+			undefined,
+			false,
+			modelRuntime,
+			// 替代模型交给下面的 findInitialModel：用户设置的默认模型应该比写死的厂商顺序优先。
+			{ autoFallback: false },
+		);
+		if (restored.model) model = restored.model;
+		if (restored.fallback) modelFallback = restored.fallback;
 	}
 
 	// If still no model, use findInitialModel (checks settings default, then provider defaults)
@@ -240,9 +260,18 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		model = result.model;
 		if (!model) {
 			modelFallbackMessage = formatNoModelsAvailableMessage();
-		} else if (modelFallbackMessage) {
-			modelFallbackMessage += `. Using ${model.provider}/${model.id}`;
+		} else if (modelFallback) {
+			// The saved model was replaced and no same-provider replacement existed, so the
+			// initial-model search chose one. Record what is actually in use now.
+			modelFallback = { ...modelFallback, used: { provider: model.provider, id: model.id } };
 		}
+	}
+	if (modelFallback) {
+		modelFallback = {
+			...modelFallback,
+			crossProvider: modelFallback.saved.provider !== modelFallback.used.provider,
+		};
+		modelFallbackMessage = fallbackNoticeText(modelFallback);
 	}
 
 	let thinkingLevel = options.thinkingLevel;
@@ -537,5 +566,6 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		session,
 		extensionsResult,
 		modelFallbackMessage,
+		modelFallback,
 	};
 }

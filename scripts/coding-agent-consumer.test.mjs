@@ -3,12 +3,19 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { installCodingAgentConsumer, packReleasePackages, smokeTestCodingAgentConsumer } from "./coding-agent-consumer.mjs";
+import {
+	assertBundledSkillsShip,
+	checkInstalledBundledSkills,
+	installCodingAgentConsumer,
+	packReleasePackages,
+	smokeTestCodingAgentConsumer,
+} from "./coding-agent-consumer.mjs";
 
 const codingAgentName = "@owl/owl-coding-agent";
 const devPackages = ["pi-client", "pi-protocol", "pi-server"].map((name) => `@earendil-works/${name}`);
+const bundledSkills = ["control-in-app-browser", "html-plan"];
 
-function createFixture(t, { importServer = false, declareServer = false } = {}) {
+function createFixture(t, { importServer = false, declareServer = false, skills = false } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "pi-consumer-test-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	const packages = [codingAgentName, "@earendil-works/chord", ...devPackages].map((name) => ({
@@ -48,6 +55,25 @@ export class ModelRuntime { static create() {} }
 			...(isAgent ? {
 				"dist/cli.js": 'console.log("1.0.0");',
 				"dist/bundle/cli.js": 'console.log("1.0.0");',
+			} : {}),
+			...(isAgent && skills ? {
+				"dist/core/bundled-skills.js": `
+import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+export function installBundledSkills(agentDir) {
+  for (const name of ${JSON.stringify(bundledSkills)}) {
+    const bundled = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", name);
+    if (!existsSync(join(bundled, "SKILL.md"))) continue;
+    const target = join(dirname(agentDir), "skills", name);
+    mkdirSync(target, { recursive: true });
+    cpSync(bundled, target, { recursive: true });
+  }
+}
+`,
+				...Object.fromEntries(
+					bundledSkills.map((skill) => [`skills/${skill}/SKILL.md`, `---\nname: ${skill}\n---\nbody\n`]),
+				),
 			} : {}),
 		};
 		for (const [path, content] of Object.entries(files)) {
@@ -92,4 +118,17 @@ test("fails when the SDK imports an undeclared server despite a working CLI", (t
 test("fails if a development-only dependency is added back to the published dependency tree", (t) => {
 	const directory = createFixture(t, { declareServer: true });
 	assert.throws(() => smokeTestCodingAgentConsumer(directory), /pi-server must not be installed/);
+});
+
+// The bundled skills only reach the user if they ship inside the tarball and the
+// installed package can install them on its own.
+test("ships the bundled skills and lets the installed package install them", (t) => {
+	const directory = createFixture(t, { skills: true });
+	checkInstalledBundledSkills(directory);
+});
+
+test("fails when a bundled skill is missing from the published package", (t) => {
+	const directory = createFixture(t);
+	const packageDir = join(directory, "node_modules", codingAgentName);
+	assert.throws(() => assertBundledSkillsShip(packageDir), /missing the bundled skill/);
 });

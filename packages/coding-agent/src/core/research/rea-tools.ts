@@ -64,7 +64,7 @@ export const researchReaSchema = Type.Object(
 			}),
 		),
 		evidenceId: Type.Optional(
-			Type.String({ pattern: "^ev_[0-9a-f]{64}$", description: "本研究会话已返回的 REA Evidence ID。" }),
+			Type.String({ pattern: "^ev_[0-9a-f]{64}$", description: "本会话已返回的 REA Evidence ID。" }),
 		),
 		view: Type.Optional(
 			Type.Union([
@@ -385,7 +385,7 @@ export function createResearchReaTool(client: ReaBackend): ToolDefinition<typeof
 		name: RESEARCH_REA_TOOL,
 		label: "REA 静态逆向分析",
 		description:
-			"研究工作台专用静态分析。inventory 查看已安装后端；javascript 分析明确选中的 JS 文件、目录或 ASAR（sourcePaths 限定业务源码）；native_overview/functions/strings/function/references/call_graph 逐步追踪原生 PE，procedure 使用观测到的名称或地址；managed_metadata/members/native 检查 .NET 元数据与 CIL；view 使用本会话 evidenceId 查看摘要或模块分页；close 释放后端。所有分析自动保存完整响应、哈希和证据包。不会运行目标、执行页面脚本或安装工具；JSC 继续用 research_decompile。",
+			"本地静态逆向分析。inventory 查看已安装后端；javascript 分析明确选中的 JS 文件、目录或 ASAR（sourcePaths 限定业务源码）；native_overview/functions/strings/function/references/call_graph 逐步追踪原生 PE，procedure 使用观测到的名称或地址；managed_metadata/members/native 检查 .NET 元数据与 CIL；view 使用本会话 evidenceId 查看摘要或模块分页；close 释放后端。所有分析自动保存完整响应、哈希和证据包。不会运行目标、执行页面脚本或安装工具；JSC 继续用 research_decompile。",
 		promptSnippet: "research_rea: 会话隔离的原生、JavaScript/Electron、.NET 静态分析与完整证据保存",
 		parameters: researchReaSchema,
 		executionMode: "sequential",

@@ -135,7 +135,9 @@ describe("message search navigation", () => {
 		note.getBoundingClientRect = () => ({ top: 180 } as DOMRect);
 		await flushFrames();
 		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 164, behavior: "instant" });
-		expect(container.querySelector(".owl-work-process-summary")).toBeNull();
+		// 说明并进了本轮的工作过程折叠块，所以折叠行存在；但这一轮没有工具，只有进展本身。
+		expect(container.querySelector(".owl-work-process-summary")).not.toBeNull();
+		expect(container.querySelectorAll(".owl-tool-row")).toHaveLength(0);
 		expect(container.querySelector('[data-search-match="true"]')?.dataset.entryId).toBe("note");
 	});
 

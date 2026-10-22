@@ -17,6 +17,7 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import type { ToolDefinition } from "../src/core/extensions/index.ts";
 import { getResearchMode, RESEARCH_MODE_ENTRY } from "../src/core/research/agent.ts";
 import { RESEARCH_CHECKPOINT_TOOL } from "../src/core/research/checkpoint.ts";
+import { RESEARCH_REA_TOOL } from "../src/core/research/rea-tools.ts";
 import { researchToolLoadout } from "../src/core/research/tool-loadout.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -54,46 +55,53 @@ it.each([
 		settings: { defaultTools: ["read", "bash"] },
 		expectedPreset: "standard",
 		explicitPreset: undefined,
+		staticAnalysis: true,
 	},
 	{
 		name: "the Home minimal default",
 		settings: { owlDefaultPreset: "minimal" },
 		expectedPreset: "minimal",
 		explicitPreset: undefined,
+		staticAnalysis: false,
 	},
 	{
 		name: "the Home PTC default",
 		settings: { owlDefaultPreset: "ptc" },
 		expectedPreset: "ptc",
 		explicitPreset: undefined,
+		staticAnalysis: true,
 	},
 	{
 		name: "the Home creator default",
 		settings: { owlDefaultPreset: "cordis" },
 		expectedPreset: "cordis",
 		explicitPreset: undefined,
+		staticAnalysis: true,
 	},
 	{
 		name: "the Home custom default",
 		settings: { owlDefaultPreset: "research-fixture" },
 		expectedPreset: "research-fixture",
 		explicitPreset: undefined,
+		staticAnalysis: false,
 	},
 	{
 		name: "the incompatible Home Pi default",
 		settings: { owlDefaultPreset: "pi" },
 		expectedPreset: "standard",
 		explicitPreset: undefined,
+		staticAnalysis: false,
 	},
 	{
 		name: "an explicit PTC selection over the Home minimal default",
 		settings: { owlDefaultPreset: "minimal" },
 		expectedPreset: "ptc",
 		explicitPreset: "ptc",
+		staticAnalysis: false,
 	},
 ])(
 	"keeps combined research tools active with $name, reload and historical resume",
-	async ({ settings, expectedPreset, explicitPreset }) => {
+	async ({ settings, expectedPreset, explicitPreset, staticAnalysis }) => {
 		const root = resolve(await mkdtemp(join(tmpdir(), "owl-research-loadout-")));
 		if (dirname(root) !== resolve(tmpdir()) || !basename(root).startsWith("owl-research-loadout-")) {
 			throw new Error("Unsafe research loadout cleanup target");
@@ -223,10 +231,20 @@ it.each([
 			expect(ordinary.result?.researchMode).toBeUndefined();
 			const ordinaryRecord = await inspect(socket, ordinaryId);
 			expect(ordinaryRecord.session.getAllTools().map((tool) => tool.name)).not.toContain(RESEARCH_CHECKPOINT_TOOL);
-			for (const name of researchToolLoadout([]).filter((name) => name.startsWith("research_"))) {
+			// 研究工作台专属工具在普通对话里不注册。REA 静态分析由静态分析扩展提供，
+			// 但预设收窄工具集时（极简、Pi、显式工具表）同样不可达。
+			for (const name of researchToolLoadout([]).filter(
+				(name) => name.startsWith("research_") && name !== RESEARCH_REA_TOOL,
+			)) {
 				expect(ordinaryRecord.session.getAllTools().map((tool) => tool.name)).not.toContain(name);
 				expect(ordinaryRecord.snapshots[0]).not.toContain(name);
 			}
+			expect(
+				ordinaryRecord.session
+					.getAllTools()
+					.map((tool) => tool.name)
+					.includes(RESEARCH_REA_TOOL),
+			).toBe(staticAnalysis);
 			if ("owlDefaultPreset" in settings) {
 				expect(ordinary.result?.agentPreset).toBe(settings.owlDefaultPreset);
 				if (settings.owlDefaultPreset === "minimal")

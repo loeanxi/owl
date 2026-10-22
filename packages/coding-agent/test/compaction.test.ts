@@ -275,6 +275,20 @@ describe("estimateContextTokens", () => {
 	});
 });
 
+describe("estimateTokens", () => {
+	it("counts CJK characters at ~1 token each instead of chars/4", () => {
+		const cjk = "汉".repeat(100);
+		const ascii = "a".repeat(100);
+
+		const cjkTokens = estimateTokens(createUserMessage(cjk));
+		const asciiTokens = estimateTokens(createUserMessage(ascii));
+
+		expect(cjkTokens).toBeGreaterThanOrEqual(90);
+		expect(asciiTokens).toBeLessThanOrEqual(30);
+		expect(cjkTokens).toBeGreaterThan(asciiTokens * 2);
+	});
+});
+
 describe("estimateContextBreakdown", () => {
 	it("categorizes system prompt, tool definitions, messages and tool results", () => {
 		const messages: AgentMessage[] = [

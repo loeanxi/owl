@@ -45,7 +45,7 @@ import { NOTIFICATION_SOUNDS, previewChime, type NotificationSound } from "../ut
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { FILE_ICON_THEMES, parseFileIconTheme, setFileIconTheme, type FileIconThemeId } from "../file-icons/file-icon-theme.ts";
 import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
-import { API_OPTIONS, CHAT_READING_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, FILE_ICON_THEME_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
+import { API_OPTIONS, CHAT_READING_FIELDS, WORK_EFFECT_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, FILE_ICON_THEME_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
@@ -2941,6 +2941,30 @@ export function SettingsPage({
 											/>
 										}
 									/>
+									<SettingRow
+										title={t("settings.general.workEffects")}
+										desc={t("settings.general.workEffectsDesc")}
+									>
+										<div className="grid gap-1.5 sm:grid-cols-2">
+											{WORK_EFFECT_FIELDS.map((field) => (
+												<div key={field.id} className="flex items-start gap-2.5 rounded-lg border border-owl-border px-2.5 py-2">
+													<span className="min-w-0 flex-1">
+														<span className="block text-xs text-owl-text">{t(field.titleKey)}</span>
+														<span className="mt-0.5 block text-[11px] leading-relaxed text-owl-faint">{t(field.descKey)}</span>
+													</span>
+													<Switch
+														title={t(field.titleKey)}
+														checked={chatAppearance.workEffects[field.id]}
+														disabled={busy || !chatAppearanceLoaded}
+														onChange={(on) => setChatAppearance((current) => ({
+															...current,
+															workEffects: { ...current.workEffects, [field.id]: on },
+														}))}
+													/>
+												</div>
+											))}
+										</div>
+									</SettingRow>
 									<div className="owl-settings-group-actions">
 										<button
 											type="button"

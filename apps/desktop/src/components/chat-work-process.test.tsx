@@ -194,8 +194,9 @@ describe("working through a turn in the real conversation", () => {
 			{ kind: "tool", toolId: "second" },
 		];
 		await render({ entries: turn(assistant("work-entry", [first, second], { text: "继续检查", segments })) });
+		// 一段说明不再把本轮的工作过程切成两块：一轮只有一个折叠行，说明与工具组同处其中。
 		const processes = [...host.querySelectorAll(".owl-work-process")];
-		expect(processes).toHaveLength(2);
+		expect(processes).toHaveLength(1);
 		const tail = processes.at(-1)!;
 		await click(processToggle(tail));
 		await click(tail.querySelector<HTMLButtonElement>('[data-tool-id="second"] .owl-tool-summary')!);
@@ -255,6 +256,8 @@ describe("working through a turn in the real conversation", () => {
 		// 最终答案已带围栏，中间说明不提升为最终答案，但仍作为公开正文显示。
 		expect(host.querySelector('[data-entry-id="note-entry"][data-owl-answer="true"]')).toBeNull();
 		expect(visibleText()).toContain("中间说明附看板草稿");
-		expect(host.querySelector('[data-work-kind="note"]')?.closest(".owl-work-process")).toBeNull();
+		// 说明并进了本轮的工作过程折叠块：一轮只有一个折叠行，不再被切成多段。
+		expect(host.querySelector('[data-work-kind="note"]')?.closest(".owl-work-process")).not.toBeNull();
+		expect(host.querySelectorAll(".owl-work-process")).toHaveLength(1);
 	});
 });

@@ -15,6 +15,7 @@
 - Added research Agent code recovery with a pinned V8 JSC decoder, width-aware disassembly normalization, approximate JavaScript reconstruction, readable source copies and configured Ghidra native pseudocode exports, including hashes, coverage and unresolved instructions.
 - Added research-only PE inspection, bounded Electron resource analysis, explicit ASAR extraction and an optional installed UPX adapter, with source-linked result cards and no target execution. Added fixed synthetic model boundary experiments with explicit model and call budgets.
 - Added a research-only REA 6.4.0 static-analysis integration with isolated MCP sessions, cancellation and deadline cleanup, retained Evidence views, and explicit pseudocode exports.
+- Added the REA static-analysis tool to ordinary conversations, sharing the research workbench's tool allowlist, path validation, input hashing and Evidence retention, with one confirmation before a static analysis even in auto mode.
 - Added curated research operating rules and session-local progress checkpoints with branch-aware recovery, bounded records, and explicit evidence verification requirements.
 - Added per-turn research failure diagnostics with provider markers, approval/tool evidence, branch-local recovery and a compact desktop notice, plus an opt-in acceptance runner for source-owned static fixtures with shared call limits.
 - Added a desktop model evaluation workspace with 24 versioned tasks, isolated configured-model calls, local artifact checks, anonymous human scoring, sampling, and persistent run history.
@@ -23,8 +24,11 @@
 - Added per-answer live runtime beside evaluation thinking, including anonymous answers, retained attempts, and independent follow-ups.
 - Added a desktop Gmail workspace with independently authorized accounts, a unified inbox, scoped mailbox Agent conversations, editable reply drafts, and confirmation of the exact message before sending.
 - Added a copy key (`app.message.copy`, default `ctrl+x`) to OAuth sign-in screens in `/login`, `/mcp`, and `/mcp login`, which copies the sign-in URL when the browser cannot be opened or the wrapped link cannot be selected.
+- Added five desktop browser tools: `browser_query` reads the page as text, DOM markup, editable controls, or by accessible name; `browser_history` goes back, forward, or reloads; `browser_check` sets a checked state idempotently; `browser_drag` drags one element onto another; `browser_click_and_wait` waits for the document a click triggers and reports `navigated: false` when none appears. `browser_query` reads only, so desktop plan mode permits it alongside `browser_snapshot` and still refuses every mutating browser action.
+- Added the bundled `control-in-app-browser` skill, installed with the app, that maps the desktop browser tools and states the observe-act-observe loop and the boundaries of those tools.
 
 ### Changed
+
 
 - Unified the research workbench entry for new and resumed sessions, removing the direction selector so the Agent can combine available research capabilities while preserving method/result categories and existing research history.
 - Research prompts now clarify missing functionality and runtime context for ambiguous labels, reassess user clarifications and repeated requests against actual history, and require concrete technical work on supplied self-developed offline targets within the existing authorization and tool boundaries. The intake contract stays at the end of both default and overridden research prompts.

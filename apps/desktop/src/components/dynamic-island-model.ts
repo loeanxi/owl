@@ -14,6 +14,8 @@ export interface IslandSession {
 	waitKind: "" | "permission" | "question";
 	/** 提问时贴在胶囊上的短句。已经裁过。 */
 	whisper: string;
+	/** 桥接断开时置 true：这轮暂时不会有产出，最优先占用胶囊。 */
+	disconnected?: boolean;
 }
 
 export type IslandOutcome = "done" | "aborted" | "error";
@@ -28,9 +30,10 @@ export interface FinishedMark {
 export type IslandFace =
 	| { kind: "idle" }
 	| { kind: "done"; id: string; title: string; count: number; outcome: IslandOutcome }
-	| { kind: "live"; id: string; title: string; waiting: boolean; waitKind: IslandSession["waitKind"]; count: number };
+	| { kind: "live"; id: string; title: string; waiting: boolean; waitKind: IslandSession["waitKind"]; count: number; disconnected: boolean };
 
 function attentionRank(session: IslandSession): number {
+	if (session.disconnected) return 0;
 	if (session.waitKind === "permission") return 0;
 	if (session.waitKind === "question" || session.waiting) return 1;
 	return 2;
@@ -102,7 +105,7 @@ export function visibleFinished(running: readonly { id: string }[], finished: re
 /** 有会话在跑时胶囊写最近还在产出的那段。没有在跑时，停在最近一条还没打勾的已完成上。 */
 export function islandFace(running: readonly IslandSession[], finished: readonly FinishedMark[]): IslandFace {
 	const latest = orderedRunning(running)[0];
-	if (latest) return { kind: "live", id: latest.id, title: latest.title, waiting: latest.waiting || latest.waitKind !== "", waitKind: latest.waitKind, count: running.length };
+	if (latest) return { kind: "live", id: latest.id, title: latest.title, waiting: latest.waiting || latest.waitKind !== "", waitKind: latest.waitKind, count: running.length, disconnected: Boolean(latest.disconnected) };
 	const done = visibleFinished(running, finished);
 	const top = done[0];
 	if (!top) return { kind: "idle" };
@@ -136,6 +139,18 @@ export function rememberFinished(
 export function dismissFinished<T extends { id: string }>(items: readonly T[], id: string): readonly T[] {
 	if (!items.some((item) => item.id === id)) return items;
 	return items.filter((item) => item.id !== id);
+}
+
+/** 攒下八条以上单勾勾不过来，才在单勾旁边出现批量勾。 */
+export function islandBatchAckVisible(count: number): boolean {
+	return count > 8;
+}
+
+/** 批量打勾：一次去掉这批已完成。一批为空则原样返回。 */
+export function dismissFinishedAll<T extends { id: string }>(items: readonly T[], removing: readonly { id: string }[]): readonly T[] {
+	if (removing.length === 0) return items;
+	const ids = new Set(removing.map((item) => item.id));
+	return items.filter((item) => !ids.has(item.id));
 }
 
 /** 与侧边栏同一套显示名：自定义名 > 首条用户消息 > 回退文案。 */

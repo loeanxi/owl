@@ -42,7 +42,7 @@
 	text-align: left;
 }
 .owl-work-process .owl-work-process-summary:hover { background: transparent; color: var(--owl-reading-text); }
-.owl-work-process .owl-work-process-summary > :is(svg, .owl-tool-spinner) { width: var(--owl-work-icon-size); height: var(--owl-work-icon-size); flex: none; }
+.owl-work-process .owl-work-process-summary > :is(svg, .owl-tool-spinner, .owl-status-slot) { width: var(--owl-work-icon-size); height: var(--owl-work-icon-size); flex: none; }
 .owl-work-process .owl-work-primary { min-width: 0; flex: 1 1 120px; overflow-wrap: anywhere; }
 .owl-work-process[data-state="running"] .owl-work-primary,
 .owl-work-process[data-state="waiting"] .owl-work-primary { color: var(--owl-reading-text); font-weight: 500; }
@@ -151,7 +151,7 @@
 	font-size: 13px;
 	line-height: 1.6;
 }
-.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > :is(svg:first-child, .owl-tool-spinner) { width: var(--owl-work-icon-size); height: var(--owl-work-icon-size); flex: 0 0 var(--owl-work-icon-size); }
+.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > :is(svg:first-child, .owl-tool-spinner, .owl-status-slot) { width: var(--owl-work-icon-size); height: var(--owl-work-icon-size); flex: 0 0 var(--owl-work-icon-size); }
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-action-copy { min-width: 0; flex: 1; }
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-action-title {
 	display: block;
@@ -167,6 +167,8 @@
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-action-result { flex: none; margin-top: 2px; color: var(--owl-reading-muted); font-size: 12px; font-weight: 400; line-height: 1.6; white-space: normal; }
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-row[data-status="error"][data-error-kind="failed"] .owl-work-action-result { color: var(--color-owl-danger); }
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-row[data-status="error"][data-error-kind="blocked"] .owl-work-action-result { color: var(--color-owl-warning); }
+/* 调用本身无效（工具不存在、参数没通过校验）：中性色，不当成任务失败。 */
+.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-row[data-status="error"][data-error-kind="invalid"] .owl-work-action-result { color: var(--owl-reading-muted); }
 
 /* The detail owns the only filled surface. Command and output are plain sections within it. */
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-detail {
@@ -232,19 +234,168 @@
 .owl-work-process :is(.owl-work-process-header, .owl-work-process-item:not([data-work-kind="interactive"]), .owl-work-process-foot) button:disabled { cursor: default; opacity: 0.45; }
 .owl-work-process :is(.owl-work-process-header, .owl-work-process-item:not([data-work-kind="interactive"]), .owl-work-process-foot) button[aria-busy="true"] { cursor: progress; }
 
-.owl-response-activity.owl-response-activity-compact { min-height: 0; margin: 4px 0; }
-.owl-response-activity.owl-response-activity-compact .owl-response-details > summary { width: 32px; height: 32px; }
-
 @container owl-chat (max-width: 520px) {
 	.owl-work-process .owl-work-process-header { gap: 2px 8px; }
 	.owl-work-process .owl-work-process-summary { display: grid; grid-template-columns: var(--owl-work-icon-size) minmax(0, 1fr) var(--owl-work-icon-size); flex-basis: 100%; }
-	.owl-work-process .owl-work-process-summary > :is(svg:first-child, .owl-tool-spinner) { grid-column: 1; grid-row: 1; }
+	.owl-work-process .owl-work-process-summary > :is(svg:first-child, .owl-tool-spinner, .owl-status-slot) { grid-column: 1; grid-row: 1; }
 	.owl-work-process .owl-work-primary { grid-column: 2; grid-row: 1; }
 	.owl-work-process .owl-work-metadata { grid-column: 2; grid-row: 2; }
 	.owl-work-process .owl-work-process-summary > svg:last-child { grid-column: 3; grid-row: 1; }
 	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-row > div > .owl-tool-summary { display: grid; grid-template-columns: var(--owl-work-icon-size) minmax(0, 1fr) 12px; gap: 2px 8px; }
-	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > :is(svg:first-child, .owl-tool-spinner) { grid-column: 1; grid-row: 1; }
+	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > :is(svg:first-child, .owl-tool-spinner, .owl-status-slot) { grid-column: 1; grid-row: 1; }
 	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-action-copy { grid-column: 2; grid-row: 1; }
 	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > .owl-work-action-result { grid-column: 2; grid-row: 2; margin-top: 0; }
 	.owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-tool-summary > svg:last-child { grid-column: 3; grid-row: 1; }
+}
+
+/* ============================================================================
+   执行过程动效
+
+   八条动效由根节点的 data-fx 空格分词表开关，删掉一个 token 即关掉一条：
+     rail 状态流光条 / enter 新行落位 / morph 完成跃迁 / count 秒数跳动
+     spine 左侧进度轨 / stream 输出提示 / breathe 等待呼吸 / nudge 失败微震
+
+   硬约束：
+   - 不触发布局。只动 opacity、transform、background、box-shadow，不改宽高、内外边距、行高。
+   - 不参与内容可见性。任何动效都不允许让用户正在读的文字被裁掉或变透明，
+     否则一旦动画被暂停、节流或重播就会丢内容。stream 因此只画内嵌描边。
+   - 需要动画的伪元素必须自己写静止态 opacity: 0 —— 关掉动画时 animation-fill-mode
+     不再生效，否则扩散环和光晕会退化成常驻描边。
+   ========================================================================== */
+
+/* 状态图标槽：给 morph 的扩散环和 breathe 的光晕一个与图标同尺寸的定位上下文。
+   槽内只有一层内容，用 grid 让图标与伪元素叠在同一格。 */
+.owl-work-process .owl-status-slot {
+	position: relative;
+	display: inline-grid;
+	place-items: center;
+	width: var(--owl-work-icon-size);
+	height: var(--owl-work-icon-size);
+	flex: none;
+}
+.owl-work-process .owl-status-slot > * { grid-area: 1 / 1; width: 100%; height: 100%; }
+
+/* rail：骑在过程体自带的 border-top 上，静止时就是那条原色分隔线，不额外加线。
+   ::before 是静止轨道，::after 是位移的彗星；彗星左侧本就是 transparent，
+   所以不需要 overflow 裁切，不会影响 .owl-tool-detail 的浮层。 */
+@keyframes owl-work-rail-sweep { from { transform: translateX(0); } to { transform: translateX(238%); } }
+.owl-work-process[data-fx~="rail"] .owl-work-process-body[data-open="true"] { position: relative; }
+.owl-work-process[data-fx~="rail"] .owl-work-process-body[data-open="true"]::before {
+	content: "";
+	position: absolute;
+	inset: -1px 0 auto 0;
+	height: 2px;
+	border-radius: 1px;
+	pointer-events: none;
+}
+.owl-work-process[data-fx~="rail"] .owl-work-process-body[data-open="true"]::after {
+	content: "";
+	position: absolute;
+	top: -1px;
+	left: 0;
+	width: 42%;
+	height: 2px;
+	border-radius: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+.owl-work-process[data-fx~="rail"][data-state="running"] .owl-work-process-body[data-open="true"]::before { background: color-mix(in srgb, var(--color-owl-accent) 16%, var(--owl-reading-border)); }
+.owl-work-process[data-fx~="rail"][data-state="running"] .owl-work-process-body[data-open="true"]::after { background: linear-gradient(90deg, transparent, var(--color-owl-accent) 94%); animation: owl-work-rail-sweep 1.5s cubic-bezier(0.5, 0, 0.5, 1) infinite; }
+.owl-work-process[data-fx~="rail"][data-state="waiting"] .owl-work-process-body[data-open="true"]::before { background: color-mix(in srgb, var(--color-owl-warning) 18%, var(--owl-reading-border)); }
+.owl-work-process[data-fx~="rail"][data-state="waiting"] .owl-work-process-body[data-open="true"]::after { background: linear-gradient(90deg, transparent, var(--color-owl-warning) 94%); animation: owl-work-rail-sweep 2.6s cubic-bezier(0.5, 0, 0.5, 1) infinite; }
+
+/* enter：只给本次运行中新出现的行打 data-fresh，历史行不重播。
+   标记落在 .owl-tool-row 上而不是外层 item：一个 item 会合并同一段里的多次工具调用，
+   只有行才是逐条出现的。带工具的 item 固定 false，避免父子两层叠加位移。 */
+@keyframes owl-work-row-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+.owl-work-process[data-fx~="enter"] :is(.owl-tool-row, .owl-work-process-item[data-work-kind="note"], .owl-work-process-item[data-work-kind="thinking"])[data-fresh="true"] { animation: owl-work-row-in 260ms cubic-bezier(0.22, 0.72, 0.28, 1) both; }
+
+/* morph：状态图标从 spinner 换成终态图标的那一次跃迁 */
+@keyframes owl-work-mark-pop { 0% { transform: scale(0.55); } 62% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes owl-work-mark-ring { from { transform: scale(0.55); opacity: 0.7; } to { transform: scale(2.4); opacity: 0; } }
+.owl-work-process[data-fx~="morph"] .owl-status-slot[data-just-done="true"] > * { animation: owl-work-mark-pop 220ms cubic-bezier(0.3, 1.5, 0.5, 1) both; }
+.owl-work-process[data-fx~="morph"] .owl-status-slot[data-just-done="true"]::after {
+	content: "";
+	position: absolute;
+	inset: 2px;
+	border: 1px solid var(--color-owl-accent);
+	border-radius: 50%;
+	opacity: 0;
+	pointer-events: none;
+	animation: owl-work-mark-ring 460ms cubic-bezier(0.22, 0.72, 0.28, 1) both;
+}
+
+/* count：秒数每秒闪一次，不重排头部 */
+@keyframes owl-work-tick { from { opacity: 0.42; } to { opacity: 1; } }
+.owl-work-process[data-fx~="count"]:is([data-state="running"], [data-state="waiting"]) .owl-work-secs { animation: owl-work-tick 420ms ease-out infinite; }
+
+/* spine：行左 1px 竖轨。竖轨分两层 —— 列表上一条连续底轨，行上按自身状态着色的一段标记，
+   这样"哪一步在跑、哪一步挂了"是一行一行分开的，不会因为同一个 item 里有多次工具调用而整段一起变色。
+   过程体内所有条目统一用 --owl-work-text-inset 缩进，顺带让操作行与「最近状态」「最新输出」对齐；
+   .owl-tool-detail 自带的缩进相应归零。 */
+@keyframes owl-work-spine-flow { from { background-position: 0 0; } to { background-position: 0 16px; } }
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list { position: relative; }
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list::before {
+	content: "";
+	position: absolute;
+	left: 10px;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--owl-reading-border);
+	pointer-events: none;
+}
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row { position: relative; padding-left: var(--owl-work-text-inset); }
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row::before {
+	content: "";
+	position: absolute;
+	left: 10px;
+	top: 6px;
+	height: 32px;
+	width: 1px;
+	background: var(--owl-reading-border);
+	pointer-events: none;
+}
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row[data-status="running"]::before { top: 0; bottom: 0; background: repeating-linear-gradient(180deg, var(--color-owl-accent) 0 6px, transparent 6px 16px); animation: owl-work-spine-flow 0.9s linear infinite; }
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row[data-status="error"]::before { background: var(--color-owl-danger); }
+.owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row .owl-tool-detail { margin-left: 0; }
+
+/* stream：最新输出块左沿一次短促的强调色提示。
+   原型里用过 clip-path 横向揭开和整体淡入，但在真实组件里实测到这条动画会被反复触发，
+   一旦停在首帧就会把用户正在读的实时输出整块遮住。因此改成只动内嵌描边：
+   纯绘制变化，不参与内容可见性，即使动画被暂停或重播也永远不会遮住任何文字。 */
+@keyframes owl-work-stream-in { from { box-shadow: inset 2px 0 0 0 var(--color-owl-accent); } to { box-shadow: inset 2px 0 0 0 transparent; } }
+.owl-work-process[data-fx~="stream"]:is([data-state="running"], [data-state="waiting"]) .owl-work-latest-output { animation: owl-work-stream-in 560ms cubic-bezier(0.22, 0.72, 0.28, 1) both; }
+
+/* breathe：等用户确认时主行缓呼吸，时钟一圈琥珀 halo */
+@keyframes owl-work-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
+@keyframes owl-work-halo { from { transform: scale(0.8); opacity: 0.5; } to { transform: scale(2); opacity: 0; } }
+.owl-work-process[data-fx~="breathe"][data-state="waiting"] .owl-work-primary { animation: owl-work-breathe 2.4s ease-in-out infinite; }
+.owl-work-process[data-fx~="breathe"][data-state="waiting"] .owl-status-slot::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: radial-gradient(circle, var(--color-owl-warning) 0 34%, transparent 70%);
+	opacity: 0;
+	pointer-events: none;
+	animation: owl-work-halo 2.4s ease-out infinite;
+}
+
+/* nudge：失败只横移一次并短暂染色，不闪烁不抖动 */
+@keyframes owl-work-nudge { 0%, 100% { transform: translateX(0); } 22% { transform: translateX(-3px); } 52% { transform: translateX(2px); } 78% { transform: translateX(-1px); } }
+@keyframes owl-work-nudge-tint { from { background-color: color-mix(in srgb, var(--color-owl-danger) 22%, transparent); } to { background-color: transparent; } }
+.owl-work-process[data-fx~="nudge"] .owl-work-process-item[data-work-kind="tool"]:has(.owl-tool-row[data-status="error"]) {
+	border-radius: 6px;
+	animation: owl-work-nudge 300ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both, owl-work-nudge-tint 620ms ease-out both;
+}
+
+/* 关闭口：与项目现有的动效开关和系统减弱动效共用一套规则 */
+html[data-owl-chat-motion="off"] .owl-work-process,
+html[data-owl-chat-motion="off"] .owl-work-process :is(*, *::before, *::after),
+.owl-work-process .owl-collapse-body { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-work-process,
+	.owl-work-process :is(*, *::before, *::after),
+	.owl-work-process .owl-collapse-body { animation: none !important; }
 }

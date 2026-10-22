@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { getPublicWorkspacePackages } from "./release-packages.mjs";
 
 const codingAgentName = "@owl/owl-coding-agent";
@@ -124,7 +124,69 @@ for (const subpath of ["/client", "/experimental/plugin"]) {
 	console.log(`Coding-agent SDK and CLI consumer smoke tests passed (${runtime}).`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/** Skills that ship inside the published coding-agent package. */
+const BUNDLED_SKILLS = ["control-in-app-browser", "html-plan"];
+
+/**
+ * The bundled skills must be inside the published tarball, otherwise the
+ * installed package finds nothing to install and the skills never reach the user.
+ */
+export function assertBundledSkillsShip(packageDir) {
+	for (const skill of BUNDLED_SKILLS) {
+		if (!existsSync(join(packageDir, "skills", skill, "SKILL.md"))) {
+			throw new Error(`Published package is missing the bundled skill: skills/${skill}/SKILL.md`);
+		}
+	}
+}
+
+/**
+ * The installed package must be able to install its own bundled skills into the
+ * global skills directory next to the agent dir.
+ */
+export function checkInstalledBundledSkills(directory, runtime = process.execPath) {
+	const packageDir = join(directory, "node_modules", codingAgentName);
+	assertBundledSkillsShip(packageDir);
+	const home = mkdtempSync(join(directory, "skills-home-"));
+	const entry = join(directory, "smoke-skills.mjs");
+	const env = {
+		PATH: process.env.PATH,
+		HOME: home,
+		USERPROFILE: home,
+		APPDATA: home,
+		LOCALAPPDATA: home,
+		XDG_CONFIG_HOME: home,
+		XDG_CACHE_HOME: home,
+		OWL_CODING_AGENT_DIR: join(home, ".owl", "agent"),
+	};
+	for (const name of ["SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"]) {
+		if (process.env[name]) env[name] = process.env[name];
+	}
+	try {
+		const bundledSkillsModule = pathToFileURL(join(packageDir, "dist", "core", "bundled-skills.js")).href;
+		writeFileSync(
+			entry,
+			`import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+const { installBundledSkills } = await import(${JSON.stringify(bundledSkillsModule)});
+installBundledSkills(process.env.OWL_CODING_AGENT_DIR);
+const skillsDir = join(process.env.HOME, ".owl", "skills");
+for (const skill of ${JSON.stringify(BUNDLED_SKILLS)}) {
+  const file = join(skillsDir, skill, "SKILL.md");
+  assert.ok(existsSync(file), "missing installed skill: " + skill);
+  assert.match(readFileSync(file, "utf8"), /^name: /m, skill);
+}
+`,
+		);
+		run(runtime, [entry], { cwd: directory, env, timeout: 30_000 });
+	} finally {
+		rmSync(entry, { force: true });
+		rmSync(home, { recursive: true, force: true });
+	}
+	console.log("Installed package installs its bundled skills.");
+}
+
+	if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	if (process.argv.length !== 2) throw new Error("Usage: node scripts/coding-agent-consumer.mjs");
 	const root = mkdtempSync(join(tmpdir(), "pi-package-consumer-"));
 	try {
@@ -132,6 +194,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 		const directory = join(root, "consumer");
 		installCodingAgentConsumer(directory, tarballs);
 		smokeTestCodingAgentConsumer(directory);
+		checkInstalledBundledSkills(directory);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

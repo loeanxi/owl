@@ -1,0 +1,30 @@
+/* 会话模型被替换时的内联提示：不抢眼，但不能被当成正文忽略。 */
+.owl-model-fallback {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	border-left: 2px solid var(--color-owl-accent);
+	background: color-mix(in srgb, var(--color-owl-accent) 6%, transparent);
+}
+
+/* 换了厂商才加警示色：上下文行为与计费都可能不同。 */
+.owl-model-fallback-warn {
+	border-left-color: var(--color-owl-warn, #d97706);
+	background: color-mix(in srgb, var(--color-owl-warn, #d97706) 10%, transparent);
+}
+
+.owl-model-fallback-action {
+	border: 0;
+	background: transparent;
+	padding: 0 2px;
+	color: var(--color-owl-accent);
+	cursor: pointer;
+	text-underline-offset: 2px;
+	text-decoration: underline;
+	transition: background-color 120ms ease;
+}
+
+.owl-model-fallback-action:hover {
+	background: color-mix(in srgb, var(--color-owl-accent) 12%, transparent);
+}

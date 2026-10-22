@@ -147,7 +147,7 @@ async function boundedRequest<T>(
 	}
 }
 
-/** One research owner, one subprocess and one REA Evidence ledger. Never registers global MCP tools. */
+/** One session owner, one subprocess and one REA Evidence ledger. Never registers global MCP tools. */
 export class ResearchReaClient {
 	readonly ownerSessionId: string;
 	private readonly options: ResearchReaClientOptions;
@@ -160,7 +160,7 @@ export class ResearchReaClient {
 	private disposed = false;
 
 	constructor(ownerSessionId: string, options: ResearchReaClientOptions = {}) {
-		if (!ownerSessionId.trim()) throw new Error("REA 必须绑定研究会话");
+		if (!ownerSessionId.trim()) throw new Error("REA 必须绑定会话");
 		this.ownerSessionId = ownerSessionId;
 		this.options = options;
 		this.agentDir = options.agentDir ?? getAgentDir();
@@ -253,10 +253,10 @@ export class ResearchReaClient {
 		onProgress?: ProgressCallback,
 	): Promise<CallToolResult> {
 		if (!(REA_ALLOWED_TOOLS as readonly string[]).includes(name))
-			throw new ResearchReaError(`研究工作台未开放 REA 工具：${name}`);
-		if (this.disposed) throw new ResearchReaError("REA 研究会话已关闭");
+			throw new ResearchReaError(`当前会话未开放 REA 工具：${name}`);
+		if (this.disposed) throw new ResearchReaError("REA 会话已关闭");
 		if (this.cleanupFailure) throw new ResearchReaError("REA 上次清理未完成，拒绝重用会话", this.cleanupFailure);
-		if (this.activeController) throw new ResearchReaError("REA 同一研究会话不能并行改变分析状态");
+		if (this.activeController) throw new ResearchReaError("REA 同一会话不能并行改变分析状态");
 		signal?.throwIfAborted();
 		const controller = new AbortController();
 		const abort = () => controller.abort(signal?.reason);
@@ -398,7 +398,7 @@ export class ResearchReaClient {
 	async close(): Promise<ResearchReaCleanup> {
 		this.disposed = true;
 		const active = this.activeController;
-		active?.abort(new Error("REA 研究会话已关闭"));
+		active?.abort(new Error("REA 会话已关闭"));
 		return await this.cleanup(active === undefined);
 	}
 }

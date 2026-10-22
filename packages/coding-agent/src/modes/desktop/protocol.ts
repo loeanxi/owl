@@ -1041,6 +1041,17 @@ export interface SkillsSetProjectSelectionRequest {
 	names: string[];
 }
 
+/** 会话模型被替换的说明（模型下线、账号切换、凭据缺失）。 */
+export interface ModelFallbackNotice {
+	reason: "model-missing" | "no-auth";
+	saved: { provider: string; id: string };
+	used: { provider: string; id: string };
+	/** 替代模型换了厂商 —— 用户最意外的情况，提示语气需要更强。 */
+	crossProvider: boolean;
+	/** 可直接展示的一句话说明。 */
+	message: string;
+}
+
 /** 查询会话当前状态：模型、思考强度、上下文用量、累计统计。 */
 export interface SessionStatsRequest {
 	type: "session.stats";
@@ -1053,6 +1064,11 @@ export interface SessionStatsResult {
 	thinkingLevel: string;
 	availableThinkingLevels: string[];
 	supportsThinking: boolean;
+	/**
+	 * 会话没能恢复上次保存的模型、已自动换用其他模型时提供。
+	 * 保留在快照里以保证多窗口读数一致；是否已提示由前端自己记。
+	 */
+	modelFallback?: ModelFallbackNotice;
 	contextUsage?: {
 		tokens: number | null;
 		contextWindow: number;

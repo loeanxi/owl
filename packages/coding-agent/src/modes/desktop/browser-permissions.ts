@@ -1,3 +1,5 @@
+import type { ApprovalMode } from "./protocol.ts";
+
 /** Desktop plan mode permits observation and target selection, but no page or evidence mutations. */
 const READ_ONLY_TOOLS = new Set([
 	"read",
@@ -5,6 +7,7 @@ const READ_ONLY_TOOLS = new Set([
 	"find",
 	"grep",
 	"browser_snapshot",
+	"browser_query",
 	"browser_screenshot",
 	"browser_wait",
 	"computer_observe",
@@ -58,5 +61,19 @@ export function isReadOnlyDesktopTool(toolName: string, input: unknown): boolean
 	if (toolName === "computer_windows") return action === "list";
 	if (toolName === "browser_console") return action === undefined || action === "list";
 	if (toolName === "browser_network") return action === undefined || action === "list" || action === "detail";
+	return false;
+}
+
+/**
+ * 是否必须先向用户确认这次工具调用。
+ *
+ * confirm 模式一律确认。auto 模式默认不打扰，但 REA 静态分析例外：它会启动后端子进程
+ * （Ghidra 启动上限 330 秒）并把证据写进工作区，属于用户预期之外的开销，先确认一次；
+ * inventory 只读本机安装信息，可以直接放行。plan 模式在调用前已经拦下写类工具，
+ * 到这里的只读工具一律放行。
+ */
+export function requiresDesktopConfirmation(toolName: string, input: unknown, mode: ApprovalMode): boolean {
+	if (mode === "confirm") return true;
+	if (toolName === "research_rea") return !isReadOnlyDesktopTool(toolName, input);
 	return false;
 }

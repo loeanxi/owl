@@ -1,5 +1,8 @@
 .owl-execution-controls { flex: 0 0 auto; min-width: 0; }
 .owl-execution-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; padding: 0 20px; border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border)); }
+.owl-execution-toolbar.is-collapsed { justify-content: flex-end; min-height: 24px; border-bottom-color: transparent; }
+.owl-execution-toolbar.is-collapsed .owl-execution-button { padding: 4px 0 2px; opacity: 0.7; }
+.owl-execution-toolbar.is-collapsed .owl-execution-button:hover { opacity: 1; }
 .owl-execution-button { display: inline-flex; align-items: center; gap: 5px; min-width: 0; border: 0; border-radius: 6px; padding: 4px 0; background: transparent; color: var(--owl-ui-muted, var(--color-owl-muted)); font-size: 11px; cursor: pointer; white-space: nowrap; }
 .owl-execution-button:hover, .owl-execution-button[aria-pressed="true"] { color: var(--color-owl-accent); }
 .owl-execution-button svg { flex: 0 0 auto; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }

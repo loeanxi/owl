@@ -1361,6 +1361,7 @@ button.owl-context-gauge:hover { background: var(--color-owl-hover); }
 .owl-context-ring circle:last-child { transition: stroke-dasharray 300ms ease; }
 .owl-context-gauge__capacity { opacity: 0.6; }
 .owl-context-gauge__percent { font-weight: 600; }
+.owl-context-gauge__rate { opacity: 0.6; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
 	.owl-context-tank__liquid, .owl-context-ring circle { transition: none; }
 	.owl-context-tank__wave { animation: none; }
@@ -1825,11 +1826,7 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }
 .owl-chat-error { color: var(--color-owl-danger); font-size: 13px; line-height: 1.7; }
 .owl-chat-paused { color: var(--owl-reading-muted); font-size: 12px; line-height: 1.7; }
-.owl-response-activity { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; margin: 18px 0 8px; color: var(--owl-reading-muted); font-size: 12px; }
-.owl-response-label { min-width: 0; color: var(--owl-reading-text); font-size: 13px; line-height: 1.6; }
-.owl-response-timing { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .owl-response-details { position: relative; flex: none; margin-left: auto; }
-.owl-response-timing + .owl-response-details { margin-left: 0; }
 .owl-response-details > summary { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; list-style: none; border-radius: 6px; cursor: pointer; }
 .owl-response-details > summary::-webkit-details-marker { display: none; }
 .owl-response-details > summary:hover, .owl-response-details[open] > summary { background: var(--owl-reading-panel); color: var(--owl-reading-text); }
@@ -1839,10 +1836,6 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-response-details[open] .owl-response-metrics { animation: owl-pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes owl-pop-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .owl-response-usage { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
-.owl-response-activity:is([data-state="waiting"], [data-state="disconnected"]) .owl-response-label { color: var(--color-owl-warning); font-weight: 500; }
-.owl-response-mark { width: 18px; height: 18px; opacity: .75; }
-.owl-response-activity[data-state="working"] .owl-response-mark { animation: owl-response-breathe 2s ease-in-out infinite; }
-.owl-response-activity[data-state="disconnected"] .owl-response-mark { opacity: .4; }
 
 /* 输入框上沿的流羽猫头鹰。整只在边线上方 2px，不压线。 */
 .owl-mascot-slot {
@@ -2087,10 +2080,9 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 	.owl-chat-scroll { padding: 24px 20px; }
 }
 @keyframes owl-tool-spin { to { transform: rotate(360deg); } }
-@keyframes owl-response-breathe { 50% { opacity: .45; transform: rotate(12deg) scale(.92); } }
-html[data-owl-chat-motion="off"] .owl-response-mark, html[data-owl-chat-motion="off"] .owl-tool-spinner, html[data-owl-chat-motion="off"] .owl-mascot, html[data-owl-chat-motion="off"] .owl-mascot *, .owl-chat-surface[data-activity="waiting"] .owl-tool-spinner { animation: none !important; }
+html[data-owl-chat-motion="off"] .owl-tool-spinner, html[data-owl-chat-motion="off"] .owl-mascot, html[data-owl-chat-motion="off"] .owl-mascot *, .owl-chat-surface[data-activity="waiting"] .owl-tool-spinner { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
-	.owl-response-mark, .owl-tool-spinner, .owl-chat-surface .animate-pulse, .owl-mascot, .owl-mascot * { animation: none !important; }
+	.owl-tool-spinner, .owl-chat-surface .animate-pulse, .owl-mascot, .owl-mascot * { animation: none !important; }
 	.owl-mascot-slot { transition: none; }
 }
 

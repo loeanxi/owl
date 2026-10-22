@@ -288,80 +288,102 @@ export function compactionContextWindow(model: { contextWindow: number; contextW
 
 const ESTIMATED_IMAGE_CHARS = 4800;
 
-function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
-	if (typeof content === "string") {
-		return content.length;
-	}
-
+/**
+ * 文本的加权字符数：CJK/全角字符按 4 计，其余按 1 计。配 chars/4 使用时
+ * 一个汉字折算 ~1 token，修正纯 chars/4 对中文的低估（1 个汉字 ≈ 1 个 token）。
+ */
+export function weightedTextChars(text: string): number {
 	let chars = 0;
-	for (const block of content) {
-		if (block.type === "text" && block.text) {
-			chars += block.text.length;
-		} else if (block.type === "image") {
-			chars += ESTIMATED_IMAGE_CHARS;
-		}
+	for (const char of text) {
+		const code = char.codePointAt(0)!;
+		chars +=
+			(code >= 0x3000 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af) || (code >= 0xff00 && code <= 0xffef)
+				? 4
+				: 1;
 	}
 	return chars;
 }
 
+/** 单段文本的 token 估算：CJK ≈ 1 token/字，其余 4 字符 1 token。 */
+export function estimateTextTokens(text: string): number {
+	return Math.ceil(weightedTextChars(text) / 4);
+}
+
+function estimateTextAndImageContentTokens(content: string | Array<{ type: string; text?: string }>): number {
+	if (typeof content === "string") {
+		return estimateTextTokens(content);
+	}
+
+	let tokens = 0;
+	for (const block of content) {
+		if (block.type === "text" && block.text) {
+			tokens += estimateTextTokens(block.text);
+		} else if (block.type === "image") {
+			tokens += ESTIMATED_IMAGE_CHARS / 4;
+		}
+	}
+	return tokens;
+}
+
 /**
- * Estimate token count for a message using a chars/4 heuristic.
- * This is approximate and can undercount CJK, image, and provider-expanded prompt content.
+ * Estimate token count for a message.
+ * CJK text counts ~1 token per character; other text uses a chars/4 heuristic.
+ * Still approximate: image and provider-expanded prompt content can differ from real usage.
  */
 export function estimateTokens(message: AgentMessage): number {
-	let chars = 0;
+	let tokens = 0;
 
 	switch (message.role) {
 		case "system": {
 			const system = message as SystemMessage;
-			chars = estimateTextAndImageContentChars(system.content);
+			tokens = estimateTextAndImageContentTokens(system.content);
 			if (system.sections) {
 				for (const section of Object.values(system.sections)) {
-					if (section) chars += section.length;
+					if (section) tokens += estimateTextTokens(section);
 				}
 			}
-			if (system.toolsAdded) chars += JSON.stringify(system.toolsAdded).length;
-			return Math.ceil(chars / 4);
+			if (system.toolsAdded) tokens += estimateTextTokens(JSON.stringify(system.toolsAdded));
+			return Math.ceil(tokens);
 		}
 		case "user": {
-			chars = estimateTextAndImageContentChars(
+			tokens = estimateTextAndImageContentTokens(
 				(message as { content: string | Array<{ type: string; text?: string }> }).content,
 			);
-			return Math.ceil(chars / 4);
+			return Math.ceil(tokens);
 		}
 		case "assistant": {
 			const assistant = message as AssistantMessage;
 			for (const block of assistant.content) {
 				if (block.type === "text") {
-					chars += block.text.length;
+					tokens += estimateTextTokens(block.text);
 				} else if (block.type === "thinking") {
-					chars += block.thinking.length;
+					tokens += estimateTextTokens(block.thinking);
 				} else if (block.type === "toolCall") {
-					chars += block.name.length + JSON.stringify(block.arguments).length;
+					tokens += estimateTextTokens(block.name + JSON.stringify(block.arguments));
 				}
 			}
-			return Math.ceil(chars / 4);
+			return Math.ceil(tokens);
 		}
 		case "custom":
 		case "toolResult": {
-			chars = estimateTextAndImageContentChars(message.content);
-			return Math.ceil(chars / 4);
+			tokens = estimateTextAndImageContentTokens(message.content);
+			return Math.ceil(tokens);
 		}
 		case "bashExecution": {
-			chars = message.command.length + message.output.length;
-			return Math.ceil(chars / 4);
+			tokens = estimateTextTokens(message.command + message.output);
+			return Math.ceil(tokens);
 		}
 		case "branchSummary":
 		case "compactionSummary": {
-			chars = message.summary.length;
-			return Math.ceil(chars / 4);
+			tokens = estimateTextTokens(message.summary);
+			return Math.ceil(tokens);
 		}
 	}
 
 	return 0;
 }
 
-/** 上下文构成的分类估算（字符/4 启发式，与 estimateTokens 同口径）。 */
+/** 上下文构成的分类估算（CJK ≈ 1 token/字、其余 4 字符 1 token，与 estimateTokens 同口径）。 */
 export interface ContextBreakdownEstimate {
 	/** 系统提示词（system content + sections）。 */
 	systemPrompt: number;
@@ -383,15 +405,15 @@ export function estimateContextBreakdown(messages: AgentMessage[]): ContextBreak
 		switch (message.role) {
 			case "system": {
 				const system = message as SystemMessage;
-				let promptChars = estimateTextAndImageContentChars(system.content);
+				let promptTokens = estimateTextAndImageContentTokens(system.content);
 				if (system.sections) {
 					for (const section of Object.values(system.sections)) {
-						if (section) promptChars += section.length;
+						if (section) promptTokens += estimateTextTokens(section);
 					}
 				}
-				breakdown.systemPrompt += Math.ceil(promptChars / 4);
+				breakdown.systemPrompt += Math.ceil(promptTokens);
 				if (system.toolsAdded) {
-					breakdown.toolDefinitions += Math.ceil(JSON.stringify(system.toolsAdded).length / 4);
+					breakdown.toolDefinitions += estimateTextTokens(JSON.stringify(system.toolsAdded));
 				}
 				break;
 			}

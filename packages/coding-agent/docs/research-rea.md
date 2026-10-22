@@ -1,6 +1,21 @@
 # REA 研究工作台接入
 
-研究工作台的 `research_rea` 使用固定版本 `rea-agents@6.4.0`，增加本地 JavaScript / Electron、原生 PE 和 .NET 静态分析。只在显式创建的研究会话注册，每个研究会话持有独立 MCP 进程、当前目标和 Evidence 账本。普通聊天、全局 MCP 配置和现有 V8 JSC 恢复链不变。
+研究工作台的 `research_rea` 使用固定版本 `rea-agents@6.4.0`，增加本地 JavaScript / Electron、原生 PE 和 .NET 静态分析。每个研究会话持有独立 MCP 进程、当前目标和 Evidence 账本。普通对话借用同一个静态分析工具（见下节），但不带研究工作台的其余工具。全局 MCP 配置和现有 V8 JSC 恢复链不变。
+
+## 普通对话中的静态分析
+
+普通对话（研究工作台以外）也注册 `research_rea`，用于「读懂一个二进制或前端产物」这类问题。两条路径共用同一个 `ResearchReaClient` 与 `createResearchReaTool`，所以安全边界完全一致：
+
+- 同样的上游工具白名单（16 个静态查询与生命周期工具），不注册 REA 完整 MCP 目录。
+- 同样的路径校验：只读用户明确选中或当前工作区内的文件，拒绝符号链接、目录联接和越界路径。
+- 同样的输入快照与 SHA-256 校验，同样的完整响应、证据包与报告落盘。
+- 同样不运行目标、不执行页面脚本、不安装工具。
+
+差异只有两处：普通对话不注册 `research_publish`、`research_checkpoint`、`research_task`、`research_executable`、`research_decompile`、`research_model_lab`；以及普通对话没有研究会话的方向、任务台账与结果卡，普通对话的结果直接在对话里回复。
+
+审批上有一处加强：REA 静态分析会启动后端子进程（Ghidra 启动上限 330 秒）并把证据写进工作区，属于用户预期之外的开销，所以**即使在 auto 模式也先确认一次**；`inventory` 只读本机安装信息，可以直接放行。plan 模式与研究会话一致，只放行 `inventory`。
+
+极简模式与 Pi 模式预设固定收窄工具集，本来就不包含 `research_rea`；其余预设按需发现。
 
 ## 安装与启用
 

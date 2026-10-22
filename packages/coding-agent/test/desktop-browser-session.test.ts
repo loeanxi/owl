@@ -5,7 +5,16 @@ import type { IabPageInfo, IabPagesMessage } from "../src/modes/desktop/protocol
 
 describe("desktop browser plan permissions", () => {
 	it("allows observations and target selection", () => {
-		for (const toolName of ["read", "ls", "find", "grep", "browser_snapshot", "browser_screenshot", "browser_wait"]) {
+		for (const toolName of [
+			"read",
+			"ls",
+			"find",
+			"grep",
+			"browser_snapshot",
+			"browser_query",
+			"browser_screenshot",
+			"browser_wait",
+		]) {
 			expect(isReadOnlyDesktopTool(toolName, {})).toBe(true);
 		}
 		expect(isReadOnlyDesktopTool("browser_tabs", { action: "list" })).toBe(true);
@@ -45,6 +54,11 @@ describe("desktop browser plan permissions", () => {
 			"browser_type",
 			"browser_select",
 			"browser_hover",
+			"browser_check",
+			"browser_drag",
+			"browser_click",
+			"browser_click_and_wait",
+			"browser_history",
 			"write",
 			"edit",
 			"bash",

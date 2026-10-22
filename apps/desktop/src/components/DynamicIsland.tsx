@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/index.ts";
 import {
 	dismissFinished,
+	dismissFinishedAll,
 	formatRunClock,
+	islandBatchAckVisible,
 	islandCanReply,
 	islandCompactAction,
 	islandFace,
@@ -190,7 +192,7 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 	const waitText = (kind: IslandSession["waitKind"], waiting: boolean): string => kind === "permission" ? t("island.waitingPermission") : kind === "question" ? t("island.waitingQuestion") : waiting ? t("island.waiting") : "";
 	const clockText = (startedAt: number): string => startedAt > 0 ? formatRunClock(startedAt, now) : "";
 	const shown = face.kind === "live" ? rows.find((session) => session.id === face.id) : undefined;
-	const shownStep = shown ? stepText(shown.step) : "";
+	const shownStep = shown ? (shown.disconnected ? t("island.disconnected") : stepText(shown.step)) : "";
 	const shownClock = shown ? clockText(shown.startedAt) : "";
 	const shownWhisper = shown?.waitKind === "question" ? shown.whisper : "";
 
@@ -204,15 +206,17 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 	}
 
 	const label = face.kind === "live"
-		? face.waitKind === "permission"
-			? t("island.waitingPermissionLive", { title: face.title })
-			: face.waitKind === "question"
-				? t("island.waitingQuestionLive", { title: face.title })
-				: face.waiting
-			? t("island.waitingLive", { title: face.title })
-			: face.count > 1
-				? t("island.liveCount", { title: face.title, count: face.count })
-				: t("island.live", { title: face.title })
+		? face.disconnected
+			? t("island.disconnectedLive", { title: face.title })
+			: face.waitKind === "permission"
+				? t("island.waitingPermissionLive", { title: face.title })
+				: face.waitKind === "question"
+					? t("island.waitingQuestionLive", { title: face.title })
+					: face.waiting
+				? t("island.waitingLive", { title: face.title })
+				: face.count > 1
+					? t("island.liveCount", { title: face.title, count: face.count })
+					: t("island.live", { title: face.title })
 		: face.kind === "done"
 			? face.outcome === "aborted"
 				? t("island.abortedLive", { title: face.title })
@@ -234,6 +238,11 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 	const acknowledge = (id: string): void => {
 		setMemory((current) => ({ ...current, finished: dismissFinished(current.finished, id) }));
 		if (replyFor === id) setReplyFor(null);
+	};
+
+	const acknowledgeAll = (): void => {
+		setMemory((current) => ({ ...current, finished: dismissFinishedAll(current.finished, done) }));
+		setReplyFor(null);
 	};
 
 	const outcomeText = (outcome: IslandOutcome): string => outcome === "aborted" ? t("island.aborted") : outcome === "error" ? t("island.failed") : t("island.done");
@@ -269,6 +278,7 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 			ref={root}
 			className={`owl-island ${mode}${landing ? " is-landing" : ""}`}
 			data-waiting={face.kind === "live" && face.waiting ? true : undefined}
+			data-disconnected={face.kind === "live" && face.disconnected ? true : undefined}
 			data-outcome={face.kind === "done" ? face.outcome : undefined}
 			style={{ left: layout.center, ["--owl-island-max" as string]: `${layout.max}px`, visibility: layout.ready ? "visible" : "hidden" }}
 			data-tauri-drag-region="false"
@@ -283,6 +293,7 @@ function DynamicIslandContent({ running, notice, titleOf, onOpen, jumpToFace, pe
 						{face.count > 1 && <span className="owl-island-count">{face.count}</span>}
 					</button>
 					{islandCanReply(face.outcome) && <button type="button" className="owl-island-chip" onClick={() => beginReply(face.id)}>{t("island.reply")}</button>}
+					{islandBatchAckVisible(face.count) && <button type="button" className="owl-island-check is-batch" aria-label={t("island.ackAll", { count: face.count })} onClick={acknowledgeAll}>✓{face.count}</button>}
 					<button type="button" className="owl-island-check" aria-label={t("island.ack", { title: face.title })} onClick={() => acknowledge(face.id)}>✓</button>
 				</div>
 			) : (

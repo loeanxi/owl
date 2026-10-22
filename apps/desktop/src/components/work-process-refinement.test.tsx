@@ -197,20 +197,17 @@ describe("Readable tool records without losing evidence", () => {
 		expect(onOpenFile).toHaveBeenCalledTimes(3);
 	});
 
-	it("omits empty response chrome while a current process is visible and keeps fallback activity intact", async () => {
+	it("omits empty response chrome in every state; the global status row is retired", async () => {
 		await render({ entries: turn(assistant("active", [tool("now", "src/now.ts", "running")])), activity: "working" });
 		expect(host.querySelector('.owl-work-primary[role="status"]')).not.toBeNull();
 		expect(host.querySelector(".owl-response-activity")).toBeNull();
 		expect(host.querySelector(".owl-response-mark")).toBeNull();
 		await render({ entries: turn(assistant("active", [tool("now", "src/now.ts", "running")], { usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 } })) });
-		const metrics = host.querySelector<HTMLElement>(".owl-response-activity")!;
-		expect(metrics).not.toBeNull();
-		expect(metrics.querySelector(".owl-response-details")).not.toBeNull();
-		expect(metrics.querySelector(".owl-response-label, .owl-response-mark")).toBeNull();
+		expect(host.querySelector(".owl-response-activity")).toBeNull();
 		await render({ entries: turn(assistant("generating-only", [])), activity: "working" });
 		expect(host.querySelector(".owl-work-process")).toBeNull();
-		expect(host.querySelector(".owl-response-label")?.textContent).toBeTruthy();
-		expect(host.querySelector(".owl-response-mark")).not.toBeNull();
+		expect(host.querySelector(".owl-response-activity")).toBeNull();
+		expect(host.querySelector(".owl-response-mark")).toBeNull();
 		expect(host.querySelector("[data-test-response-mascot]")).toBeNull();
 	});
 
