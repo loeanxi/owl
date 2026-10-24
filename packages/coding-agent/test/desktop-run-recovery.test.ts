@@ -182,6 +182,36 @@ describe("desktop durable run checkpoints", () => {
 		expect(() => prepareInterruptedRun(manager, claimed[0]!)).not.toThrow();
 	});
 
+	it("prunes empty pending-queue entries on every write so drained sessions do not accumulate", async () => {
+		const { agentDir, cwd } = await isolatedProfile();
+		const { manager, store } = seedRun(cwd, agentDir);
+		const checkpointPath = join(agentDir, "desktop-run-checkpoints.json");
+		const seeded = JSON.parse(readFileSync(checkpointPath, "utf8")) as {
+			pendingQueues: Record<
+				string,
+				Array<{
+					lane: string;
+					message: { role: string; content: string; timestamp: number; owlQueueId: string };
+				}>
+			>;
+		};
+		seeded.pendingQueues = {
+			"drained-old": [],
+			[manager.getSessionId()]: [
+				{
+					lane: "steering",
+					message: { role: "user", content: "still queued", timestamp: Date.now(), owlQueueId: "live-1" },
+				},
+			],
+			"another-drained": [],
+		};
+		writeFileSync(checkpointPath, JSON.stringify(seeded));
+		store.deletePendingQueue("never-seen");
+		const after = JSON.parse(readFileSync(checkpointPath, "utf8")) as typeof seeded;
+		expect(Object.keys(after.pendingQueues)).toEqual([manager.getSessionId()]);
+		expect(after.pendingQueues[manager.getSessionId()]?.[0]?.message.owlQueueId).toBe("live-1");
+	});
+
 	it("does not claim a running owner and preserves only unfinished runs across shutdown", async () => {
 		const { agentDir, cwd } = await isolatedProfile();
 		const { manager, store } = seedRun(cwd, agentDir);

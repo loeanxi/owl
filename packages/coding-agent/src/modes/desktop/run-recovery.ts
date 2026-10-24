@@ -156,9 +156,18 @@ export class DesktopRunRecovery {
 		return withFileLockSync(this.path, () => {
 			const file = this.read();
 			const result = mutate(file);
+			this.pruneEmptyPendingQueues(file);
 			atomicWriteFileSync(this.path, JSON.stringify(file));
 			return result;
 		});
+	}
+
+	/** An empty pending queue is indistinguishable from an absent one at every reader; drop it so drained sessions do not accumulate forever. */
+	private pruneEmptyPendingQueues(file: RecoveryFile): void {
+		if (!file.pendingQueues) return;
+		for (const [sessionId, entries] of Object.entries(file.pendingQueues)) {
+			if (entries.length === 0) delete file.pendingQueues[sessionId];
+		}
 	}
 
 	begin(sessionManager: SessionManager, agentDir = this.agentDir): void {
