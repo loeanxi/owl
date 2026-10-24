@@ -1,0 +1,385 @@
+<!doctype html>
+<!--
+	PROTOTYPE —— 一次性代码，验证「助手最终回答该怎么组织才一目了然」。
+	四个变体（含现状复刻）用 ?variant=A|B|C|D 切换，页面底部切换条或 ← → 键。
+	数据取自真实截图那一轮：读两个文件 → 说一句 → 写一个文件 → 给结论。
+	结论：选中变体后再改真代码（system-prompt.ts 的沟通规则 + ChatStream 的 note 收纳）。
+	用完归档到 _scratch，不留在主分支。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE · 回答结构</title>
+<style>
+	:root {
+		--bg: #1b1b1b;
+		--panel: #242424;
+		--panel-hi: #2b2b2b;
+		--chip: #ffffff0a;
+		--text: #e9e9e9;
+		--muted: #9b9b9b;
+		--dim: #767676;
+		--accent: #3ecfa4;
+		--ok: #5abd8f;
+		--rule: #ffffff10;
+		--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--text);
+		font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+		font-size: 15px;
+		line-height: 1.7;
+		-webkit-font-smoothing: antialiased;
+	}
+	.page { max-width: 780px; margin: 0 auto; padding: 30px 20px 150px; }
+	.caption { margin: 0 0 6px; font-size: 12px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+	.caption b { color: var(--accent); font-weight: 600; letter-spacing: 0; text-transform: none; }
+	.hint { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-wrap: pretty; }
+	.same { margin: 0 0 26px; font-size: 12px; color: var(--dim); }
+	.same b { color: var(--muted); font-weight: 500; }
+
+	code {
+		font-family: var(--mono);
+		font-size: .92em;
+		background: var(--chip);
+		padding: 1px 5px;
+		border-radius: 5px;
+	}
+
+	/* ── 一轮对话的骨架 ── */
+	.turn { margin-bottom: 30px; }
+	.question { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+	.question span {
+		max-width: 84%;
+		padding: 9px 15px;
+		border-radius: 16px;
+		background: #2f2f2d;
+		font-size: 14px;
+		line-height: 1.62;
+		text-wrap: pretty;
+	}
+	.turn-body { padding-left: 2px; }
+
+	/* ── 现状里的那种过程行 ── */
+	.note { margin: 0 0 6px; color: var(--text); }
+	.wp-head {
+		display: flex; align-items: center; gap: 7px;
+		padding: 6px 0; font-size: 13px; color: var(--muted);
+	}
+	.wp-head .wp-label { color: var(--text); }
+	.wp-meta { margin-left: auto; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+	.prose { margin: 0 0 14px; text-wrap: pretty; }
+	.prose.ul { padding-left: 19px; }
+	.prose.ul li + li { margin-top: 8px; }
+	.done-head { margin: 4px 0 10px; font-size: 17px; font-weight: 600; }
+	.actions { margin-top: 14px; display: flex; gap: 14px; font-size: 12px; color: var(--dim); }
+
+	/* ── 单一折叠行（B/C/D 共用的一种排法） ── */
+	.fold {
+		display: flex; align-items: center; gap: 8px;
+		width: 100%; margin: 0; padding: 5px 8px; border: 0; border-radius: 7px;
+		background: none; color: var(--muted);
+		font: inherit; font-size: 13px; cursor: pointer; text-align: left;
+		transition: background-color .12s ease, color .12s ease;
+	}
+	.fold:hover { background: var(--panel-hi); color: var(--text); }
+	.fold[aria-expanded="true"] { color: var(--text); }
+	.chev { display: inline-block; font-size: 10px; color: var(--dim); transition: transform .12s ease; }
+	.fold[aria-expanded="true"] .chev { transform: rotate(90deg); }
+	.fold-meta { margin-left: auto; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--dim); }
+	.fold-body {
+		display: grid; gap: 3px;
+		margin: 2px 0 10px; padding: 6px 10px 8px 22px;
+		font-size: 12.5px; color: var(--muted);
+	}
+	.fold-body[hidden] { display: none; }
+	.fold-body .step { display: flex; gap: 8px; }
+	.fold-body .step em { font-style: normal; color: var(--text); min-width: 30px; }
+	.fold-body .step time { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--dim); }
+	.fold-body .said { margin: 5px 0 3px; color: var(--muted); text-wrap: pretty; }
+
+	/* ── B：一句主句 + 每行一个事实 ── */
+	.lead { margin: 8px 0 10px; font-size: 15.5px; text-wrap: pretty; }
+	.line { margin: 0 0 4px; color: var(--muted); text-wrap: pretty; }
+	.line b, .lead b { color: var(--text); font-weight: 500; }
+
+	/* ── C：交付卡 ── */
+	.deliver { margin-top: 10px; padding: 14px 16px 12px; border-radius: 12px; background: var(--panel); }
+	.deliver-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+	.deliver-head .name { font-size: 14px; }
+	.badge {
+		margin-left: auto;
+		padding: 2px 9px; border-radius: 999px;
+		background: #5abd8f1f; color: var(--ok);
+		font-size: 12px; font-variant-numeric: tabular-nums;
+	}
+	.kv { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+	.kv th {
+		padding: 6px 0; text-align: left; font-weight: 400;
+		color: var(--muted); font-family: var(--mono); font-size: 12.5px;
+		vertical-align: top;
+	}
+	.kv td { padding: 6px 0; vertical-align: top; }
+	.kv td.val { font-family: var(--mono); font-size: 13px; width: 34%; font-variant-numeric: tabular-nums; }
+	.kv td.src { color: var(--dim); font-size: 12px; text-align: right; white-space: nowrap; }
+	.kv tr + tr th, .kv tr + tr td { border-top: 1px solid var(--rule); }
+	.deliver-foot {
+		margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
+		font-size: 12.5px; color: var(--dim); text-wrap: pretty;
+	}
+
+	/* ── D：一句话 + 按需展开 ── */
+	.lead-lg { margin: 8px 0 8px; font-size: 16px; font-weight: 500; text-wrap: pretty; }
+	.inline-meta { margin: 0; color: var(--muted); font-size: 13.5px; text-wrap: pretty; }
+	.inline-meta code { font-size: .95em; }
+	.detail {
+		margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: var(--panel);
+		font-size: 13px; color: var(--muted); display: grid; gap: 6px;
+	}
+	.detail[hidden] { display: none; }
+	.detail .row { display: flex; gap: 10px; }
+	.detail .row b { color: var(--muted); font-weight: 400; min-width: 46px; }
+	.detail .row span { color: var(--text); font-weight: 400; }
+	.detail .row .mono { font-family: var(--mono); font-size: 12.5px; }
+	.more { margin-left: 0; }
+	.fold-inline { width: auto; padding: 0; font-size: 12px; }
+
+	/* ── 原型切换条 ── */
+	.proto-bar {
+		position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+		display: flex; align-items: center; gap: 4px;
+		padding: 5px 7px; border-radius: 999px;
+		background: #111; border: 1px solid #454545;
+		box-shadow: 0 8px 28px #0009; color: #f2f2f2;
+		font-size: 12.5px; z-index: 50;
+	}
+	.proto-bar button {
+		width: 26px; height: 26px; display: grid; place-items: center;
+		border: 0; border-radius: 50%; background: #ffffff14; color: inherit;
+		font: inherit; font-size: 13px; cursor: pointer;
+	}
+	.proto-bar button:hover { background: #ffffff26; }
+	.proto-bar .label { min-width: 190px; text-align: center; font-variant-numeric: tabular-nums; }
+	.proto-bar .label em { font-style: normal; color: #9a9a9a; }
+</style>
+</head>
+<body>
+<div class="page">
+	<p class="caption">PROTOTYPE · <b id="v-name">变体</b></p>
+	<p class="hint" id="v-hint"></p>
+	<p class="same" id="v-same"></p>
+	<div id="app"></div>
+</div>
+
+<div class="proto-bar">
+	<button type="button" id="prev" aria-label="上一个变体">←</button>
+	<div class="label"><span id="v-key">A</span> — <em id="v-title">名称</em></div>
+	<button type="button" id="next" aria-label="下一个变体">→</button>
+</div>
+
+<script>
+// 同一份数据，四个变体只改「过程怎么收」和「答案怎么组织」。
+const turn = {
+	question: "本任务目录包含 `etc` 目录：里面是服务配置文件，旁边还放着一份 README，按任务要求整理出一份 `config-summary.json`。",
+	notes: [
+		"我先读一下两个输入文件。",
+		"README 里的 `timeoutMs` 是 30000，也就是已过期的值；`runtime.json` 里实际是 6000。按任务要求以 `runtime.json` 为准。",
+	],
+	steps: [
+		{ op: "读取", target: "etc/runtime.json", ms: "0.04s", note: null },
+		{ op: "读取", target: "etc/README.md", ms: "0.03s", note: "我先读一下两个输入文件。" },
+		{ op: "写入", target: "config-summary.json", ms: "0.06s", note: "README 的 30000 已过期，以 runtime.json 的 6000 为准。" },
+		{ op: "校验", target: "验证器 c-16996e", ms: "0.2s", note: null },
+	],
+	elapsed: "9s",
+	answerBullets: [
+		"读了 `etc/runtime.json` 和 `etc/README.md`。README 里写的是 `timeoutMs: 30000`，那是过期值；`runtime.json` 里实际值是 `6000`，按任务要求以 `runtime.json` 为准。",
+		'只在任务目录写了 `config-summary.json`：`{"timeoutMs": 6000, "retries": 3, "maxConcurrent": 29}`，没有动其他文件，也没有创建脚本或日志。',
+		'验证器返回 `{"ok":true,"case":"c-16996e","phase":"final","checksPassed":3}`，通过。',
+	],
+};
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+/** 只认行内反引号和 **粗体**，够原型用。 */
+const md = (s) => esc(s)
+	.replace(/`([^`]+)`/g, "<code>$1</code>")
+	.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+
+const question = () => `<div class="question"><span>${md(turn.question)}</span></div>`;
+const actions = (extra = "") => `<div class="actions"><span>复制</span><span>重新生成</span>${extra}</div>`;
+
+/** 单一折叠行：B/C/D 都靠它把整轮过程压成一行。 */
+function stepBody(id) {
+	return `<div class="fold-body" id="${id}" hidden>${turn.steps.map((step) =>
+		`${step.note ? `<div class="said">${md(step.note)}</div>` : ""}
+		 <div class="step"><em>${step.op}</em><span>${md(step.target)}</span><time>${step.ms}</time></div>`).join("")}</div>`;
+}
+function foldRow(id, label = "工作过程", meta = `${turn.elapsed} · ${turn.steps.length} 项操作`) {
+	return `<button type="button" class="fold" aria-expanded="false" data-fold="${id}">
+		<span class="chev">▶</span><span class="fold-label">${label}</span><span class="fold-meta">${meta}</span>
+	</button>${stepBody(id)}`;
+}
+
+/** A —— 现状复刻：说明 / 工作过程 / 说明 / 工作过程 / 完成 🦉 / 三条长句。 */
+const VariantA = {
+	key: "A",
+	title: "现状（截图那一版）",
+	hint: "一轮被切成 4 段：说明、工作过程、说明、工作过程，最后才是结论；同一句「30000 是过期值」在过程和结论里各说一遍。",
+	same: "对照用：<b>这就是你说的看着乱的样子</b>，下面 B/C/D 是三种改法。",
+	render: () => `
+		<div class="turn">
+			${question()}
+			<div class="turn-body">
+				<p class="note">${md(turn.notes[0])}</p>
+				<div class="wp-head"><span class="chev">▶</span><span class="wp-label">工作过程</span><span class="wp-meta">4s · 2 项操作</span></div>
+				<p class="prose">${md(turn.notes[1])}</p>
+				<div class="wp-head"><span class="chev">▶</span><span class="wp-label">工作过程</span><span class="wp-meta">5s · 2 项操作</span></div>
+				<h3 class="done-head">完成 🦉</h3>
+				<ul class="prose ul">${turn.answerBullets.map((text) => `<li>${md(text)}</li>`).join("")}</ul>
+				${actions()}
+			</div>
+		</div>`,
+};
+
+/** B —— 一轮一条折叠行；结论是一句主句 + 每行一个事实，不复述过程说过的细节。 */
+const VariantB = {
+	key: "B",
+	title: "单折叠 + 短句结论",
+	hint: "整轮只有一条折叠行（说明和步骤都在里面）；结论一句主句开场，之后每行只放一个事实，数字用等宽。",
+	same: "关键差别：<b>过程说明不再浮在正文里</b>，「30000 已过期」只出现一次。",
+	render: () => `
+		<div class="turn">
+			${question()}
+			<div class="turn-body">
+				${foldRow("b1")}
+				<div class="answer">
+					<p class="lead">已写出 <code>config-summary.json</code>，验证通过。</p>
+					<p class="line">取值以 <code>etc/runtime.json</code> 为准：<code>timeoutMs</code> 6000、<code>retries</code> 3、<code>maxConcurrent</code> 29。</p>
+					<p class="line">README 写的 30000 是过期值，未采用；其他文件没有改动。</p>
+				</div>
+				${actions()}
+			</div>
+		</div>`,
+};
+
+/** C —— 交付型任务直接给字段卡：文件、关键值、来源、验证，一屏扫完。 */
+const VariantC = {
+	key: "C",
+	title: "交付卡（字段化）",
+	hint: "模型只填字段，前端渲染成卡：文件名 + 结果徽标、关键值三行带「来源」、底部一行依据。过程压成一行。",
+	same: "关键差别：<b>答案结构由界面保证</b>，不再依赖模型自觉排版；适合「写文件 / 改配置」这类交付任务。",
+	render: () => `
+		<div class="turn">
+			${question()}
+			<div class="turn-body">
+				${foldRow("c1", "工作过程", `${turn.elapsed} · 读 2 个文件 · 写 1 个文件`)}
+				<section class="deliver">
+					<header class="deliver-head">
+						<span class="name"><code>config-summary.json</code></span>
+						<span class="badge">验证通过 · 3 项检查</span>
+					</header>
+					<table class="kv">
+						<tbody>
+							<tr><th>timeoutMs</th><td class="val">6000</td><td class="src">runtime.json</td></tr>
+							<tr><th>retries</th><td class="val">3</td><td class="src">runtime.json</td></tr>
+							<tr><th>maxConcurrent</th><td class="val">29</td><td class="src">runtime.json</td></tr>
+						</tbody>
+					</table>
+					<p class="deliver-foot">README 里的 timeoutMs 30000 是过期值，未采用；除该文件外没有其他改动。</p>
+				</section>
+				${actions()}
+			</div>
+		</div>`,
+};
+
+/** D —— 默认只给一句结论，关键值一行内联，核对细节按需展开。 */
+const VariantD = {
+	key: "D",
+	title: "一句话 + 按需展开",
+	hint: "默认只上屏一句结论，关键值压缩成一行；「依据 / 验证 / 过程」都收进详情，想核对才点开。注意力最省。",
+	same: "关键差别：<b>默认信息量最小</b>，适合「我只想知道成没成」的场景，代价是细节要多点一次。",
+	render: () => `
+		<div class="turn">
+			${question()}
+			<div class="turn-body">
+				<p class="lead-lg">已写出 <code>config-summary.json</code>，验证通过。</p>
+				<p class="inline-meta"><code>timeoutMs</code> 6000 · <code>retries</code> 3 · <code>maxConcurrent</code> 29 — 依据 <code>etc/runtime.json</code>（README 的 30000 已过期）</p>
+				${actions(`<span class="more"><button type="button" class="fold fold-inline" aria-expanded="false" data-fold="d1"><span class="chev">▶</span><span class="fold-label">详情</span></button></span>`)}
+				<div class="detail" id="d1" hidden>
+					<div class="row"><b>依据</b><span>etc/runtime.json 的 timeoutMs 为 6000；README 的 30000 已过期</span></div>
+					<div class="row"><b>改动</b><span>仅新增 config-summary.json，其他文件未动</span></div>
+					<div class="row"><b>验证</b><span class="mono">ok:true · checksPassed:3 · case c-16996e</span></div>
+					<div class="row"><b>过程</b><span>读 2 个文件 → 写 1 个文件（9s，点上方折叠行可看逐步）</span></div>
+				</div>
+			</div>
+		</div>`,
+};
+
+const variants = [VariantA, VariantB, VariantC, VariantD];
+const params = new URLSearchParams(location.search);
+let index = Math.max(0, variants.findIndex((v) => v.key === (params.get("variant") || "A").toUpperCase()));
+
+const app = document.getElementById("app");
+
+/** 原型里的 HTML 都是本文件自带的字面量，用 Range 解析而不是 innerHTML。 */
+function mount(target, html) {
+	target.replaceChildren(document.createRange().createContextualFragment(html));
+}
+
+function paint() {
+	const v = variants[index];
+	mount(app, v.render());
+	document.getElementById("v-key").textContent = v.key;
+	document.getElementById("v-title").textContent = v.title;
+	document.getElementById("v-name").textContent = v.title;
+	document.getElementById("v-hint").textContent = v.hint;
+	mount(document.getElementById("v-same"), v.same);
+	try {
+		const url = new URL(location.href);
+		url.searchParams.set("variant", v.key);
+		history.replaceState(null, "", url);
+	} catch {
+		// file:// 或异常 URL 下不写回地址栏，切换照常工作。
+	}
+	wire();
+}
+
+function wire() {
+	for (const button of app.querySelectorAll("[data-fold]")) {
+		const id = button.dataset.fold;
+		button.addEventListener("click", (event) => {
+			// 折叠只改自己这一块，不让事件继续冒泡到页面级的快捷键处理上页面。
+			event.stopPropagation();
+			const open = button.getAttribute("aria-expanded") === "true";
+			const body = app.querySelector("#" + id);
+			button.setAttribute("aria-expanded", String(!open));
+			if (body) body.hidden = open;
+		});
+	}
+}
+
+function move(delta) {
+	index = (index + delta + variants.length) % variants.length;
+	paint();
+	window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+document.getElementById("prev").addEventListener("click", () => move(-1));
+document.getElementById("next").addEventListener("click", () => move(1));
+window.addEventListener("keydown", (event) => {
+	// 只在页面本体上按方向键才切变体：焦点在任何按钮/输入框里（包括刚点过的折叠行）都不拦。
+	if (document.activeElement && document.activeElement !== document.body) return;
+	const tag = document.activeElement && document.activeElement.tagName;
+	if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || document.activeElement?.isContentEditable) return;
+	if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
+	if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
+});
+
+paint();
+</script>
+</body>
+</html>

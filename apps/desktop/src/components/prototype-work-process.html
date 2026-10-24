@@ -1,0 +1,287 @@
+<!doctype html>
+<!--
+	PROTOTYPE —— 一次性代码，验证「一轮对话里的过程说明 + 工作过程该怎么排」。
+	三个结构不同的变体，用 ?variant=A|B|C 切换，页面底部有切换条（← → 或方向键）。
+	内容取自真实截图那一轮：读两个文件 → 说一句 → 写一个文件 → 给结论。
+	用完归档到 _scratch，不留在主分支。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE · 工作过程重整</title>
+<style>
+	:root {
+		--bg: #1e1e1e;
+		--panel: #262626;
+		--border: #3d3d3d;
+		--text: #e8e8e8;
+		--muted: #a3a3a3;
+		--accent: #8ab4f8;
+		--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--text);
+		font-family: system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+		font-size: 15px;
+		line-height: 1.68;
+		-webkit-font-smoothing: antialiased;
+	}
+	.page { max-width: 760px; margin: 0 auto; padding: 32px 20px 140px; }
+	.caption { margin: 0 0 6px; font-size: 12px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+	.caption b { color: var(--accent); font-weight: 600; letter-spacing: 0; text-transform: none; }
+	.hint { margin: 0 0 28px; font-size: 13px; color: var(--muted); }
+
+	/* ── 用户气泡 ── */
+	.turn { margin-bottom: 34px; }
+	.question { display: flex; justify-content: flex-end; margin-bottom: 22px; }
+	.question span {
+		max-width: 82%;
+		padding: 9px 15px;
+		border-radius: 16px;
+		background: #2f2f2d;
+		font-size: 14px;
+		line-height: 1.6;
+	}
+	code { font-family: var(--mono); font-size: .92em; background: #ffffff12; padding: 1px 5px; border-radius: 5px; }
+
+	/* ── 结论正文 ── */
+	.answer { margin: 0; }
+	.answer p { margin: 0; }
+	.answer ul { margin: 10px 0 0; padding-left: 19px; }
+	.answer li + li { margin-top: 6px; }
+	.answer kbd {
+		font-family: var(--mono);
+		font-size: .9em;
+		background: #ffffff10;
+		border-radius: 5px;
+		padding: 1px 6px;
+	}
+	.actions { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; gap: 12px; }
+
+	/* ── 变体 A：一轮一条折叠行 ── */
+	.a-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+	.a-row:hover { color: var(--text); }
+	.a-row .chev { transition: transform .12s ease; }
+	.a-row[aria-expanded="true"] .chev { transform: rotate(90deg); }
+	.a-row .meta { margin-left: auto; font-variant-numeric: tabular-nums; }
+	.a-body { display: grid; gap: 2px; padding: 2px 0 6px 20px; font-size: 13px; color: var(--muted); }
+	.a-body[hidden] { display: none; }
+	.a-step { display: flex; gap: 8px; align-items: baseline; }
+	.a-step .op { color: var(--text); }
+	.a-body .note { margin: 4px 0; color: var(--muted); }
+
+	/* ── 变体 B：结论在前，一条状态栏 ── */
+	.b-strip {
+		display: flex; align-items: center; gap: 8px; width: 100%;
+		margin-top: 14px; padding: 7px 11px;
+		border: 0; border-radius: 9px; background: var(--panel);
+		color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; text-align: left;
+	}
+	.b-strip:hover { background: #2e2e2e; }
+	.b-strip .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.b-strip .meta { font-variant-numeric: tabular-nums; }
+	.b-strip .chev { transition: transform .12s ease; }
+	.b-strip[aria-expanded="true"] .chev { transform: rotate(90deg); }
+	.b-panel { display: grid; gap: 6px; margin-top: 6px; padding: 4px 4px 2px 12px; font-size: 13px; color: var(--muted); }
+	.b-panel[hidden] { display: none; }
+	.b-panel .row { display: flex; gap: 8px; }
+	.b-panel .row b { font-weight: 500; color: var(--text); }
+
+	/* ── 变体 C：结论在前，紧凑时间轴 ── */
+	.c-timeline { position: relative; margin-top: 16px; padding-left: 4px; display: grid; gap: 0; }
+	.c-item { position: relative; display: grid; grid-template-columns: 16px 1fr auto; gap: 9px; align-items: baseline; padding: 3px 0; font-size: 12.5px; color: var(--muted); }
+	.c-item .dot { width: 6px; height: 6px; margin-top: 8px; border-radius: 50%; background: currentColor; opacity: .55; justify-self: center; }
+	.c-item .dot.ok { opacity: 1; color: #79b8a0; }
+	.c-item .label { color: var(--muted); min-width: 0; }
+	.c-item .label b { font-weight: 500; color: var(--text); }
+	.c-item .t { font-variant-numeric: tabular-nums; font-size: 11.5px; opacity: .8; }
+	.c-item + .c-item::before {
+		content: ""; position: absolute; left: 12px; top: -4px; height: 10px; width: 1px;
+		background: currentColor; opacity: .18;
+	}
+
+	/* ── 原型切换条 ── */
+	.proto-bar {
+		position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+		display: flex; align-items: center; gap: 4px;
+		padding: 5px 7px; border-radius: 999px;
+		background: #101010; border: 1px solid #4a4a4a;
+		box-shadow: 0 8px 28px #0009; color: #f2f2f2;
+		font-size: 12.5px; letter-spacing: .01em; z-index: 50;
+	}
+	.proto-bar button {
+		width: 26px; height: 26px; display: grid; place-items: center;
+		border: 0; border-radius: 50%; background: #ffffff14; color: inherit;
+		font: inherit; font-size: 13px; cursor: pointer;
+	}
+	.proto-bar button:hover { background: #ffffff26; }
+	.proto-bar .label { min-width: 176px; text-align: center; font-variant-numeric: tabular-nums; }
+	.proto-bar .label em { font-style: normal; color: #9a9a9a; }
+</style>
+</head>
+<body>
+<div class="page">
+	<p class="caption">PROTOTYPE · <b id="v-name">变体</b></p>
+	<p class="hint" id="v-hint"></p>
+	<div id="app"></div>
+</div>
+
+<div class="proto-bar">
+	<button type="button" id="prev" aria-label="上一个变体">←</button>
+	<div class="label"><span id="v-key">A</span> — <em id="v-title">名称</em></div>
+	<button type="button" id="next" aria-label="下一个变体">→</button>
+</div>
+
+<script>
+// 同一份数据，三个变体只改排版。
+const turn = {
+	question: "本任务目录包含 `etc` 目录：里面是服务配置文件，旁边还放着一份 README，按任务要求整理出一份 config-summary.json。",
+	notes: [
+		"我先读一下两个输入文件。",
+		"README 里的 timeoutMs 是 30000，也就是已过期的值；runtime.json 里实际是 6000。按任务要求以 runtime.json 为准。",
+	],
+	steps: [
+		{ op: "读取", target: "etc/runtime.json", ms: 40 },
+		{ op: "读取", target: "etc/README.md", ms: 30 },
+		{ op: "写入", target: "config-summary.json", ms: 60, ok: true },
+	],
+	elapsed: "9s",
+	answer: [
+		"已在任务目录写出 <kbd>config-summary.json</kbd>：<kbd>timeoutMs: 6000</kbd>、<kbd>retries: 3</kbd>、<kbd>maxConcurrent: 29</kbd>。",
+		"取值以 <kbd>etc/runtime.json</kbd> 为准；README 写的 30000 是过期值，没有动其他文件。",
+		"验证器返回 <kbd>ok: true</kbd>、<kbd>checked: 3</kbd>，通过。",
+	],
+};
+
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+function answerBlock() {
+	return `<div class="answer"><p>${turn.answer[0]}</p><ul>${turn.answer.slice(1).map((t) => `<li>${t}</li>`).join("")}</ul></div>`;
+}
+
+/** A —— 一轮一条折叠行：过程说明收进折叠区，界面只剩「一条过程 + 一段答案」。 */
+const VariantA = {
+	key: "A",
+	title: "单条折叠行",
+	hint: "过程说明不再打断工具，整轮合成一条折叠行；展开才看细节，收起时只剩一行。",
+	render: () => `
+		<div class="turn">
+			<div class="question"><span>${esc(turn.question)}</span></div>
+			<div>
+				<button type="button" class="a-row" aria-expanded="false" data-a>
+					<span class="chev">▶</span>
+					<span>工作过程</span>
+					<span class="meta">${turn.elapsed} · ${turn.steps.length} 项操作</span>
+				</button>
+				<div class="a-body" data-a-body hidden>
+					<div class="note">${esc(turn.notes[0])}</div>
+					${turn.steps.slice(0, 2).map((s) => `<div class="a-step"><span>·</span><span class="op">${s.op}</span><span>${esc(s.target)}</span></div>`).join("")}
+					<div class="note">${esc(turn.notes[1])}</div>
+					<div class="a-step"><span>·</span><span class="op">${turn.steps[2].op}</span><span>${esc(turn.steps[2].target)}</span></div>
+				</div>
+				${answerBlock()}
+				<div class="actions"><span>复制</span><span>重新生成</span></div>
+			</div>
+		</div>`,
+};
+
+/** B —— 结论在前，进度收成一条状态栏，点开才铺细节。 */
+const VariantB = {
+	key: "B",
+	title: "结论优先 + 状态栏",
+	hint: "结论先上屏；过程压成一条状态栏（读 2 个文件 · 写 1 个文件 · 9s），点开才展开清单。",
+	render: () => `
+		<div class="turn">
+			<div class="question"><span>${esc(turn.question)}</span></div>
+			<div>
+				${answerBlock()}
+				<div class="actions"><span>复制</span><span>重新生成</span></div>
+				<button type="button" class="b-strip" aria-expanded="false" data-b>
+					<span class="chev">▸</span>
+					<span class="grow">读了 2 个文件 · 写了 config-summary.json</span>
+					<span class="meta">${turn.elapsed}</span>
+				</button>
+				<div class="b-panel" data-b-panel hidden>
+					<div class="row"><span>1</span><span><b>读取</b> etc/runtime.json，etc/README.md</span></div>
+					<div class="row"><span>2</span><span><b>写入</b> config-summary.json</span></div>
+					<div class="row"><span>3</span><span><b>验证</b> checksPassed: 3</span></div>
+				</div>
+			</div>
+		</div>`,
+};
+
+/** C —— 结论在前，下面挂一条紧凑时间轴（节点状），过程说明压成一行小字。 */
+const VariantC = {
+	key: "C",
+	title: "结论 + 时间轴",
+	hint: "结论在上；下面挂一条轻量时间轴，每步一个点，过程说明只留一句灰字，不再独立成段。",
+	render: () => `
+		<div class="turn">
+			<div class="question"><span>${esc(turn.question)}</span></div>
+			<div>
+				${answerBlock()}
+				<div class="actions"><span>复制</span><span>重新生成</span></div>
+				<div class="c-timeline">
+					<div class="c-item"><span class="dot ok"></span><span class="label">读取 <b>etc/runtime.json</b>、<b>etc/README.md</b></span><span class="t">1.2s</span></div>
+					<div class="c-item"><span class="dot"></span><span class="label">以 runtime.json 的 6000 为准，README 的 30000 已过期</span><span class="t"></span></div>
+					<div class="c-item"><span class="dot ok"></span><span class="label">写入 <b>config-summary.json</b></span><span class="t">0.6s</span></div>
+					<div class="c-item"><span class="dot"></span><span class="label">验证器通过 <b>checked: 3</b></span><span class="t">7s</span></div>
+				</div>
+			</div>
+		</div>`,
+};
+
+const variants = [VariantA, VariantB, VariantC];
+const params = new URLSearchParams(location.search);
+let index = Math.max(0, variants.findIndex((v) => v.key === (params.get("variant") || "A").toUpperCase()));
+
+const app = document.getElementById("app");
+
+function paint() {
+	const v = variants[index];
+	app.innerHTML = v.render();
+	document.getElementById("v-key").textContent = v.key;
+	document.getElementById("v-title").textContent = v.title;
+	document.getElementById("v-name").textContent = v.title;
+	document.getElementById("v-hint").textContent = v.hint;
+	const url = new URL(location.href);
+	url.searchParams.set("variant", v.key);
+	history.replaceState(null, "", url);
+	wire();
+}
+
+function wire() {
+	const toggle = (button, panel) => {
+		if (!button || !panel) return;
+		button.addEventListener("click", () => {
+			const open = button.getAttribute("aria-expanded") === "true";
+			button.setAttribute("aria-expanded", String(!open));
+			panel.hidden = open;
+		});
+	};
+	toggle(app.querySelector("[data-a]"), app.querySelector("[data-a-body]"));
+	toggle(app.querySelector("[data-b]"), app.querySelector("[data-b-panel]"));
+}
+
+function move(delta) {
+	index = (index + delta + variants.length) % variants.length;
+	paint();
+}
+
+document.getElementById("prev").addEventListener("click", () => move(-1));
+document.getElementById("next").addEventListener("click", () => move(1));
+window.addEventListener("keydown", (event) => {
+	const tag = document.activeElement && document.activeElement.tagName;
+	if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || document.activeElement?.isContentEditable) return;
+	if (event.key === "ArrowLeft") { event.preventDefault(); move(-1); }
+	if (event.key === "ArrowRight") { event.preventDefault(); move(1); }
+});
+
+paint();
+</script>
+</body>
+</html>
