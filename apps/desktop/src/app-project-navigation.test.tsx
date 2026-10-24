@@ -39,6 +39,7 @@ const fixture = vi.hoisted(() => ({
 	workbenchConnected: false,
 	recovery: undefined as { onContinue: (model?: string) => Promise<boolean> } | undefined,
 	event: undefined as ((event: Record<string, unknown>) => void) | undefined,
+	overlay: undefined as React.ReactNode | undefined,
 }));
 vi.mock("./bridge/client.ts", () => ({ BridgeClient: class {
 	request = fixture.request;
@@ -57,7 +58,7 @@ vi.mock("./theme.ts", () => ({ isThemePreference: () => false, setThemeLock: () 
 vi.mock("./components/SessionSidebar.tsx", () => ({ SessionSidebar: (props: SidebarCallbacks) => { fixture.sidebar = props; return null; } }));
 vi.mock("./components/ChatStream.tsx", () => ({ ChatStream: (props: ReplayCallbacks) => { fixture.chat = props; return null; } }));
 vi.mock("./components/Composer.tsx", () => ({ Composer: (props: ComposerInput) => { fixture.composer = props; return null; } }));
-vi.mock("./components/AgentConversation.tsx", () => ({ AgentConversation: (props: { chat: React.ReactNode; composer: React.ReactNode; beforeComposer: React.ReactNode }) => <>{props.chat}{props.beforeComposer}{props.composer}</> }));
+vi.mock("./components/AgentConversation.tsx", () => ({ AgentConversation: (props: { chat: React.ReactNode; composer: React.ReactNode; beforeComposer: React.ReactNode; overlay?: React.ReactNode }) => { fixture.overlay = props.overlay; return <>{props.overlay}{props.chat}{props.beforeComposer}{props.composer}</>; } }));
 vi.mock("./components/Genui.tsx", () => ({ GenuiSessionProvider: (props: { children: React.ReactNode }) => props.children }));
 vi.mock("./hooks/use-subagents.ts", () => ({ useSubagents: () => ({ runs: [], refresh: () => {} }) }));
 vi.mock("./components/OwlMascot.tsx", () => ({ useSessionOwlPose: () => "idle" }));
@@ -145,6 +146,7 @@ beforeEach(async () => {
 	fixture.research = undefined;
 	fixture.sidebar = undefined;
 	fixture.composer = undefined;
+	fixture.overlay = undefined;
 	fixture.workbench = undefined;
 	fixture.editorProbe = false; fixture.editor = undefined; fixture.workbenchProfile = undefined; fixture.workbenchConnected = false;
 	rows = [
@@ -263,6 +265,22 @@ describe("App project conversation navigation", () => {
 		expect(fixture.chat!.sessionId).toBe("alpha-old");
 		expect(fixture.chat!.entries).toEqual(kept);
 		expect(container.textContent).toContain(`${t("app.sessionRestoreFailed")}：missing session`);
+		assertNoPrompt();
+	});
+
+	// 回归：会话打开中的提示必须走对话区浮动层（owl-conversation-pins），
+	// 不能作为状态条插在头部与内容之间——那会把整个右侧对话区推下再弹回（闪屏）。
+	it("shows the session-opening indicator in the floating overlay instead of a layout strip", async () => {
+		const pending = Promise.withResolvers<unknown>();
+		const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) => request.type === "session.resume" && request.sessionId === "beta-one" ? pending.promise : base(request));
+		await act(async () => fixture.sidebar!.onOpenSession("beta-one"));
+		const opening = [...container.querySelectorAll("p[role='status']")].filter((node) => node.textContent === t("app.sessionOpening"));
+		expect(opening).toHaveLength(1);
+		expect(opening[0]!.closest(".owl-conversation-pins")).not.toBeNull();
+		await act(async () => pending.resolve({ ok: true, result: { sessionId: "beta-one", cwd: "D:/beta", messages: [], messageEntryIds: [] } }));
+		expect(container.textContent).not.toContain(t("app.sessionOpening"));
+		expect(fixture.chat!.sessionId).toBe("beta-one");
 		assertNoPrompt();
 	});
 

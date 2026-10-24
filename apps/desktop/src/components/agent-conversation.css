@@ -18,3 +18,11 @@
 	min-width: 0;
 	flex-direction: column;
 }
+
+/* 会话打开/项目恢复中的浮动胶囊：位于 owl-conversation-pins 浮动层内，
+   不占布局行，出现与消失不影响对话区几何（旧状态条会把整屏顶下去再弹回）。 */
+.owl-session-status-pill {
+	pointer-events: none;
+	margin: 0;
+	flex: 0 0 auto;
+}

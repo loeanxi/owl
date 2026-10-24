@@ -55,6 +55,7 @@ import { ConversationHeader, type ConversationView, type SessionExportFormat } f
 import { conversationTitleOf } from "./components/conversation-title.ts";
 import { Composer, type ComposerDraftRequest, type ComposerImage } from "./components/Composer.tsx";
 import { TaskRecoveryNotice } from "./components/TaskRecoveryNotice.tsx";
+import { SessionStatusPill } from "./components/SessionStatusPill.tsx";
 import { ModelFallbackNotice } from "./components/ModelFallbackNotice.tsx";
 import { continueTask, taskRecovery } from "./hooks/task-recovery.ts";
 import { messageInputOf } from "./hooks/message-input.ts";
@@ -2907,9 +2908,7 @@ export default function App(): React.JSX.Element {
 						{exportNotice.text}
 					</p>
 				)}
-				{projectRestoring && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{t("app.projectRestoring")}</p>}
 				{projectNotice && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{projectNotice}</p>}
-				{sessionOpening && <p className="px-5 py-1.5 text-xs text-owl-muted" role="status">{t("app.sessionOpening")}</p>}
 				{sessionOpenFailed && (
 					<p className="px-5 py-1.5 text-xs text-owl-muted" role="status">
 						<span>{`${t("app.sessionRestoreFailed")}：${sessionOpenFailed.message}`}</span>
@@ -2973,7 +2972,7 @@ export default function App(): React.JSX.Element {
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
 							)}
-							overlay={<div className="owl-conversation-pins">{conversationView !== "chat" && <TodoPin entries={entries} />}<SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} /></div>}
+							overlay={<div className="owl-conversation-pins">{(projectRestoring?.scope === "chat" || sessionOpening) && <SessionStatusPill text={projectRestoring?.scope === "chat" ? t("app.projectRestoring") : t("app.sessionOpening")} />}{conversationView !== "chat" && <TodoPin entries={entries} />}<SubagentPin key={subagentParentId} runs={subagents.runs} onSelect={openSubagent} /></div>}
 							beforeComposer={(
 							<>
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />

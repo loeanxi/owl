@@ -11,6 +11,7 @@ import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
 import { QuestionDock } from "../../components/QuestionDock.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
+import { SessionStatusPill } from "../../components/SessionStatusPill.tsx";
 import { TaskRecoveryNotice } from "../../components/TaskRecoveryNotice.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
@@ -221,7 +222,7 @@ export function ResearchPage(props: ResearchPageProps): React.JSX.Element {
 				<TaskRecoveryNotice recovery={recovery} providers={props.providers} model={state.model} disabled={!connected || !state.ready || state.busy} onContinue={(model) => controller.continue(model)} onOpenSettings={props.onOpenSettings} />
 				<ResearchDiagnosisNotice diagnosis={state.diagnosis} running={state.running} />
 				<ResearchTaskNotice task={state.task} sessionId={state.sessionId} running={state.running} />
-				<div className="owl-conversation-pins"><TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />{props.subagentControl}</div>
+				<div className="owl-conversation-pins">{props.restorePending && <SessionStatusPill text={t("app.projectRestoring")} />}<TodoPin key={`research-todos:${state.sessionId ?? cwd}`} entries={state.entries} />{props.subagentControl}</div>
 				<QuestionDock requests={pendingQuestions} activeRequest={pendingQuestions[0]} onAnswer={(requestId, answers, cancelled) => { if (props.onQuestionAnswer) props.onQuestionAnswer(requestId, answers, cancelled); else { const request = pendingQuestions.find((item) => item.requestId === requestId); if (request) void responseController.submit({ requestId, sessionId: request.sessionId, respond: () => client.respondQuestion(requestId, answers, cancelled), confirmed: () => props.onQuestionDone?.(requestId) }); } }}>
 					<Composer key={`${cwd}:${composerKey}`} client={client} sessionScope="research" connected={connected} disabled={!connected || !state.ready || state.busy || pendingQuestions.length > 0 || Boolean(props.waiting)} running={state.running} paused={state.paused} queued={state.queue} queueSessionId={state.sessionId} queueProfile={props.queueProfile} queueOwnerRevision={queueOwnerRevision} queueIsCurrent={() => controller.isQueueOwnerCurrent(queueOwnerRevision, state.sessionId) && (props.queueIsCurrent?.() ?? true)} onQueueChange={(queue) => controller.applyQueue(queue, state.sessionId)} onPause={() => void controller.pause()} onResume={() => void controller.continue()} hideEnvironment={connected && (pendingQuestions.length > 0 || state.running)} questionPending={pendingQuestions.length > 0}
 						agentPresets={props.agentPresets} defaultPresetId={props.defaultPresetId} agentPreset={state.sessionId ? state.sessionPreset ?? "standard" : selectedPreset} agentPresetLocked={Boolean(state.sessionId) && state.entries.length > 0} agentPresetDisabledReasons={disabledPresets} onAgentPresetSelect={(id) => { if (!Object.hasOwn(disabledPresets, id)) void controller.setAgentPreset(id); }}
