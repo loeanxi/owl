@@ -50,6 +50,9 @@ export function workspaceMemoryKey(profile: string): string {
 
 export function workspaceScrollKey(place: Pick<WorkspaceMemory, "rail" | "settings" | "settingsTab" | "chatSession" | "researchSession" | "workspace" | "researchWorkspace" | "conversationView" | "researchConversationView">, surface: string): string {
 	if (place.settings) return JSON.stringify(["settings", place.settingsTab, surface]);
+	// 侧栏是导航面板，不属于任何会话：键里不能带会话 id——否则每次点会话都会按
+	// “那个会话记住的侧栏位置”重置列表（表现为点击后侧栏跳回顶部/过期位置）。
+	if (surface === "sidebar") return JSON.stringify([place.rail, normPath(place.workspace), surface]);
 	const research = place.rail === "research";
 	return JSON.stringify([
 		place.rail,

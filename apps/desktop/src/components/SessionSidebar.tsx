@@ -645,36 +645,52 @@ export function SessionSidebar({
 	// 置顶的会话文件可能已被删除：列表里不存在的 id 顺手清掉。
 	// 列表为空 = 尚未加载完成（初始 []），此时清理会把全部置顶误判为已删除、清空存储；
 	// 必须等 session.list 真正返回过至少一条（或确认没有任何会话）后才允许清理。
-	// （归档记录由桥端 archive.json 管理，不在这里清理。）
+	// 单次刷新丢行（桥端读取瞬断）也不能触发清理——置顶被清掉是持久化丢失，
+	// 只有连续两次列表都缺失（会话真的删了）才动手。
+	const pinMissRef = useRef<Set<string>>(new Set());
 	useEffect(() => {
 		if (allSessions.length === 0) return;
 		const alive = new Set(allSessions.map((row) => row.id).filter(Boolean));
-		const valid = pinned.filter((id) => alive.has(id));
-		if (valid.length !== pinned.length) {
-			setPinned(valid);
-			localStorage.setItem(keys.pinned, JSON.stringify(valid));
-		}
+		const miss = new Set(pinned.filter((id) => !alive.has(id)));
+		const confirmed = [...miss].filter((id) => pinMissRef.current.has(id));
+		pinMissRef.current = miss;
+		if (confirmed.length === 0) return;
+		const valid = pinned.filter((id) => alive.has(id) || !confirmed.includes(id));
+		setPinned(valid);
+		localStorage.setItem(keys.pinned, JSON.stringify(valid));
 	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// 手动排序里已删除的会话 id 顺手清掉。与置顶清理同理：列表为空（尚未加载）时不动，
-	// 否则会把整个顺序表误判为失效；归档会话保留位置，恢复后仍在原处。
+	// 手动排序里已删除的会话 id 顺手清掉。与置顶清理同理：列表为空（尚未加载）不动，
+	// 单次丢行（桥端读取瞬断）也不动——顺序表被清是持久化丢失；连续两次缺失才清理。
+	// 归档会话保留位置，恢复后仍在原处。
+	const orderMissRef = useRef<Set<string>>(new Set());
 	useEffect(() => {
 		if (allSessions.length === 0) return;
 		const alive = new Set(allSessions.map((row) => row.id).filter(Boolean));
 		let changed = false;
 		const next: SessionOrderMap = {};
+		const miss = new Set<string>();
 		for (const [path, ids] of Object.entries(sessionOrder)) {
-			const valid = ids.filter((id) => alive.has(id));
-			if (valid.length !== ids.length) changed = true;
-			if (valid.length > 0) next[path] = valid;
-		}
-		if (changed) {
-			setSessionOrder(next);
-			try {
-				localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
-			} catch {
-				// localStorage 不可用时手动顺序退化为本次会话内存态
+			const survivors: string[] = [];
+			for (const id of ids) {
+				if (alive.has(id)) survivors.push(id);
+				else miss.add(id);
 			}
+			if (survivors.length !== ids.length) changed = true;
+			if (survivors.length > 0) next[path] = survivors;
+		}
+		const confirmed = [...miss].filter((id) => orderMissRef.current.has(id));
+		orderMissRef.current = miss;
+		if (!changed || confirmed.length === 0) return;
+		for (const path of Object.keys(next)) {
+			next[path] = next[path].filter((id) => alive.has(id) || !confirmed.includes(id));
+			if (next[path].length === 0) delete next[path];
+		}
+		setSessionOrder(next);
+		try {
+			localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
+		} catch {
+			// localStorage 不可用时手动顺序退化为本次会话内存态
 		}
 	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -713,10 +729,14 @@ export function SessionSidebar({
 		if (focus === "chat" || focus === "research") scrollRef.current?.scrollTo({ top: 0 });
 	}, [focus]);
 
-	// 活动会话变化（点行、分支跳转、快捷键循环）：把当前行滚进可视区，长列表里也能
-	// 一眼看到跳到了哪条。行不在 DOM（所在分组折叠/被过滤）时静默跳过。
+	// 活动会话变化（分支跳转、快捷键循环）：把当前行滚进可视区，长列表里也能
+	// 一眼看到跳到了哪条。点击打开的激活除外——用户刚点的行就在指针下，跟随只会
+	// 把列表拉离原位（点击后列表刷新还会让行位置短暂偏移，跟随变成可见的跳动）。
+	// 行不在 DOM（所在分组折叠/被过滤）时静默跳过。
+	const clickFollowSuppressedAt = useRef(0);
 	useEffect(() => {
 		if (!activeId || minimized) return;
+		if (Date.now() - clickFollowSuppressedAt.current < 2000) return;
 		const frame = requestAnimationFrame(() => {
 			scrollRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
 		});
@@ -938,7 +958,7 @@ export function SessionSidebar({
 					className="owl-sidebar-row-main"
 					title={sessionRowTip(row)}
 					aria-current={id === activeId ? "page" : undefined}
-					onClick={() => { if (id) { markSessionsRead(sessionScope, [row]); onOpenSession(id); if (drawerMode) setDrawerOpen(false); } }}
+					onClick={() => { if (id) { clickFollowSuppressedAt.current = Date.now(); markSessionsRead(sessionScope, [row]); onOpenSession(id); if (drawerMode) setDrawerOpen(false); } }}
 				>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
 					{time && <span className="owl-sidebar-row-time">{time}</span>}

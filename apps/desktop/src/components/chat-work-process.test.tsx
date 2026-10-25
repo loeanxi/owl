@@ -140,6 +140,155 @@ describe("working through a turn in the real conversation", () => {
 		expect(host.textContent).toContain("首次读取失败");
 	});
 
+	it("shows step progress while running and settles back to the plain count", async () => {
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("done-one", "src/done-one.ts", "ok"),
+			readTool("done-two", "src/done-two.ts", "ok"),
+			readTool("live", "src/live.ts", "running"),
+		])) });
+		const runningMetadata = host.querySelector(".owl-work-metadata")?.textContent ?? "";
+		expect(runningMetadata).toContain("已完成 2/3");
+		expect(runningMetadata).not.toContain("3 项操作");
+
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("done-one", "src/done-one.ts", "ok"),
+			readTool("done-two", "src/done-two.ts", "ok"),
+			readTool("live", "src/live.ts", "ok"),
+		], { endedAt: 4000 })), activity: "idle" });
+		const settledMetadata = host.querySelector(".owl-work-metadata")?.textContent ?? "";
+		expect(settledMetadata).toContain("3 项操作");
+		expect(settledMetadata).not.toContain("已完成");
+	});
+
+	it("shows per-row durations only for steps that ran at least a second", async () => {
+		const quick: ToolCard = {
+			id: "quick", name: "read", args: JSON.stringify({ path: "src/quick.ts" }), summary: "读取 `src/quick.ts`", detail: "src/quick.ts",
+			status: "ok", startedAt: 2000, finishedAt: 2400, output: { text: "已读取", totalLines: 1 },
+		};
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("slow", "src/slow.ts", "ok"),
+			quick,
+			readTool("live", "src/live.ts", "running"),
+		])), activity: "idle" });
+		await click(processToggle());
+		expect(host.querySelector('[data-tool-id="slow"] .owl-work-row-secs')?.textContent).toBe("1s");
+		expect(host.querySelector('[data-tool-id="quick"] .owl-work-row-secs')).toBeNull();
+		// 运行中的行跟随真实时钟计时，只断言形态，不断言具体值。
+		expect(host.querySelector('[data-tool-id="live"] .owl-work-row-secs')?.textContent).toMatch(/^\d+[hms]/);
+	});
+
+	it("offers a go-answer shortcut exactly while a pending action waits for the user", async () => {
+		const ask: ToolCard = {
+			id: "ask", name: "ask", args: "{}", summary: "向你提了 1 个问题", detail: "", status: "pending", startedAt: 2000,
+		};
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok"), ask])), activity: "waiting" });
+		const cta = host.querySelector<HTMLButtonElement>(".owl-work-go-answer");
+		expect(cta?.textContent).toContain("去回答");
+		// 过程收起时直达入口仍在（等待时不该把它藏进折叠体）。
+		expect(cta?.closest(".owl-work-process-body")).toBeNull();
+
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok"), ask])), activity: "working" });
+		expect(host.querySelector(".owl-work-go-answer")).toBeNull();
+
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok")])), activity: "waiting" });
+		expect(host.querySelector(".owl-work-go-answer")).toBeNull();
+	});
+
+	it("go-answer lands focus inside the question card", async () => {
+		// 输入区不在 ChatStream 里：在 document 上布置一个最小提问卡占位，验证聚焦落点。
+		const anchor = document.createElement("div");
+		anchor.className = "owl-question-anchor";
+		const card = document.createElement("div");
+		card.className = "owl-question-card";
+		const option = document.createElement("button");
+		option.type = "button";
+		option.textContent = "选项 A";
+		// linkedom 不维护 document.activeElement：在占位按钮上记录 focus 调用，断言跳转选中了它。
+		const focused: string[] = [];
+		option.focus = () => { focused.push(option.textContent ?? ""); };
+		card.append(option);
+		anchor.append(card);
+		document.body.append(anchor);
+		try {
+			const ask: ToolCard = { id: "ask", name: "ask", args: "{}", summary: "向你提了 1 个问题", detail: "", status: "pending", startedAt: 2000 };
+			// linkedom 元素没有 scrollTo：跳转逻辑里是滚动到聊天底部，测试环境补一个空实现。
+			const elementProto = HTMLElement.prototype as typeof HTMLElement & { scrollTo?: (options?: unknown) => void };
+			elementProto.scrollTo = elementProto.scrollTo ?? (() => {});
+			await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok"), ask])), activity: "waiting" });
+			await click(host.querySelector<HTMLButtonElement>(".owl-work-go-answer")!);
+			expect(focused).toEqual(["选项 A"]);
+		} finally {
+			anchor.remove();
+		}
+	});
+
+	it("announces new tool rows so the back-to-latest chip can nudge", async () => {
+		const heard: string[] = [];
+		host.addEventListener("owl-work-new-activity", () => heard.push("nudge"));
+		await render({ entries: turn(assistant("work-entry", [readTool("first", "src/first.ts", "running")])) });
+		expect(heard).toHaveLength(0);
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("first", "src/first.ts", "ok"),
+			readTool("second", "src/second.ts", "running"),
+		])) });
+		expect(heard).toHaveLength(1);
+	});
+
+	it("colors the finished header with an outcome word only when it adds information", async () => {
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok")], { endedAt: 4000 })), activity: "idle" });
+		const summary = host.querySelector(".owl-work-process-summary")!;
+		expect(summary.querySelector(".owl-work-terminal-word")?.getAttribute("data-tone")).toBe("ok");
+		expect(summary.querySelector(".owl-work-terminal-word")?.textContent).toBe("全部完成");
+		expect(summary.querySelector("svg")?.getAttribute("class")).toContain("text-owl-success");
+
+		await render({ entries: turn(assistant("work-entry", [readTool("stopped", "src/stopped.ts", "cancelled")], { endedAt: 4000 })), activity: "idle" });
+		const cancelled = host.querySelector(".owl-work-process-summary")!;
+		expect(cancelled.querySelector(".owl-work-terminal-word")?.getAttribute("data-tone")).toBe("neutral");
+		expect(cancelled.querySelector(".owl-work-terminal-word")?.textContent).toBe("已取消");
+
+		await render({ entries: turn(assistant("work-entry", [readTool("failed", "src/missing.ts", "error", "找不到被请求的文件")], { endedAt: 4000 })), activity: "idle" });
+		// 失败不加词：红色 issue link 已是那个信号，重复计数只添噪音。
+		expect(host.querySelector(".owl-work-terminal-word")).toBeNull();
+		expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条失败记录");
+		expect(host.querySelector(".owl-work-process-summary svg")?.getAttribute("class")).toContain("text-owl-danger");
+	});
+
+	it("admits when the latest output preview truncates", async () => {
+		const longOutput = ["第一行", "第二行", "第三行", "第四行", "第五行"].join("\n");
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("done", "src/done.ts", "ok", "只有一行"),
+			readTool("live", "src/live.ts", "running", longOutput),
+		])) });
+		expect(host.querySelector(".owl-work-latest-lines")?.textContent).toBe("末 3 行 · 共 5 行");
+		expect(host.querySelector(".owl-work-latest-output pre")?.textContent).not.toContain("第一行");
+		expect(host.querySelector(".owl-work-latest-output pre")?.textContent).toContain("第五行");
+		// 预览区直接给复制：把尾巴带走不必开完整面板。
+		expect(host.querySelector(".owl-work-latest-toolbar .owl-message-copy button")?.getAttribute("aria-label")).toBe("复制输出结果");
+
+		await render({ entries: turn(assistant("work-entry", [
+			readTool("done", "src/done.ts", "ok", "只有一行"),
+			readTool("live", "src/live.ts", "running", "尾巴一行"),
+		])) });
+		expect(host.querySelector(".owl-work-latest-lines")).toBeNull();
+	});
+
+	it("gives thinking text the same reading controls as tool output", async () => {
+		const longThinking = Array.from({ length: 20 }, (_, index) => `思考第 ${index + 1} 行`).join("\n");
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok")], { thinking: longThinking, endedAt: 4000 })), activity: "idle" });
+		await click(processToggle());
+		await click(host.querySelector<HTMLButtonElement>(".owl-thinking > button")!);
+		// 行数进了入口行与工具栏；复制与「查看全文」齐备。
+		expect(host.querySelector(".owl-thinking-count")?.textContent).toContain("20");
+		expect(host.querySelector(".owl-thinking-toolbar .owl-message-copy")).not.toBeNull();
+		expect(host.querySelector(".owl-thinking-toolbar .owl-work-output-toggle")?.textContent).toContain("查看全文");
+		// 预览截断在 12 行，展开后全量（不再嵌套内滚）。
+		const text = host.querySelector(".owl-thinking-text")!;
+		expect(text.textContent).toContain("思考第 12 行");
+		expect(text.textContent).not.toContain("思考第 13 行");
+		await click(host.querySelector<HTMLButtonElement>(".owl-thinking-toolbar .owl-work-output-toggle")!);
+		expect(host.querySelector(".owl-thinking-text")?.textContent).toContain("思考第 20 行");
+	});
+
 	it("keeps an unrelated failed result visible and lets the user inspect it directly", async () => {
 		await render({ entries: turn(assistant("work-entry", [
 			readTool("failed", "src/missing.ts", "error", "找不到被请求的文件"),

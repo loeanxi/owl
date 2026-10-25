@@ -26,3 +26,13 @@
 .owl-shell-content.has-pending-question .owl-shell-content-main > .owl-workbench-shell {
 	max-height: max(0px, calc(100% - var(--owl-question-chat-min-height, 0px)));
 }
+
+/* 有待答问题时输入盒让位一档：边框与投影弱化，注意力交给上方提问卡。
+   不禁用——高级用户仍可直接排队，只是界面不再装作两个输入等价；聚焦仍回强调色。 */
+.owl-composer-dock .owl-composer-input[data-question-pending="true"] {
+	border-color: color-mix(in srgb, var(--color-owl-border) 55%, transparent);
+	box-shadow: none;
+}
+.owl-composer-dock .owl-composer-input[data-question-pending="true"]:focus-within {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 70%, transparent);
+}

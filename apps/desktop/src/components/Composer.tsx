@@ -1666,6 +1666,7 @@ export function Composer({
 					className={"owl-composer-input relative rounded-xl border border-owl-border bg-owl-panel shadow-sm shadow-black/10 transition-colors focus-within:border-owl-accent/70" + (dragOver ? " border-owl-accent" : "")}
 					ref={inputBoxRef}
 					data-running={running && !paused || undefined}
+					data-question-pending={questionPending || undefined}
 				>
 					<ContextTank percent={percent} />
 					<svg className="owl-composer-runtime-beam" aria-hidden="true">
@@ -1773,7 +1774,7 @@ export function Composer({
 								aria-multiline="true"
 								aria-label={t("composer.inputAria")}
 								aria-description={suggestion ? predictionText("hint") : undefined}
-								data-placeholder={suggestion ?? (running ? executionCopy("queuePlaceholder") : t("composer.inputPlaceholder"))}
+								data-placeholder={suggestion ?? (questionPending ? t("composer.questionPendingPlaceholder") : running ? executionCopy("queuePlaceholder") : t("composer.inputPlaceholder"))}
 								data-prediction={Boolean(suggestion) || undefined}
 								contentEditable
 								suppressContentEditableWarning

@@ -152,7 +152,9 @@ export function QuestionDialog({
 				if (event.key === "Escape") {
 					event.preventDefault();
 					event.stopPropagation();
-					onAnswer([], true);
+					// 第一次 Esc 收起，第二次才取消整卷：误触不再直接作废多题草稿。
+					if (!collapsed) setCollapsed(true);
+					else onAnswer([], true);
 				} else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 					event.preventDefault();
 					event.stopPropagation();

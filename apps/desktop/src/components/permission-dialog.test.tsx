@@ -80,7 +80,8 @@ function dialog(): HTMLElement { return host.querySelector<HTMLElement>(".owl-pe
 function body(): HTMLElement { return host.querySelector<HTMLElement>(".owl-permission-body")!; }
 function source(): HTMLDetailsElement { return host.querySelector<HTMLDetailsElement>(".owl-permission-source")!; }
 function button(label: string): HTMLButtonElement {
-	const result = [...host.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.textContent?.trim() === label);
+	// 允许按钮带 Ctrl+Enter 快捷键标注，匹配前先剥离。
+	const result = [...host.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => (candidate.textContent ?? "").replace("Ctrl+Enter", "").trim() === label);
 	if (!result) throw new Error(`Missing button ${label}`);
 	return result;
 }
@@ -160,7 +161,7 @@ describe("Acknowledged permission decisions", () => {
 		expect(button(t("perm.allow")).disabled).toBe(true);
 		expect(button(t("perm.deny")).disabled).toBe(true);
 		expect(active).toBe(body());
-		expect(button(t("perm.allow")).textContent).toBe(t("perm.allow"));
+		expect(button(t("perm.allow")).textContent).toBe(t("perm.allow") + "Ctrl+Enter");
 		expect(button(t("perm.deny")).textContent).toBe(t("perm.deny"));
 		expect(host.querySelector('.owl-pending-feedback[role="status"]')?.textContent).toContain("等待提交确认");
 		await act(async () => pending.resolve({ ok: false, error: "拒绝不是允许：Host retained request" }));
@@ -270,5 +271,50 @@ describe("Permission focus and request ownership", () => {
 		expect(respond.mock.calls).toEqual([["permission-one", false], ["permission-two", true]]);
 		await act(async () => root.render(null));
 		expect(active).toBe(opener);
+	});
+});
+
+describe("permission change preview and keyboard decision", () => {
+	const editRequest: PermissionRequest = {
+		type: "permission_request", requestId: "permission-edit", sessionId: "conversation-one", toolName: "edit",
+		input: { path: "src/app.tsx", edits: [{ oldText: "旧的一行", newText: "新的实现" }] },
+	};
+
+	it("renders edit changes as a colored diff with honest truncation", async () => {
+		const oldText = Array.from({ length: 12 }, (_, i) => `旧第 ${i + 1} 行`).join("\n");
+		await render({ request: { ...editRequest, input: { path: "src/app.tsx", edits: [{ oldText, newText: "新的实现" }] } } });
+		const dels = [...host.querySelectorAll(".owl-permission-diff-del")];
+		const adds = [...host.querySelectorAll(".owl-permission-diff-add")];
+		// 每侧最多 8 行：删除侧截断且明示，新增侧完整。
+		expect(dels).toHaveLength(8);
+		expect(dels[0]?.textContent).toContain("旧第 1 行");
+		expect(adds.map((node) => node.textContent)).toContain("+ 新的实现");
+		expect(host.querySelector(".owl-permission-diff-more")?.textContent).toContain("还有 4 行未显示");
+		// 被截断的全文仍在「来源与完整参数」里。
+		expect(host.querySelector(".owl-permission-raw-input")?.textContent).toContain("旧第 12 行");
+	});
+
+	it("clips long write content with an explicit size hint", async () => {
+		const content = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
+		await render({ request: { type: "permission_request", requestId: "permission-write", sessionId: "conversation-one", toolName: "write", input: { path: "scripts/setup.mjs", content } } });
+		const pre = host.querySelector(".owl-permission-input-text")!;
+		expect(pre.textContent).toContain("line 15");
+		expect(pre.textContent).not.toContain("line 16");
+		expect(host.querySelector(".owl-permission-preview-more")?.textContent).toContain("共 40 行");
+		expect(host.querySelector(".owl-permission-preview-more")?.textContent).toContain("还有 25 行未显示");
+	});
+
+	it("approves with Ctrl+Enter and not with a plain Enter", async () => {
+		await render({});
+		const press = async (withCtrl: boolean): Promise<void> => {
+			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.defineProperties(event, { key: { value: "Enter" }, ctrlKey: { value: withCtrl } });
+			await act(async () => dialog().dispatchEvent(event));
+		};
+		await press(false);
+		expect(decisions).not.toHaveBeenCalled();
+		await press(true);
+		expect(decisions).toHaveBeenCalledWith(true);
+		expect(host.querySelector(".owl-permission-kbd")?.textContent).toBe("Ctrl+Enter");
 	});
 });

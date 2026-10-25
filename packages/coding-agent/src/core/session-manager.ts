@@ -803,99 +803,158 @@ function getMessageActivityTime(entry: SessionMessageEntry): number | undefined 
 	return Number.isNaN(t) ? undefined : t;
 }
 
+/**
+ * 解析单个会话文件为列表行。返回 tainted 表示中途遇到坏行或读取错误（内容可能不完整），
+ * 调用方不应把 tainted 结果写入缓存。读到一半出错但头部已解析时，尽力返回已解析的部分
+ * 而不是整个丢弃——丢一行会让会话从侧栏列表里闪消一帧。
+ */
 async function buildSessionInfo(
 	filePath: string,
 	signal?: AbortSignal,
 	fileStats?: Stats,
-): Promise<SessionInfo | null> {
+): Promise<{ info: SessionInfo | null; tainted: boolean }> {
 	try {
 		const stats = fileStats ?? (await stat(filePath));
-		let header: SessionHeader | null = null;
-		let messageCount = 0;
-		let firstMessage = "";
-		const allMessages: string[] = [];
-		let name: string | undefined;
-		const customTypes = new Set<string>();
-		let presetId: string | undefined;
-		let lastActivityTime: number | undefined;
+		const scan = async (): Promise<{
+			header: SessionHeader | null;
+			messageCount: number;
+			firstMessage: string;
+			name?: string;
+			customTypes: string[];
+			presetId?: string;
+			lastActivityTime?: number;
+			tainted: boolean;
+			allMessagesText: string;
+		}> => {
+			let header: SessionHeader | null = null;
+			let messageCount = 0;
+			let firstMessage = "";
+			let name: string | undefined;
+			let presetId: string | undefined;
+			let lastActivityTime: number | undefined;
+			let tainted = false;
+			const customTypes = new Set<string>();
+			const allMessages: string[] = [];
 
-		const rl = createInterface({
-			input: createReadStream(filePath, { encoding: "utf8", signal }),
-			crlfDelay: Infinity,
-		});
+			const rl = createInterface({
+				input: createReadStream(filePath, { encoding: "utf8", signal }),
+				crlfDelay: Infinity,
+			});
 
-		for await (const line of rl) {
-			const entry = parseSessionEntryLine(line);
-			if (!entry) continue;
+			for await (const line of rl) {
+				const entry = parseSessionEntryLine(line);
+				if (!entry) {
+					// 空行忽略；坏行（多为并发写入截断的尾行）跳过但标记结果偏旧。
+					if (line.trim()) tainted = true;
+					continue;
+				}
 
-			if (!header) {
-				if (entry.type !== "session") return null;
-				header = entry;
-				continue;
-			}
+				if (!header) {
+					if (entry.type !== "session")
+						return {
+							header: null,
+							messageCount: 0,
+							firstMessage: "",
+							customTypes: [],
+							tainted: true,
+							allMessagesText: "",
+						};
+					header = entry;
+					continue;
+				}
 
-			// Extract session name (use latest, including explicit clears)
-			if (entry.type === "session_info") {
-				name = entry.name?.trim() || undefined;
-			}
-			if (entry.type === "custom" && typeof entry.customType === "string" && entry.customType.trim()) {
-				customTypes.add(entry.customType);
-				if (entry.customType === OWL_AGENT_PRESET_ENTRY) {
-					const data = entry.data as { id?: unknown } | undefined;
-					if (typeof data?.id === "string" && data.id) presetId = data.id;
+				// Extract session name (use latest, including explicit clears)
+				if (entry.type === "session_info") {
+					name = entry.name?.trim() || undefined;
+				}
+				if (entry.type === "custom" && typeof entry.customType === "string" && entry.customType.trim()) {
+					customTypes.add(entry.customType);
+					if (entry.customType === OWL_AGENT_PRESET_ENTRY) {
+						const data = entry.data as { id?: unknown } | undefined;
+						if (typeof data?.id === "string" && data.id) presetId = data.id;
+					}
+				}
+
+				if (entry.type !== "message") continue;
+				messageCount++;
+
+				const activityTime = getMessageActivityTime(entry);
+				if (typeof activityTime === "number") {
+					lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
+				}
+
+				const message = entry.message;
+				if (!isMessageWithContent(message)) continue;
+				if (message.role !== "user" && message.role !== "assistant") continue;
+
+				const textContent = extractTextContent(message);
+				if (!textContent) continue;
+
+				allMessages.push(textContent);
+				if (!firstMessage && message.role === "user") {
+					firstMessage = textContent;
 				}
 			}
 
-			if (entry.type !== "message") continue;
-			messageCount++;
+			return {
+				header,
+				messageCount,
+				firstMessage,
+				name,
+				customTypes: [...customTypes],
+				presetId,
+				lastActivityTime,
+				tainted,
+				allMessagesText: allMessages.join(" "),
+			};
+		};
 
-			const activityTime = getMessageActivityTime(entry);
-			if (typeof activityTime === "number") {
-				lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
-			}
-
-			const message = entry.message;
-			if (!isMessageWithContent(message)) continue;
-			if (message.role !== "user" && message.role !== "assistant") continue;
-
-			const textContent = extractTextContent(message);
-			if (!textContent) continue;
-
-			allMessages.push(textContent);
-			if (!firstMessage && message.role === "user") {
-				firstMessage = textContent;
-			}
+		// 瞬时读错误（杀毒/索引器占用、重命名竞态）先重试一次再判死。
+		let result: Awaited<ReturnType<typeof scan>>;
+		try {
+			result = await scan();
+		} catch {
+			signal?.throwIfAborted();
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			result = await scan();
 		}
-
-		if (!header) return null;
+		if (!result.header && result.tainted) {
+			await new Promise((resolve) => setTimeout(resolve, 25));
+			result = await scan();
+		}
+		const { header } = result;
+		if (!header) return { info: null, tainted: result.tainted };
 
 		const cwd = typeof header.cwd === "string" ? header.cwd : "";
 		const parentSessionPath = header.parentSession;
 		const headerTime = typeof header.timestamp === "string" ? new Date(header.timestamp).getTime() : NaN;
 		const modified =
-			typeof lastActivityTime === "number" && lastActivityTime > 0
-				? new Date(lastActivityTime)
+			typeof result.lastActivityTime === "number" && result.lastActivityTime > 0
+				? new Date(result.lastActivityTime)
 				: !Number.isNaN(headerTime)
 					? new Date(headerTime)
 					: stats.mtime;
 
 		return {
-			path: filePath,
-			id: header.id,
-			cwd,
-			name,
-			...(customTypes.size > 0 ? { customTypes: [...customTypes] } : {}),
-			...(presetId ? { preset: presetId } : {}),
-			parentSessionPath,
-			created: new Date(header.timestamp),
-			modified,
-			messageCount,
-			firstMessage: firstMessage || "(no messages)",
-			allMessagesText: allMessages.join(" "),
+			info: {
+				path: filePath,
+				id: header.id,
+				cwd,
+				name: result.name,
+				...(result.customTypes.length > 0 ? { customTypes: result.customTypes } : {}),
+				...(result.presetId ? { preset: result.presetId } : {}),
+				parentSessionPath,
+				created: new Date(header.timestamp),
+				modified,
+				messageCount: result.messageCount,
+				firstMessage: result.firstMessage || "(no messages)",
+				allMessagesText: result.allMessagesText,
+			},
+			tainted: result.tainted,
 		};
 	} catch {
 		signal?.throwIfAborted();
-		return null;
+		return { info: null, tainted: true };
 	}
 }
 
@@ -954,10 +1013,18 @@ async function resolveSessionInfoCached(file: SessionFileCandidate, signal?: Abo
 	}
 	const cached = sessionInfoCache.get(file.path);
 	if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached.info;
-	const info = await buildSessionInfo(file.path, signal, stats);
-	if (info) sessionInfoCache.set(file.path, { mtimeMs: stats.mtimeMs, size: stats.size, info });
-	else sessionInfoCache.delete(file.path);
-	return info;
+	const read = await buildSessionInfo(file.path, signal, stats);
+	if (read.info) {
+		// 解析中遇到坏行（多半是并发写入截断的尾行）：结果可能偏旧，不进缓存，
+		// 下次列表重读；文件本身没动过时结果一致，代价可控。
+		if (!read.tainted) sessionInfoCache.set(file.path, { mtimeMs: stats.mtimeMs, size: stats.size, info: read.info });
+		return read.info;
+	}
+	// 读取瞬时失败（杀毒/索引器短暂占用、重命名竞态）：回退上次成功解析的结果。
+	// 直接丢弃会让这个会话从 session.list 里整行消失一帧，侧栏可见地闪跳。
+	if (cached) return cached.info;
+	sessionInfoCache.delete(file.path);
+	return null;
 }
 
 function pruneSessionInfoCache(livePaths: Iterable<string>): void {

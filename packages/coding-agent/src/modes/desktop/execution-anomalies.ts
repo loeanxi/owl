@@ -1,14 +1,25 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFileSync, backupCorruptFile, withFileLockSync } from "../../utils/atomic-file.ts";
 
 export const EXECUTION_ANOMALY_MAX_RECORDS = 2_000;
+/** archiveOlderThan 的默认阈值：活动文件只保留近期记录，更早的进月度归档。 */
+export const EXECUTION_ANOMALY_ARCHIVE_DAYS = 90;
+const ARCHIVE_FILE_PREFIX = "execution-anomalies-archive-";
+const ARCHIVE_FILE_SUFFIX = ".jsonl";
 const MAX_SUMMARY = 600;
 const MAX_DETAILS = 8_000;
 const MAX_REPORT_TEXT = 4_000;
 const MAX_IDENTITY = 256;
 const MAX_PATH = 2_048;
+
+/** 归档按记录所属月份分文件，单文件体量有界且可整月删除；JSONL 追加不需要整档重写。 */
+export function executionAnomalyArchivePath(agentDir: string, createdAt: number): string {
+	const date = new Date(createdAt);
+	const month = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
+	return join(agentDir, `${ARCHIVE_FILE_PREFIX}${month}${ARCHIVE_FILE_SUFFIX}`);
+}
 
 export type ExecutionAnomalyKind = "tool_error" | "model_error";
 export type ExecutionAnomalyStatus = "pending" | "reported";
@@ -199,11 +210,13 @@ function evidence(input: ExecutionAnomalyInput): Omit<ExecutionAnomalyInput, "ti
 
 export class ExecutionAnomalyStore {
 	private readonly path: string;
+	private readonly agentDir: string;
 	private readonly now: () => number;
 	private readonly maxRecords: number;
 	private readonly onChange?: () => void;
 
 	constructor(agentDir: string, options: ExecutionAnomalyStoreOptions = {}) {
+		this.agentDir = agentDir;
 		this.path = join(agentDir, "execution-anomalies.json");
 		this.now = options.now ?? Date.now;
 		this.maxRecords = boundedInteger(options.maxRecords, EXECUTION_ANOMALY_MAX_RECORDS, 10_000, 1);
@@ -272,8 +285,21 @@ export class ExecutionAnomalyStore {
 
 	private write(store: StoreFile): void {
 		store.records.sort((left, right) => right.createdAt - left.createdAt);
+		const overflow = store.records.slice(this.maxRecords);
+		if (overflow.length) this.archive(overflow);
 		store.records = store.records.slice(0, this.maxRecords);
 		atomicWriteFileSync(this.path, `${JSON.stringify(store)}\n`, { mode: 0o600 });
+	}
+
+	/** 超限/超龄记录不得静默丢弃：按所属月份追加进 JSONL 归档。调用方须已持有主文件锁。 */
+	private archive(records: ExecutionAnomalyRecord[]): void {
+		const byMonth = new Map<string, string>();
+		for (const item of records) {
+			const path = executionAnomalyArchivePath(this.agentDir, item.createdAt);
+			const line = JSON.stringify(item);
+			byMonth.set(path, byMonth.has(path) ? `${byMonth.get(path)}\n${line}` : line);
+		}
+		for (const [path, payload] of byMonth) appendFileSync(path, `${payload}\n`, { encoding: "utf-8", mode: 0o600 });
 	}
 
 	private changed(): void {
@@ -305,9 +331,10 @@ export class ExecutionAnomalyStore {
 			};
 			// History imports and clock rollback may create an older timestamp. A successful
 			// record() must still return a persisted ID that its owning model can report.
-			store.records = store.records
-				.sort((left, right) => right.createdAt - left.createdAt)
-				.slice(0, this.maxRecords - 1);
+			store.records.sort((left, right) => right.createdAt - left.createdAt);
+			const evicted = store.records.slice(this.maxRecords - 1);
+			if (evicted.length) this.archive(evicted);
+			store.records = store.records.slice(0, this.maxRecords - 1);
 			store.records.unshift(item);
 			this.write(store);
 			changed = true;
@@ -407,5 +434,23 @@ export class ExecutionAnomalyStore {
 
 	get(id: string): ExecutionAnomalyRecord | undefined {
 		return withFileLockSync(this.path, () => this.read().records.find((item) => item.id === id));
+	}
+
+	/**
+	 * 定期归档：把活动文件里早于 cutoffDays 的记录挪进月度 JSONL 归档，返回挪动条数。
+	 * 超龄记录视为历史证据，离开活动文件后不再参与 report()/process()，需要时可从归档找回。
+	 */
+	archiveOlderThan(cutoffDays: number): number {
+		const days = boundedInteger(cutoffDays, EXECUTION_ANOMALY_ARCHIVE_DAYS, 3_650, 1);
+		const cutoff = this.now() - days * 86_400_000;
+		return withFileLockSync(this.path, () => {
+			const store = this.read();
+			const stale = store.records.filter((item) => item.createdAt < cutoff);
+			if (!stale.length) return 0;
+			this.archive(stale);
+			store.records = store.records.filter((item) => item.createdAt >= cutoff);
+			this.write(store);
+			return stale.length;
+		});
 	}
 }

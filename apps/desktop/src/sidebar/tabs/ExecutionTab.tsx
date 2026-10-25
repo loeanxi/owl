@@ -39,6 +39,15 @@ function ExecutionOwnerView({ client, onOpenFile, context, selection }: Executio
 	const mounted = useRef(true);
 	useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 	const tool = selection.mode === "tool" ? selectedExecutionTool(context.entries, selection) : undefined;
+	const outputBox = useRef<HTMLDivElement>(null);
+	// 终态工具打开（或开着时刚收尾）自动滚到输出末尾：结论与报错几乎都在尾部，
+	// 聊天预览取的就是末 3 行，全文面板不该让人从第 1 行找起。运行中保持顶部。
+	useEffect(() => {
+		if (selection.mode !== "tool" || !tool) return;
+		if (tool.status === "running" || tool.status === "pending") return;
+		const box = outputBox.current;
+		if (box) box.scrollTop = box.scrollHeight;
+	}, [selection.mode, tool?.id, tool?.status]);
 	useEffect(() => {
 		if (selection.mode !== "tasks") return;
 		let disposed = false;
@@ -120,7 +129,7 @@ function ExecutionOwnerView({ client, onOpenFile, context, selection }: Executio
 		{notice && <p className="owl-execution-notice" role="status">{notice}</p>}
 		{showingOutput ? <>
 			<div className="owl-execution-output-heading"><code>{tool?.name ?? detail?.command}</code>{detail?.exitCode !== undefined && <span>{copy.exitCode}: {detail.exitCode === null ? "—" : detail.exitCode}</span>}</div>
-			{selection.mode === "tool" && !tool ? <p className="owl-execution-empty" role="status">{copy.missingTool}</p> : <div className="owl-execution-output" tabIndex={0} aria-label={copy.output}><pre><code>{outputText || (processId !== undefined && !detail ? copy.loading : copy.emptyOutput)}</code></pre></div>}
+				{selection.mode === "tool" && !tool ? <p className="owl-execution-empty" role="status">{copy.missingTool}</p> : <div ref={outputBox} className="owl-execution-output" tabIndex={0} aria-label={copy.output}><pre><code>{outputText || (processId !== undefined && !detail ? copy.loading : copy.emptyOutput)}</code></pre></div>}
 			{tool && <details className="owl-execution-arguments"><summary>{copy.arguments}</summary><pre>{tool.detail ?? tool.args}</pre></details>}
 			{tool?.output?.images && <div className="owl-execution-images">{tool.output.images.map((image, index) => <img key={index} src={`data:${image.mimeType};base64,${image.data}`} alt={`${copy.images} ${index + 1}`} />)}</div>}
 			{tool?.output?.fullPath && <button type="button" className="owl-execution-button owl-execution-full" onClick={() => onOpenFile(tool.output!.fullPath!)}>{copy.fullOutput}</button>}

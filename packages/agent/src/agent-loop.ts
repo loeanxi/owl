@@ -5,6 +5,7 @@
 
 import {
 	type AssistantMessage,
+	type AssistantMessageEvent,
 	EventStream,
 	getCurrentTools,
 	getToolStateChanges,
@@ -458,74 +459,156 @@ async function streamAssistantResponse(
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
-	const response = await streamFunction(config.model, llmContext, {
-		...config,
-		apiKey: resolvedApiKey,
-		signal,
+	// 首包看门狗：模型请求在时限内一个流事件都没有（连 start/thinking 都没有），
+	// 判定为无响应挂死——中止底层请求并合成为 stopReason "error" 的助手消息，
+	// 让失败进入既有 model_error 失败记录管线，而不是永远停在"等待模型响应"。
+	const firstPacketTimeoutMs = config.firstPacketTimeoutMs ?? DEFAULT_FIRST_PACKET_TIMEOUT_MS;
+	const watchdog = new AbortController();
+	let watchdogFired = false;
+	watchdog.signal.addEventListener("abort", () => {
+		watchdogFired = true;
 	});
-	// Record the requested level, whichever stream function answered.
-	const result = async () => Object.assign(await response.result(), { thinkingLevel: config.reasoning ?? "off" });
+	let firstPacketTimer: ReturnType<typeof setTimeout> | undefined;
+	// 用户主动中止（signal）优先级高于看门狗：只有看门狗单独触发时才改写为 error。
+	const watchdogOnly = () => watchdogFired && !signal?.aborted;
+	const firstPacketError = (): AssistantMessage => ({
+		role: "assistant",
+		content: [],
+		api: config.model.api,
+		provider: config.model.provider,
+		model: config.model.id,
+		thinkingLevel: config.reasoning ?? "off",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "error",
+		errorMessage: `模型 ${config.model.provider}/${config.model.id} 在 ${Math.round(
+			firstPacketTimeoutMs / 1000,
+		)}s 内没有返回任何流事件（疑似无响应或网络挂起），已中止本轮。`,
+		timestamp: Date.now(),
+	});
 
-	let partialMessage: AssistantMessage | null = null;
-	let addedPartial = false;
+	// 首包竞速：streamFn 的返回与第一个流事件都要和看门狗赛跑。
+	// 不依赖底层流响应 abort 信号——任何实现的挂死都会被合成的错误消息兜住。
+	const timeoutPromise =
+		firstPacketTimeoutMs > 0
+			? new Promise<never>((_, reject) => {
+					firstPacketTimer = setTimeout(() => {
+						watchdog.abort();
+						reject(new Error(`模型首包超时（${firstPacketTimeoutMs}ms）`));
+					}, firstPacketTimeoutMs);
+				})
+			: undefined;
 
-	for await (const event of response) {
-		switch (event.type) {
-			case "start":
-				partialMessage = event.partial;
-				context.messages.push(partialMessage);
-				addedPartial = true;
-				await emit({ type: "message_start", message: { ...partialMessage } });
-				break;
+	try {
+		const runStreamFn = () =>
+			streamFunction(config.model, llmContext, {
+				...config,
+				apiKey: resolvedApiKey,
+				signal: signal ? AbortSignal.any([signal, watchdog.signal]) : watchdog.signal,
+			});
+		const response = await (timeoutPromise ? Promise.race([runStreamFn(), timeoutPromise]) : runStreamFn());
+		// Record the requested level, whichever stream function answered.
+		const result = async () => Object.assign(await response.result(), { thinkingLevel: config.reasoning ?? "off" });
 
-			case "text_start":
-			case "text_delta":
-			case "text_end":
-			case "thinking_start":
-			case "thinking_delta":
-			case "thinking_end":
-			case "toolcall_start":
-			case "toolcall_delta":
-			case "toolcall_end":
-				if (partialMessage) {
-					partialMessage = event.partial;
-					context.messages[context.messages.length - 1] = partialMessage;
-					await emit({
-						type: "message_update",
-						assistantMessageEvent: event,
-						message: { ...partialMessage },
-					});
-				}
-				break;
+		let partialMessage: AssistantMessage | null = null;
+		let addedPartial = false;
 
-			case "done":
-			case "error": {
-				const finalMessage = await result();
-				constrainAssistantToolCalls(finalMessage, context.tools);
-				if (addedPartial) {
-					context.messages[context.messages.length - 1] = finalMessage;
-				} else {
-					context.messages.push(finalMessage);
-				}
-				if (!addedPartial) {
-					await emit({ type: "message_start", message: { ...finalMessage } });
-				}
-				await emit({ type: "message_end", message: finalMessage });
-				return finalMessage;
-			}
+		const iterator = (response as AsyncIterable<AssistantMessageEvent>)[Symbol.asyncIterator]();
+		let step = timeoutPromise ? await Promise.race([iterator.next(), timeoutPromise]) : await iterator.next();
+		if (firstPacketTimer !== undefined) {
+			clearTimeout(firstPacketTimer);
+			firstPacketTimer = undefined;
 		}
-	}
+		while (!step.done) {
+			const event = step.value;
+			switch (event.type) {
+				case "start":
+					partialMessage = event.partial;
+					context.messages.push(partialMessage);
+					addedPartial = true;
+					await emit({ type: "message_start", message: { ...partialMessage } });
+					break;
 
-	const finalMessage = await result();
-	constrainAssistantToolCalls(finalMessage, context.tools);
-	if (addedPartial) {
-		context.messages[context.messages.length - 1] = finalMessage;
-	} else {
-		context.messages.push(finalMessage);
-		await emit({ type: "message_start", message: { ...finalMessage } });
+				case "text_start":
+				case "text_delta":
+				case "text_end":
+				case "thinking_start":
+				case "thinking_delta":
+				case "thinking_end":
+				case "toolcall_start":
+				case "toolcall_delta":
+				case "toolcall_end":
+					if (partialMessage) {
+						partialMessage = event.partial;
+						context.messages[context.messages.length - 1] = partialMessage;
+						await emit({
+							type: "message_update",
+							assistantMessageEvent: event,
+							message: { ...partialMessage },
+						});
+					}
+					break;
+
+				case "done":
+				case "error": {
+					if (watchdogOnly()) {
+						const overridden = firstPacketError();
+						if (addedPartial) {
+							context.messages[context.messages.length - 1] = overridden;
+						} else {
+							context.messages.push(overridden);
+						}
+						if (!addedPartial) {
+							await emit({ type: "message_start", message: overridden });
+						}
+						await emit({ type: "message_end", message: overridden });
+						return overridden;
+					}
+					const finalMessage = await result();
+					constrainAssistantToolCalls(finalMessage, context.tools);
+					if (addedPartial) {
+						context.messages[context.messages.length - 1] = finalMessage;
+					} else {
+						context.messages.push(finalMessage);
+					}
+					if (!addedPartial) {
+						await emit({ type: "message_start", message: { ...finalMessage } });
+					}
+					await emit({ type: "message_end", message: finalMessage });
+					return finalMessage;
+				}
+			}
+			step = await iterator.next();
+		}
+
+		const finalMessage = await result();
+		constrainAssistantToolCalls(finalMessage, context.tools);
+		if (addedPartial) {
+			context.messages[context.messages.length - 1] = finalMessage;
+		} else {
+			context.messages.push(finalMessage);
+			await emit({ type: "message_start", message: { ...finalMessage } });
+		}
+		await emit({ type: "message_end", message: finalMessage });
+		return finalMessage;
+	} catch (error) {
+		if (watchdogOnly()) {
+			const message = firstPacketError();
+			context.messages.push(message);
+			await emit({ type: "message_start", message });
+			await emit({ type: "message_end", message });
+			return message;
+		}
+		throw error;
+	} finally {
+		if (firstPacketTimer !== undefined) clearTimeout(firstPacketTimer);
 	}
-	await emit({ type: "message_end", message: finalMessage });
-	return finalMessage;
 }
 
 /**
@@ -533,6 +616,12 @@ async function streamAssistantResponse(
  * maxToolExecutions budget; repeated failures and per-message flood guards remain active.
  */
 export const DEFAULT_MAX_TOOL_EXECUTIONS = Number.POSITIVE_INFINITY;
+
+/**
+ * 首包看门狗默认时限：模型请求在这个时间内连一个流事件都没有，就按无响应挂死处理。
+ * 只守首包（收到第一个事件即撤防），长回复本身不受影响。
+ */
+export const DEFAULT_FIRST_PACKET_TIMEOUT_MS = 120_000;
 
 type ToolRefusal = {
 	toolMessage: string;

@@ -227,7 +227,7 @@ it("opens the exact tool owner in the workspace from the latest output", async (
 	const first = tool("shared", "ok", "earlier owner");
 	const last = tool("shared", "error", "原始失败输出");
 	await render({ onInspectTool, entries: turn(assistant("first", [first]), assistant("last", [last])) });
-	await click(".owl-work-latest-toolbar button");
+	await click(".owl-work-latest-toolbar button[data-work-reading]");
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(last, 2);
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("执行失败");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).not.toContain("已完成");
@@ -243,7 +243,7 @@ it("keeps a non-zero check visible during work until the identical check succeed
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("运行项目检查");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("执行失败");
 	expect(host.querySelector(".owl-work-latest-output pre")?.textContent).toBe(failed.output!.text);
-	await click(".owl-work-latest-toolbar button");
+	await click(".owl-work-latest-toolbar button[data-work-reading]");
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(failed, 1);
 	const recovered: ToolCard = { ...failed, id: "successful-retry", status: "ok", output: { text: "相同检查已返回退出码 0", totalLines: 1 } };
 	await render({ entries: turn(assistant("work", [failed, unrelated, recovered])) });

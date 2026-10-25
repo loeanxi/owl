@@ -231,6 +231,38 @@ describe("workspace reading positions", () => {
 	});
 });
 
+describe("sidebar scroll memory", () => {
+	it("keys the sidebar surface per workspace, not per session, so switching sessions keeps the list in place", () => {
+		const base = place("a");
+		const switched = place("b", base.workspace);
+		// 侧栏是导航面板：换会话不能按“那个会话记住的侧栏位置”重置列表（点击会话会把侧栏跳回顶部/过期位置）。
+		expect(workspaceScrollKey(switched, "sidebar")).toBe(workspaceScrollKey(base, "sidebar"));
+		// 会话内容面板的键仍按会话区分（各自的阅读位置互不覆盖）。
+		expect(workspaceScrollKey(switched, "chat")).not.toBe(workspaceScrollKey(base, "chat"));
+	});
+
+	it("does not move the sidebar list when the chat session changes", async () => {
+		seed(profileOne, place("a"), 1600);
+		await render({ place: place("a") });
+		await drainFrames();
+		const sidebar = document.createElement("aside");
+		sidebar.className = "owl-sidebar-list";
+		Object.defineProperties(sidebar, { clientWidth: { value: 200 }, clientHeight: { value: 400 }, scrollHeight: { value: 1200 } });
+		await act(async () => {
+			container.querySelector(".owl-workspace-frame")?.append(sidebar);
+			sidebar.scrollTop = 500;
+			sidebar.dispatchEvent(new Event("scroll", { bubbles: true }));
+		});
+		await drainFrames();
+		await act(async () => vi.advanceTimersByTime(200));
+		await render({ place: place("b", place("a").workspace) });
+		await drainFrames();
+		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await drainFrames();
+		expect(sidebar.scrollTop).toBe(500);
+	});
+});
+
 describe("search navigation priority", () => {
 	it("uses a search attribute set before event listeners mount and immediately persists the new location", async () => {
 		seed(profileOne, place("a"), 900);

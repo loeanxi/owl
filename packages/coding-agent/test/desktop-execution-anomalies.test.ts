@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ExecutionAnomalyStore } from "../src/modes/desktop/execution-anomalies.ts";
+import { ExecutionAnomalyStore, executionAnomalyArchivePath } from "../src/modes/desktop/execution-anomalies.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -391,5 +391,86 @@ describe("desktop execution anomaly log", () => {
 		const repaired = JSON.parse(readFileSync(path, "utf-8"));
 		expect(repaired.version).toBe(1);
 		expect(repaired.records.find((entry: { id: string }) => entry.id === original.id).processing).toBeUndefined();
+	});
+
+	it("archives cap overflow to monthly JSONL files instead of silently dropping it", () => {
+		const root = agentDir();
+		const store = new ExecutionAnomalyStore(root, { maxRecords: 2 });
+		const january = store.record({
+			sessionId: "s1",
+			kind: "model_error",
+			summary: "Newest failure",
+			timestamp: Date.UTC(2026, 0, 15),
+		});
+		const december = store.record({
+			sessionId: "s1",
+			kind: "model_error",
+			summary: "December failure",
+			timestamp: Date.UTC(2025, 11, 15),
+		});
+		const november = store.record({
+			sessionId: "s1",
+			kind: "tool_error",
+			summary: "November failure",
+			timestamp: Date.UTC(2025, 10, 15),
+		});
+		const october = store.record({
+			sessionId: "s1",
+			kind: "tool_error",
+			summary: "October failure",
+			timestamp: Date.UTC(2025, 9, 15),
+		});
+		expect(store.list().records.map((item) => item.id)).toEqual([january.id, october.id]);
+		for (const [record, month] of [
+			[december, "202512"],
+			[november, "202511"],
+		] as const) {
+			expect(store.get(record.id)).toBeUndefined();
+			const archive = join(root, `execution-anomalies-archive-${month}.jsonl`);
+			expect(archive).toBe(executionAnomalyArchivePath(root, record.createdAt));
+			const lines = readFileSync(archive, "utf-8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(lines).toHaveLength(1);
+			expect(lines[0]).toEqual(record);
+		}
+	});
+
+	it("archiveOlderThan moves stale records out and is a no-op on an already pruned file", () => {
+		const root = agentDir();
+		const now = Date.UTC(2026, 9, 25);
+		const store = new ExecutionAnomalyStore(root, { now: () => now });
+		const june = store.record({
+			sessionId: "s1",
+			kind: "tool_error",
+			summary: "Ancient failure",
+			timestamp: now - 120 * 86_400_000,
+		});
+		const july = store.record({
+			sessionId: "s1",
+			kind: "tool_error",
+			summary: "Stale failure",
+			timestamp: now - 95 * 86_400_000,
+		});
+		const fresh = store.record({
+			sessionId: "s1",
+			kind: "tool_error",
+			summary: "Recent failure",
+			timestamp: now - 10 * 86_400_000,
+		});
+		expect(store.archiveOlderThan(90)).toBe(2);
+		expect(store.list().records.map((item) => item.id)).toEqual([fresh.id]);
+		for (const record of [june, july]) {
+			const lines = readFileSync(executionAnomalyArchivePath(root, record.createdAt), "utf-8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			expect(lines).toEqual([record]);
+		}
+		expect(store.archiveOlderThan(90)).toBe(0);
+		expect(() => store.report("s1", { id: june.id, cause: "c", action: "a", outcome: "resolved" })).toThrow(
+			"执行异常记录不存在或不属于当前会话",
+		);
 	});
 });

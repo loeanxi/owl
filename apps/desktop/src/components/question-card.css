@@ -13,6 +13,21 @@
 	pointer-events: auto;
 	container-type: inline-size;
 	container-name: owl-question;
+	/* 新问题入场：上浮落位，边框从琥珀（与工作过程等待态同语义）褪回常规色。
+	   元素常驻（切会话保留草稿只是 hidden），动画只在真正挂载时播一次。 */
+	animation: owl-question-card-in 260ms cubic-bezier(0.22, 0.72, 0.28, 1) both;
+}
+
+@keyframes owl-question-card-in {
+	0% { opacity: 0; transform: translateY(-6px); border-color: color-mix(in srgb, var(--color-owl-warning) 55%, var(--color-owl-border)); }
+	55% { opacity: 1; border-color: color-mix(in srgb, var(--color-owl-warning) 55%, var(--color-owl-border)); }
+	100% { opacity: 1; transform: translateY(0); border-color: var(--color-owl-border); }
+}
+
+/* 关闭口：与项目其它动效共用两套开关 */
+html[data-owl-chat-motion="off"] .owl-question-card { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-question-card { animation: none; }
 }
 
 .owl-question-card [hidden] {

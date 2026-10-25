@@ -194,6 +194,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	model: Model<any>;
 
 	/**
+	 * 首包看门狗时限（毫秒）：单次模型请求在这个时间内没有产生任何流事件
+	 * （start / thinking / text / toolCall 都算），判定为无响应挂死——
+	 * 中止底层请求并合成为 stopReason "error" 的助手消息，让失败进入
+	 * model_error 失败记录管线。收到第一个事件即撤防，长回复不受影响。
+	 * 缺省用 DEFAULT_FIRST_PACKET_TIMEOUT_MS（120s）；传 0 或负数关闭看门狗。
+	 */
+	firstPacketTimeoutMs?: number;
+
+	/**
 	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
 	 *
 	 * Each AgentMessage must be converted to a SystemMessage, UserMessage, AssistantMessage, or ToolResultMessage

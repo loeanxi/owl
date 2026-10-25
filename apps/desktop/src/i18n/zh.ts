@@ -2514,6 +2514,7 @@ export const zh = {
 	"composer.queue": "排队",
 	"composer.queueShortcut": "排队发送（会话进行中）",
 	"composer.steerShortcut": "追加到当前这轮（会话进行中）",
+	"composer.questionPendingPlaceholder": "先回答上方的问题 · Enter 会排队新消息",
 	"composer.queuePlaceholder": "Enter 排队，Ctrl+Enter 追加到当前这轮",
 	"composer.queueHint": "Enter 排队，Ctrl+Enter 追加到当前这轮",
 	"composer.queuedHint": "已排队，当前这轮结束后发送",

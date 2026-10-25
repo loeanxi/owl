@@ -2515,6 +2515,7 @@ export const en: Dict = {
 	"composer.queue": "Queue",
 	"composer.queueShortcut": "Queue message (while the session is running)",
 	"composer.steerShortcut": "Steer the current turn (while the session is running)",
+	"composer.questionPendingPlaceholder": "Answer the question above · Enter queues a new message",
 	"composer.queuePlaceholder": "Enter queues, Ctrl+Enter steers the current turn",
 	"composer.queueHint": "Enter queues, Ctrl+Enter steers the current turn",
 	"composer.queuedHint": "Queued until this turn finishes",

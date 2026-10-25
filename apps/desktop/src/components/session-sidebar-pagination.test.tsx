@@ -311,6 +311,42 @@ describe("sidebar lists revealed in batches", () => {
 		expect(recent.querySelector('[data-session-period="earlier"] [aria-current="page"]')?.textContent).toContain("recent 会话 12");
 	});
 
+	it("keeps a pin through a single glitched refresh and prunes only after the session stays missing", async () => {
+		sessions = rows("owl", 12, "D:/owl");
+		localStorage.setItem("owl.pinnedSessions", JSON.stringify(["owl-0", "owl-11"]));
+		await render();
+		expect(visibleRows(section("pinned"))).toHaveLength(2);
+
+		// 单次丢行的坏响应（桥端读取瞬断）：置顶不允许立刻被清理——localStorage 里原样保留。
+		sessions = sessions.filter((row) => row.id !== "owl-11");
+		await render({ refreshKey: "glitch" });
+		expect(JSON.parse(localStorage.getItem("owl.pinnedSessions")!)).toEqual(["owl-0", "owl-11"]);
+
+		// 连续两次都缺失（会话真的删了）：才清理。桥端每次响应都是新数组，这里同样换引用。
+		sessions = [...sessions];
+		await render({ refreshKey: "glitch-2" });
+		expect(JSON.parse(localStorage.getItem("owl.pinnedSessions")!)).toEqual(["owl-0"]);
+	});
+
+	it("does not scroll the active row into view right after the user clicked it, but still follows non-click activations", async () => {
+		sessions = rows("owl", 12, "D:/owl");
+		const intoView = vi.fn();
+		window.HTMLElement.prototype.scrollIntoView = intoView;
+		await render();
+		const buttons = section("projects").querySelectorAll<HTMLButtonElement>(".owl-sidebar-session-row .owl-sidebar-row-main");
+		await click(buttons[2]!);
+		expect(props.onOpenSession).toHaveBeenCalledWith("owl-2");
+		// 点击后激活落到该行：不允许把列表拉到该行（用户刚点的行就在指针下，跟随=跳动）。
+		await render({ activeId: "owl-2" });
+		await act(async () => { vi.advanceTimersByTime(50); });
+		expect(intoView).not.toHaveBeenCalled();
+		// 点击窗口过后，别的来源激活（快捷键循环/分支跳转）仍要跟随。
+		await act(async () => { vi.advanceTimersByTime(2500); });
+		await render({ activeId: "owl-5", refreshKey: "cycle" });
+		await act(async () => { vi.advanceTimersByTime(50); });
+		expect(intoView).toHaveBeenCalled();
+	});
+
 	it("omits pagination controls for lists containing five or fewer sessions", async () => {
 		const pins = rows("pin", 3);
 		sessions = [...pins, ...rows("owl", 5, "D:/owl")];

@@ -14,6 +14,8 @@ const zh = {
 	source: "来源与完整参数",
 	tool: "工具",
 	fullInput: "完整参数",
+	moreLines: "还有 {n} 行未显示",
+	totalLines: "共 {n} 行",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -30,6 +32,8 @@ const en: Record<keyof typeof zh, string> = {
 	source: "Source and full parameters",
 	tool: "Tool",
 	fullInput: "Full parameters",
+	moreLines: "{n} more lines not shown",
+	totalLines: "{n} lines in total",
 };
 
 export function permissionDialogText(key: keyof typeof zh, vars?: Record<string, string>): string {

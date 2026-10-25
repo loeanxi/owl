@@ -149,3 +149,53 @@ html[data-owl-theme="light"] .owl-permission-review .owl-permission-action.allow
 	.owl-permission-review .owl-permission-body { padding-top: 12px; padding-bottom: 12px; }
 	.owl-permission-review .owl-permission-foot { padding: 10px 16px; }
 }
+
+/* 变更预览：edit 的红绿 diff 块与 write 的截断提示（2026-10-25 审批三改）。 */
+.owl-permission-review .owl-permission-diff,
+.owl-permission-review .owl-permission-write {
+	min-width: 0;
+	margin: 8px 0 0;
+}
+.owl-permission-review .owl-permission-diff-path {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--owl-permission-muted);
+	font-family: ui-monospace, Consolas, monospace;
+	font-size: 12px;
+}
+.owl-permission-review .owl-permission-diff-hunk {
+	margin: 0 0 8px;
+	border-radius: 6px;
+	overflow: hidden;
+	font-family: ui-monospace, Consolas, monospace;
+	font-size: var(--owl-chat-code-font-size, 13px);
+	line-height: 1.6;
+}
+.owl-permission-review .owl-permission-diff-hunk:last-child { margin-bottom: 0; }
+.owl-permission-review :is(.owl-permission-diff-del, .owl-permission-diff-add) {
+	display: block;
+	padding: 0 8px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.owl-permission-review .owl-permission-diff-del { background: color-mix(in srgb, var(--color-owl-danger) 14%, transparent); }
+.owl-permission-review .owl-permission-diff-add { background: color-mix(in srgb, var(--color-owl-success) 16%, transparent); }
+.owl-permission-review .owl-permission-diff-more,
+.owl-permission-review .owl-permission-preview-more {
+	display: block;
+	margin: 0;
+	padding: 2px 8px;
+	color: var(--owl-permission-muted);
+	font-size: 11.5px;
+	line-height: 1.6;
+}
+.owl-permission-review .owl-permission-preview-more { padding: 0; }
+.owl-permission-review .owl-permission-kbd {
+	margin-left: 6px;
+	padding: 1px 5px;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+	opacity: 0.6;
+	font-size: 10px;
+	line-height: 1.4;
+}
