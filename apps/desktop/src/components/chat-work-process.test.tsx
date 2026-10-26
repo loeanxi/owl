@@ -247,9 +247,9 @@ describe("working through a turn in the real conversation", () => {
 		expect(cancelled.querySelector(".owl-work-terminal-word")?.textContent).toBe("已取消");
 
 		await render({ entries: turn(assistant("work-entry", [readTool("failed", "src/missing.ts", "error", "找不到被请求的文件")], { endedAt: 4000 })), activity: "idle" });
-		// 失败不加词：红色 issue link 已是那个信号，重复计数只添噪音。
+		// 失败不加词，也不挂红色失败角标：工具行的状态图标与记录详情就是全部信号。
 		expect(host.querySelector(".owl-work-terminal-word")).toBeNull();
-		expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条失败记录");
+		expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 		expect(host.querySelector(".owl-work-process-summary svg")?.getAttribute("class")).toContain("text-owl-danger");
 	});
 
@@ -289,19 +289,16 @@ describe("working through a turn in the real conversation", () => {
 		expect(host.querySelector(".owl-thinking-text")?.textContent).toContain("思考第 20 行");
 	});
 
-	it("keeps an unrelated failed result visible and lets the user inspect it directly", async () => {
+	it("keeps a finished failed result inspectable in the records without an alarm badge", async () => {
 		await render({ entries: turn(assistant("work-entry", [
 			readTool("failed", "src/missing.ts", "error", "找不到被请求的文件"),
 			readTool("unrelated", "src/other.ts", "ok", "另一个文件读取成功"),
 		])), activity: "idle" });
-		const issue = host.querySelector(".owl-work-issue-link")!;
-		expect(issue.textContent).toContain("1 条失败记录");
+		// 结束态不再显示「N 条失败记录」角标；证据保留在工具记录里，展开即可核对。
+		expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 		expect(host.querySelector(".owl-work-recovered")).toBeNull();
-		await click(issue as HTMLButtonElement);
-		expect(host.querySelector(".owl-work-process-body")).not.toBeNull();
-		expect(host.querySelector(".owl-tool-output")?.textContent).toBe("找不到被请求的文件");
-		expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条失败记录");
-		expect(host.querySelector(".owl-work-issues")).toBeNull();
+		await click(processToggle());
+		expect(host.querySelector('[data-tool-id="failed"]')?.getAttribute("data-status")).toBe("error");
 	});
 
 	it("preserves a manually opened process and its existing action detail when more work finishes and the answer arrives", async () => {

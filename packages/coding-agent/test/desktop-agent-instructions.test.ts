@@ -71,6 +71,13 @@ describe("desktop agent instructions", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).not.toContain("搜代码内容用 bash");
 	});
 
+	it("keeps the Windows inline-script discipline in the defaults", () => {
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("Windows 的 bash 里写内联脚本");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("路径一律用正斜杠");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("先用 write 工具落成 .py/.mjs 临时脚本再执行");
+		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("不原地反复改引号");
+	});
+
 	it("keeps the UI quality discipline in the defaults", () => {
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("至多穿过一层闭合边框");
 		expect(DESKTOP_AGENT_INSTRUCTIONS).toContain("严禁边框套边框");

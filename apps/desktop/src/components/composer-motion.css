@@ -71,3 +71,23 @@ html[data-owl-chat-motion="off"] .owl-composer-surface .owl-context-tank__wave {
 	.owl-composer-runtime-beam, .owl-composer-accept-glint, .owl-composer-send-glint, .owl-composer-relay { display: none; }
 	.owl-composer-runtime-beam rect { animation: none; }
 }
+
+/* 拖拽悬停（2026-10-25 R9）：描边由内联 border-owl-accent 切换；这里补数量提示条与底色呼应。 */
+.owl-composer-input[data-drag-over] { background: color-mix(in srgb, var(--color-owl-accent) 6%, var(--color-owl-panel)); }
+.owl-composer-drop-hint {
+	position: absolute;
+	left: 50%;
+	top: 0;
+	transform: translate(-50%, calc(-100% - 7px));
+	padding: 3px 11px;
+	border: 1px solid color-mix(in srgb, var(--color-owl-accent) 60%, transparent);
+	border-radius: 999px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-accent);
+	font-size: 10.5px;
+	line-height: 1.5;
+	white-space: nowrap;
+	pointer-events: none;
+	z-index: 4;
+	box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+}

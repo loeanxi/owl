@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/index.ts";
 import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { IconDownload, IconFolder, IconPanelBottom, IconPanelRight } from "../sidebar/icons.tsx";
+import { IconPencil } from "../sidebar/icons.tsx";
+import { IconDrama } from "../sidebar/quick.tsx";
 import { Menu } from "./Menu.tsx";
 import "./conversation-responsive.css";
 
@@ -14,7 +16,7 @@ const exportItemClass =
 const VIEW_OPTIONS = ["chat", "context", "trajectory"] as const satisfies readonly ConversationView[];
 
 /** Shared conversation chrome for ordinary and research sessions. */
-export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, sessionId, exporting, onExport, onExportTurns, actions }: {
+export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, mirrorOpen, onToggleMirror, sessionId, onRenameSession, renameDisabled, exporting, onExport, onExportTurns, actions }: {
 	title: string;
 	workspaceDir: string;
 	/** 当前会话的 Agent 预设名：顶栏标签，resume 一眼可辨本会话用的组合。 */
@@ -27,8 +29,14 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 	sidebarOpen: boolean;
 	onToggleTerminal: () => void;
 	onToggleSidebar: () => void;
+	/** 短剧面板开合（机器级面板，跨项目/会话共用）。 */
+	mirrorOpen?: boolean;
+	onToggleMirror?: () => void;
 	/** 当前会话；缺失（开始页）时不渲染导出入口。 */
 	sessionId?: string;
+	/** 悬停铅笔 → 行内重命名（App 负责调 session.rename 并刷新侧栏）；不传不出铅笔。 */
+	onRenameSession?: (name: string) => void;
+	renameDisabled?: boolean;
 	/** 导出请求进行中，菜单项暂时不可再点。 */
 	exporting?: boolean;
 	onExport: (format: SessionExportFormat) => void;
@@ -80,9 +88,59 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 		if (viewMenuCloseTimer.current !== null) window.clearTimeout(viewMenuCloseTimer.current);
 		viewMenuCloseTimer.current = window.setTimeout(() => setViewMenuOpen(false), 150);
 	};
+	// 行内重命名：铅笔进入，Enter 提交 / Esc 取消；空名视为放弃。
+	const [renaming, setRenaming] = useState(false);
+	const [renameDraft, setRenameDraft] = useState("");
+	const renameInputRef = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (renaming) renameInputRef.current?.select();
+	}, [renaming]);
+	const startRename = (): void => {
+		if (!onRenameSession || !sessionId) return;
+		setRenameDraft(title);
+		setRenaming(true);
+	};
+	const commitRename = (): void => {
+		const next = renameDraft.trim();
+		setRenaming(false);
+		if (next && next !== title) onRenameSession?.(next);
+	};
 	return <header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
 		<div className="owl-shell-header-info">
-			<h1 className="owl-shell-session-title text-sm font-semibold text-owl-text" title={title}>{title}</h1>
+			{renaming ? (
+				<form
+					className="owl-shell-rename flex items-center gap-1.5"
+					onSubmit={(event) => { event.preventDefault(); commitRename(); }}
+				>
+					<input
+						ref={renameInputRef}
+						value={renameDraft}
+						disabled={renameDisabled}
+						aria-label={t("sidebar.renameAria")}
+						className="owl-shell-rename-input h-6 w-56 rounded-md border border-owl-accent bg-owl-panel px-2 text-sm text-owl-text outline-none"
+						onChange={(event) => setRenameDraft(event.target.value)}
+						onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setRenaming(false); } }}
+						onBlur={() => commitRename()}
+					/>
+					<button type="submit" className="rounded-md px-1.5 py-0.5 text-xs text-owl-accent transition-colors hover:bg-owl-hover" disabled={renameDisabled}>{t("common.save")}</button>
+				</form>
+			) : (
+				<h1 className="owl-shell-session-title group/title relative flex items-center gap-1 text-sm font-semibold text-owl-text" title={title}>
+					<span className="min-w-0 max-w-[340px] truncate">{title}</span>
+					{onRenameSession && sessionId && (
+						<button
+							type="button"
+							className="owl-shell-rename-trigger shrink-0 rounded p-0.5 text-owl-faint opacity-0 transition-opacity group-hover/title:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+							title={t("sidebar.rename")}
+							aria-label={t("sidebar.rename")}
+							disabled={renameDisabled}
+							onClick={startRename}
+						>
+							<IconPencil size={12} />
+						</button>
+					)}
+				</h1>
+			)}
 			{presetName && (
 				<span className="owl-shell-preset-tag" title={presetName}>
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg>
@@ -186,6 +244,9 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 				</Menu>
 			)}
 			<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={terminalOpen} className={`owl-chrome-button${terminalOpen ? " is-active" : ""}`} onClick={onToggleTerminal}><IconPanelBottom size={16} /></button>
+			{onToggleMirror !== undefined && (
+				<button type="button" title={t("wb.drama")} aria-label={t("wb.drama")} aria-pressed={mirrorOpen === true} className={`owl-chrome-button${mirrorOpen ? " is-active" : ""}`} onClick={onToggleMirror}><IconDrama size={16} /></button>
+			)}
 			<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={sidebarOpen} className={`owl-chrome-button${sidebarOpen ? " is-active" : ""}`} onClick={onToggleSidebar}><IconPanelRight size={16} /></button>
 			</>}
 		</div>

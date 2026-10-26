@@ -40,7 +40,7 @@ async function render(): Promise<void> {
 }
 
 describe("StartPage", () => {
-	it("keeps the greeting and usage cards, without project, recent tasks, or examples", async () => {
+	it("keeps the greeting and usage cards and stays quiet without quick-start handlers", async () => {
 		await render();
 		expect(container.querySelector(".owl-start-heading")?.textContent).toBe(t("start.heading"));
 		expect(container.querySelector(".owl-wordmark")?.textContent).toBe("owl");
@@ -48,6 +48,31 @@ describe("StartPage", () => {
 		expect(container.querySelector(".test-usage-overview")).not.toBeNull();
 		expect(usageMounted).toHaveBeenCalledOnce();
 		expect(container.querySelector(".owl-start-project, .owl-start-recent, .owl-start-examples, .owl-start-tools")).toBeNull();
+	});
+
+	it("offers prompt examples that land verbatim in the composer when a handler exists", async () => {
+		props.onPromptExample = vi.fn();
+		await render();
+		const cards = [...container.querySelectorAll<HTMLButtonElement>(".owl-start-example")];
+		expect(cards).toHaveLength(4);
+		expect(container.querySelector(".owl-start-examples")?.getAttribute("aria-label")).toBe(t("start.examplesAria"));
+		await act(async () => cards[0]!.click());
+		expect(props.onPromptExample).toHaveBeenCalledExactlyOnceWith(t("start.exQuestionPrompt"));
+	});
+
+	it("lists recent sessions with a relative time and resumes the one clicked", async () => {
+		props.recentSessions = [
+			{ id: "s1", title: "修复登录超时", time: new Date(Date.now() - 30 * 60000).toISOString() },
+			{ id: "s2", title: "无时间戳的旧会话" },
+		];
+		props.onResumeSession = vi.fn();
+		await render();
+		const rows = [...container.querySelectorAll<HTMLButtonElement>(".owl-start-recent")];
+		expect(rows).toHaveLength(2);
+		expect(rows[0]!.querySelector(".owl-start-recent-time")?.textContent).toBe(t("chat.minutesAgo", { n: 30 }));
+		expect(rows[1]!.querySelector(".owl-start-recent-time")).toBeNull();
+		await act(async () => rows[0]!.click());
+		expect(props.onResumeSession).toHaveBeenCalledExactlyOnceWith("s1");
 	});
 
 	it("remounts usage when the account changes and skips it before a client exists", async () => {

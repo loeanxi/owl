@@ -6,11 +6,12 @@
  * 持久化（跨会话存续），插件落库后经 diffApproval.changed 推送自动刷新。
  * 移植自 9087/dsh-diff-approval 的文件级审批子集。
  */
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n/index.ts";
 import type { DiffApprovalFileSummary } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { samePath } from "../api.ts";
+import { ExecutionContext } from "../execution-context.tsx";
 import { consumeReviewFocus, REVIEW_FOCUS_EVENT } from "../review-focus.ts";
 import { DiffView } from "../DiffView.tsx";
 import { IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
@@ -35,6 +36,11 @@ const MAX_PREVIEW_PERCENT = 85;
 export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const copy = useUndoCopy();
+	const execution = useContext(ExecutionContext);
+	// 跨会话隔离：默认只列本次对话的待审改动——别把别的会话的改动混进来批准/回滚。
+	// 「显示全部」是逃生口：老记录没有会话号，或用户就是想清理工作区里的残留。
+	const [showAllSessions, setShowAllSessions] = useState(false);
+	const sessionId = execution.sessionId;
 	const [files, setFiles] = useState<DiffApprovalFileSummary[] | undefined>(undefined);
 	const [error, setError] = useState<string | undefined>(undefined);
 	const [loading, setLoading] = useState(true);
@@ -190,9 +196,15 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	const resolve = (entryIds: string[], action: "keep" | "revert"): Promise<void> =>
 		action === "keep" ? undo.keep(entryIds) : undo.requestPreview(entryIds);
 
-	const pending = (files ?? []).filter((entry) => entry.status === "pending");
-	const resolved = (files ?? []).filter((entry) => entry.status !== "pending");
-	const selectedEntry = (files ?? []).find((entry) => entry.id === selected);
+	const scoped = (files ?? []).filter(
+		(entry) => showAllSessions || sessionId === undefined || entry.sessionId === sessionId,
+	);
+	const foreignCount = (files ?? []).filter(
+		(entry) => !showAllSessions && sessionId !== undefined && entry.sessionId !== sessionId,
+	).length;
+	const pending = scoped.filter((entry) => entry.status === "pending");
+	const resolved = scoped.filter((entry) => entry.status !== "pending");
+	const selectedEntry = scoped.find((entry) => entry.id === selected);
 	const expandedDiff = previewHeight > (DEFAULT_PREVIEW_PERCENT + EXPANDED_PREVIEW_PERCENT) / 2;
 
 	const group = (title: string, rows: DiffApprovalFileSummary[], actionable: boolean): React.JSX.Element => (
@@ -295,6 +307,26 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 		<div ref={rootRef} className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint" title={copy.scope}>{copy.workspace} · {pending.length}</span>
+				{foreignCount > 0 && (
+					<button
+						type="button"
+						title={t("review.otherSessionsHint")}
+						className="shrink-0 rounded border border-owl-border/60 px-1.5 py-0.5 text-[10px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+						onClick={() => setShowAllSessions(true)}
+					>
+						{t("review.otherSessions", { n: foreignCount })}
+					</button>
+				)}
+				{showAllSessions && sessionId !== undefined && (
+					<button
+						type="button"
+						title={t("review.thisSessionOnlyHint")}
+						className="shrink-0 rounded border border-owl-border/60 px-1.5 py-0.5 text-[10px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+						onClick={() => setShowAllSessions(false)}
+					>
+						{t("review.thisSessionOnly")}
+					</button>
+				)}
 				{resolved.length > 0 && (
 					<button
 						type="button"

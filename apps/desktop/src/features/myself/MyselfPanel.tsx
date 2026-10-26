@@ -12,6 +12,7 @@ import type {
 } from "../../bridge/protocol.ts";
 import { AgentConversation } from "../../components/AgentConversation.tsx";
 import { type ChatActivity, ChatStream } from "../../components/ChatStream.tsx";
+import { RegenerateConfirmDialog } from "../../components/RegenerateConfirmDialog.tsx";
 import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
 import { ConversationHeader, type ConversationView } from "../../components/ConversationHeader.tsx";
@@ -527,6 +528,8 @@ export function MyselfPanel({
 				? "working"
 				: "idle";
 	const owlPose = useSessionOwlPose(chatActivity, chat.entries);
+	// 重新生成先确认（与主聊 R13 同语义）：当前回答不保留，不能一键即毁。
+	const [regenConfirm, setRegenConfirm] = useState(false);
 	const fmtDay = (date: string): string =>
 		new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric" }).format(
 			new Date(`${date}T12:00:00`),
@@ -1110,7 +1113,7 @@ export function MyselfPanel({
 							cwd={dir ?? ""}
 							onRegenerate={
 								chatController && !chat.busy && !saving
-									? () => void replayChat(() => chatController.regenerate())
+									? () => setRegenConfirm(true)
 									: undefined
 							}
 							onEditMessage={
@@ -1270,6 +1273,13 @@ export function MyselfPanel({
 
 	return (
 		<div ref={rootRef} className={`owl-myself${active ? " is-active" : ""}${dayOpen ? " has-day-sheet" : ""}`}>
+			{regenConfirm && chatController && (
+				<RegenerateConfirmDialog
+					preview={(() => { const last = chat.entries.findLast((candidate) => candidate.kind === "user" && !candidate.queued); return last?.kind === "user" ? last.text : ""; })()}
+					onConfirm={() => { setRegenConfirm(false); void replayChat(() => chatController!.regenerate()); }}
+					onClose={() => setRegenConfirm(false)}
+				/>
+			)}
 			{dirState.status === "missing" ? (
 				<div className="owl-myself-missing">
 					<p className="big">{t("myself.noDirTitle")}</p>

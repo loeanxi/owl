@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { getUiLanguage, useT } from "../i18n/index.ts";
 
 const zh = {
@@ -27,6 +28,9 @@ const en: Record<keyof typeof zh, string> = {
 };
 
 export function useImageViewerText(): (key: keyof typeof zh) => string {
-	useT();
-	return (key) => (getUiLanguage() === "en" ? en : zh)[key];
+	useT(); // 订阅语言切换
+	const language = getUiLanguage();
+	// 返回稳定的引用：把它放进 useLayoutEffect 的依赖里时，每次渲染换新函数会
+	// 让 effect 反复重跑，配合 setState 就是无限更新（Maximum update depth）。
+	return useCallback((key: keyof typeof zh) => (language === "en" ? en : zh)[key], [language]);
 }

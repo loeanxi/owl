@@ -51,6 +51,7 @@ vi.mock("./bridge/client.ts", () => ({ BridgeClient: class {
 	onNewsOpen() { return () => {}; }
 	onIabMessage() { return () => {}; }
 	onSidebarMessage() { return () => {}; }
+	onSidebarContext() { return () => {}; }
 	watchSessionEvents() { return () => {}; }
 } }));
 vi.mock("./bridge/native.ts", () => ({ hasTauri: () => false, setWebviewZoom: async () => {}, isWindowFullscreen: async () => false }));

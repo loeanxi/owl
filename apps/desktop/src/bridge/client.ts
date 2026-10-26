@@ -16,6 +16,8 @@ import type {
 	QuestionRequestMessage,
 	ServerEventMessage,
 	SidebarOpenMessage,
+	SidebarShowMessage,
+	SidebarContextMessage,
 	TermDataMessage,
 	TermExitMessage,
 	ViewerChangedMessage,
@@ -34,7 +36,8 @@ export type TermMessage = TermDataMessage | TermExitMessage;
 export type TermMessageHandler = (message: TermMessage) => void;
 export type IabMessageHandler = (message: IabServerMessage) => void;
 export type MirrorMessageHandler = (message: MirrorServerMessage) => void;
-export type SidebarOpenHandler = (message: SidebarOpenMessage) => void;
+export type SidebarShowHandler = (message: SidebarShowMessage) => void;
+export type SidebarContextHandler = (message: SidebarContextMessage) => void;
 export type ViewerChangedHandler = (message: ViewerChangedMessage) => void;
 export type NewsOpenHandler = (message: NewsOpenMessage) => void;
 export type MailDraftHandler = (message: MailAgentDraftMessage) => void;
@@ -108,7 +111,8 @@ export class BridgeClient {
 	private termHandlers = new Set<TermMessageHandler>();
 	private iabHandlers = new Set<IabMessageHandler>();
 	private mirrorHandlers = new Set<MirrorMessageHandler>();
-	private sidebarOpenHandlers = new Set<SidebarOpenHandler>();
+	private sidebarShowHandlers = new Set<SidebarShowHandler>();
+	private sidebarContextHandlers = new Set<SidebarContextHandler>();
 	private viewerChangedHandlers = new Set<ViewerChangedHandler>();
 	private newsOpenHandlers = new Set<NewsOpenHandler>();
 	private mailDraftHandlers = new Set<MailDraftHandler>();
@@ -187,8 +191,19 @@ export class BridgeClient {
 				for (const handler of this.mirrorHandlers) handler(message);
 				return;
 			}
+			if (message.type === "sidebar.show") {
+				for (const handler of this.sidebarShowHandlers) handler(message);
+				return;
+			}
+			if (message.type === "sidebar.context") {
+				for (const handler of this.sidebarContextHandlers) handler(message);
+				return;
+			}
 			if (message.type === "sidebar.open") {
-				for (const handler of this.sidebarOpenHandlers) handler(message);
+				// 旧版桥的打开请求（无回执 id）：按 file 动作转成 show 消息，行为不变。
+				for (const handler of this.sidebarShowHandlers) {
+					handler({ type: "sidebar.show", requestId: "", cwd: message.cwd, action: "file", path: message.path });
+				}
 				return;
 			}
 			if (message.type === "viewer.changed") {
@@ -285,10 +300,16 @@ export class BridgeClient {
 		return () => this.mirrorHandlers.delete(handler);
 	}
 
-	/** sidebar_open 工具广播：模型请求在侧边工作台打开文件（App 决定开哪种 viewer）。 */
-	onSidebarMessage(handler: SidebarOpenHandler): () => void {
-		this.sidebarOpenHandlers.add(handler);
-		return () => this.sidebarOpenHandlers.delete(handler);
+	/** sidebar_show 工具广播：模型请求侧边工作台做一件事（App 决定开哪种 viewer 并回执）。 */
+	onSidebarMessage(handler: SidebarShowHandler): () => void {
+		this.sidebarShowHandlers.add(handler);
+		return () => this.sidebarShowHandlers.delete(handler);
+	}
+
+	/** sidebar_context 工具广播：模型问用户此刻在看什么（App 回一份焦点快照）。 */
+	onSidebarContext(handler: SidebarContextHandler): () => void {
+		this.sidebarContextHandlers.add(handler);
+		return () => this.sidebarContextHandlers.delete(handler);
 	}
 
 	onStatus(handler: (connected: boolean) => void): () => void {

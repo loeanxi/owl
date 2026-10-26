@@ -12,6 +12,7 @@ import { t, useT } from "../../i18n/index.ts";
 import type { GitStatusEntry } from "../../bridge/protocol.ts";
 import type { TabComponentProps } from "../registry.ts";
 import { DiffReview } from "../DiffReview.tsx";
+import { CHANGES_FOCUS_EVENT, consumeChangesFocus, peekChangesFocus } from "../changes-focus.ts";
 import { ExecutionContext } from "../execution-context.tsx";
 import { IconGitBranch, IconLoader, IconRefresh, IconTrash, IconUndo } from "../icons.tsx";
 import { HistoryView, repoDisplayName } from "./HistoryView.tsx";
@@ -49,6 +50,8 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 	const execution = useContext(ExecutionContext);
 	const [mode, setMode] = useState<ChangesMode>(() => (localStorage.getItem(MODE_KEY) === "history" ? "history" : "changes"));
 	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
+	// 模型点名要看的差异行（sidebar_show action=diff 带行号）：差异载入后落到那一行。
+	const [focusLine, setFocusLine] = useState<number | undefined>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
 	const [diffLoading, setDiffLoading] = useState(false);
 	const [diffError, setDiffError] = useState<string | undefined>(undefined);
@@ -60,7 +63,13 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 	const [repoFilter, setRepoFilter] = useState<string>("");
 	// diff 请求序号：慢响应晚到时不得覆盖后点的文件（FilesTab searchSeq 同款守卫）
 	const diffSeq = useRef(0);
+	// 项目/账号切换时清掉选中与差异。StrictMode 下挂载会跑两遍，靠「与上次相同就不清」
+	// 保住程序化选中的文件：模型点名要看某个文件的差异时，刚选上就会被这一遍抹掉。
+	const scopeRef = useRef({ cwd, profile });
 	useEffect(() => {
+		const previous = scopeRef.current;
+		scopeRef.current = { cwd, profile };
+		if (previous.cwd === cwd && previous.profile === profile) return;
 		diffSeq.current += 1;
 		setSelected(undefined);
 		setDiff(undefined);
@@ -119,6 +128,34 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 				if (diffSeq.current === seq) setDiffLoading(false);
 			});
 	};
+
+	// 模型让用户看某个文件的差异（sidebar_show action=diff）：消费定位请求，
+	// 选中该文件并拉起 diff。文件条目是异步取回的，目标还没出现在列表里就
+	// 先挂着（peek 不取走），等列表到位再消费。
+	const entriesRef = useRef(entries);
+	entriesRef.current = entries;
+	const openDiffRef = useRef(openDiff);
+	openDiffRef.current = openDiff;
+	const consumeFocus = (): void => {
+		const focus = peekChangesFocus();
+		if (focus === undefined) return;
+		const entry = entriesRef.current.find((item) => item.path === focus.path);
+		if (entry === undefined) return;
+		consumeChangesFocus();
+		if (focus.line !== undefined) setFocusLine(focus.line);
+		openDiffRef.current(entry.path, entry.x !== " " && entry.x !== "?");
+	};
+	useEffect(() => {
+		consumeFocus();
+		window.addEventListener(CHANGES_FOCUS_EVENT, consumeFocus);
+		return () => window.removeEventListener(CHANGES_FOCUS_EVENT, consumeFocus);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+	// 文件列表到位后再试一次：定位请求可能比列表先到。
+	useEffect(() => {
+		consumeFocus();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [gitStatus]);
 
 	const act = async (action: () => Promise<unknown>): Promise<void> => {
 		setBusy(true);
@@ -329,7 +366,7 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 				)}
 			</div>
 
-			<DiffReview key={JSON.stringify([cwd, profile, execution.sessionId])} api={api} cwd={cwd} selected={selected} diff={diff} loading={diffLoading} error={diffError} expanded={expandedDiff} onExpand={() => setExpandedDiff((value) => !value)} onClose={() => { diffSeq.current += 1; setSelected(undefined); setDiff(undefined); setDiffLoading(false); }} onOpenFile={onOpenFile} />
+			<DiffReview key={JSON.stringify([cwd, profile, execution.sessionId])} api={api} cwd={cwd} selected={selected} diff={diff} loading={diffLoading} error={diffError} expanded={expandedDiff} focusLine={focusLine} onFocusLineHandled={() => setFocusLine(undefined)} onExpand={() => setExpandedDiff((value) => !value)} onClose={() => { diffSeq.current += 1; setSelected(undefined); setDiff(undefined); setDiffLoading(false); }} onOpenFile={onOpenFile} onSelectFile={openDiff} />
 
 			{/* 吸底提交条 */}
 			{(staged.length > 0 || message !== "") && (

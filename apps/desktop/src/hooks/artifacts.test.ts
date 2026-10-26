@@ -152,6 +152,15 @@ test("sidebar_open requires the real successful response, because its failure is
 	assert.equal(collectArtifacts([assistant([succeeded])], "D:/owl")[0].action, "opened");
 });
 
+test("sidebar_show counts as an opened artifact, and the line anchor does not change the file", () => {
+	const shown = { ...tool("shown", "sidebar_show", "D:/owl/report.md"), output: { text: "已在侧边栏打开 report.md（第 42 行）。", totalLines: 1 } };
+	const plain = { ...tool("plain", "sidebar_show", "D:/owl/report.md"), output: { text: "已在侧边栏打开 report.md。", totalLines: 1 } };
+	const notDelivered = { ...tool("ignored", "sidebar_show", "D:/owl/report.md"), output: { text: "侧边栏没有接收（当前界面在别的项目）；请在回答里直接说明位置与内容。", totalLines: 1 } };
+	const diffView = { ...tool("diff", "sidebar_show", "D:/owl/report.md"), output: { text: "已在侧边栏「改动」卡片打开 report.md 的差异。", totalLines: 1 } };
+	assert.deepEqual(collectArtifacts([assistant([shown, plain, notDelivered, diffView])], "D:/owl").map((artifact) => artifact.path), ["report.md"]);
+	assert.equal(collectArtifacts([assistant([shown])], "D:/owl")[0].action, "opened");
+});
+
 test("Windows, UNC, POSIX, shell and file URL paths resolve to the same safe wire format", () => {
 	assert.equal(workspaceArtifactPath("reports\\summary.md", "D:\\owl"), "reports/summary.md");
 	assert.equal(workspaceArtifactPath("d:\\OWL\\reports\\summary.md", "D:/owl/"), "reports/summary.md");

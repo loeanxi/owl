@@ -31,4 +31,33 @@ describe("delivery summary display", () => {
 		expect(container.textContent).not.toContain("本轮执行记录"); expect(container.textContent).not.toContain("个文件");
 	});
 	it("separates the agent's assertion from an actual linked execution", async () => { await act(async () => root.render(<DeliverySummary entries={entries(false)} />)); expect(container.textContent).toContain("未关联执行记录"); expect(container.querySelectorAll("li pre")).toHaveLength(0); });
+	it("badges the collapsed outcome by severity and marks per-item status for coloring", async () => {
+		await act(async () => root.render(<DeliverySummary entries={entries(true)} />));
+		// 有受阻 → 收起态徽标红 tone，文本直接说几项受阻。
+		const badge = container.querySelector<HTMLElement>(".owl-delivery-outcome");
+		expect(badge?.dataset.tone).toBe("blocked");
+		expect(badge?.textContent).toBe("1 项受阻");
+		// 每项 li 带 data-status，供 CSS 着色（成功绿 / 受阻红 / 待验证琥珀）。
+		expect([...container.querySelectorAll("li[data-status]")].map((item) => item.getAttribute("data-status"))).toEqual(["verified", "pending", "blocked"]);
+	});
+	it("badges all-pass green and partial gray without blocked items", async () => {
+		const mix = (statuses: string[]): ChatEntry[] => {
+			const report = { goal: "界面优化", criteria: statuses.map((status, index) => ({ criterion: `项${index + 1}`, status })) };
+			return [{ kind: "user", text: "实现界面" }, { kind: "assistant", text: "已处理", thinking: "", tools: [check, { id: "report", name: "task_check", args: JSON.stringify(report), summary: "记录验收", status: "ok", output: { text: JSON.stringify(report), totalLines: 1 } }] }];
+		};
+		await act(async () => root.render(<DeliverySummary entries={mix(["verified", "verified"])} />));
+		expect(container.querySelector(".owl-delivery-outcome")?.textContent).toBe("全部通过");
+		expect(container.querySelector(".owl-delivery-outcome")?.getAttribute("data-tone")).toBe("verified");
+		await act(async () => root.render(<DeliverySummary entries={mix(["verified", "pending"])} />));
+		expect(container.querySelector(".owl-delivery-outcome")?.textContent).toBe("1/2 已通过");
+		expect(container.querySelector(".owl-delivery-outcome")?.getAttribute("data-tone")).toBe("partial");
+	});
+	it("offers a copy button carrying the linked execution output", async () => {
+		await act(async () => root.render(<DeliverySummary entries={entries(true)} />));
+		const copy = container.querySelector<HTMLButtonElement>(".owl-delivery-evidence-actions button");
+		expect(copy?.getAttribute("aria-label")).toBe("复制执行结果");
+		// MessageCopyButton 持有完整输出文本；不触发剪贴板，仅确认按钮落在证据区。
+		expect(copy?.textContent).toContain("复制");
+		expect(container.querySelector(".owl-delivery-evidence-actions")).not.toBeNull();
+	});
 });

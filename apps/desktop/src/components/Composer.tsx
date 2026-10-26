@@ -107,8 +107,19 @@ function ContextTank({ percent }: { percent: number | null }): React.JSX.Element
 	if (percent === null) return null;
 	const level = Math.min(100, Math.max(0, percent));
 	const tone = level >= 85 ? "danger" : level >= 60 ? "warn" : "normal";
+	const levelText = tone === "danger" ? t("context.levelDanger", { n: level }) : tone === "warn" ? t("context.levelWarn", { n: level }) : t("context.level", { n: level });
 	return (
-		<div className="owl-context-tank" data-tone={tone} aria-hidden="true">
+		<div
+			className="owl-context-tank"
+			data-tone={tone}
+			role="meter"
+			aria-valuenow={level}
+			aria-valuemin={0}
+			aria-valuemax={100}
+			aria-valuetext={levelText}
+			title={`${levelText}
+${t("context.levelHint")}`}
+		>
 			<div className="owl-context-tank__liquid" style={{ height: `${level}%` }}>
 				<svg className="owl-context-tank__wave" viewBox="0 0 120 8" preserveAspectRatio="none">
 					<path d="M0 4 Q15 0 30 4 T60 4 T90 4 T120 4 V8 H0 Z" />
@@ -474,6 +485,7 @@ export function Composer({
 	connected,
 	disabled,
 	running,
+	sentHistory,
 	turnRate,
 	paused = false,
 	hideEnvironment = false,
@@ -511,7 +523,7 @@ export function Composer({
 	draftRequest,
 	initialDraft,
 	onDraftChange,
-	owlPose = "idle",
+	onOpenContext,	owlPose = "idle",
 	queued,
 	queueSessionId,
 	queueProfile,
@@ -596,10 +608,14 @@ export function Composer({
 	/** Start-page examples fill a draft without submitting or replacing existing text.
 	 *  replace: 会话回退后的「文本回填」——整体替换输入框内容而不是追加。 */
 	draftRequest?: ComposerDraftRequest;
+	/** ↑ 召回用的历史输入（最新在前）；连续重复只留一条。 */
+	sentHistory?: readonly string[];
 	/** Restore a caller-owned text draft when this composer mounts; later prop changes do not move the caret. */
 	initialDraft?: string;
 	/** Observe edits, draft inserts, and send/clear so another view can restore the same text draft. */
 	onDraftChange?: (text: string) => void;
+	/** 点击后跳到完整上下文面板（Ctrl+Alt+B 同一视图）；不传则菜单里不出入口。 */
+	onOpenContext?: () => void;
 	/** 栖在对话框上沿的流羽猫头鹰。空闲也在。 */
 	owlPose?: OwlPose;
 }): React.JSX.Element {
@@ -633,7 +649,18 @@ export function Composer({
 	// 点击缩略图查看完整大图（与 ChatStream 的看图体验一致），点遮罩关闭。
 	const [zoomedImage, setZoomedImage] = useState<PendingImage | null>(null);
 	const [pasteHint, setPasteHint] = useState<string | undefined>(undefined);
+	// 召回态：-1 = 未在浏览；0 = 最近一条。任何其它按键即退出，避免覆盖用户改动。
+	const recallIndex = useRef(-1);
+	const recallHistory = (() => {
+		const seen: string[] = [];
+		for (const text of sentHistory ?? []) {
+			if (text.trim() && seen[seen.length - 1] !== text) seen.push(text);
+		}
+		return seen;
+	})();
 	const [dragOver, setDragOver] = useState(false);
+	// 悬停期间 dataTransfer.items 里可见的文件数；0 = 原生桌面拖拽（web 拿不到数量）。
+	const [dragCount, setDragCount] = useState(0);
 	const hintTimerRef = useRef<number | undefined>(undefined);
 	useEffect(() => () => window.clearTimeout(hintTimerRef.current), []);
 	const editorRef = useRef<HTMLDivElement>(null);
@@ -830,7 +857,27 @@ export function Composer({
 		});
 	};
 
+// 富文本剪贴板降级：带 text/html 的粘贴（网页/Office/聊天工具复制）按 text/plain 插入，
+// 避免 contenteditable 默认吞下带内联样式的标签。纯文件/链接粘贴不走这条。
+	const pasteAsPlainText = (event: React.ClipboardEvent<HTMLElement>): boolean => {
+		const html = event.clipboardData.getData("text/html");
+		const plain = event.clipboardData.getData("text/plain");
+		if (html.trim() === "" || plain.trim() === "" || plain.trim() === html.trim()) return false;
+		event.preventDefault();
+		const selection = window.getSelection();
+		if (selection && selection.rangeCount > 0) {
+			const range = selection.getRangeAt(0);
+			range.deleteContents();
+			range.insertNode(document.createTextNode(plain));
+			range.collapse(false);
+		} else {
+			appendPlainText(editorRef.current, plain, (editorRef.current?.textContent ?? "").trim().length > 0);
+		}
+		return true;
+	};
+
 	const onClipboardPaste = (event: React.ClipboardEvent<HTMLElement>): void => {
+		if (pasteAsPlainText(event)) return;
 		const files: File[] = [];
 		for (const item of Array.from(event.clipboardData.items)) {
 			if (item.kind !== "file") continue;
@@ -1073,14 +1120,17 @@ export function Composer({
 			if (!zone) return;
 			if (event.type === "leave") {
 				setDragOver(false);
+				setDragCount(0);
 				return;
 			}
 			const inside = dropPointHits(zone.getBoundingClientRect(), event.position, window.devicePixelRatio || 1);
 			if (event.type !== "drop") {
 				setDragOver(inside);
+				if (inside) setDragCount(0);
 				return;
 			}
 			setDragOver(false);
+			setDragCount(0);
 			if (!inside || event.paths.length === 0) return;
 			nativeDropAt.current = Date.now();
 			acceptDroppedPathsRef.current(event.paths);
@@ -1352,6 +1402,10 @@ export function Composer({
 					</p>
 				</>
 			)}
+			{onOpenContext && <button type="button" className="mt-1.5 flex w-full items-center justify-between rounded-lg border border-owl-border px-2.5 py-1.5 text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text" onClick={() => { onOpenContext(); }}>
+				<span>{t("composer.contextPanelOpen")}</span>
+				<span className="text-[10px] text-owl-faint">Ctrl+Alt+B</span>
+			</button>}
 		</div>
 	) : (
 		<p className="px-3 py-2 text-xs text-owl-faint">{t("composer.contextEmptyHint")}</p>
@@ -1364,6 +1418,17 @@ export function Composer({
 			? "resume"
 			: "send";
 	const actionLabel = action === "pause" ? "composer.pause" : action === "abort" ? "composer.abort" : action === "resume" ? "composer.resume" : paused && hasDraft ? "composer.sendAndResume" : "composer.send";
+	// 发不出去时告诉用户为什么（悬停/读屏），别让禁用按钮哑着。
+	// 只作用于 send/resume：pause/abort 在运行中必须保持原语义可用。
+	const sendBlockReason = action === "pause" || action === "abort"
+		? undefined
+		: !connected
+			? t("composer.blockedOffline")
+			: modelSelection?.status === "pending"
+				? t("composer.blockedModel")
+				: disabled || sending
+					? t("composer.blockedBusy")
+					: undefined;
 
 	/** 预设 / 审批模式 / 模型：收在吉祥物弹出的面板里，输入框下方不再单占一行。 */
 	const settingsPanel = (): React.JSX.Element => (
@@ -1536,15 +1601,18 @@ export function Composer({
 				if (!transferHasFiles(event.dataTransfer)) return;
 				event.preventDefault();
 				setDragOver(true);
+				setDragCount(event.dataTransfer.items?.length ?? 0);
 			}}
 			onDragLeave={(event) => {
 				if (dropZoneRef.current?.contains(event.relatedTarget as Node)) return;
 				setDragOver(false);
+				setDragCount(0);
 			}}
 			onDrop={(event) => {
 				if (!transferHasFiles(event.dataTransfer)) return;
 				event.preventDefault();
 				setDragOver(false);
+				setDragCount(0);
 				// 系统拖放和网页 drop 可能接连各来一次，800ms 内以系统路径为准。
 				if (Date.now() - nativeDropAt.current < 800) return;
 				const files = Array.from(event.dataTransfer.files);
@@ -1667,7 +1735,9 @@ export function Composer({
 					ref={inputBoxRef}
 					data-running={running && !paused || undefined}
 					data-question-pending={questionPending || undefined}
+				data-drag-over={dragOver || undefined}
 				>
+					{dragOver && <div className="owl-composer-drop-hint" role="status">{dragCount > 0 ? t("composer.dropOverCount", { n: dragCount }) : t("composer.dropOverGeneric")}</div>}
 					<ContextTank percent={percent} />
 					<svg className="owl-composer-runtime-beam" aria-hidden="true">
 						<rect className="owl-composer-beam-tail" x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)" rx="12" pathLength="100" />
@@ -1774,7 +1844,7 @@ export function Composer({
 								aria-multiline="true"
 								aria-label={t("composer.inputAria")}
 								aria-description={suggestion ? predictionText("hint") : undefined}
-								data-placeholder={suggestion ?? (questionPending ? t("composer.questionPendingPlaceholder") : running ? executionCopy("queuePlaceholder") : t("composer.inputPlaceholder"))}
+								data-placeholder={suggestion ?? (!connected ? t("composer.disconnectedPlaceholder") : questionPending ? t("composer.questionPendingPlaceholder") : running ? executionCopy("queuePlaceholder") : t("composer.inputPlaceholder"))}
 								data-prediction={Boolean(suggestion) || undefined}
 								contentEditable
 								suppressContentEditableWarning
@@ -1791,6 +1861,30 @@ export function Composer({
 								}}
 								onKeyDown={(event) => {
 									if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+									// ↑ 召回：只在未开菜单、且（输入为空或正在浏览历史）时接管；↓ 在浏览中往回走。
+									const recallBrowsing = recallIndex.current >= 0;
+									if (event.key !== "ArrowUp" && event.key !== "ArrowDown") recallIndex.current = -1;
+									else if (!mentionOpen && !slashOpen && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && recallHistory.length > 0) {
+										const empty = (editorRef.current?.textContent ?? "").trim() === "";
+										if (event.key === "ArrowUp" && (recallBrowsing || empty)) {
+											event.preventDefault();
+											const next = recallBrowsing ? Math.min(recallIndex.current + 1, recallHistory.length - 1) : 0;
+											if (next !== recallIndex.current) {
+												recallIndex.current = next;
+												clearEditorContent(editorRef.current);
+												insertPlainText(editorRef.current, recallHistory[next]!);
+											}
+											return;
+										}
+										if (event.key === "ArrowDown" && recallBrowsing) {
+											event.preventDefault();
+											const next = recallIndex.current - 1;
+											recallIndex.current = next;
+											clearEditorContent(editorRef.current);
+											if (next >= 0) insertPlainText(editorRef.current, recallHistory[next]!);
+											return;
+										}
+									}
 									if (suggestion && !mentionOpen && !slashOpen) {
 										if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
 											&& (event.key === "Tab" || event.key === "ArrowRight" || event.key === "Enter") && acceptSuggestion()) {
@@ -1909,7 +2003,8 @@ export function Composer({
 						<button
 							type="button"
 							aria-label={t(actionLabel)}
-							title={t(actionLabel)}
+							title={sendBlockReason ?? t(actionLabel)}
+							aria-disabled={sendBlockReason ? true : undefined}
 							className="owl-composer-action"
 							disabled={(action === "send" || action === "resume") && (disabled || sending || modelSelection?.status === "pending" || (action === "send" && !hasDraft))}
 							onClick={(event) => {

@@ -81,6 +81,18 @@ html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] .owl-workbench-shell
 	white-space: nowrap;
 }
 
+/* 模型甩过来的说明（sidebar_show 的 note）：标题栏里的一行提示。 */
+.owl-workbench-notice {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-owl-accent);
+	font-size: 11px;
+	font-weight: 500;
+}
+
 .owl-workbench-shortcuts {
 	display: flex;
 	min-width: 0;
@@ -108,8 +120,9 @@ html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] .owl-workbench-shell
 .owl-workbench-more-tools > svg { flex: none; }
 .owl-workbench-more-tools:hover { background: var(--workbench-hover); color: var(--workbench-text); }
 .owl-workbench-tools-menu {
-	width: min(248px, calc(100vw - 32px));
-	max-height: min(420px, calc(100dvh - 120px));
+	width: min(280px, calc(100vw - 32px));
+	/* 带说明与分组后菜单变高：上限要够放下全部条目，否则末项（侧边对话）被推到滚动区外。 */
+	max-height: min(540px, calc(100dvh - 120px));
 	overflow-y: auto;
 	border-color: var(--workbench-border);
 	border-radius: 10px;
@@ -117,21 +130,38 @@ html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] .owl-workbench-shell
 	padding: 5px;
 	color: var(--workbench-text);
 }
+.owl-workbench-tool-group + .owl-workbench-tool-group {
+	margin-top: 4px;
+	border-top: 1px solid var(--workbench-border);
+	padding-top: 4px;
+}
+.owl-workbench-tool-group-title {
+	margin: 0;
+	padding: 3px 9px 2px;
+	color: var(--workbench-muted);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
 .owl-workbench-tool-item {
 	display: flex;
 	width: 100%;
-	min-height: 36px;
+	min-height: 40px;
 	align-items: center;
 	gap: 9px;
-	padding: 7px 9px;
+	padding: 6px 9px;
 	border-radius: 6px;
 	font-size: 13px;
 	text-align: left;
 }
 .owl-workbench-tool-item > svg { flex: none; color: var(--workbench-muted); }
-.owl-workbench-tool-item > span { min-width: 0; flex: 1; }
+.owl-workbench-tool-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.owl-workbench-tool-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-workbench-tool-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--workbench-muted); font-size: 11px; font-weight: 400; }
+.owl-workbench-tool-badge { flex: none; border: 1px solid var(--workbench-border); border-radius: 999px; padding: 0 5px; color: var(--workbench-muted); font-size: 9px; font-weight: 500; line-height: 15px; }
 .owl-workbench-tool-item > kbd { flex: none; color: var(--workbench-muted); font-family: inherit; font-size: 11px; }
 .owl-workbench-tool-item.is-active { background: var(--workbench-accent-soft); font-weight: 600; }
+.owl-workbench-tool-item.is-active .owl-workbench-tool-desc { font-weight: 400; }
 .owl-workbench-tool-item:hover { background: var(--workbench-hover); }
 
 .owl-workbench-dock-actions {
@@ -166,16 +196,29 @@ html[data-owl-wallpaper="on"][data-owl-glass-theme="light"] .owl-workbench-shell
 	color: var(--color-owl-accent);
 }
 
-.owl-workbench-quick-tool { width: auto; min-width: 28px; max-width: 100px; flex: 0 1 auto; gap: 5px; padding: 0 7px; font-size: 12px; }
+/*
+ * 工具栏固定项只留图标：下面的 tab 条是「图标 + 名称」，两排若都带名字就长得
+ * 一模一样，用户分不清上面那排是工具入口还是已打开的标签（图标本身也是同一个，
+ * builtins.tsx 的 quickIcon 直接复用 QUICK_ACTIONS 的图标）。
+ */
+.owl-workbench-quick-tool { width: 28px; min-width: 28px; max-width: 28px; padding: 0; }
 .owl-workbench-quick-tool > svg { flex: none; }
-.owl-workbench-quick-tool > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .owl-workbench-tabs {
 	height: 42px;
 	min-height: 42px;
 	border-bottom: 1px solid var(--workbench-border);
-	background: var(--workbench-chrome);
 	scrollbar-width: thin;
+	/* 溢出提示：tab 超出面板宽度时两侧浮出阴影，滚到头自动消失（local 覆盖层遮住 shadow）。 */
+	background:
+		linear-gradient(to right, var(--workbench-chrome) 40%, rgba(0, 0, 0, 0)) left center,
+		linear-gradient(to left, var(--workbench-chrome) 40%, rgba(0, 0, 0, 0)) right center,
+		radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--workbench-text) 16%, transparent), transparent) left center,
+		radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--workbench-text) 16%, transparent), transparent) right center,
+		var(--workbench-chrome);
+	background-repeat: no-repeat;
+	background-size: 28px 100%, 28px 100%, 12px 100%, 12px 100%, 100% 100%;
+	background-attachment: local, local, scroll, scroll, scroll;
 }
 
 .owl-workbench-tab {

@@ -19,6 +19,7 @@ import {
 	IconEye,
 	IconEyeOff,
 	IconFile,
+	IconFilePlus,
 	IconFolder,
 	IconFolderOpen,
 	IconFolderPlus,
@@ -145,7 +146,9 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const [hits, setHits] = useState<FsSearchHit[] | undefined>(undefined);
 	const [menu, setMenu] = useState<MenuState | undefined>(undefined);
 	const [renaming, setRenaming] = useState<{ path: string; name: string } | undefined>(undefined);
-	const [creating, setCreating] = useState<{ parent: string; name: string } | undefined>(undefined);
+	const [creating, setCreating] = useState<{ parent: string; kind: "file" | "dir" } | undefined>(undefined);
+	// 行内新建输入是非受控的：名字直接读 DOM，提交时一次性取走（受控的话每个键都要重渲染）。
+	const createRef = useRef<HTMLInputElement | null>(null);
 	const [confirming, setConfirming] = useState<FsEntry | undefined>(undefined);
 	// 点开头的隐藏项默认不进树（搜索仍全量）；选择持久化，下次打开工作台保持一致。
 	const [showHidden, setShowHidden] = useState(() => {
@@ -290,10 +293,20 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 
 	const doCreate = async (): Promise<void> => {
 		if (creating === undefined) return;
-		const { parent, name } = creating;
+		const { parent, kind } = creating;
+		const name = (createRef.current?.value ?? "").trim();
 		setCreating(undefined);
 		if (name === "") return;
 		try {
+			if (kind === "file") {
+				// 新建文件：写一个空文件（桥端是原子写，父目录不存在会一并建）。
+				const path = parent === "" ? name : `${parent}/${name}`;
+				await api.fsWrite(cwd, path, "");
+				await reload(parent);
+				// 建完直接打开：新建文件的目的就是往里写。
+				onOpenFile(path);
+				return;
+			}
 			await api.fsMkdir(cwd, parent, name);
 			if (parent !== "") store.expandTo(`${parent}/${name}`);
 			await reload(parent);
@@ -340,12 +353,21 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				action: () => void api.openExternal("reveal", entry.path, cwd).catch(() => {}),
 			},
 			{
+				label: t("api.opNewFile"),
+				icon: <IconFilePlus size={14} />,
+				action: () => {
+					const parent = entry.isDir ? entry.path : entry.path.split("/").slice(0, -1).join("/");
+					if (!entry.isDir) store.expandTo(parent);
+					setCreating({ parent, kind: "file" });
+				},
+			},
+			{
 				label: t("api.opMkdir"),
 				icon: <IconFolderPlus size={14} />,
 				action: () => {
 					const parent = entry.isDir ? entry.path : entry.path.split("/").slice(0, -1).join("/");
 					if (!entry.isDir) store.expandTo(parent);
-					setCreating({ parent, name: "" });
+					setCreating({ parent, kind: "dir" });
 				},
 			},
 			{
@@ -389,6 +411,7 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				<div className="relative flex-1">
 					<IconSearch size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-owl-faint" />
 					<input
+						type="text"
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						placeholder={t("files.searchPlaceholder")}
@@ -407,9 +430,19 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 				</div>
 				<button
 					type="button"
-					title={t("api.opMkdir")}
+					title={t("api.opNewFile")}
+					aria-label={t("api.opNewFile")}
 					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
-					onClick={() => setCreating({ parent: "", name: "" })}
+					onClick={() => setCreating({ parent: "", kind: "file" })}
+				>
+					<IconFilePlus size={14} />
+				</button>
+				<button
+					type="button"
+					title={t("api.opMkdir")}
+					aria-label={t("api.opMkdir")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+					onClick={() => setCreating({ parent: "", kind: "dir" })}
 				>
 					<IconFolderPlus size={14} />
 				</button>
@@ -548,14 +581,16 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 										<div style={{ paddingLeft: 16 }}>
 											<input
 												autoFocus
-												value={creating.name}
-												onChange={(e) => setCreating({ parent: creating.parent, name: e.target.value })}
+												type="text"
+												ref={createRef}
+												data-files-create={creating.kind}
+												defaultValue=""
 												onKeyDown={(e) => {
 													if (e.key === "Enter") void doCreate();
 													if (e.key === "Escape") setCreating(undefined);
 												}}
 												onBlur={() => void doCreate()}
-												placeholder={t("files.newFolderName")}
+												placeholder={creating.kind === "file" ? t("files.newFileName") : t("files.newFolderName")}
 												className="mx-2 my-0.5 w-[calc(100%-1rem)] rounded border border-owl-accent/60 bg-owl-panel px-1.5 py-0.5 text-xs text-owl-text focus:outline-none"
 											/>
 										</div>
@@ -566,14 +601,16 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 						{creating?.parent === "" && (
 							<input
 								autoFocus
-								value={creating.name}
-								onChange={(e) => setCreating({ parent: "", name: e.target.value })}
+								type="text"
+								ref={createRef}
+								data-files-create={creating.kind}
+								defaultValue=""
 								onKeyDown={(e) => {
 									if (e.key === "Enter") void doCreate();
 									if (e.key === "Escape") setCreating(undefined);
 								}}
 								onBlur={() => void doCreate()}
-								placeholder={t("files.newFolderName")}
+								placeholder={creating.kind === "file" ? t("files.newFileName") : t("files.newFolderName")}
 								className="mx-2 my-1 w-[calc(100%-1rem)] rounded border border-owl-accent/60 bg-owl-panel px-1.5 py-0.5 text-xs text-owl-text focus:outline-none"
 							/>
 						)}

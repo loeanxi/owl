@@ -14,11 +14,11 @@ export interface SidebarConfig {
 	disabledTabs: string[];
 	/** 停用的文件预览 viewer（image / editor）。 */
 	disabledViewers: string[];
-	/** 为模型注入 sidebar_open 工具（桥端消费，这里仅回显设置态）。 */
+	/** 为模型注入侧边栏工具（sidebar_show / sidebar_context）：默认开启，用户显式关掉才停。 */
 	injectOpenTool: boolean;
 }
 
-const DEFAULTS: SidebarConfig = { disabledTabs: [], disabledViewers: [], injectOpenTool: false };
+const DEFAULTS: SidebarConfig = { disabledTabs: [], disabledViewers: [], injectOpenTool: true };
 
 let current: SidebarConfig = DEFAULTS;
 const listeners = new Set<() => void>();
@@ -34,7 +34,7 @@ export function parseSidebarSettings(raw: unknown): SidebarConfig {
 	return {
 		disabledTabs: stringList(obj.disabledTabs),
 		disabledViewers: stringList(obj.disabledViewers),
-		injectOpenTool: obj.injectOpenTool === true,
+		injectOpenTool: obj.injectOpenTool !== false,
 	};
 }
 

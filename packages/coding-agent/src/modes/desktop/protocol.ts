@@ -2554,14 +2554,86 @@ export interface GitChangedEvent {
 }
 
 /**
- * sidebar_open 工具触发：模型请求在侧边工作台打开一个文件。path 是相对
- * cwd 的 workspace 相对 POSIX 路径（与 fs 层同一围栏：越出工作区的路径在
- * 工具侧就拒绝，不会过线）。UI 只在当前项目与 cwd 一致时处理。
+ * 旧版侧栏广播（sidebar_open 工具）：模型请求在侧边工作台打开一个文件。
+ * 新版走 SidebarShowMessage（带回执）；本类型只留给旧版 UI 兜底读取。
  */
 export interface SidebarOpenMessage {
 	type: "sidebar.open";
 	cwd: string;
 	path: string;
+}
+
+/** 侧边栏动作：打开文件 / 看工作区差异 / 看改动审批。 */
+export type SidebarShowAction = "file" | "diff" | "review";
+
+/**
+ * sidebar_show 工具触发：模型请求桌面端侧边工作台做一件事。
+ * path 是相对 cwd 的 workspace 相对 POSIX 路径（与 fs 层同一围栏：越出工作区的
+ * 路径在工具侧就拒绝，不会过线）。UI 只在当前项目与 cwd 一致时处理，并回
+ * SidebarShowAckRequest —— 模型据此知道用户到底看到没有，不再盲报「已打开」。
+ */
+export interface SidebarShowMessage {
+	type: "sidebar.show";
+	/** 回执 id：UI 处理完原样带回，桥据此唤醒等待中的工具调用。 */
+	requestId: string;
+	cwd: string;
+	action: SidebarShowAction;
+	/** workspace 相对 POSIX 路径。 */
+	path: string;
+	/** 1 起的行号（file 动作：打开后定位并高亮该行）。 */
+	line?: number;
+	/** 1 起的结束行（file 动作：与 line 一起给出时高亮整段）。 */
+	endLine?: number;
+	/** 模型给的一句话说明，UI 作为提示展示给用户（可选）。 */
+	note?: string;
+}
+
+/** UI 回执：侧边栏动作的送达结果（delivered=用户看得到；ignored=界面不在该项目/面板，用户没看到；failed=目标打不开）。 */
+export interface SidebarShowAckRequest {
+	type: "sidebar.show.ack";
+	id: string;
+	requestId: string;
+	status: "delivered" | "ignored" | "failed";
+	/** 失败或忽略的原因（给模型看的简短说明）。 */
+	detail?: string;
+}
+
+/** 侧栏焦点快照：用户此刻在看什么（模型问「用户在忙哪」时的答案）。 */
+export interface SidebarFocusState {
+	/** 激活页签的种类（files/changes/editor/…）。 */
+	tabKind?: string;
+	/** 聚焦的文件（workspace 相对 POSIX 路径）。 */
+	path?: string;
+	/** 光标所在行（1 起）。 */
+	line?: number;
+	/** 打开中的文件。 */
+	openFiles?: string[];
+	/** 有未保存修改的文件（用户正在编辑，别覆盖）。 */
+	dirtyFiles?: string[];
+	/** 短剧面板是否开着（用户可能在看剧，而不是工作台）。 */
+	mirrorOpen?: boolean;
+	/** 还在等用户决定的改动（改动审批卡片里的待审文件）。 */
+	pendingReview?: string[];
+	/** 用户已经决定的改动：`路径（已保留 / 已撤销）`。 */
+	decidedReview?: string[];
+	/** 用户在侧栏终端里刚跑出来的输出（模型自己没跑过的那部分）。 */
+	terminalOutput?: string;
+}
+
+/** 模型问侧栏「用户现在在看什么」：广播请求，界面回一份焦点快照。 */
+export interface SidebarContextMessage {
+	type: "sidebar.context";
+	requestId: string;
+	cwd: string;
+}
+
+/** 界面回焦点快照（拿不到时只有 detail 说明原因）。 */
+export interface SidebarContextResultRequest {
+	type: "sidebar.context.result";
+	id: string;
+	requestId: string;
+	state?: SidebarFocusState;
+	detail?: string;
 }
 
 /** Discover file viewers registered by active Owl plugins. */
@@ -2790,6 +2862,8 @@ export type DesktopClientRequest =
 	| PingRequest
 	| EventsSubscribeRequest
 	| PermissionResponseRequest
+	| SidebarShowAckRequest
+	| SidebarContextResultRequest
 	| ViewerListRequest
 	| ViewerOpenRequest
 	| FsTreeRequest
@@ -3022,6 +3096,8 @@ export type DesktopServerMessage =
 	| MirrorServerMessage
 	| ViewerChangedMessage
 	| SidebarOpenMessage
+	| SidebarShowMessage
+	| SidebarContextMessage
 	| DiffApprovalChangedMessage
 	| ScheduleChangedMessage;
 

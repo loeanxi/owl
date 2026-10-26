@@ -48,6 +48,7 @@ import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
 import { API_OPTIONS, CHAT_READING_FIELDS, WORK_EFFECT_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, FILE_ICON_THEME_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
 import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
 import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
+import { matchSettingsSections } from "./settings/settings-search.ts";
 import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
 import { AccountsSection } from "./settings/AccountsSection.tsx";
 import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
@@ -113,6 +114,17 @@ export function SettingsPage({
 	}));
 	useProjectSidebarRevision();
 	const [section, setSection] = useState<SettingsSection>(restoreSection ?? initialTab);
+	// 分区搜索：过滤导航 + 高亮命中词（R14）。索引与匹配逻辑在 settings-search.ts，纯函数。
+	const [navQuery, setNavQuery] = useState("");
+	const navFilter = matchSettingsSections(navQuery);
+	const navShow = (id: SettingsSection): boolean => !navFilter || navFilter.has(id);
+	const navHighlight = (label: string): React.ReactNode => {
+		const needle = navQuery.trim();
+		if (!needle) return label;
+		const at = label.toLowerCase().indexOf(needle.toLowerCase());
+		if (at < 0) return label;
+		return <>{label.slice(0, at)}<mark className="owl-settings-nav-mark">{label.slice(at, at + needle.length)}</mark>{label.slice(at + needle.length)}</>;
+	};
 	const selectSection = (next: SettingsSection): void => {
 		setSection(next);
 		onSectionChange?.(next);
@@ -1328,46 +1340,57 @@ export function SettingsPage({
 				<div className="owl-settings-layout">
 					{/* ============ 左侧分类导航 ============ */}
 					<nav className="owl-settings-nav" aria-label={t("settings.navAria")}>
-						<div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>
-						<NavItem icon={<IconSettings />} label={t("settings.navGeneral")} active={section === "general"} onClick={() => selectSection("general")} />
-						<NavItem icon={<IconSelf />} label={t("settings.navAccounts")} active={section === "accounts"} onClick={() => selectSection("accounts")} />
-						<NavItem icon={<IconSliders />} label={t("settings.navModels")} active={section === "models"} onClick={() => selectSection("models")} />
-						<NavItem icon={<IconPlug />} label={t("settings.navPlugins")} active={section === "plugins"} onClick={() => selectSection("plugins")} />
-						<NavItem icon={<IconList />} label={t("settings.navSkills")} active={section === "skills"} onClick={() => selectSection("skills")} />
-						<NavItem
+						<div className="owl-settings-nav-search">
+							<input
+								type="search"
+								value={navQuery}
+								placeholder={t("settings.searchPlaceholder")}
+								aria-label={t("settings.searchPlaceholder")}
+								onChange={(event) => setNavQuery(event.target.value)}
+							/>
+							{navQuery && <button type="button" aria-label={t("common.cancel")} onClick={() => setNavQuery("")}>×</button>}
+						</div>
+						{navFilter && navFilter.size === 0 && <p className="owl-settings-nav-empty">{t("settings.searchEmpty")}</p>}
+						{!navFilter && <div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>}
+						{navShow("general") && <NavItem icon={<IconSettings />} label={navHighlight(t("settings.navGeneral"))} active={section === "general"} onClick={() => selectSection("general")} />}
+						{navShow("accounts") && <NavItem icon={<IconSelf />} label={navHighlight(t("settings.navAccounts"))} active={section === "accounts"} onClick={() => selectSection("accounts")} />}
+						{navShow("models") && <NavItem icon={<IconSliders />} label={navHighlight(t("settings.navModels"))} active={section === "models"} onClick={() => selectSection("models")} />}
+						{navShow("plugins") && <NavItem icon={<IconPlug />} label={navHighlight(t("settings.navPlugins"))} active={section === "plugins"} onClick={() => selectSection("plugins")} />}
+						{navShow("skills") && <NavItem icon={<IconList />} label={navHighlight(t("settings.navSkills"))} active={section === "skills"} onClick={() => selectSection("skills")} />}
+						{navShow("presets") && <NavItem
 							icon={
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
 									<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
 								</svg>
 							}
-							label={t("settings.presets.nav")}
+							label={navHighlight(t("settings.presets.nav"))}
 							active={section === "presets"}
 							onClick={() => selectSection("presets")}
-						/>
-						<NavItem icon={<IconPanelRight size={14} />} label={t("settings.navSidebar")} active={section === "sidebar"} onClick={() => selectSection("sidebar")} />
-						<NavItem icon={<IconSun />} label={t("settings.navAppearance")} active={section === "appearance"} onClick={() => selectSection("appearance")} />
-						<NavItem icon={<IconSparkles />} label={t("settings.navAnimation")} active={section === "animation"} onClick={() => selectSection("animation")} />
-						<NavItem icon={<IconBell />} label={t("settings.navNotifications")} active={section === "notifications"} onClick={() => selectSection("notifications")} />
-						<NavItem icon={<IconCompose />} label={t("settings.navPrompts")} active={section === "prompts"} onClick={() => selectSection("prompts")} />
-					<NavItem icon={<IconLightbulb />} label={t("settings.navMemory")} active={section === "memory"} onClick={() => selectSection("memory")} />
-						<NavItem icon={<IconImage />} label={t("settings.navImage")} active={section === "image"} onClick={() => selectSection("image")} />
-						<div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>
-						<NavItem icon={<IconActivity />} label={t("settings.navUsage")} active={section === "usage"} onClick={() => selectSection("usage")} />
-						<NavItem icon={<IconArchive />} label={t("settings.navArchive")} active={section === "archived"} onClick={() => selectSection("archived")} />
-						<NavItem icon={<IconAlert />} label={executionAnomaliesCopy.nav} active={section === "execution-anomalies"} onClick={() => selectSection("execution-anomalies")} />
-						<NavItem icon={<IconCode />} label="settings.json" active={section === "json"} onClick={() => selectSection("json")} />
-						<NavItem
+						/>}
+						{navShow("sidebar") && <NavItem icon={<IconPanelRight size={14} />} label={navHighlight(t("settings.navSidebar"))} active={section === "sidebar"} onClick={() => selectSection("sidebar")} />}
+						{navShow("appearance") && <NavItem icon={<IconSun />} label={navHighlight(t("settings.navAppearance"))} active={section === "appearance"} onClick={() => selectSection("appearance")} />}
+						{navShow("animation") && <NavItem icon={<IconSparkles />} label={navHighlight(t("settings.navAnimation"))} active={section === "animation"} onClick={() => selectSection("animation")} />}
+						{navShow("notifications") && <NavItem icon={<IconBell />} label={navHighlight(t("settings.navNotifications"))} active={section === "notifications"} onClick={() => selectSection("notifications")} />}
+						{navShow("prompts") && <NavItem icon={<IconCompose />} label={navHighlight(t("settings.navPrompts"))} active={section === "prompts"} onClick={() => selectSection("prompts")} />}
+					{navShow("memory") && <NavItem icon={<IconLightbulb />} label={navHighlight(t("settings.navMemory"))} active={section === "memory"} onClick={() => selectSection("memory")} />}
+						{navShow("image") && <NavItem icon={<IconImage />} label={navHighlight(t("settings.navImage"))} active={section === "image"} onClick={() => selectSection("image")} />}
+						{!navFilter && <div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>}
+						{navShow("usage") && <NavItem icon={<IconActivity />} label={navHighlight(t("settings.navUsage"))} active={section === "usage"} onClick={() => selectSection("usage")} />}
+						{navShow("archived") && <NavItem icon={<IconArchive />} label={navHighlight(t("settings.navArchive"))} active={section === "archived"} onClick={() => selectSection("archived")} />}
+						{navShow("execution-anomalies") && <NavItem icon={<IconAlert />} label={navHighlight(executionAnomaliesCopy.nav)} active={section === "execution-anomalies"} onClick={() => selectSection("execution-anomalies")} />}
+						{navShow("json") && <NavItem icon={<IconCode />} label={navHighlight("settings.json")} active={section === "json"} onClick={() => selectSection("json")} />}
+						{navShow("diagnostics") && <NavItem
 							icon={
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
 									<path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
 								</svg>
 							}
-							label={lifeShell("title")}
+							label={navHighlight(lifeShell("title"))}
 							active={section === "diagnostics"}
 							onClick={() => selectSection("diagnostics")}
-						/>
-						<NavItem icon={<IconClock />} label={changelogCopy.nav} active={section === "changelog"} onClick={() => selectSection("changelog")} />
-						<NavItem icon={<IconInfo />} label={t("settings.navAbout")} active={section === "about"} onClick={() => selectSection("about")} />
+						/>}
+						{navShow("changelog") && <NavItem icon={<IconClock />} label={navHighlight(changelogCopy.nav)} active={section === "changelog"} onClick={() => selectSection("changelog")} />}
+						{navShow("about") && <NavItem icon={<IconInfo />} label={navHighlight(t("settings.navAbout"))} active={section === "about"} onClick={() => selectSection("about")} />}
 					</nav>
 
 					{/* ============ 右侧内容区 ============ */}
@@ -2693,6 +2716,7 @@ export function SettingsPage({
 										return (
 											<div
 												key={action.kind}
+												title={action.kind}
 												className={`owl-settings-card transition-opacity ${enabled ? "" : "opacity-55"}`}
 											>
 												<div className="flex items-start justify-between gap-2">
@@ -2705,7 +2729,7 @@ export function SettingsPage({
 														</span>
 														<div className="min-w-0">
 															<div className="truncate text-xs font-semibold text-owl-text">{action.label}</div>
-															<div className="truncate font-mono text-[10px] text-owl-faint">{action.kind}</div>
+															<div className="truncate text-[10px] text-owl-faint">{action.desc}</div>
 														</div>
 													</div>
 													<Switch checked={enabled} onChange={(next) => toggleSidebarTab(action.kind, next)} />

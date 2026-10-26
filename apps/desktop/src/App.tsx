@@ -3,10 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { BridgeClient } from "./bridge/client.ts";
 import { confirmEditorAccountProfile, listenForUnprotectedEditorUnload, registerEditorExitGuard } from "./sidebar/editor-exit-guard.ts";
 import type { SessionQueueSnapshot } from "./bridge/protocol.ts";
+import type { SidebarContextMessage, SidebarFocusState, SidebarShowMessage } from "./bridge/protocol.ts";
 import { applyPermissionQueueEvent, approvalModeFromEvent } from "./bridge/permission-state.ts";
 import { PendingResponses, PendingResponsesContext } from "./bridge/pending-responses.ts";
 import { describeToolInput } from "./hooks/summarize.ts";
 import { closeMainWindow, hasTauri, isWindowFullscreen, quitDesktopApp, revealInFileManager, setWebviewZoom, setWindowFullscreen, startDebugRebuild } from "./bridge/native.ts";
+import { windowTitle, type TitleSignal } from "./utils/window-title.ts";
 import type { AgentPresetDefinition, ApprovalMode, CommandsListResult, DesktopRunTiming, FsSearchHit, ModelFallbackNotice as ModelFallbackNoticePayload, PermissionRequest, ProviderModelsMessage, QuestionRequest, ResearchMode, RewindExecuteResult, RewindImpactFile, ServerEventMessage, SessionExportLogResult, SessionRunningResult, SessionStatsResult, SlashCommandEntry } from "./bridge/protocol.ts";
 import { applyEvent, applyRetryEvent, outputRate, rebuild, type ChatEntry, type RetryBannerState, type ToolCard } from "./hooks/transcript.ts";
 import { useSubagents } from "./hooks/use-subagents.ts";
@@ -44,7 +46,7 @@ import { ChatStream, type ChatActivity, type MessageSearchTarget } from "./compo
 import { ExecutionToolbar } from "./components/ExecutionToolbar.tsx";
 import { isExecutionView, nextExecutionView, type ExecutionView } from "./components/execution-view.ts";
 import { executionText } from "./components/execution-copy.ts";
-import { APP_KEYBINDINGS_KEY, DEFAULT_APP_KEYBINDINGS, loadAppKeybindings, matchingAppAction, type AppKeybindingAction } from "./app-keybindings.ts";
+import { APP_KEYBINDINGS_KEY, DEFAULT_APP_KEYBINDINGS, loadAppKeybindings, matchingAppAction, publishAppKeybindings, type AppKeybindingAction } from "./app-keybindings.ts";
 import type { SessionSearchHit, SessionSearchMessageResult } from "./bridge/protocol.ts";
 import { rememberProjectSession, resolveProjectSession } from "./project-session-memory.ts";
 import { AgentConversation } from "./components/AgentConversation.tsx";
@@ -58,13 +60,14 @@ import { TaskRecoveryNotice } from "./components/TaskRecoveryNotice.tsx";
 import { SessionStatusPill } from "./components/SessionStatusPill.tsx";
 import { ModelFallbackNotice } from "./components/ModelFallbackNotice.tsx";
 import { continueTask, taskRecovery } from "./hooks/task-recovery.ts";
-import { messageInputOf } from "./hooks/message-input.ts";
+import { messageInputOf, type MessageInput } from "./hooks/message-input.ts";
 import { useModelSelection } from "./hooks/use-model-selection.ts";
 import { useSessionOwlPose } from "./components/OwlMascot.tsx";
 import { TurnArtifacts } from "./components/ReviewChangesCard.tsx";
 import { collectArtifacts, workspaceArtifactPath } from "./hooks/artifacts.ts";
 import { PermissionDialog } from "./components/PermissionDialog.tsx";
 import { RewindDialog } from "./components/RewindDialog.tsx";
+import { RegenerateConfirmDialog } from "./components/RegenerateConfirmDialog.tsx";
 import { SessionShareDialog } from "./components/SessionShareDialog.tsx";
 import { SessionSidebar } from "./components/SessionSidebar.tsx";
 import { selectedSubagent, SubagentView, type SubagentSelection } from "./components/SubagentView.tsx";
@@ -111,6 +114,12 @@ import { ExecutionContext, type ExecutionContextValue } from "./sidebar/executio
 import type { GitStatusResult } from "./bridge/protocol.ts";
 import { setSessionFeed } from "./sidebar/feed.ts";
 import { focusReviewEntry } from "./sidebar/review-focus.ts";
+import { focusEditorLine } from "./sidebar/editor-line-focus.ts";
+import { focusChangesFile } from "./sidebar/changes-focus.ts";
+import { pushSidebarNotice } from "./sidebar/notice.ts";
+import { summarizeReviewState } from "./sidebar/review-state.ts";
+import { peekEditorFocus } from "./sidebar/focus-state.ts";
+import { peekTerminalTail } from "./sidebar/terminal-state.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
 import { parseNotificationPrefs, setNotificationPrefs } from "./utils/notification-prefs.ts";
 import { filterProvidersByEnabledModels, parseEnabledModels } from "./utils/enabled-models.ts";
@@ -118,6 +127,8 @@ import { downloadTextFile } from "./utils/download.ts";
 import "./desktop-shell.css";
 
 const WORKSPACE_KEY = "owl.workspaceDir";
+/** 短剧面板开合：机器级状态，跟着应用走，不跟项目走。 */
+const MIRROR_OPEN_KEY = "owl.mirror.open";
 /** 是否选择了对话目录（"0" = 已叉掉，不选目录）：不选时会话进 DEFAULT_WORKSPACE_DIR。 */
 const WORKSPACE_SELECTED_KEY = "owl.workspaceSelected";
 /** 研究工作台自己的当前项目与选择状态：与主会话隔离，切换互不带动。 */
@@ -283,6 +294,10 @@ export default function App(): React.JSX.Element {
 	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
 	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
 	const [draftRequest, setDraftRequest] = useState<ComposerDraftRequest>();
+	// 活跃提问弹卷的已答题号（QuestionDialog 经 dock 上报，R18）：小地图实心/空心依据。
+	const [answeredQuestions, setAnsweredQuestions] = useState<ReadonlySet<number>>(() => new Set());
+	// ↑ 召回的历史输入：本会话已送达的用户消息，最新在前（排队中的不算）。
+	const sentHistory = entries.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && !entry.queued && entry.text.trim() !== "").map((entry) => entry.text).slice(-50).reverse();
 	const draftSequence = useRef(0);
 	const [submitting, setSubmitting] = useState(false);
 	const submitInFlight = useRef(false);
@@ -329,6 +344,39 @@ export default function App(): React.JSX.Element {
 	/** 被用户主动暂停的会话：这些会话的输入框按钮显示「继续」，点击即从断点续跑。 */
 	const [pausedSessions, setPausedSessions] = useState<ReadonlySet<string>>(() => new Set<string>());
 	const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+	// 按会话隔离的输入草稿：切走留存、切回还原，杜绝半段话发错会话。
+	// 存 ref 不进 state——键入时写 ref 不触发全 App 重渲染；Composer 按会话 key 重挂时读取。
+	const sessionDraftsRef = useRef(new Map<string, string>());
+	const composerSessionKey = sessionId ?? "__new__";
+	// 排队气泡的撤销/立即发送：走与排队条相同的协议，响应带回新队列即更新。
+	const queuedRemove = (messageId: string, lane: "steering" | "followUp"): void => {
+		if (!sessionId || !profileReady) return;
+		void client.request({ type: "session.queue.remove", sessionId, messageId, lane }).then((raw) => {
+			const response = raw as { ok: boolean; result?: { queue?: SessionQueueSnapshot } };
+			if (response.ok && response.result?.queue) setPromptQueues((current) => ({ ...current, [promptQueueKey(agentDir, sessionId)]: response.result!.queue! }));
+		});
+	};
+	const queuedPromote = (messageId: string): void => {
+		if (!sessionId || !profileReady) return;
+		void client.request({ type: "session.queue.promote", sessionId, messageId }).then((raw) => {
+			const response = raw as { ok: boolean; result?: { queue?: SessionQueueSnapshot } };
+			if (response.ok && response.result?.queue) setPromptQueues((current) => ({ ...current, [promptQueueKey(agentDir, sessionId)]: response.result!.queue! }));
+		});
+	};
+	// 有未发送草稿的会话集合（侧栏铅笔点）：只在 空↔非空 翻转时 setState，键入零重渲染。
+	const [draftSessions, setDraftSessions] = useState<ReadonlySet<string>>(() => new Set());
+	const draftFilledRef = useRef(new Set<string>());
+	const trackDraft = (key: string, text: string): void => {
+		sessionDraftsRef.current.set(key, text);
+		const filled = text.trim() !== "";
+		if (draftFilledRef.current.has(key) === filled) return;
+		if (filled) draftFilledRef.current.add(key); else draftFilledRef.current.delete(key);
+		setDraftSessions((current) => {
+			const next = new Set(current);
+			if (filled) next.add(key); else next.delete(key);
+			return next;
+		});
+	};
 	const [subagentSelection, setSubagentSelection] = useState<SubagentSelection>();
 	const [subagentView, setSubagentView] = useState<ConversationView>("chat");
 	const subagentParentId = railView === "research" ? researchSessionId : sessionId;
@@ -479,6 +527,8 @@ export default function App(): React.JSX.Element {
 	const [appKeybindings, setAppKeybindings] = useState(() => loadAppKeybindings(localStorage));
 	const appKeybindingsRef = useRef(appKeybindings);
 	appKeybindingsRef.current = appKeybindings;
+	// 键位变更时发布快照：工具菜单等 UI 读真实键位显示提示，不另写一份硬编码。
+	useEffect(() => { publishAppKeybindings(appKeybindings); }, [appKeybindings]);
 	const setExecutionShortcut = (binding: string | undefined): boolean => {
 		const next = binding ? [binding] : [...DEFAULT_APP_KEYBINDINGS.cycleExecutionView];
 		if ((Object.keys(appKeybindings) as AppKeybindingAction[]).some((action) => action !== "cycleExecutionView" && appKeybindings[action].some((existing) => next.includes(existing)))) return false;
@@ -569,6 +619,10 @@ export default function App(): React.JSX.Element {
 		return store;
 	}, [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
 	const terminalStore = useMemo(() => new SidebarStore(workspaceDir, "owl.terminal.state"), [workbenchKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	// 短剧面板：机器级（全局）面板——它看的是别的应用窗口，与哪个项目/哪次对话无关，
+	// 所以状态不带项目段，跨项目与跨会话共用一份。
+	const mirrorStore = useMemo(() => new SidebarStore(workspaceDir, "owl.mirror.state", { scope: "global" }), []);
+	const [mirrorOpen, setMirrorOpen] = useState(() => localStorage.getItem(MIRROR_OPEN_KEY) === "1");
 	const [workbenchGit, setWorkbenchGit] = useState<{ cwd: string; profile?: string; status?: GitStatusResult }>();
 	const onWorkbenchGitStatus = useCallback((cwd: string, profile: string | undefined, status: GitStatusResult | undefined): void => setWorkbenchGit({ cwd, profile, status }), []);
 	const changeCount = connected && workbenchGit?.cwd === workspaceDir && workbenchGit.profile === agentDir && workbenchGit.status?.repo ? workbenchGit.status.entries.length : undefined;
@@ -632,7 +686,22 @@ export default function App(): React.JSX.Element {
 		document.addEventListener("click", onClick);
 		return () => document.removeEventListener("click", onClick);
 	}, []);
-	const openTaskFile = (path: string): Promise<void> => {
+	/** 打开工作区文件并定位到某一行：用编辑器打开（文档预览没有行概念），并高亮那一行。 */
+	const openFileAtLine = (relative: string, line: number): void => {
+		// 同一个文件若已用别的 viewer 开着，收掉旧页签，免得同文件两个页签。
+		for (const tab of workbenchStore.getState().tabs) {
+			if (tab.path === relative && tab.kind !== "editor") void workbenchStore.closeTab(tab.id);
+		}
+		if (getSidebarConfig().disabledViewers.includes("editor")) {
+			void openTaskFile(relative);
+			return;
+		}
+		workbenchStore.openFileTab("editor", relative, relative.split("/").pop() ?? relative);
+		setDeveloperLayoutPersisted(false);
+		if (!sidebarOpenRef.current) setSidebarOpenPersisted(true);
+		focusEditorLine(relative, line);
+	};
+	const openTaskFile = (path: string, line?: number): Promise<void> => {
 		const cwd = workspaceRef.current;
 		const origin = sessionIdRef.current;
 		const relative = workspaceArtifactPath(path, cwd);
@@ -642,6 +711,11 @@ export default function App(): React.JSX.Element {
 			return failed;
 		}
 		setFileOpenError(undefined);
+		// 带行锚点（对话里的 `路径:行号` 芯片、模型点名的那一行）：落到那一行。
+		if (line !== undefined) {
+			openFileAtLine(relative, line);
+			return Promise.resolve();
+		}
 		// 工作区 HTML 优先内置浏览器：真实加载（相对资源可解析），document 预览的
 		// srcDoc iframe 做不到；「浏览器」卡片停用时维持原 document 预览。
 		if (/\.html?$/i.test(relative) && isTabKindEnabled("browser", getSidebarConfig())) {
@@ -705,6 +779,22 @@ export default function App(): React.JSX.Element {
 
 	const toggleSidebarPanel = (): void => setSidebarOpenPersisted(!sidebarOpenRef.current);
 
+	/** 短剧面板开合：机器级面板，跨项目/会话共用（工作台里点「短剧」也走这里）。 */
+	const setMirrorOpenPersisted = useCallback((open: boolean) => {
+		setMirrorOpen(open);
+		localStorage.setItem(MIRROR_OPEN_KEY, open ? "1" : "0");
+	}, []);
+	const mirrorOpenRef = useRef(mirrorOpen);
+	mirrorOpenRef.current = mirrorOpen;
+	const openMirrorPanel = useCallback((): void => {
+		if (mirrorStore.getState().tabs.length === 0) openQuickAction(mirrorStore, "mirror");
+		setMirrorOpenPersisted(true);
+	}, [mirrorStore, setMirrorOpenPersisted]);
+	const toggleMirrorPanel = useCallback((): void => {
+		if (mirrorOpenRef.current) setMirrorOpenPersisted(false);
+		else openMirrorPanel();
+	}, [openMirrorPanel, setMirrorOpenPersisted]);
+
 	/** 打开一个快捷 tab：终端归底栏，其余工具归右侧栏。 */
 	const requestOpenKind = (kind: string): void => {
 		if (kind === "terminal") {
@@ -726,6 +816,119 @@ export default function App(): React.JSX.Element {
 	const openWorkbenchReview = (focusPath?: string): void => {
 		if (focusPath !== undefined && focusPath !== "") focusReviewEntry(focusPath);
 		requestOpenKind("review");
+	};
+
+	/** 侧栏焦点快照：用户此刻在看什么（模型问「用户在看哪」时的答案）。 */
+	const sidebarFocusState = (cwd: string): SidebarFocusState | undefined => {
+		if (normProjectKey(cwd) !== normProjectKey(workspaceRef.current)) return undefined;
+		const state = workbenchStore.getState();
+		const active = state.tabs.find((tab) => tab.id === state.activeId);
+		const openFiles = state.tabs.filter((tab) => tab.path !== undefined).map((tab) => tab.path!);
+		const dirtyFiles = state.tabs
+			.filter((tab) => state.dirty[tab.id] === true && tab.path !== undefined)
+			.map((tab) => tab.path!);
+		const focus = peekEditorFocus();
+		// 只有焦点文件就是当前页签时才报行号：别的页签残留的光标位置不算数。
+		const line = focus !== undefined && active?.path !== undefined && samePath(focus.path, active.path) ? focus.line : undefined;
+		// 用户在侧栏终端里手动跑出来的输出：模型自己没跑过，只能从这里看到。
+		const terminalOutput = peekTerminalTail(terminalStore.getState().activeId);
+		return {
+			...(active !== undefined ? { tabKind: active.kind } : {}),
+			...(active?.path !== undefined ? { path: active.path } : {}),
+			...(line !== undefined ? { line } : {}),
+			openFiles,
+			dirtyFiles,
+			...(mirrorOpen ? { mirrorOpen: true } : {}),
+			...(terminalOutput.trim() !== "" ? { terminalOutput } : {}),
+		};
+	};
+
+	/** 模型问侧栏「用户在看什么」：回一份焦点快照（界面不在该项目就说没有）。 */
+	const handleSidebarContext = (message: SidebarContextMessage): void => {
+		const state = sidebarFocusState(message.cwd);
+		const reply = (snapshot: SidebarFocusState | undefined, detail?: string): void => {
+			void client
+				.request({
+					type: "sidebar.context.result",
+					requestId: message.requestId,
+					...(snapshot !== undefined ? { state: snapshot } : { detail: detail ?? "当前界面在别的项目" }),
+				})
+				.catch(() => {});
+		};
+		if (state === undefined) {
+			reply(undefined);
+			return;
+		}
+		// 顺带把「改动审批」的状态带上：模型写完的改动等用户决定，用户撤销了什么
+		// 模型原来完全看不见，问一次就能知道。
+		void managerApi
+			.diffApprovalList(workspaceRef.current, sessionIdRef.current !== undefined ? { sessionId: sessionIdRef.current } : undefined)
+			.then((files) => {
+				const review = summarizeReviewState(files);
+				reply({
+					...state,
+					...(review.pending.length > 0 ? { pendingReview: review.pending } : {}),
+					...(review.decided.length > 0 ? { decidedReview: review.decided } : {}),
+				});
+			})
+			.catch(() => reply(state));
+	};
+
+	/** 侧栏动作回执：回给桥，唤醒等待中的模型工具调用（旧桥没有回执 id 时跳过）。 */
+	const ackSidebarShow = (message: SidebarShowMessage, status: "delivered" | "ignored" | "failed", detail?: string): void => {
+		if (message.requestId === "") return;
+		void client
+			.request({ type: "sidebar.show.ack", requestId: message.requestId, status, ...(detail !== undefined ? { detail } : {}) })
+			.catch(() => {});
+	};
+
+	/**
+	 * 模型让侧边工作台做一件事（sidebar_show）：打开文件（可定位到行）、看工作区
+	 * 差异、看待审改动。做完回一条回执，模型据此知道用户到底看没看到——不再
+	 * 出现「模型说已打开、界面其实收都没收到」。
+	 */
+	const handleSidebarShow = async (message: SidebarShowMessage): Promise<void> => {
+		if (normProjectKey(message.cwd) !== normProjectKey(workspaceRef.current)) {
+			ackSidebarShow(message, "ignored", "当前界面在别的项目");
+			return;
+		}
+		const note = message.note !== undefined && message.note !== "" ? message.note : undefined;
+		if (message.action === "diff") {
+			// 工作区状态已知却没有这个文件的改动：别让用户对着一个空卡片点头。
+			const status = workbenchGit?.status;
+			const known = workbenchGit !== undefined && normProjectKey(workbenchGit.cwd) === normProjectKey(workspaceRef.current) && status?.repo === true;
+			if (known && !status!.entries.some((entry) => entry.path === message.path)) {
+				ackSidebarShow(message, "failed", "该文件没有工作区改动");
+				return;
+			}
+			focusChangesFile(message.path, message.line);
+			requestOpenKind("changes");
+			if (note !== undefined) pushSidebarNotice(note);
+			ackSidebarShow(message, "delivered");
+			return;
+		}
+		if (message.action === "review") {
+			openWorkbenchReview(message.path);
+			if (note !== undefined) pushSidebarNotice(note);
+			ackSidebarShow(message, "delivered");
+			return;
+		}
+		const relative = workspaceArtifactPath(message.path, workspaceRef.current) ?? message.path;
+		try {
+			if (message.line !== undefined) {
+				// 带行锚点：必须用能按行定位的编辑器打开（md/txt 这类默认走文档预览，
+				// 预览没有行概念，指到哪一行就落不到哪一行）。
+				openFileAtLine(relative, message.line);
+			} else {
+				await openTaskFile(relative);
+			}
+		} catch (error) {
+			ackSidebarShow(message, "failed", error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (message.line !== undefined) focusEditorLine(relative, message.line, message.endLine);
+		if (note !== undefined) pushSidebarNotice(note);
+		ackSidebarShow(message, "delivered");
 	};
 
 	// 只用到稳定的 state setter，空依赖让工作台 tab props 不随 App 重渲染变化
@@ -920,7 +1123,34 @@ export default function App(): React.JSX.Element {
 		return true;
 	};
 
-	const handleRegenerate = async (): Promise<void> => {
+	// 重新生成要先确认：与相邻的 ↶ 回退同为破坏性操作（当前回答不保留），
+	// 此前 ⟳ 是一键即执行。这里只找目标并弹确认框，真正的回退在 confirmedRegenerate。
+	const requestRegenerate = (): void => {
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index]!;
+			// 排队跟进还没成为这一轮的用户消息，不能挡住对上一条已送达消息的重新生成。
+			if (entry.kind !== "user" || entry.queued) continue;
+			if (!entry.entryId) return;
+			// 请求时就把完整输入（含图片/附件）锁进目标：确认前后条目可能重建。
+			setRegenerateTarget({ entryId: entry.entryId, text: entry.text, input: messageInputOf(entry) });
+			return;
+		}
+	};
+	const [regenerateTarget, setRegenerateTarget] = useState<{ entryId: string; text: string; input: MessageInput } | undefined>(undefined);
+	const handleRegenerate = async (target?: { entryId: string; input: MessageInput }): Promise<void> => {
+		// 确认框带来的目标优先：以用户确认的那条为准（输入已在请求时锁定）。
+		if (target?.entryId) {
+			const origin = sessionIdRef.current;
+			const result = await rewindConversation(target.entryId);
+			if (!result) {
+				reportRewindFailure(origin);
+				return;
+			}
+			const input = result.editorText !== undefined ? messageInputOf({ kind: "user", text: target.input.text, images: target.input.images, attachedPaths: target.input.attachedPaths }, result.editorText) : target.input;
+			applyRewindSnapshot(result);
+			if (!(await sendPrompt(input.text, input.images, input.attachedPaths, undefined, true))) setDraftRequest({ id: ++draftSequence.current, ...input });
+			return;
+		}
 		for (let index = entries.length - 1; index >= 0; index--) {
 			const entry = entries[index]!;
 			// 排队跟进还没成为这一轮的用户消息，不能挡住对上一条已送达消息的重新生成。
@@ -1204,14 +1434,20 @@ export default function App(): React.JSX.Element {
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
-		// sidebar_open 工具广播：模型请求在侧边工作台打开文件（设置页「侧边卡片」
-		// 开启工具注入后才会出现）。仅处理当前项目的广播——路径是该项目 cwd 的
-		// 相对路径，切了项目后旧广播里的路径对不上新工作台。预览卡片停用时的
-		// 回退与工作台一致：交给系统默认程序。
+		// sidebar_show 工具广播：模型请求侧边工作台做一件事（设置页「侧边卡片」
+		// 开启工具注入后才会出现）。处理完回一条回执：delivered=用户看得到，
+		// ignored=界面不在该项目（用户没看到），failed=目标打不开。模型据此
+		// 判断，别再假报「已打开」。
 		useEffect(() => {
 			return client.onSidebarMessage((message) => {
-				if (normProjectKey(message.cwd) !== normProjectKey(workspaceRef.current)) return;
-				openTaskFile(message.path);
+				void handleSidebarShow(message);
+			});
+		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
+
+		// sidebar_context：模型问用户此刻在看什么（App 回焦点快照）。
+		useEffect(() => {
+			return client.onSidebarContext((message) => {
+				handleSidebarContext(message);
 			});
 		}, [client, workbenchStore]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2371,6 +2607,24 @@ export default function App(): React.JSX.Element {
 	const conversationBaseTitle = conversationTitleOf(entries, t("app.newConversation"));
 	// 分支出来的会话顶栏标题加「· 分支」，和侧边栏的后缀规则一致
 	const sessionTitle = sessionName ?? (sessionBranched ? `${conversationBaseTitle} · ${t("app.branchSuffix")}` : conversationBaseTitle);
+	// 顶栏标题重命名：与侧栏 ⋯ 菜单同走 session.rename；改名后自定义名优先于自动标题。
+	const renameSessionFromHeader = (name: string): void => {
+		if (!sessionId || !profileReady) return;
+		void client.request({ type: "session.rename", id: sessionId, sessionId, name }).then((response) => {
+			if (!response.ok) return;
+			setSessionName(name);
+			setSidebarRev((current) => current + 1);
+		});
+	};
+	// 研究会话的顶栏重命名：同一协议；自定义名写进 research 标题态（优先于自动标题）。
+	const renameResearchFromHeader = (name: string): void => {
+		if (!researchSessionId || !profileReady) return;
+		void client.request({ type: "session.rename", id: researchSessionId, sessionId: researchSessionId, name }).then((response) => {
+			if (!response.ok) return;
+			setResearchConversationTitle(name);
+			setSidebarRev((current) => current + 1);
+		});
+	};
 	const mapModelValue = modelValue || (sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : "");
 	const mapModelSeparator = mapModelValue.indexOf("/");
 	const mapModelName = providers.find((provider) => provider.id === mapModelValue.slice(0, mapModelSeparator))
@@ -2544,6 +2798,15 @@ export default function App(): React.JSX.Element {
 				setConversationViewPersisted(conversationView === "chat" ? "context" : "chat");
 			}
 		},
+		// 水位菜单的「打开上下文面板」：语义是打开而非切换，已在 context 视图也保持。
+		openContextView: (): void => {
+			setShowSettings(false);
+			if (railView === "research") setResearchConversationViewPersisted("context");
+			else {
+				setRailView("chat");
+				setConversationViewPersisted("context");
+			}
+		},
 		prevSession: (): void => { void cycleSession(-1); },
 		nextSession: (): void => { void cycleSession(1); },
 		historyBack: (): void => visitPlace(navigation.back()),
@@ -2597,6 +2860,27 @@ export default function App(): React.JSX.Element {
 		}
 		return undefined;
 	})();
+
+	// 窗口标题随活动态更新：最小化或切走时任务栏仍可读（正在工作/等你确认/并行计数）。
+	// 有任意会话在等用户（审批或提问）优先；多个会话并行工作时带计数。
+	// 窗口在后台时，一轮的落点挂进标题（doneNotice 是完成脉冲的现成状态源）；
+	// 开始等用户也标；窗口回来即清，回到活动态标题。
+	const [titleSignal, setTitleSignal] = useState<TitleSignal>(undefined);
+	useEffect(() => {
+		document.title = windowTitle(permissions.length > 0 || questions.length > 0, runningSessions.size, titleSignal);
+	}, [permissions.length, questions.length, runningSessions.size, titleSignal]);
+	useEffect(() => {
+		if (!document.hidden) return;
+		if (doneNotice && doneNotice.outcome !== "aborted") setTitleSignal(doneNotice.outcome === "error" ? "error" : "done");
+	}, [doneNotice?.seq]);
+	useEffect(() => {
+		if (document.hidden && waitingForUser) setTitleSignal("waiting");
+	}, [waitingForUser]);
+	useEffect(() => {
+		const onVisibility = (): void => { if (!document.hidden) setTitleSignal(undefined); };
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => document.removeEventListener("visibilitychange", onVisibility);
+	}, []);
 
 	return (
 		<PendingResponsesContext.Provider value={pendingResponses}>
@@ -2751,6 +3035,7 @@ export default function App(): React.JSX.Element {
 				minimized={sidebarMinimized || showSettings || (railView !== "chat" && railView !== "research")}
 				onToggleMinimized={toggleSessionSidebar}
 				runningSessions={runningSessions}
+				draftSessions={draftSessions}
 				onNewChat={shortcuts.newChat}
 				onNewChatInProject={(path) => newChatInProject(path, railViewRef.current === "research" ? "research" : "chat")}
 				onSelectProject={switchScopedProject}
@@ -2887,6 +3172,7 @@ export default function App(): React.JSX.Element {
 			<div className="owl-main-frame" data-owl-island-anchor="" style={{ display: railView === "chat" || railView === "research" || showSettings ? undefined : "none" }}>
 				<ConversationHeader
 					title={visibleSubagent ? activeSubagent?.agent ?? t("chat.subagentPlain") : railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
+					onRenameSession={visibleSubagent ? undefined : railView === "research" ? (researchSessionId ? renameResearchFromHeader : undefined) : renameSessionFromHeader}
 					// 未选目录时顶栏不显示项目 chip（会话实际落在默认目录）。
 					workspaceDir={railView === "research" ? (researchWorkspaceSelected ? researchWorkspaceDir : "") : (workspaceSelected ? workspaceDir : "")}
 					presetName={(() => {
@@ -2898,6 +3184,7 @@ export default function App(): React.JSX.Element {
 					onViewChange={visibleSubagent ? setSubagentView : railView === "research" ? setResearchConversationViewPersisted : setConversationViewPersisted}
 					terminalOpen={terminalOpen} sidebarOpen={sidebarOpen}
 					onToggleTerminal={toggleTerminalPanel} onToggleSidebar={toggleSidebarPanel}
+					mirrorOpen={mirrorOpen} onToggleMirror={toggleMirrorPanel}
 					sessionId={visibleSubagent ? undefined : railView === "research" ? researchSessionId : sessionId}
 					exporting={exportingLog}
 					onExport={exportSessionLog}
@@ -2953,7 +3240,8 @@ export default function App(): React.JSX.Element {
 								waiting={Boolean(researchSessionId && (permissions.some((request) => request.sessionId === researchSessionId) || questions.some((request) => request.sessionId === researchSessionId)))}
 								onOpenFile={openResearchFile} onOpenReview={openWorkbenchReview}
 								sidebarOpen={sidebarOpen} onOpenResults={() => setSidebarOpenPersisted(false)} onOpenSettings={shortcuts.openSettings}
-							/>
+							
+								onOpenContext={() => shortcuts.openContextView()}/>
 						</div>}
 						<AgentConversation
 							hidden={railView === "research" || Boolean(visibleSubagent)}
@@ -2967,7 +3255,7 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream executionView={executionView} onInspectTool={(card, ownerIndex) => openExecution("tool", card, ownerIndex)} key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={() => void handleRegenerate()} onEditMessage={handleEditMessage} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream executionView={executionView} onInspectTool={(card, ownerIndex) => openExecution("tool", card, ownerIndex)} key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={requestRegenerate} onEditMessage={handleEditMessage} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} answeredQuestions={answeredQuestions} onQueuedRemove={queuedRemove} onQueuedPromote={queuedPromote} queuedItems={(() => { const snapshot = profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined; return snapshot ? [...snapshot.steering.map((item) => ({ messageId: item.messageId, lane: "steering" as const, text: item.text })), ...snapshot.followUp.map((item) => ({ messageId: item.messageId, lane: "followUp" as const, text: item.text }))] : undefined; })()} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
@@ -2978,7 +3266,7 @@ export default function App(): React.JSX.Element {
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
 						<RetryPin status={retryStatus?.phase === "retrying" ? retryStatus : null} />
-						<TaskRecoveryNotice key={sessionId} recovery={!running && !submitting && retryStatus?.phase !== "retrying" ? taskRecovery(entries, retryStatus) : undefined} providers={chatProviders} model={sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue} disabled={!connected} onContinue={resumePaused} onOpenSettings={() => openSettings("models")} />
+						<TaskRecoveryNotice key={sessionId} recovery={!running && !submitting && retryStatus?.phase !== "retrying" ? taskRecovery(entries, retryStatus) : undefined} providers={chatProviders} model={sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue} disabled={!connected} onContinue={resumePaused} onRetry={() => { requestRegenerate(); return true; }} onOpenSettings={() => openSettings("models")} />
 							</>
 							)}
 							questionDock={{
@@ -2987,10 +3275,16 @@ export default function App(): React.JSX.Element {
 							onAnswer: (requestId, answers, cancelled) => {
 								answerAndRestore(requestId, questionsRef, setQuestions, () => client.respondQuestion(requestId, answers, cancelled));
 							},
+							onAnsweredChange: setAnsweredQuestions,
 							}}
 							composer={(
 							<Composer
+								key={`composer-${composerSessionKey}`}
 								client={client}
+								sentHistory={sentHistory}
+								initialDraft={sessionDraftsRef.current.get(composerSessionKey)}
+								onDraftChange={(text) => trackDraft(composerSessionKey, text)}
+								onOpenContext={() => shortcuts.openContextView()}
 								sessionScope="chat"
 								connected={connected}
 								disabled={submitting || !connected || projectRestoring?.scope === "chat"}
@@ -3045,11 +3339,23 @@ export default function App(): React.JSX.Element {
 							cwd={workspaceDir}
 							profile={agentDir}
 							connected={connected && profileReady}
+							store={mirrorStore}
+							open={mirrorOpen}
+							onSetOpen={setMirrorOpenPersisted}
+							dock="bottom"
+							role="mirror"
+						/>
+						<Workbench
+							client={client}
+							cwd={workspaceDir}
+							profile={agentDir}
+							connected={connected && profileReady}
 							store={terminalStore}
 							open={terminalOpen}
 							onSetOpen={setTerminalOpenPersisted}
 							dock="bottom"
 							role="terminal"
+							onToChat={sendWorkbenchTextToChat}
 						/>
 					</BrowserSessionContext.Provider>
 					</div>
@@ -3063,6 +3369,7 @@ export default function App(): React.JSX.Element {
 							connected={connected && profileReady}
 							store={workbenchStore}
 							onGitStatusChange={onWorkbenchGitStatus}
+							onOpenPanel={(kind) => { if (kind === "mirror") toggleMirrorPanel(); }}
 							open={sidebarOpen}
 							onSetOpen={setSidebarOpenPersisted}
 							dock="right"
@@ -3138,6 +3445,13 @@ export default function App(): React.JSX.Element {
 					target={rewindTarget}
 					onDone={handleRewindDone}
 					onClose={() => setRewindTarget(undefined)}
+				/>
+			)}
+			{regenerateTarget && (
+				<RegenerateConfirmDialog
+					preview={regenerateTarget.text}
+					onConfirm={() => { const target = regenerateTarget; setRegenerateTarget(undefined); void handleRegenerate(target); }}
+					onClose={() => setRegenerateTarget(undefined)}
 				/>
 			)}
 			{shareTurnsSession && (

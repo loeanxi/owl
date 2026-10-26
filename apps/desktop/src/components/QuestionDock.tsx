@@ -8,11 +8,14 @@ export function QuestionDock({
 	requests,
 	activeRequest,
 	onAnswer,
+	onAnsweredChange,
 	children,
 }: {
 	requests: readonly QuestionRequest[];
 	activeRequest: QuestionRequest | undefined;
 	onAnswer: (requestId: string, answers: QuestionAnswerPayload[], cancelled: boolean) => void;
+	/** 当前活跃弹卷的已答题号集合变化（R18，转给提问小地图）。 */
+	onAnsweredChange?: (answered: ReadonlySet<number>) => void;
 	children: ReactNode;
 }): React.JSX.Element {
 	const dockRef = useRef<HTMLDivElement>(null);
@@ -55,7 +58,7 @@ export function QuestionDock({
 					{/* Keep drafts mounted while another session or queued request is active. */}
 					{requests.map((request) => (
 						<div key={request.requestId} className="owl-question-anchor__column" hidden={request.requestId !== activeRequest?.requestId}>
-							<QuestionDialog request={request} onAnswer={(answers, cancelled) => onAnswer(request.requestId, answers, cancelled)} />
+							<QuestionDialog request={request} onAnswer={(answers, cancelled) => onAnswer(request.requestId, answers, cancelled)} onAnsweredChange={request.requestId === activeRequest?.requestId ? onAnsweredChange : undefined} />
 						</div>
 					))}
 				</div>

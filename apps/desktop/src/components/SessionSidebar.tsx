@@ -280,6 +280,7 @@ export function SessionSidebar({
 	activeId,
 	activeProject,
 	runningSessions,
+	draftSessions,
 	refreshKey,
 	revision,
 	focus,
@@ -303,6 +304,8 @@ export function SessionSidebar({
 	activeProject: string;
 	/** agent run 活跃的会话 id 集合：行首状态点绿色展示。 */
 	runningSessions: ReadonlySet<string>;
+	/** 有未发送输入草稿的会话 id 集合：状态点变空心铅笔提示（R15）。 */
+	draftSessions?: ReadonlySet<string>;
 	/** 变化时重新拉取会话列表（如新会话创建后）。 */
 	refreshKey: string;
 	/** 递增时重拉会话列表（设置页恢复/删除归档会话后由 App 递增）。 */
@@ -963,8 +966,9 @@ export function SessionSidebar({
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
 					{time && <span className="owl-sidebar-row-time">{time}</span>}
 					<span
-						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : ""}`}
-						title={isRunning ? t("sidebar.runningTip") : unread ? t("sidebar.unreadTip") : t("sidebar.readTip")}
+						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : id !== undefined && (draftSessions?.has(id) ?? false) ? " is-draft" : ""}`}
+						data-draft={(id !== undefined && (draftSessions?.has(id) ?? false)) || undefined}
+						title={isRunning ? t("sidebar.runningTip") : unread ? t("sidebar.unreadTip") : (draftSessions?.has(id ?? "") ?? false) ? t("sidebar.draftTip") : t("sidebar.readTip")}
 					/>
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>

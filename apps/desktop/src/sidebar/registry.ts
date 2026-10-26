@@ -32,7 +32,7 @@ export interface TabComponentProps {
 	/** 文件树发生变更（含增删改后）——changes tab 用它刷新状态。 */
 	gitStatus: GitStatusResult | undefined;
 	onGitRefresh: () => void;
-	/** 把一段文字填进对话输入框（不直接发送）；底栏实例不提供。 */
+	/** 把一段文字填进对话输入框（不直接发送）；终端底栏也提供（终端里的「问 Owl」）。 */
 	onToChat?: (text: string) => void;
 }
 

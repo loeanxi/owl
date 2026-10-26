@@ -61,6 +61,7 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 				{ label: t("composer.sendShortcut"), keys: ["Enter"] },
 				{ label: executionCopy("steeringShortcut"), keys: ["Enter"] },
 				{ label: executionCopy("queueShortcut"), keys: [] },
+				{ label: t("composer.recallShortcut"), keys: ["↑", "↓"] },
 			],
 		},
 		{

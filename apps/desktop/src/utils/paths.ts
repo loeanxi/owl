@@ -82,24 +82,37 @@ const PATH_CHIP_WRAPPERS: Record<string, string> = {
 };
 
 /**
- * 聊天行内 code 芯片文本 → 路径/URL 候选：剥掉顺手包上的成对引号/括号、尾随
- * 标点与 `:12:34` 行列后缀。必须含路径分隔符或 file://、盘符前缀才算候选——
- * 工具摘要里的命令与模式名（`todo`、`npm run build`）以及裸域名一律不算，
- * 点击不跳。返回空串表示非路径形态。
+ * 聊天行内 code 芯片文本 → 路径与行号：`src/app.ts:42` → { path: "src/app.ts", line: 42 }。
+ * 必须含路径分隔符或 file://、盘符前缀才算候选——工具摘要里的命令与模式名
+ * （`todo`、`npm run build`）以及裸域名一律不算，点击不跳。返回空串表示非路径形态。
  */
-export function pathCandidateFromCode(raw: string): string {
+export function pathAnchorFromCode(raw: string): { path: string; line?: number } {
 	let text = raw.trim();
+	// markdown 行内 code 的反引号有时会留在文本里。
+	text = text.replace(/^`+/, "").replace(/`+$/, "").trim();
 	for (let guard = 0; guard < 4; guard += 1) {
 		const close = PATH_CHIP_WRAPPERS[text[0] ?? ""];
 		if (close === undefined || text.length < 2 || !text.endsWith(close)) break;
 		text = text.slice(1, -1).trim();
 	}
 	text = text.replace(/[.,;:!?…、。，！？；：]+$/u, "");
-	if (/^https?:\/\//i.test(text)) return text;
-	// `path.ts:42` 的行列后缀；URL 先行返回，避免把 `http://host:5188` 的端口剥掉
-	text = text.replace(/(?::\d+)+$/, "");
-	if (!/[\\/]/.test(text) && !/^(?:file:\/\/|[a-z]:[\\/])/i.test(text)) return "";
-	return text;
+	if (/^https?:\/\//i.test(text)) return { path: text };
+	// `path.ts:42` / `path.ts:12:34` 的行列后缀；URL 先行返回，避免把端口剥掉
+	const anchor = /^(.*?):(\d+)(?::\d+)?$/.exec(text);
+	const line = anchor === null ? undefined : Number(anchor[2]);
+	if (anchor !== null) text = anchor[1] ?? "";
+	if (!/[\\/]/.test(text) && !/^(?:file:\/\/|[a-z]:[\\/])/i.test(text)) return { path: "" };
+	return line === undefined ? { path: text } : { path: text, line };
+}
+
+/**
+ * 聊天行内 code 芯片文本 → 路径/URL 候选：剥掉顺手包上的成对引号/括号、尾随
+ * 标点与 `:12:34` 行列后缀。必须含路径分隔符或 file://、盘符前缀才算候选——
+ * 工具摘要里的命令与模式名（`todo`、`npm run build`）以及裸域名一律不算，
+ * 点击不跳。返回空串表示非路径形态。
+ */
+export function pathCandidateFromCode(raw: string): string {
+	return pathAnchorFromCode(raw).path;
 }
 
 /** Windows 大小写不敏感 + 分隔符统一后比较两个路径是否同一项目。 */

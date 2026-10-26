@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); controller.invalidate(); vi.unstubAllGlobals(); });
 async function render(children: React.ReactNode): Promise<void> { await act(async () => root.render(<PendingResponsesContext.Provider value={controller}>{children}</PendingResponsesContext.Provider>)); }
-function button(label: string): HTMLButtonElement { const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === label); if (!result) throw new Error(`Missing ${label}: ${container.textContent}`); return result; }
+function button(label: string): HTMLButtonElement { const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => (item.textContent ?? "").replace("Ctrl+Enter", "").trim() === label); if (!result) throw new Error(`Missing ${label}: ${container.textContent}`); return result; }
 async function click(label: string): Promise<void> { await act(async () => button(label).click()); }
 async function choose(label: string): Promise<void> { await act(async () => container.querySelector<HTMLElement>(`[aria-label="${label}"]`)!.click()); }
 

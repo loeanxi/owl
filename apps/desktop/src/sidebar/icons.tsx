@@ -122,6 +122,16 @@ export const IconFolderPlus = (p: IconProps): ReactNode =>
 			<line x1="9" x2="15" y1="13" y2="13" />
 		</>
 	));
+/** 文件 + 号：文件树里的「新建文件」。 */
+export const IconFilePlus = (p: IconProps): ReactNode =>
+	base(p.size, p.className, (
+		<>
+			<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h6" />
+			<path d="M14 2v4a2 2 0 0 0 2 2h4" />
+			<line x1="18" x2="18" y1="15" y2="21" />
+			<line x1="15" x2="21" y1="18" y2="18" />
+		</>
+	));
 export const IconTrash = (p: IconProps): ReactNode =>
 	base(p.size, p.className, (
 		<>

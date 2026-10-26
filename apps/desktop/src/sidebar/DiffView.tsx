@@ -28,6 +28,9 @@ export function DiffView({ text, mode = "diff", comments = [], onComment }: {
 	if (files.length === 0) {
 		return <div className="px-3 py-2 text-xs text-owl-faint">{t("changes.noDiff")}</div>;
 	}
+	// 变更块序号在渲染期顺序递增（JSX 求值深度优先，text+mode 不变则序号稳定），
+	// 供审查面板做 Alt+↑/↓ 跳转与 n/m 计数；只标每段连续增删行的第一行。
+	let changeRun = 0;
 	return (
 		<div className="font-mono text-[11.5px] leading-[1.5]">
 			{files.map((file) => (
@@ -43,12 +46,13 @@ export function DiffView({ text, mode = "diff", comments = [], onComment }: {
 					{file.hunks.map((hunk, hunkIndex) => (
 						<div key={hunkIndex}>
 							<div className="bg-owl-panel/60 px-3 py-0.5 text-owl-faint">{hunk.header}</div>
-							{hunk.lines.filter((line) => mode === "diff" || (mode === "before" ? line.type !== "add" : line.type !== "del")).map((line, lineIndex) => {
+							{hunk.lines.filter((line) => mode === "diff" || (mode === "before" ? line.type !== "add" : line.type !== "del")).map((line, lineIndex, visible) => {
 								const side = mode === "before" || line.newNo === undefined ? "old" : "new";
 								const number = side === "old" ? line.oldNo : line.newNo;
 								const target: DiffReviewTarget | undefined = number === undefined ? undefined : { path: side === "old" ? file.oldPath ?? file.path : file.path, side, line: number };
 								const notes = target ? comments.filter((comment) => comment.snapshot === text && diffCommentKey(comment.target) === diffCommentKey(target)) : [];
-								return <div key={lineIndex}>
+								const runStart = (line.type === "add" || line.type === "del") && (lineIndex === 0 || (visible[lineIndex - 1]!.type !== "add" && visible[lineIndex - 1]!.type !== "del"));
+								return <div key={lineIndex} data-diff-target={target ? diffCommentKey(target) : undefined} data-diff-change={runStart ? changeRun++ : undefined}>
 								<div
 									key={lineIndex}
 									className={`flex ${line.type === "add" ? "bg-emerald-500/10" : line.type === "del" ? "bg-red-500/10" : ""}`}

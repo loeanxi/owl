@@ -145,9 +145,10 @@ describe("One process between visible conversation boundaries", () => {
 		expect(host.querySelector(".owl-work-primary")?.textContent).toBe(text("process"));
 		expect(host.querySelector('.owl-work-primary[role="status"]')).toBeNull();
 		await render({ entries: turn(assistant("current", [tool("read-now", "src/missing.ts", "error", "EIO: read failed")], { endedAt: 5000 })) });
-		expect(visibleText(host)).toContain(text("issueCount", { n: 1 }));
+		// 结束态不挂失败角标：错误证据保留在工具行状态与记录详情里。
+		expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 		await render({ entries: turn(assistant("current", [tool("edit-missing", "ghost.txt", "error", "Could not edit file: ghost.txt. Error code: ENOENT."), tool("blocked", "bash", "error", "BLOCKED by CC Safety Net\n\nReason: command analysis failed unexpectedly.")], { endedAt: 5000 })) });
-		expect(visibleText(host)).toContain(text("issueCount", { n: 2 }));
+		expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 		expect(host.querySelector(".owl-work-issues")).toBeNull();
 	});
 
@@ -239,24 +240,25 @@ describe("Readable tool records without losing evidence", () => {
 		expect(host.querySelector('[data-tool-id="another"] .owl-tool-output')?.textContent).toBe("另一项可继续阅读");
 	});
 
-	it("locates the exact failed owner when different assistant entries reuse the same tool id", async () => {
+	it("shows no failure badge when different assistant entries reuse the same tool id", async () => {
 		await render({ entries: turn(
 			assistant("other-owner", [tool("same-id", "src/other.ts", "ok", "OTHER OWNER BODY")], { endedAt: 4000 }),
 			assistant("failed-owner", [tool("same-id", "src/missing.ts", "error", "FAILED OWNER BODY")], { endedAt: 5000 }),
 		) });
+		expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 		const viewport = host.querySelector<HTMLElement>(".owl-chat-scroll")!;
 		Object.defineProperties(viewport, { clientHeight: { value: 400 }, scrollHeight: { value: 2000 } });
 		viewport.scrollTop = 0; viewport.scrollTo = vi.fn();
-		await click(host.querySelector<HTMLButtonElement>(".owl-work-issue-link")!);
+		await click(summary());
 		await flush(); await flush();
 		const rows = [...host.querySelectorAll<HTMLElement>('[data-tool-id="same-id"]')];
 		expect(rows).toHaveLength(2);
 		const failure = rows.find((row) => row.dataset.toolOwner === "2")!;
 		const other = rows.find((row) => row.dataset.toolOwner === "1")!;
+		// 证据仍在：失败行自身展开即可查看输出，不依赖角标导航。
+		await click(failure.querySelector<HTMLButtonElement>(".owl-tool-summary")!);
 		expect(failure.querySelector(".owl-tool-output")?.textContent).toBe("FAILED OWNER BODY");
-		expect(failure.querySelector(".owl-tool-summary")?.getAttribute("aria-expanded")).toBe("true");
 		expect(other.querySelector(".owl-tool-summary")?.getAttribute("aria-expanded")).toBe("false");
-		expect(viewport.scrollTo).toHaveBeenCalled();
 	});
 
 	it("keeps expanded-record preferences in preview mode but reveals a searched head-only hit in full", async () => {

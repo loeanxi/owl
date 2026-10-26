@@ -30,6 +30,12 @@
 ### Changed
 
 
+- Upgraded the desktop sidebar tool from `sidebar_open` to `sidebar_show`: the model can open a workspace file at a given line or line range, show a file's working-tree diff, or point at a pending review change. Every request is confirmed by the desktop UI (delivered, ignored, or failed), so the model reports delivery truthfully instead of assuming the user saw it.
+- Added a desktop write guard: a file with unsaved changes in the sidebar editor is no longer overwritten by the model's write/edit tools; the call is blocked with a reason the model can relay to the user.
+- Added a `sidebar_context` desktop tool: the model can ask the running desktop UI what the user is looking at (file, line, open files, files with unsaved edits) instead of guessing.
+- The `sidebar_context` answer now also reports which of the model's own changes are still waiting for the user's decision in the review card, and which were kept or reverted.
+- The `sidebar_context` answer now also reports the tail of the sidebar terminal, so the model can see output the user produced by hand.
+- The desktop sidebar tools (`sidebar_show`, `sidebar_context`) are now provided by default; setting `owlSidebar.injectOpenTool` to `false` still turns them off.
 - Unified the research workbench entry for new and resumed sessions, removing the direction selector so the Agent can combine available research capabilities while preserving method/result categories and existing research history.
 - Research prompts now clarify missing functionality and runtime context for ambiguous labels, reassess user clarifications and repeated requests against actual history, and require concrete technical work on supplied self-developed offline targets within the existing authorization and tool boundaries. The intake contract stays at the end of both default and overridden research prompts.
 - Aligned the Pi preset prompt with Pi v1.1.0's four-tool configuration and current file-tool guidelines, including batch edits and current-turn read requirements.

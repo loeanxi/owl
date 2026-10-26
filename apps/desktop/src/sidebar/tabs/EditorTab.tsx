@@ -36,8 +36,11 @@ import { editorsTransitionLocked, subscribeEditorTransition } from "../editor-ex
 import "./editor-safety.css";
 import type { TabComponentProps } from "../registry.ts";
 import { consumeEditorDiffFocus, EDITOR_DIFF_FOCUS_EVENT, peekEditorDiffFocus } from "../editor-diff-focus.ts";
+import { consumeEditorLineFocus, EDITOR_LINE_FOCUS_EVENT, peekEditorLineFocus } from "../editor-line-focus.ts";
+import { formatFileRef } from "../file-ref.ts";
+import { reportEditorFocus } from "../focus-state.ts";
 import { editorDiffMarks, type EditorDiffMarks } from "../editor-diff.ts";
-import { IconLoader, IconRefresh, IconSave } from "../icons.tsx";
+import { IconCopy, IconLoader, IconRefresh, IconSave } from "../icons.tsx";
 import { MARKDOWN_PATH, MarkdownPreview } from "./MarkdownPreview.tsx";
 import { observeWorkbenchTheme, resolveSurfaceTheme } from "../theme-observer.ts";
 
@@ -58,6 +61,12 @@ const owlTheme = EditorView.theme(
 		".cm-owl-diff-add": { backgroundColor: "rgba(16,185,129,0.12)", boxShadow: "inset 2px 0 0 rgba(16,185,129,0.55)" },
 		".cm-owl-diff-del": { backgroundColor: "rgba(239,68,68,0.08)", boxShadow: "inset 2px 0 0 rgba(239,68,68,0.5)", cursor: "default" },
 		".cm-owl-diff-del > div": { whiteSpace: "pre", color: "var(--workbench-muted, #8a867c)" },
+		// 模型指行（sidebar_show file:line）：定位行的高亮，闪一下就静下来。
+		".cm-owl-focus-line": {
+			backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 14%, transparent)",
+			boxShadow: "inset 2px 0 0 var(--color-owl-accent)",
+			animation: "owl-focus-flash 1.8s ease-out 1",
+		},
 	},
 );
 
@@ -214,7 +223,36 @@ const editorDiffField = StateField.define<DecorationSet>({
 	provide: (field) => EditorView.decorations.from(field),
 });
 
-export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }: TabComponentProps): React.JSX.Element {
+// -- 模型指行的高亮（sidebar_show file:line → focusEditorLine）---------------
+
+/** 置入/清除定位高亮：{ start, end } 是 1 起的行号区间，undefined = 清除。 */
+const setEditorLineFocus = StateEffect.define<{ start: number; end: number } | undefined>();
+
+/** 行号按 1 基钳到当前文档（模型给的行可能已经过期）。 */
+function buildLineFocusDecorations(focus: { start: number; end: number } | undefined, doc: Text): DecorationSet {
+	if (focus === undefined) return Decoration.none;
+	const start = Math.min(Math.max(1, focus.start), doc.lines);
+	const end = Math.min(Math.max(start, focus.end), doc.lines);
+	const ranges: Array<Range<Decoration>> = [];
+	for (let line = start; line <= end; line += 1) {
+		ranges.push(Decoration.line({ class: "cm-owl-focus-line" }).range(doc.line(line).from));
+	}
+	return ranges.length > 0 ? Decoration.set(ranges, true) : Decoration.none;
+}
+
+const editorLineFocusField = StateField.define<DecorationSet>({
+	create: () => Decoration.none,
+	update(value, tr) {
+		let next = tr.docChanged ? value.map(tr.changes) : value;
+		for (const effect of tr.effects) {
+			if (effect.is(setEditorLineFocus)) next = buildLineFocusDecorations(effect.value, tr.state.doc);
+		}
+		return next;
+	},
+	provide: (field) => EditorView.decorations.from(field),
+});
+
+export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, onToChat }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const copy = useEditorText();
 	const hostRef = useRef<HTMLDivElement | null>(null);
@@ -234,6 +272,8 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 	const [actionError, setActionError] = useState<string>();
 	const error = state.error ?? actionError;
 	const [newPath, setNewPath] = useState("");
+	// 另存新文件：低频操作，收在工具条按钮后面，不在内容上方常驻一条横栏。
+	const [saveAsOpen, setSaveAsOpen] = useState(false);
 	const [removeRecovery, setRemoveRecovery] = useState<string>();
 	const activeController = useRef(controller);
 	activeController.current = controller;
@@ -258,6 +298,24 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 	const focusSeenRef = useRef(false);
 	const scrolledRef = useRef(false);
 	const diffSeqRef = useRef(0);
+	// 模型指行：lineFocusRef 记着待定位的行（文档没载入时先挂着），timer 负责撤掉高亮。
+	const lineFocusRef = useRef<{ line?: number; endLine?: number } | undefined>(undefined);
+	const lineFocusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	// 当前选区（行号 + 内容）：有选中时头部出现「问 Owl」。
+	const [selection, setSelection] = useState<{ line: number; endLine: number; text: string } | undefined>(undefined);
+	const selectionRef = useRef<{ line: number; endLine: number; text: string } | undefined>(undefined);
+
+	/** 把选中的这段交给对话：引用（路径:行号）+ 选中内容，模型能直接对着看。 */
+	const askOwl = (): void => {
+		const current = selectionRef.current;
+		if (current === undefined || onToChat === undefined) return;
+		const ref = formatFileRef({
+			path,
+			line: current.line,
+			...(current.endLine !== current.line ? { endLine: current.endLine } : {}),
+		});
+		onToChat(`${copy("askOwlPrompt")}\n\n\`${ref}\`\n${current.text}`);
+	};
 
 	/** 把当前标记放进编辑器；scroll=true 且未滚过时滚到第一个改动块（居中）。 */
 	const applyDiffMarks = (scroll: boolean): void => {
@@ -270,6 +328,28 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 			scrolledRef.current = true;
 		}
 		view.dispatch({ effects });
+	};
+
+	/** 定位到模型指定的行并闪一下；文档还没载入时先记着，载入后补上。 */
+	const applyLineFocus = (): void => {
+		const view = viewRef.current;
+		const focus = lineFocusRef.current;
+		if (view === null || !docReadyRef.current || focus === undefined) return;
+		const lines = view.state.doc.lines;
+		const start = Math.min(Math.max(1, focus.line ?? 1), lines);
+		const end = Math.min(Math.max(start, focus.endLine ?? start), lines);
+		view.dispatch({
+			effects: [
+				setEditorLineFocus.of({ start, end }),
+				EditorView.scrollIntoView(view.state.doc.line(start).from, { y: "center" }),
+			],
+		});
+		if (lineFocusTimer.current !== undefined) clearTimeout(lineFocusTimer.current);
+		lineFocusTimer.current = setTimeout(() => {
+			lineFocusTimer.current = undefined;
+			// 视图可能已经卸载（切走/关掉 tab）：只给还活着的视图撤高亮。
+			if (viewRef.current === view) view.dispatch({ effects: setEditorLineFocus.of(undefined) });
+		}, 2500);
 	};
 
 	/** 拉取本文件的待审 diff 并换成标记（无 pending 条目/已处理 → 清除装饰）。 */
@@ -321,6 +401,27 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 	}, [cwd, client, path, api, profile]);
 
 	// 挂载视图 + 首次载入文档（一个 effect 保证顺序：先有视图再 dispatch）。
+	// 模型指行（sidebar_show file:line）：消费定位请求 → 记下 → 文档就绪后落地。
+	// peek 先行：工作台里挂着多个 EditorTab 实例，路径匹配的才取走，避免盲吞请求。
+	useEffect(() => {
+		const consume = (): void => {
+			const focus = peekEditorLineFocus();
+			if (focus === undefined || !samePath(focus.path, path)) return;
+			consumeEditorLineFocus();
+			// 过期请求（超过一分钟）直接丢掉：别让半年前的定位在文件再打开时突然跳行。
+			if (Date.now() - focus.at > 60_000) return;
+			lineFocusRef.current = {
+				...(focus.line !== undefined ? { line: focus.line } : {}),
+				...(focus.endLine !== undefined ? { endLine: focus.endLine } : {}),
+			};
+			applyLineFocus();
+		};
+		consume();
+		window.addEventListener(EDITOR_LINE_FOCUS_EVENT, consume);
+		return () => window.removeEventListener(EDITOR_LINE_FOCUS_EVENT, consume);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [path]);
+
 	useEffect(() => {
 		const host = hostRef.current;
 		if (host === null) return;
@@ -346,9 +447,32 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 			themeMode.of(EditorView.darkTheme.of(dark)),
 			syntaxHighlighting(owlHighlight),
 			editorDiffField,
+			editorLineFocusField,
 			EditorView.contentAttributes.of({ "aria-label": path }),
 			editability.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
 			EditorView.updateListener.of((update) => {
+				// 选区跟踪：「问 Owl」要用（选中行号 + 选中内容）。
+				if (update.selectionSet || update.docChanged) {
+					const main = update.state.selection.main;
+					// 光标位置报给焦点总线：模型问「用户在看哪一行」时用。
+					reportEditorFocus({ path, line: update.state.doc.lineAt(main.head).number });
+					const next = main.empty
+						? undefined
+						: {
+								line: update.state.doc.lineAt(main.from).number,
+								endLine: update.state.doc.lineAt(main.to).number,
+								text: update.state.sliceDoc(main.from, main.to),
+							};
+					const previous = selectionRef.current;
+					const changed =
+						previous === undefined || next === undefined
+							? previous !== next
+							: previous.line !== next.line || previous.endLine !== next.endLine || previous.text !== next.text;
+					if (changed) {
+						selectionRef.current = next;
+						setSelection(next);
+					}
+				}
 				if (!update.docChanged || applying) return;
 				let content = controller.getSnapshot().text;
 				for (const transaction of update.transactions) if (transaction.docChanged) {
@@ -388,7 +512,7 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 				if (nextWritable !== writable) { writable = nextWritable; view.dispatch({ effects: editability.reconfigure([EditorState.readOnly.of(!writable), EditorView.editable.of(writable)]) }); }
 			} finally { applying = false; }
 			store.setDirty(tab.id, snapshot.dirty);
-			if (!docReadyRef.current && snapshot.ready) { docReadyRef.current = true; applyDiffMarks(true); }
+			if (!docReadyRef.current && snapshot.ready) { docReadyRef.current = true; applyDiffMarks(true); applyLineFocus(); }
 			if (isMarkdown && !snapshot.dirty) setPreviewText(doc);
 		};
 		const offController = controller.subscribe(sync);
@@ -404,6 +528,7 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 			cancelled = true;
 			controller.dispose();
 			if (previewTimer !== undefined) clearTimeout(previewTimer);
+			if (lineFocusTimer.current !== undefined) { clearTimeout(lineFocusTimer.current); lineFocusTimer.current = undefined; }
 			offStatus();
 			offTheme();
 			offController(); offTransition(); offGuard();
@@ -442,6 +567,11 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 					{stale && <span className="ml-2 text-amber-300">{t("editor.stale")}</span>}
 				</span>
 				{state.dirty ? <span className="text-[11px] text-owl-warning">{copy("dirty")}</span> : savedAt !== undefined && !stale && <span className="text-[11px] text-owl-success">{copy("saved")}</span>}
+				{selection !== undefined && onToChat !== undefined && (
+					<button type="button" className="owl-editor-ask" title={copy("askOwl")} onClick={askOwl}>
+						✦ {copy("askOwl")}
+					</button>
+				)}
 				{loading && <IconLoader size={13} className="animate-spin text-owl-faint" />}
 				{isMarkdown && (
 					<div role="group" aria-label={t("editor.mdModeLabel")} className="flex items-center rounded-md border border-owl-border/40 p-0.5">
@@ -463,6 +593,16 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 				</button>
 				<button type="button" disabled={!state.ready || !state.editable || !state.dirty || loading || state.saving || stale || Boolean(state.conflict)} title={state.saving ? copy("saving") : t("editor.saveTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40" onClick={() => void controller.save()}>
 					<IconSave size={14} />
+				</button>
+				<button
+					type="button"
+					disabled={!state.ready || transitionLocked}
+					aria-pressed={saveAsOpen}
+					title={copy("saveAs")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40"
+					onClick={() => setSaveAsOpen((open) => !open)}
+				>
+					<IconCopy size={14} />
 				</button>
 			</div>
 			<div className="owl-editor-safety-scroll">
@@ -498,7 +638,7 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile }:
 			)}
 			{state.ready && !state.editable && <div className="owl-editor-safety-status" role="status">{copy("readonly")}{state.disk?.readOnlyReason && <p>{state.disk.readOnlyReason}</p>}<button type="button" onClick={() => { void api.openExternal("url", fileUrlOf(cwd, path)).catch((reason: unknown) => { if (activeController.current === controller) setActionError(reason instanceof Error ? reason.message : String(reason)); }); }}>{copy("external")}</button></div>}
 			{state.conflict && <details className="owl-editor-safety-conflict" open><summary>{copy("conflict")}</summary><div className="owl-editor-compare"><section><strong>{copy("mine")}</strong><pre>{state.text}</pre></section><section><strong>{copy("disk")}</strong><pre>{state.conflict.content}</pre></section></div><button type="button" disabled={transitionLocked || loading || state.saving || state.draftStatus === "pending"} onClick={() => void controller.useDiskAfterPreserve()}>{copy("keep")} · {copy("refresh")}</button></details>}
-			{state.ready && <details className="owl-editor-safety-saveas"><summary>{copy("saveAs")}</summary><p>{copy("saveAsNote")}</p><label>{copy("path")}<input disabled={transitionLocked} value={newPath} onChange={(event) => setNewPath(event.target.value)} placeholder={`${path}.copy`} /></label><button type="button" disabled={transitionLocked || !newPath.trim() || loading || state.saving || state.disk?.kind === "binary"} onClick={() => void controller.saveAs(newPath)}>{copy("saveAs")}</button>{state.copyPath && <p role="status">{copy("copySaved")}: <button type="button" onClick={() => onOpenFile(state.copyPath!)}>{state.copyPath}</button></p>}</details>}
+			{state.ready && saveAsOpen && <div className="owl-editor-safety-saveas"><p>{copy("saveAsNote")}</p><label>{copy("path")}<input disabled={transitionLocked} value={newPath} onChange={(event) => setNewPath(event.target.value)} placeholder={`${path}.copy`} /></label><button type="button" disabled={transitionLocked || !newPath.trim() || loading || state.saving || state.disk?.kind === "binary"} onClick={() => void controller.saveAs(newPath)}>{copy("saveAs")}</button>{state.copyPath && <p role="status">{copy("copySaved")}: <button type="button" onClick={() => onOpenFile(state.copyPath!)}>{state.copyPath}</button></p>}</div>}
 			{state.warnings?.length ? <div className="owl-editor-safety-status" role="alert">{copy("warnings")}: {state.warnings.join("; ")}</div> : null}
 			</div>
 			<div className="owl-editor-content flex flex-1 overflow-hidden">

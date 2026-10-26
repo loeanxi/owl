@@ -69,3 +69,81 @@
 		margin-top: 20px;
 	}
 }
+
+/* 快起区（2026-10-25 R8）：示例卡与最近会话。文案与数据都早已就位，这里只补渲染。 */
+.owl-start-examples { margin-top: 28px; }
+
+.owl-start-recents { margin-top: 24px; }
+
+.owl-start-section-title {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 10px;
+	align-items: baseline;
+	margin: 0 0 10px;
+	color: var(--color-owl-muted);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.owl-start-section-hint { color: var(--color-owl-faint); font-size: 11.5px; font-weight: 400; }
+
+.owl-start-example-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.owl-start-example {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	padding: 10px 12px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 10px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font-family: inherit;
+	text-align: left;
+	cursor: pointer;
+	transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.owl-start-example:hover {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 45%, var(--color-owl-border));
+	background: color-mix(in srgb, var(--color-owl-accent) 7%, transparent);
+	color: var(--color-owl-text);
+}
+
+.owl-start-example strong { font-size: 12.5px; font-weight: 500; color: var(--color-owl-text); }
+
+.owl-start-example span { font-size: 11.5px; line-height: 1.5; }
+
+.owl-start-recents ul { list-style: none; margin: 0; padding: 0; }
+
+.owl-start-recent {
+	display: flex;
+	width: 100%;
+	align-items: baseline;
+	gap: 10px;
+	padding: 7px 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font-family: inherit;
+	font-size: 12.5px;
+	text-align: left;
+	cursor: pointer;
+	transition: background 140ms ease, color 140ms ease;
+}
+
+.owl-start-recent:hover { background: var(--color-owl-hover, color-mix(in srgb, var(--color-owl-text) 6%, transparent)); color: var(--color-owl-text); }
+
+.owl-start-recent-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.owl-start-recent-time { flex: none; color: var(--color-owl-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+@container owl-start (max-width: 440px) {
+	.owl-start-example-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -139,6 +139,7 @@ import {
 import { BrowserHub } from "./browser-hub.ts";
 import { isReadOnlyDesktopTool, requiresDesktopConfirmation } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
+import { createEditorDraftGuard } from "./editor-draft-guard.ts";
 import { DesktopEventFanout } from "./event-fanout.ts";
 import { ExecutionAnomalyStore } from "./execution-anomalies.ts";
 import { captureExecutionAnomalyEvent, captureExecutionAnomalyMessages } from "./execution-anomaly-capture.ts";
@@ -198,8 +199,10 @@ import {
 import { ScheduleService } from "./schedule-service.ts";
 import { DesktopSessionSearch } from "./session-search.ts";
 import { SessionSettingsQueue } from "./session-settings-queue.ts";
+import { SidebarAckQueue, type SidebarContextAck, type SidebarShowAck } from "./sidebar-acks.ts";
+import { createSidebarContextTool } from "./sidebar-context-tool.ts";
 import { SidebarError } from "./sidebar-fs.ts";
-import { createSidebarOpenTool } from "./sidebar-open-tool.ts";
+import { createSidebarShowTool } from "./sidebar-show-tool.ts";
 import type { DirectoryWatchers } from "./sidebar-watch.ts";
 import {
 	createSkill,
@@ -638,6 +641,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	function broadcast(message: DesktopServerMessage): void {
 		eventFanout.broadcast(message);
 	}
+	/** 侧栏动作回执：模型发 sidebar.show，桌面端回 sidebar.show.ack 唤醒工具调用。 */
+	const sidebarShowAcks = new SidebarAckQueue<SidebarShowAck>();
+	/** 侧栏焦点回执：模型发 sidebar.context，桌面端回一份焦点快照。 */
+	const sidebarContextAcks = new SidebarAckQueue<SidebarContextAck>(2500);
 	const executionAnomalies = new ExecutionAnomalyStore(defaultAgentDir(), {
 		onChange: () => broadcast({ type: "execution.anomalies.changed" }),
 	});
@@ -852,18 +859,33 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	void getListingServices;
 
 	/**
-	 * owlSidebar.injectOpenTool 开启时返回 sidebar_open 工具（默认关）。
+	 * owlSidebar.injectOpenTool 开启时返回 sidebar_show 工具（默认关）。
 	 * 每次建会话现读一次设置：改设置后新会话即生效，进行中的会话不受影响。
 	 */
-	async function sidebarOpenToolFor(agentDir: string, cwd: string): Promise<ToolDefinition[]> {
+	async function sidebarShowToolFor(agentDir: string, cwd: string): Promise<ToolDefinition[]> {
 		try {
 			const manager = await import("../../core/settings-manager.ts").then((m) =>
 				m.SettingsManager.create(options.cwd ?? process.cwd(), agentDir),
 			);
-			if (manager.getGlobalSettings().owlSidebar?.injectOpenTool !== true) return [];
-			return [createSidebarOpenTool(cwd, broadcast)];
+			// 默认提供侧栏工具（桌面端的主工作区就是侧栏，模型该知道有这回事）；
+			// 用户在设置里显式关掉才不给。改动后新会话生效。
+			if (manager.getGlobalSettings().owlSidebar?.injectOpenTool === false) return [];
+			return [
+				createSidebarShowTool({
+					cwd,
+					broadcast,
+					acks: sidebarShowAcks,
+					hasClients: () => clients.size > 0,
+				}),
+				createSidebarContextTool({
+					cwd,
+					broadcast,
+					acks: sidebarContextAcks,
+					hasClients: () => clients.size > 0,
+				}),
+			];
 		} catch (error) {
-			onDiagnostic(`sidebar_open tool skipped: ${error instanceof Error ? error.message : String(error)}`);
+			onDiagnostic(`sidebar_show tool skipped: ${error instanceof Error ? error.message : String(error)}`);
 			return [];
 		}
 	}
@@ -884,6 +906,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				agentDir,
 				resourceLoaderOptions: {
 					extensionFactories: [
+						// 脏草稿防线放最前：命中就当场挡下，不弹审批框，也不进待审清单。
+						createEditorDraftGuard(agentDir),
 						...extensionFactories,
 						// 研究会话拿到整套研究工具；普通对话只借用 REA 静态分析，工具白名单与证据留存完全一致。
 						...(researchMode
@@ -925,7 +949,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						: [
 								...(await getMcpTools()),
 								...iab.tools(sessionId),
-								...(await sidebarOpenToolFor(agentDir, runtimeOptions.cwd)),
+								...(await sidebarShowToolFor(agentDir, runtimeOptions.cwd)),
 								...createNewsTools(newsRequest, sessionId, broadcast),
 								...(await bridgePluginSessionTools(
 									await bridgePluginsLoading,
@@ -3425,6 +3449,25 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			case "question.response":
 				await handleDialogRequest(ws, request, workbenchContext);
 				return;
+			case "sidebar.show.ack": {
+				// 桌面端回执：唤醒等待中的 sidebar_show 工具调用。
+				// settled=false = 没有对应的等待者（重复回执或已超时结算），照样回 ok。
+				const settled = sidebarShowAcks.resolve(request.requestId, {
+					status: request.status,
+					...(request.detail !== undefined ? { detail: request.detail } : {}),
+				});
+				reply(ws, request.id, { ok: true, result: { settled } });
+				return;
+			}
+			case "sidebar.context.result": {
+				// 桌面端回焦点快照：唤醒等待中的 sidebar_context 工具调用。
+				const settled = sidebarContextAcks.resolve(request.requestId, {
+					...(request.state !== undefined ? { state: request.state } : {}),
+					...(request.detail !== undefined ? { detail: request.detail } : {}),
+				});
+				reply(ws, request.id, { ok: true, result: { settled } });
+				return;
+			}
 			case "fs.tree":
 			case "viewer.list":
 			case "viewer.open":

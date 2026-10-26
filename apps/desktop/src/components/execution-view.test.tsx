@@ -87,12 +87,12 @@ it("keeps finished historical errors in the disclosure without pinning stale out
 	const corrected = tool("correct-path", "ok", "owl-mono/packages exists");
 	await render({ entries: turn(assistant("work", [failed, corrected]), assistant("answer", [], { text: "项目根目录已经确认。" })), activity: "idle" });
 	expect(host.querySelector(".owl-work-latest-state, .owl-work-latest-output")).toBeNull();
-	expect(host.querySelector(".owl-work-issue-link")?.textContent).toContain("1 条失败记录");
+	// 结束态不再显示失败角标；历史错误仍在工具记录详情里可查。
+	expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 	expect(visibleText()).not.toContain("Path not found");
 	expect(visibleText()).not.toContain("重试成功");
-	await click(".owl-work-issue-link");
+	await click(".owl-work-process-summary");
 	expect(host.querySelector('[data-tool-id="missing"]')?.getAttribute("data-status")).toBe("error");
-	expect(host.querySelector('[data-tool-id="missing"] .owl-tool-output')?.textContent).toBe(failed.output!.text);
 });
 
 it("keeps compact tool headers to one action and exposes the full-output action inside the details", async () => {

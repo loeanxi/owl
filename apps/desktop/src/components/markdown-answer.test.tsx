@@ -53,6 +53,37 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
+describe("answer outline", () => {
+	it("lists sections once the answer has three or more headings and jumps with a flash", async () => {
+		const markdown = ["## 一", "正文", "", "## 二", "正文", "", "## 三", "正文", "", "## 四", "正文"].join("\n");
+		await render(markdown);
+		const toc = host.querySelector<HTMLElement>(".owl-answer-toc")!;
+		expect(toc).not.toBeNull();
+		expect(toc.querySelector("summary")?.textContent).toContain(replyReadingText("tocTitle"));
+		expect(toc.querySelector("summary")?.textContent).toContain("4");
+		const items = [...toc.querySelectorAll<HTMLAnchorElement>("li a")];
+		expect(items.map((item) => item.textContent)).toEqual(["一", "二", "三", "四"]);
+		expect(items.map((item) => item.getAttribute("href"))).toEqual(["#answer-heading-0", "#answer-heading-1", "#answer-heading-2", "#answer-heading-3"]);
+		// 点击滚动到目标并给闪烁反馈（linkedom 无 scrollIntoView，桩在原型上记录）。
+		const scrolled: HTMLElement[] = [];
+		HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) { scrolled.push(this); };
+		try {
+			await act(async () => items[2]!.click());
+			expect(scrolled).toHaveLength(1);
+			expect(scrolled[0]!.id).toBe("answer-heading-2");
+			expect(scrolled[0]!.classList.contains("owl-answer-toc-flash")).toBe(true);
+		} finally {
+			delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+		}
+	});
+
+	it("stays quiet for short answers without three headings", async () => {
+		await render("## 唯一一节\n正文");
+		expect(host.querySelector(".owl-answer-toc")).toBeNull();
+		expect(host.querySelector("h2")?.getAttribute("id")).toBe("answer-heading-0");
+	});
+});
+
 async function render(markdown: string, onBodyClick = vi.fn()): Promise<void> {
 	await act(async () => root.render(<div onClick={onBodyClick}><MarkdownAnswer html={renderAnswerMarkdown(markdown)} /></div>));
 }

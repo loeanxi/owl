@@ -130,7 +130,7 @@ export function artifactKindForPath(path: string): ArtifactKind {
 }
 
 function artifactOf(tool: ToolCard, cwd: string): FileArtifact | undefined {
-	if (tool.status !== "ok" || !["write", "edit", "sidebar_open"].includes(tool.name)) return undefined;
+	if (tool.status !== "ok" || !["write", "edit", "sidebar_open", "sidebar_show"].includes(tool.name)) return undefined;
 	let args: unknown;
 	try {
 		args = JSON.parse(tool.args);
@@ -142,9 +142,10 @@ function artifactOf(tool: ToolCard, cwd: string): FileArtifact | undefined {
 	if (typeof input !== "string") return undefined;
 	const path = workspaceArtifactPath(input, cwd);
 	if (!path) return undefined;
-	if (tool.name === "sidebar_open") {
+	if (tool.name === "sidebar_open" || tool.name === "sidebar_show") {
 		// This tool returns ordinary text even on failure; require its exact success shape.
-		const opened = tool.output?.text.match(/^已在侧边栏打开 ([^\r\n]+)。$/)?.[1];
+		// The parenthetical line number (e.g. "（第 42 行）") is optional: it points at a line, not a different file.
+		const opened = tool.output?.text.match(/^已在侧边栏打开 ([^（\r\n]+)(（[^）]*）)?。$/)?.[1];
 		const reportedPath = opened === undefined ? undefined : workspaceArtifactPath(opened, cwd);
 		const windows = absolutePath(cwd.replace(/\\/g, "/"))?.windows;
 		if (!reportedPath || (windows ? reportedPath.toLowerCase() !== path.toLowerCase() : reportedPath !== path)) return undefined;

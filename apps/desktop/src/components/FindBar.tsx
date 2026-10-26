@@ -114,7 +114,10 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 		setMissed(!found);
 	};
 
+	// 打开前的焦点（Ctrl+F 通常来自聊天区/输入框）：关闭时归还，↑ 召回等焦点行为才可预期。
+	const previousFocusRef = useRef<Element | null>(null);
 	useEffect(() => {
+		previousFocusRef.current = document.activeElement;
 		inputRef.current?.focus({ preventScroll: true });
 		inputRef.current?.select();
 	}, []);
@@ -140,11 +143,16 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 			setMissed(false);
 			return;
 		}
-		const timer = window.setTimeout(() => runSearch(0), SEARCH_DEBOUNCE_MS);
+		// 防抖扫描后直接定位首个匹配（首跳）：输入即看到目标，不必再按一次 Enter。
+		const timer = window.setTimeout(() => { runSearch(0); revealMatch(currentIndexRef.current); }, SEARCH_DEBOUNCE_MS);
 		return () => window.clearTimeout(timer);
 	}, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	useEffect(() => clearFindHighlights, []);
+	useEffect(() => () => {
+		clearFindHighlights();
+		const previous = previousFocusRef.current;
+		if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+	}, []);
 
 	const findNext = (backwards: boolean): void => {
 		if (!query) return;

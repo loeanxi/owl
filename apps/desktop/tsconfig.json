@@ -19,5 +19,7 @@
 		// 高亮库只有根入口带 types，子路径导入靠这份环境声明；它必须进 program 才生效。
 		"../../packages/coding-agent/src/utils/highlight-js.d.ts"
 	],
-	"exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+	// debug-chat-overflow 是依赖本地 json 抓包（debug-last-turn.json，不入库）的一次性回放壳，
+	// 数据文件缺失时不应拖垮正式代码的类型检查。
+	"exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/debug-chat-overflow"]
 }

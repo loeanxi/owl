@@ -27,3 +27,18 @@
 .owl-diff-review-footer > p { width: 100%; margin: 0; padding: 0; }
 .owl-diff-review-message { display: flex; gap: 7px; align-items: center; padding: 8px 12px; color: var(--owl-ui-muted); font-size: 11px; }
 .owl-diff-review button:focus-visible, .owl-diff-review textarea:focus-visible, .owl-diff-comment-line:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 1px; }
+
+/* 评论回跳 / 变更块导航 / 意见分组（2026-10-25 审查闭环三改）。 */
+.owl-diff-review-modes .owl-diff-change-count { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--owl-ui-border); border-radius: 999px; color: var(--owl-ui-text); font-size: 10px; font-variant-numeric: tabular-nums; }
+@keyframes owl-diff-flash { 0% { background: color-mix(in srgb, var(--color-owl-accent) 30%, transparent); } 100% { background: transparent; } }
+.owl-diff-flash { animation: owl-diff-flash 900ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+	.owl-diff-flash { animation: none; }
+}
+.owl-diff-comment-list > .owl-diff-comment-group { display: block; }
+.owl-diff-comment-group-head { display: flex; width: 100%; align-items: center; gap: 8px; border: 0; margin: 0; padding: 6px 0 2px; background: transparent; color: var(--owl-ui-muted); font-size: 10px; text-align: left; cursor: pointer; }
+.owl-diff-comment-group-head:hover { color: var(--owl-ui-text); }
+.owl-diff-comment-group > ul { list-style: none; margin: 0; padding: 0; }
+.owl-diff-comment-group > ul > li { display: flex; align-items: flex-start; justify-content: space-between; gap: 7px; padding: 8px 0; border-top: 1px solid var(--owl-ui-border); }
+.owl-diff-comment-locate { flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.owl-diff-comment-locate:hover strong { color: var(--owl-ui-text); }

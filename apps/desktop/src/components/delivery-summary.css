@@ -7,3 +7,13 @@
 .owl-delivery-status, .owl-delivery-muted { color: var(--color-owl-muted); }
 .owl-delivery-summary pre { overflow: auto; max-height: 200px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: var(--color-owl-panel); border-radius: 6px; }
 .owl-delivery-summary summary:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 3px; }
+
+/* 状态与结果着色（2026-10-25 R8）：与工作过程的状态语义同一套（成功绿/受阻红/待验证琥珀）。 */
+.owl-delivery-summary li[data-status="verified"] .owl-delivery-status { color: var(--color-owl-success); }
+.owl-delivery-summary li[data-status="blocked"] .owl-delivery-status { color: var(--color-owl-danger); }
+.owl-delivery-summary li[data-status="pending"] .owl-delivery-status { color: var(--color-owl-warning); }
+.owl-delivery-summary .owl-delivery-outcome { margin-right: 8px; font-weight: 500; }
+.owl-delivery-summary .owl-delivery-outcome[data-tone="verified"] { color: var(--color-owl-success); }
+.owl-delivery-summary .owl-delivery-outcome[data-tone="blocked"] { color: var(--color-owl-danger); }
+.owl-delivery-summary .owl-delivery-outcome[data-tone="partial"] { color: var(--color-owl-muted); }
+.owl-delivery-evidence-actions { display: flex; justify-content: flex-end; margin-top: 4px; }

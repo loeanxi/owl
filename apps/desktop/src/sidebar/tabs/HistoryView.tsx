@@ -662,6 +662,11 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 						<span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-owl-accent/25 text-[9px] text-owl-accent" title={`${entry.author} <${entry.email}>`}>
 							{entry.author.slice(0, 1).toUpperCase()}
 						</span>
+						{/* 作者名直接露出来：那个圆点对所有作者都是同一个强调色，不带区分信息；
+						    完整名字原先只有悬停卡和展开详情里才有，列表里认不出谁是谁。 */}
+						<span className="min-w-0 truncate" title={entry.author}>
+							{entry.author}
+						</span>
 						<span className="shrink-0" title={fullTime(entry.time)}>
 							{relativeTime(entry.time, t)}
 						</span>
@@ -760,7 +765,7 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 					)}
 				</label>
 				<select
-					aria-label={t("history.scopeCurrent")}
+					aria-label={t("history.scopeLabel")}
 					value={scope}
 					onChange={(event) => setScope(event.target.value === "all" ? "all" : "current")}
 					className="h-[30px] shrink-0 rounded-[7px] border border-owl-border bg-owl-panel px-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
@@ -807,7 +812,13 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 				)}
 				{loadError !== undefined && <div className="px-3 py-2 text-xs break-words text-red-300">{loadError}</div>}
 				{history !== undefined && entries.length === 0 && <div className="px-3 py-6 text-center text-xs text-owl-faint">{t("history.empty")}</div>}
-				{history !== undefined && entries.length > 0 && visible.length === 0 && <div className="px-3 py-6 text-center text-xs text-owl-faint">{t("history.noMatch")}</div>}
+				{history !== undefined && entries.length > 0 && visible.length === 0 && (
+					<div className="px-3 py-6 text-center text-xs text-owl-faint">
+						{t("history.noMatch")}
+						{/* 搜索只作用于已加载的提交：还有更早的没加载时，得说清楚下一步怎么走。 */}
+						{hasMore && <p className="mt-1.5 text-[11px]">{t("history.noMatchMore")}</p>}
+					</div>
+				)}
 				{list}
 				{hasMore && (
 					<button type="button" disabled={loadingMore} className="mx-auto mt-2.5 block text-xs text-owl-muted hover:text-owl-text disabled:opacity-60" onClick={() => void load("more")}>

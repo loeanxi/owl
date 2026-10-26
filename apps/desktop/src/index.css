@@ -1157,6 +1157,13 @@ html[data-owl-preset="quiet-light"] {
 	opacity: 1;
 }
 
+/* 有未发送草稿（2026-10-25 R15）：空心铅笔点，与运行实心绿/未读实心绿区分。 */
+.owl-sidebar-session-dot.is-draft {
+	background: transparent;
+	border: 1.5px solid var(--owl-ui-warning, var(--color-owl-warning));
+	opacity: 0.9;
+}
+
 .owl-sidebar-session-dot.is-running {
 	background: var(--color-owl-success);
 	opacity: 1;
@@ -1322,8 +1329,22 @@ html[data-owl-preset="quiet-light"] {
 	border-radius: inherit;
 	pointer-events: none;
 }
-.owl-context-tank[data-tone="warn"] { --owl-tank-color: #f59e0b; }
-.owl-context-tank[data-tone="danger"] { --owl-tank-color: #ef4444; }
+.owl-context-tank[data-tone="warn"] { --owl-tank-color: var(--color-owl-warning); }
+.owl-context-tank[data-tone="danger"] { --owl-tank-color: var(--color-owl-danger); }
+
+/* 设置分区搜索（2026-10-25 R14）：导航顶部的窄输入框 + 命中高亮 + 空态。 */
+.owl-settings-nav-search { position: relative; display: flex; align-items: center; margin: 2px 6px 6px; }
+.owl-settings-nav-search input { width: 100%; padding: 5px 22px 5px 9px; border: 1px solid var(--color-owl-border); border-radius: 7px; background: var(--color-owl-panel); color: var(--color-owl-text); font-size: 11.5px; }
+.owl-settings-nav-search input:focus { outline: none; border-color: var(--color-owl-accent); }
+.owl-settings-nav-search input::-webkit-search-cancel-button { display: none; }
+.owl-settings-nav-search button { position: absolute; right: 4px; display: flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: transparent; color: var(--color-owl-faint); font-size: 13px; }
+.owl-settings-nav-search button:hover { background: var(--owl-ui-hover, var(--color-owl-panel)); color: var(--color-owl-text); }
+.owl-settings-nav-mark { padding: 0 1px; border-radius: 2px; background: color-mix(in srgb, var(--color-owl-accent) 30%, transparent); color: inherit; }
+.owl-settings-nav-empty { margin: 4px 8px; color: var(--color-owl-faint); font-size: 11px; }
+
+/* 顶栏标题行内重命名（2026-10-25 R16）：悬停铅笔 + 输入框。 */
+.owl-shell-rename-trigger:hover { background: var(--owl-ui-hover, var(--color-owl-panel)); color: var(--color-owl-text); }
+.owl-shell-rename-input::selection { background: color-mix(in srgb, var(--color-owl-accent) 30%, transparent); }
 .owl-context-tank__liquid {
 	position: absolute;
 	inset: auto 0 0 0;
@@ -1550,7 +1571,16 @@ html[data-owl-theme="light"] .owl-chat-surface {
 }
 
 .owl-chat-layout { display: flex; height: 100%; min-width: 0; }
-.owl-chat-scroll { flex: 1; min-width: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 36px 32px 24px; }
+/* 横向永不外滚：宽内容一律交给局部滚动器（pre / 表格 / 工具输出都自带 overflow-x），
+   流式重排中的瞬时越界不再撑出底部横条。此前横条随内容时隐时现，
+   每次出现吃掉一行高度、整屏上下弹跳（跟底针逻辑互相拉扯，就是「波动」的来源）。 */
+.owl-chat-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 36px 32px 24px; }
+/* 顶部渐隐（2026-10-25 R12）：滚离顶端后内容在顶边淡出，提示上面还有未读内容。 */
+.owl-chat-scroll { position: relative; }
+.owl-chat-scroll::before { content: ""; position: sticky; top: 0; z-index: 6; display: block; height: 0; }
+.owl-chat-scroll[data-top-hidden="true"] { mask-image: linear-gradient(to bottom, transparent 0, #000 22px); -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); }
+/* mask 会波及 sticky 元素与滚动条视觉之外的装饰；恢复方式：关闭遮罩属性即还原。 */
+@media (prefers-reduced-motion: reduce) { .owl-chat-scroll[data-top-hidden="true"] { mask-image: none; -webkit-mask-image: none; } }
 
 /*
  * 滚动边缘渐隐遮罩（CDS 4.3 的纯 CSS 实现）：贴边硬裁切的内容在上下边缘做多档
@@ -1613,9 +1643,16 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-skill-chip { display: inline-block; padding: 0 7px; border-radius: 6px; background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent); color: var(--color-owl-accent); font-weight: 600; white-space: nowrap; }
 .owl-user-queued { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin: 8px 0; }
 .owl-user-queued-hint { font-size: 12px; line-height: 1.4; color: var(--owl-reading-muted); }
+.owl-user-queued-foot { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 4px; }
+.owl-user-queued-foot .owl-user-queued-hint { margin-right: auto; }
+.owl-user-queued-action { flex: none; padding: 2px 8px; border: 1px solid var(--color-owl-border); border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 11px; transition: background-color 120ms ease, color 120ms ease; }
+.owl-user-queued-action:hover { background: var(--owl-ui-hover, var(--color-owl-panel)); color: var(--color-owl-text); }
 
 /* 操作栏贴在正文下面，一直可见：复制和时间，不再藏起来留一行空白。 */
 .owl-chat-row-compact { margin: 0 0 4px; position: relative; }
+/* 轮间时间分隔线（2026-10-25 R9）：两侧发丝线夹一个极淡的时刻，悬停出完整时间。 */
+.owl-chat-time-gap { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; color: var(--color-owl-faint); font-size: 10.5px; line-height: 1.4; font-variant-numeric: tabular-nums; user-select: none; }
+.owl-chat-time-gap::before, .owl-chat-time-gap::after { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--color-owl-border) 65%, transparent); }
 .owl-msg-actions { display: flex; align-items: center; gap: 2px; margin: 2px 0 0; }
 .owl-msg-action { display: inline-flex; align-items: center; justify-content: center; height: 24px; min-width: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--owl-reading-muted); font-size: 11px; line-height: 1; cursor: pointer; transition: background-color .12s ease, color .12s ease, border-color .12s ease, opacity .12s ease; }
 .owl-msg-action:hover { background: var(--owl-reading-panel); border-color: var(--owl-reading-border); color: var(--owl-reading-text); }
@@ -1642,6 +1679,21 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-user-editor-button.is-primary { border-color: transparent; background: var(--color-owl-accent); color: var(--color-owl-on-accent); }
 .owl-user-editor-button.is-primary:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
 .owl-user-editor-button:disabled { opacity: .5; cursor: default; }
+/* 回答目录（2026-10-25 R10）：≥3 个标题才出现；收起只剩一行，不抢正文位置。 */
+.owl-answer-toc { margin: 0 0 10px; border: 1px solid color-mix(in srgb, var(--color-owl-border) 80%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-owl-panel) 55%, transparent); font-size: 12px; }
+.owl-answer-toc > summary { cursor: pointer; padding: 5px 10px; color: var(--owl-reading-muted); user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
+.owl-answer-toc > summary::before { content: "▸"; font-size: 10px; transition: transform 120ms ease; }
+.owl-answer-toc[open] > summary::before { transform: rotate(90deg); }
+.owl-answer-toc-count { color: var(--color-owl-faint); font-variant-numeric: tabular-nums; }
+.owl-answer-toc ol { list-style: none; margin: 0; padding: 2px 10px 8px; max-height: 180px; overflow: auto; }
+.owl-answer-toc li { padding: 2px 0; }
+.owl-answer-toc li[data-level="2"] { padding-left: 14px; }
+.owl-answer-toc li[data-level="3"] { padding-left: 28px; }
+.owl-answer-toc a { color: var(--owl-reading-muted); text-decoration: none; }
+.owl-answer-toc a:hover { color: var(--color-owl-accent); }
+@keyframes owl-answer-toc-flash { 0% { background: color-mix(in srgb, var(--color-owl-accent) 28%, transparent); } 100% { background: transparent; } }
+.owl-answer-toc-flash { animation: owl-answer-toc-flash 900ms ease-out both; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .owl-answer-toc-flash { animation: none; } }
 .owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); color: var(--owl-reading-text); overflow-wrap: anywhere; }
 .owl-answer > :first-child { margin-top: 0; }
 .owl-answer > :last-child { margin-bottom: 0; }
@@ -1824,7 +1876,13 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }
 .owl-tool-detail img { margin: 8px 0; }
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }
-.owl-chat-error { color: var(--color-owl-danger); font-size: 13px; line-height: 1.7; }
+.owl-chat-error { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--color-owl-danger); font-size: 13px; line-height: 1.7; }
+.owl-chat-error-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+.owl-chat-error-time { flex-shrink: 0; color: var(--color-owl-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* 复制按钮沿用消息操作栏的尺寸/配色，但保持行内不换行。 */
+.owl-chat-error .owl-message-copy { flex-shrink: 0; align-self: center; }
+.owl-chat-error-retry { flex: none; align-self: center; padding: 2px 9px; border: 1px solid color-mix(in srgb, var(--color-owl-danger) 45%, var(--color-owl-border)); border-radius: 6px; background: transparent; color: var(--color-owl-danger); font-size: 11px; transition: background-color 120ms ease; }
+.owl-chat-error-retry:hover { background: color-mix(in srgb, var(--color-owl-danger) 12%, transparent); }
 .owl-chat-paused { color: var(--owl-reading-muted); font-size: 12px; line-height: 1.7; }
 .owl-response-details { position: relative; flex: none; margin-left: auto; }
 .owl-response-details > summary { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; list-style: none; border-radius: 6px; cursor: pointer; }
@@ -2061,6 +2119,7 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 .owl-chat-minimap-marks::-webkit-scrollbar { display: none; }
 .owl-chat-minimap-marks button { display: flex; align-items: center; width: 32px; height: 16px; border-radius: 4px; padding-left: 4px; }
 .owl-chat-minimap-mark { display: block; width: 14px; height: 2px; border-radius: 2px; background: var(--owl-reading-muted); opacity: .45; transition: width .15s, opacity .15s; }
+.owl-chat-minimap button[data-answered] .owl-chat-minimap-mark { background: var(--color-owl-success); opacity: 1; }
 .owl-chat-minimap-marks button:hover .owl-chat-minimap-mark, .owl-chat-minimap-marks button:focus-visible .owl-chat-minimap-mark { width: 24px; opacity: 1; }
 .owl-chat-minimap-marks button[aria-current] .owl-chat-minimap-mark { width: 26px; background: var(--color-owl-accent); opacity: 1; }
 .owl-chat-minimap-marks button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }

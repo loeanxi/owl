@@ -13,7 +13,7 @@ import {
 	createLocalBashOperations,
 } from "../src/core/tools/bash.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
-import { computeEditsDiff } from "../src/core/tools/edit-diff.ts";
+import { computeEditsDiff, describeClosestRegion, describeOccurrenceLines } from "../src/core/tools/edit-diff.ts";
 import { createFindToolDefinition } from "../src/core/tools/find.ts";
 import { createGrepToolDefinition } from "../src/core/tools/grep.ts";
 import { createLsToolDefinition } from "../src/core/tools/ls.ts";
@@ -348,6 +348,70 @@ describe("Coding Agent Tools", () => {
 					edits: [{ oldText: "nonexistent", newText: "testing" }],
 				}),
 			).rejects.toThrow(/Could not find the exact text/);
+		});
+
+		it("points at the closest matching region when oldText mismatches", async () => {
+			const testFile = join(testDir, "edit-close.txt");
+			const originalContent = [
+				"# 一、文件清单",
+				"- `mydiff.py`（340 行）：文本差异对比",
+				"- `toc.py`（80 行）：目录生成",
+			].join("\n");
+			writeFileSync(testFile, originalContent);
+
+			// 模型把列表写成了表格形式（真实案例 R8）：报错应指出真实区域所在行
+			const error = await editTool
+				.execute("test-call-6c", {
+					path: testFile,
+					edits: [{ oldText: "| mydiff.py | 340 |", newText: "| mydiff.py | 383 |" }],
+				})
+				.catch((e: Error) => e);
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain("Closest matching region is near line 2");
+			expect((error as Error).message).toContain("mydiff.py");
+		});
+
+		it("omits the closest-region hint when oldText carries no signal", async () => {
+			const testFile = join(testDir, "edit-close2.txt");
+			writeFileSync(testFile, "alpha\nbeta\ngamma\n");
+			await expect(
+				editTool.execute("test-call-6d", {
+					path: testFile,
+					edits: [{ oldText: "zz", newText: "yy" }],
+				}),
+			).rejects.toThrow(/^(?!.*Closest matching region).*Could not find the exact text/s);
+		});
+
+		it("describeClosestRegion finds the real line across format drift", () => {
+			const content = "## 一、文件清单\n- `mydiff.py`（340 行）：文本差异对比\n- `toc.py`（80 行）：目录生成\n";
+			expect(describeClosestRegion(content, "| mydiff.py | 340 |")).toContain("line 2");
+			expect(describeClosestRegion(content, "zzz qqq xxx")).toBe("");
+			expect(describeClosestRegion(content, "ab")).toBe("");
+		});
+
+		it("reports occurrence lines when oldText is not unique", async () => {
+			const testFile = join(testDir, "edit-dup.txt");
+			writeFileSync(testFile, "alpha=1\nbeta=2\nalpha=3\nalpha=4\n");
+			const error = await editTool
+				.execute("test-call-6e", {
+					path: testFile,
+					edits: [{ oldText: "alpha=", newText: "gamma=" }],
+				})
+				.catch((e: Error) => e);
+			expect(error).toBeInstanceOf(Error);
+			const message = (error as Error).message;
+			expect(message).toContain("Found 3 occurrences");
+			expect(message).toContain("Occurrences: line 1:");
+			expect(message).toContain("line 3:");
+			expect(message).toContain("line 4:");
+		});
+
+		it("describeOccurrenceLines caps the list and previews the line", () => {
+			const content = "x\nmark\nx\nmark\nmark\nmark\nmark\nmark\nmark\n";
+			const hint = describeOccurrenceLines(content, "mark");
+			expect(hint).toContain("line 2:");
+			expect(hint).toContain("… (6 total)");
+			expect(describeOccurrenceLines(content, "absent")).toBe("");
 		});
 
 		it("should include ENOENT when the edit target does not exist", async () => {

@@ -5,6 +5,7 @@
  * 文件夹、蓝终端、绿变动、蓝浏览器、琥珀任务、蓝侧聊。
  */
 import type { ReactNode } from "react";
+import { activeAppKeybindings, formatAppKeybinding } from "../app-keybindings.ts";
 import { t } from "../i18n/index.ts";
 import { IconGitBranch } from "./icons.tsx";
 import type { SidebarStore } from "./store.ts";
@@ -126,35 +127,53 @@ export const IconDiffApproval = (p: IconProps): ReactNode =>
 		</>,
 	);
 
+/**
+ * 工具菜单分组：按「用户想干什么」归类，而不是按实现归类。
+ * workspace=看内容与改动，runtime=打开外部环境，agent=会话与助手行为。
+ */
+export type QuickActionGroup = "workspace" | "runtime" | "agent";
+
 export interface QuickAction {
 	/** 工作台 tab kind。 */
 	kind: string;
 	label: string;
+	/** 一句话说明：「文件变动 / 改动审批」这类名字相近的卡片靠它区分。 */
+	desc: string;
+	/** 菜单分组（工作台工具菜单按它分区展示）。 */
+	group: QuickActionGroup;
 	color: string;
 	icon: (size?: number) => ReactNode;
-	/** 快捷键提示（App 里有对应的键盘处理）。 */
+	/** 快捷键提示：取自真实键位注册表，用户改键后提示不会过期。 */
 	hint?: string;
 	/** 多实例 tab（终端 / 浏览器）：每次点击都开新的。tabTitle 是落成 tab 条上的短标题。 */
 	multi?: boolean;
 	tabTitle?: string;
 	/** 占位卡：功能未实现时置灰。 */
 	disabled?: boolean;
+	/** 角标（如 beta）：状态单独成徽标，不混进标题文字。 */
+	badge?: "beta";
+	/**
+	 * 独立面板的入口（短剧）：不进工作台分屏，点它开的是机器级面板，
+	 * 跨项目与跨会话共用一份状态。
+	 */
+	panel?: boolean;
 }
 
 /**
- * label/tabTitle 用 getter 在「访问时」经 t() 解析：消费方（开始页/工作台/设置页）
+ * label/tabTitle/desc 用 getter 在「访问时」经 t() 解析：消费方（开始页/工作台/设置页）
  * 渲染期才读到当前语言，语言切换后无需改任何使用点。key 见 i18n/zh.ts 的 wb.*。
+ * 数组顺序即菜单展示顺序（已按分组排好）：工作区 → 运行环境 → 会话与 Agent。
  */
 export const QUICK_ACTIONS: QuickAction[] = [
-	{ kind: "files", get label() { return t("dev.files"); }, color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
-	{ kind: "terminal", get label() { return t("wb.newTerminal"); }, color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, hint: "Ctrl + `", multi: true, get tabTitle() { return t("start.terminal"); } },
-	{ kind: "changes", get label() { return t("dev.changes"); }, color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
-	{ kind: "review", get label() { return t("wb.review"); }, color: "#e0708a", icon: (s) => <IconDiffApproval size={s} /> },
-	{ kind: "browser", get label() { return t("app.browserTab"); }, color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, hint: "Ctrl + T", multi: true },
-	{ kind: "mirror", get label() { return t("wb.drama"); }, color: "#e8554d", icon: (s) => <IconDrama size={s} /> },
-	{ kind: "tasks", get label() { return t("wb.tasks"); }, color: "#d29922", icon: (s) => <IconLayers size={s} /> },
-	{ kind: "impression", get label() { return t("wb.impression"); }, color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
-	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} /> },
+	{ kind: "files", get label() { return t("dev.files"); }, get desc() { return t("wb.desc.files"); }, group: "workspace", color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
+	{ kind: "changes", get label() { return t("dev.changes"); }, get desc() { return t("wb.desc.changes"); }, group: "workspace", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
+	{ kind: "review", get label() { return t("wb.review"); }, get desc() { return t("wb.desc.review"); }, group: "workspace", color: "#e0708a", icon: (s) => <IconDiffApproval size={s} /> },
+	{ kind: "terminal", get label() { return t("wb.newTerminal"); }, get desc() { return t("wb.desc.terminal"); }, group: "runtime", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, get hint() { return formatAppKeybinding(activeAppKeybindings().openTerminal[0]); }, multi: true, get tabTitle() { return t("start.terminal"); } },
+	{ kind: "browser", get label() { return t("app.browserTab"); }, get desc() { return t("wb.desc.browser"); }, group: "runtime", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, get hint() { return formatAppKeybinding(activeAppKeybindings().openBrowserTab[0]); }, multi: true },
+	{ kind: "mirror", get label() { return t("wb.drama"); }, get desc() { return t("wb.desc.mirror"); }, group: "runtime", color: "#e8554d", icon: (s) => <IconDrama size={s} />, panel: true },
+	{ kind: "tasks", get label() { return t("wb.tasks"); }, get desc() { return t("wb.desc.tasks"); }, group: "agent", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
+	{ kind: "impression", get label() { return t("wb.impression"); }, get desc() { return t("wb.desc.impression"); }, group: "agent", color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
+	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, get desc() { return t("wb.desc.sidechat"); }, group: "agent", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} />, badge: "beta" },
 ];
 
 /** 按 kind 取快捷入口（开始页 / 空态卡片共用）。 */
@@ -169,4 +188,9 @@ export function openQuickAction(store: SidebarStore, kind: string): void {
 	if (!isTabKindEnabled(kind)) return;
 	if (action.multi) store.openNew(kind, action.tabTitle ?? action.label);
 	else store.openSingleton(kind, action.label);
+}
+
+/** 独立面板的入口（短剧）：不进工作台分屏，由宿主开自己的面板。 */
+export function isPanelAction(kind: string): boolean {
+	return quickActionOf(kind)?.panel === true;
 }

@@ -48,6 +48,23 @@ describe("TaskRecoveryNotice", () => {
 		expect(onOpenSettings).toHaveBeenCalledOnce();
 	});
 
+	it("offers retrying the original turn and shares the busy state with continuation", async () => {
+		const onRetry = vi.fn(async () => true);
+		await render();
+		// 未提供 onRetry 时不渲染重试按钮，恢复路径保持原样。
+		expect([...container.querySelectorAll("button")].some((item) => item.textContent === t("recovery.retry"))).toBe(false);
+		await render({ onRetry });
+		await act(async () => button(t("recovery.retry")).click());
+		expect(onRetry).toHaveBeenCalledOnce();
+		expect(container.querySelector('[role="alert"]')).toBeNull();
+		// onRetry 返回 false 时走与「继续」相同的失败提示。
+		const failing = vi.fn().mockResolvedValueOnce(false);
+		await render({ onRetry: failing });
+		await act(async () => button(t("recovery.retry")).click());
+		expect(container.querySelector('[role="alert"]')?.textContent).toBe(t("recovery.failed"));
+		expect(button(t("recovery.retry")).disabled).toBe(false);
+	});
+
 	it("keeps continuation available after a failed attempt", async () => {
 		const onContinue = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 		await render({ onContinue });

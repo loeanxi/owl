@@ -11,7 +11,8 @@ export function NavItem({
 	onClick,
 }: {
 	icon: React.ReactNode;
-	label: string;
+	/** 接受节点：搜索命中时 label 内嵌 <mark> 高亮（R14）。 */
+	label: React.ReactNode;
 	active: boolean;
 	onClick: () => void;
 }): React.JSX.Element {

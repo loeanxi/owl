@@ -12,6 +12,7 @@ import { ExecutionContext, type ExecutionContextValue } from "./execution-contex
 import type { TabComponentProps } from "./registry.ts";
 import { SidebarStore } from "./store.ts";
 import { ChangesTab } from "./tabs/ChangesTab.tsx";
+import { focusChangesFile } from "./changes-focus.ts";
 
 const firstDiff = [
 	"diff --git a/src/first.ts b/src/first.ts", "--- a/src/first.ts", "+++ b/src/first.ts", "@@ -10,3 +20,3 @@",
@@ -110,34 +111,35 @@ describe("Diff review modes and line anchors", () => {
 		await renderReview();
 		await addComment("src/first.ts", "old", 11, "这里的删除需要保留兼容处理");
 		await addComment("src/first.ts", "new", 21, "这个新值需要配置化");
-		const notes = [...container.querySelectorAll(".owl-diff-comment-list li")].map((item) => item.textContent);
+		// 意见按文件分组：组头是文件名，内层条目才是逐条意见。
+		const notes = [...container.querySelectorAll(".owl-diff-comment-list li li")].map((item) => item.textContent);
 		expect(notes[0]).toContain("src/first.ts · 修改前第 11 行");
 		expect(notes[1]).toContain("src/first.ts · 修改后第 21 行");
 		await click(copy("send"));
-		expect(submit).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('"src/first.ts" (工作区, 修改前:11)'));
-		expect(submit.mock.calls[0][0]).toContain('"src/first.ts" (工作区, 修改后:21)');
+		expect(submit).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("`src/first.ts:11` (工作区, 修改前)"));
+		expect(submit.mock.calls[0][0]).toContain("`src/first.ts:21` (工作区, 修改后)");
 	});
 });
 
-describe("ChangesTab review collection and acknowledged sending", () => {
-	it("keeps comments across selected files and validates every snapshot before one batch send", async () => {
+describe("ChangesTab review collection and acknowledged sending", () => {	it("keeps comments across selected files and validates every snapshot before one batch send", async () => {
 		await renderChanges(); await openFile("src/first.ts");
 		await addComment("src/first.ts", "old", 11, "第一处删除要说明原因");
 		await openFile("src/second.ts");
 		await addComment("src/second.ts", "new", 41, "第二处增加边界检查");
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(2);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(2);
 		await openFile("src/first.ts");
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(2);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(2);
 		gitDiff.mockClear();
 		await click(copy("send"));
 		expect(gitDiff.mock.calls).toEqual([["D:/diff-review", "src/first.ts", false], ["D:/diff-review", "src/second.ts", false]]);
 		expect(submit).toHaveBeenCalledExactlyOnceWith([
 			"请按以下改动意见调整代码，先核对对应上下文，并保留其他已有改动。",
-			'1. "src/first.ts" (工作区, 修改前:11)\n第一处删除要说明原因',
-			'2. "src/second.ts" (工作区, 修改后:41)\n第二处增加边界检查',
+			"每条意见前的 `路径:行号` 就是侧边栏指的那一行（行号按括号里写的那一侧计数）；需要用户核对时用同一个锚点指回去即可。",
+			"1. `src/first.ts:11` (工作区, 修改前)\n第一处删除要说明原因",
+			"2. `src/second.ts:41` (工作区, 修改后)\n第二处增加边界检查",
 		].join("\n\n"));
 		expect(props.onToChat).not.toHaveBeenCalled();
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(0);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(0);
 		expect(container.querySelector('[role="status"]')?.textContent).toBe(copy("sent"));
 	});
 
@@ -156,11 +158,11 @@ describe("ChangesTab review collection and acknowledged sending", () => {
 		await renderChanges(); await openFile("src/first.ts"); await addComment("src/first.ts", "new", 21, "保留这条意见待重试");
 		await click(copy("send"));
 		expect(container.querySelector('[role="alert"]')?.textContent).toBe(copy("failed"));
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(1);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(1);
 		await click(copy("send"));
 		expect(submit).toHaveBeenCalledTimes(2);
 		expect(submit.mock.calls[0][0]).toBe(submit.mock.calls[1][0]);
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(0);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(0);
 	});
 
 	it("does not submit after the review unmounts while snapshot validation awaits", async () => {
@@ -180,6 +182,59 @@ describe("ChangesTab review collection and acknowledged sending", () => {
 		await renderChanges({ onSubmitFeedback: nextSubmit, ...(scope === "session" ? { sessionId: "other-session" } : scope === "profile" ? { profile: "profile-two" } : {}) }, scope === "profile" ? { profile: "profile-two" } : scope === "workspace" ? { cwd: "D:/other-workspace" } : {});
 		await act(async () => pending.resolve(firstDiff));
 		expect(submit).not.toHaveBeenCalled(); expect(nextSubmit).not.toHaveBeenCalled();
-		expect(container.querySelectorAll(".owl-diff-comment-list li")).toHaveLength(0);
+		expect(container.querySelectorAll(".owl-diff-comment-list > li")).toHaveLength(0);
+	});
+});
+
+describe("review comment navigation", () => {
+	it("locates a comment back to its diff line with a flash", async () => {
+		await renderReview();
+		await addComment("src/first.ts", "old", 11, "回跳目标一");
+		await addComment("src/first.ts", "new", 21, "回跳目标二");
+		const items = [...container.querySelectorAll<HTMLButtonElement>(".owl-diff-comment-locate")];
+		expect(items).toHaveLength(2);
+		await act(async () => items[1]!.click());
+		const target = [...container.querySelectorAll<HTMLElement>("[data-diff-target]")].find((node) => node.classList.contains("owl-diff-flash"));
+		expect(target?.dataset.diffTarget).toBe(JSON.stringify(["src/first.ts", "new", 21]));
+	});
+
+	it("navigates change runs with Alt+Arrow and shows the n/m badge", async () => {
+		const multiRun = [
+			"diff --git a/src/multi.ts b/src/multi.ts", "--- a/src/multi.ts", "+++ b/src/multi.ts", "@@ -1,6 +1,6 @@",
+			" const a = 1;", "-const old1 = 1;", "+const new1 = 1;", " const mid = 2;", "-const old2 = 2;", "+const new2 = 2;", " const z = 3;",
+		].join("\n");
+		gitDiff.mockImplementation(async (_cwd, path) => path === "src/multi.ts" ? multiRun : secondDiff);
+		await renderChanges({}, { gitStatus: { repo: true, entries: [{ path: "src/multi.ts", x: " ", y: "M" }, { path: "src/first.ts", x: " ", y: "M" }, { path: "src/second.ts", x: " ", y: "M" }] } });
+		await openFile("src/multi.ts");
+		// 两段互不相邻的增删 = 两个变更块；徽标先显示总数。
+		expect(container.querySelectorAll("[data-diff-change]")).toHaveLength(2);
+		expect(container.querySelector(".owl-diff-change-count")?.textContent).toBe("2");
+		const panel = container.querySelector<HTMLElement>(".owl-diff-review")!;
+		const press = async (key: string): Promise<void> => {
+			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.defineProperties(event, { key: { value: key }, altKey: { value: true } });
+			await act(async () => panel.dispatchEvent(event));
+		};
+		await press("ArrowDown");
+		expect(container.querySelector(".owl-diff-change-count")?.textContent).toBe("1/2");
+		const first = [...container.querySelectorAll<HTMLElement>("[data-diff-change]")][0]!;
+		expect(first.classList.contains("owl-diff-flash")).toBe(true);
+		await press("ArrowDown");
+		expect(container.querySelector(".owl-diff-change-count")?.textContent).toBe("2/2");
+		await press("ArrowUp");
+		expect(container.querySelector(".owl-diff-change-count")?.textContent).toBe("1/2");
+	});
+
+	it("jumps across files from a comment group header", async () => {
+		await renderChanges();
+		await openFile("src/first.ts");
+		await addComment("src/first.ts", "old", 11, "第一份的意见");
+		await openFile("src/second.ts");
+		await addComment("src/second.ts", "new", 41, "第二份的意见");
+		// 面板当前在 second.ts：点第一份的组头应切回 first.ts 并落到那一行。
+		const head = [...container.querySelectorAll<HTMLButtonElement>(".owl-diff-comment-group-head")].find((item) => item.textContent?.includes("src/first.ts"))!;
+		await act(async () => head.click());
+		expect(container.querySelector(".owl-diff-review-header span")?.textContent).toBe("src/first.ts");
+		expect(gitDiff.mock.calls.at(-1)).toEqual(["D:/diff-review", "src/first.ts", false]);
 	});
 });

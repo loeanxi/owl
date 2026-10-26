@@ -55,6 +55,7 @@ vi.mock("./bridge/client.ts", () => ({ BridgeClient: class {
 	onNewsOpen() { return () => {}; }
 	onIabMessage() { return () => {}; }
 	onSidebarMessage() { return () => {}; }
+	onSidebarContext() { return () => {}; }
 	watchSessionEvents() { return () => {}; }
 } }));
 vi.mock("./bridge/native.ts", () => ({ hasTauri: () => false, setWebviewZoom: async () => {}, isWindowFullscreen: async () => false }));
@@ -169,7 +170,13 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
-function replay(action: "edit" | "regenerate"): void {
+// R13：重新生成先弹确认；测试统一在确认框上点「重新生成」走原链路。
+async function confirmRegenerate(): Promise<void> {
+	await act(async () => {
+		[...document.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.trim() === t("regenerate.confirmOk"))?.click();
+	});
+}
+async function replay(action: "edit" | "regenerate"): Promise<void> {
 	if (action === "edit") fixture.chat!.onEditMessage("source-user", "编辑后的原任务");
 	else fixture.chat!.onRegenerate();
 }
@@ -323,7 +330,8 @@ function visibleQuestion(): HTMLElement {
 	return document.querySelector<HTMLElement>('.owl-question-anchor__column:not([hidden])')!;
 }
 function responseButton(label: string): HTMLButtonElement {
-	const result = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === label);
+	// 允许按钮带 Ctrl+Enter 快捷键标注，匹配前先剥离（与 permission-dialog.test 一致）。
+	const result = [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => (button.textContent ?? "").replace("Ctrl+Enter", "").trim() === label);
 	if (!result) throw new Error(`Missing ${label}: ${document.body.textContent}`);
 	return result;
 }
@@ -505,6 +513,7 @@ describe("App input replay session ownership", () => {
 	});
 	it.each(["edit", "regenerate"] as const)("drops %s replay when a new conversation opens while rewind is pending", async (action) => {
 		await act(async () => replay(action));
+		if (action === "regenerate") await confirmRegenerate();
 		expect(fixture.request).toHaveBeenCalledWith(expect.objectContaining({ type: "rewind.execute", sessionId: "source-session" }));
 		await act(async () => fixture.sidebar!.onNewChat());
 		expect(fixture.sidebar!.activeId).toBe("new-session");
@@ -537,8 +546,36 @@ describe("App input replay session ownership", () => {
 		expect(fixture.composer!.sessionInfo?.model?.id).not.toBe("compact-model");
 	});
 
+	it("keeps composer drafts per session: switching away parks the text and switching back restores it", async () => {
+		// Composer 在本 harness 是 mock，键入用 onDraftChange 模拟；重挂后的 initialDraft 即还原结果。
+		const type = (text: string): void => { fixture.composer!.onDraftChange!(text); };
+		type("A 会话的半段草稿");
+		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
+		expect(fixture.composer!.initialDraft ?? "").toBe("");
+		type("B 会话的草稿");
+		await act(async () => fixture.sidebar!.onOpenSession("source-session"));
+		expect(fixture.composer!.initialDraft).toBe("A 会话的半段草稿");
+		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
+		expect(fixture.composer!.initialDraft).toBe("B 会话的草稿");
+		// 新会话是独立的一格，不受任何会话草稿影响。
+		await act(async () => fixture.sidebar!.onNewChat());
+		expect(fixture.composer!.initialDraft ?? "").toBe("");
+	});
+
+	it("raises a sidebar draft flag when input flips empty↔non-empty, per session", async () => {
+		const type = async (text: string): Promise<void> => { await act(async () => fixture.composer!.onDraftChange!(text)); };
+		await type("A 的草稿");
+		// 翻转为非空：source-session 进入草稿集合。
+		expect(fixture.sidebar!.draftSessions?.has("source-session")).toBe(true);
+		// 清空 → 移出集合。
+		await type("");
+		expect(fixture.sidebar!.draftSessions?.has("source-session") ?? false).toBe(false);
+		await type("再写一次");
+		expect(fixture.sidebar!.draftSessions?.has("source-session")).toBe(true);
+	});
 	it("ignores another edit or regenerate while rewind is still pending", async () => {
 		await act(async () => fixture.chat!.onRegenerate());
+		await confirmRegenerate();
 		await act(async () => fixture.chat!.onEditMessage("source-user", "另一条编辑"));
 		expect(fixture.request.mock.calls.filter(([request]) => request.type === "rewind.execute")).toHaveLength(1);
 		await act(async () => rewind.resolve(rewindResult));
@@ -550,6 +587,7 @@ describe("App input replay session ownership", () => {
 		await act(async () => fixture.event?.({ type: "event", sessionId: "source-session", event: { type: "message_start", message: { role: "user", content: "排队跟进", queued: true } } }));
 		expect(fixture.chat!.entries.at(-1)).toMatchObject({ kind: "user", text: "排队跟进", queued: true });
 		await act(async () => fixture.chat!.onRegenerate());
+		await confirmRegenerate();
 		await act(async () => rewind.resolve(rewindResult));
 		expect(fixture.request).toHaveBeenCalledWith(expect.objectContaining({ type: "session.prompt", sessionId: "source-session", message: sourceText }));
 	});
@@ -564,6 +602,7 @@ describe("App input replay session ownership", () => {
 
 	it.each(["edit", "regenerate"] as const)("replays complete %s input when the source conversation stays selected", async (action) => {
 		await act(async () => replay(action));
+		if (action === "regenerate") await confirmRegenerate();
 		await act(async () => rewind.resolve(rewindResult));
 		expect(fixture.request).toHaveBeenCalledWith(expect.objectContaining({
 			type: "session.prompt", sessionId: "source-session", message: action === "edit" ? "编辑后的原任务" : sourceText,

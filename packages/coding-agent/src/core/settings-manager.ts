@@ -173,7 +173,7 @@ export interface OwlSidebarSettings {
 	disabledTabs?: string[];
 	/** 停用的文件预览 viewer（image / editor；editor 是兜底，停用后文件交给系统默认程序）。 */
 	disabledViewers?: string[];
-	/** 为模型注入 sidebar_open 工具（在侧边栏主动打开文件；默认关闭，新会话生效）。 */
+	/** 为模型注入侧栏工具（sidebar_show / sidebar_context）：默认开启，显式关掉才停；新会话生效。 */
 	injectOpenTool?: boolean;
 }
 

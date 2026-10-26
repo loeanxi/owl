@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ASSISTANT_DIR, DEFAULT_WORKSPACE_DIR, isReservedDir, isValidationDir, loadAndScrubProjects, pathCandidateFromCode, withoutValidationDirs } from "./paths.ts";
+import { ASSISTANT_DIR, DEFAULT_WORKSPACE_DIR, isReservedDir, isValidationDir, loadAndScrubProjects, pathAnchorFromCode, pathCandidateFromCode, withoutValidationDirs } from "./paths.ts";
 
 test("reserved dirs cover the default workspace and assistant dir across separators and case", () => {
 	assert.equal(isReservedDir(DEFAULT_WORKSPACE_DIR), true);
@@ -51,6 +51,18 @@ test("code chip candidate keeps windows absolute, posix and file URLs", () => {
 	assert.equal(pathCandidateFromCode("src/app.ts"), "src/app.ts");
 	assert.equal(pathCandidateFromCode("file:///D:/owl/x.html"), "file:///D:/owl/x.html");
 	assert.equal(pathCandidateFromCode("https://example.com/a/b"), "https://example.com/a/b");
+});
+
+test("path anchor keeps the line number so a chip can open the file at that line", () => {
+	assert.deepEqual(pathAnchorFromCode("src/app.ts:42"), { path: "src/app.ts", line: 42 });
+	assert.deepEqual(pathAnchorFromCode("src/app.ts:12:34"), { path: "src/app.ts", line: 12 });
+	assert.deepEqual(pathAnchorFromCode("`src/app.ts:42`"), { path: "src/app.ts", line: 42 });
+	assert.deepEqual(pathAnchorFromCode("src/app.ts"), { path: "src/app.ts" });
+	// 端口不是行号：URL 整体保留。
+	assert.deepEqual(pathAnchorFromCode("http://127.0.0.1:5188/x"), { path: "http://127.0.0.1:5188/x" });
+	// 命令词带数字也不是路径引用。
+	assert.deepEqual(pathAnchorFromCode("todo:42"), { path: "" });
+	assert.deepEqual(pathAnchorFromCode("README.md"), { path: "" });
 });
 
 test("code chip candidate strips wrappers, trailing punctuation and line suffixes", () => {

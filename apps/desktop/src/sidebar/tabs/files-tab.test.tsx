@@ -34,6 +34,8 @@ function makeProps(): TabComponentProps {
 		})),
 		fsSearch: vi.fn(async () => []),
 		watchSet: vi.fn(async () => {}),
+		fsWrite: vi.fn(async () => ({ path: "", size: 0 })),
+		fsMkdir: vi.fn(async () => ({ path: "" })),
 	} as unknown as SidebarApi;
 	return {
 		api,
@@ -103,5 +105,71 @@ describe("FilesTab hidden entries filter", () => {
 		await render();
 		expect(container.textContent).toContain(".pi");
 		expect(container.querySelector<HTMLButtonElement>("button[aria-pressed]")?.getAttribute("aria-pressed")).toBe("true");
+	});
+});
+
+describe("FilesTab 新建文件", () => {
+	/** 行内新建输入是非受控的：直接写 DOM 值，提交时从 DOM 读。 */
+	async function type(input: HTMLInputElement, text: string): Promise<void> {
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!.call(input, text);
+		});
+	}
+
+	/** 失焦提交（行内输入 blur 即提交）；linkedom 下 keydown 会撞崩 React 的 input polyfill。 */
+	async function submit(input: HTMLInputElement): Promise<void> {
+		await act(async () => {
+			input.dispatchEvent(new window.Event("focusout", { bubbles: true }));
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+	}
+
+	it("工具条能新建文件：写一个空文件并把它打开", async () => {
+		const props = makeProps();
+		const api = props.api as unknown as { fsWrite: (cwd: string, path: string, content: string) => Promise<unknown> };
+		const onOpenFile = props.onOpenFile as unknown as (path: string) => void;
+		await act(async () => root.render(<FilesTab {...props} />));
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		const button = container.querySelector<HTMLButtonElement>('button[aria-label="新建文件"]');
+		expect(button).not.toBeNull();
+		await act(async () => button!.click());
+
+		const input = container.querySelector<HTMLInputElement>('input[data-files-create="file"]')!;
+		expect(input.getAttribute("placeholder")).toBe("新文件名");
+		await type(input, "notes.md");
+		await submit(input);
+
+		expect(api.fsWrite).toHaveBeenCalledWith("D:/project", "notes.md", "");
+		expect(onOpenFile).toHaveBeenCalledWith("notes.md");
+	});
+
+	it("右键菜单里也能在目录里新建文件", async () => {
+		const props = makeProps();
+		await act(async () => root.render(<FilesTab {...props} />));
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		const row = [...container.querySelectorAll<HTMLElement>("[title]")].find((el) => el.getAttribute("title") === "owl-re-v1");
+		expect(row).toBeTruthy();
+		await act(async () => {
+			const event = new window.Event("contextmenu", { bubbles: true, cancelable: true });
+			Object.assign(event, { clientX: 40, clientY: 60 });
+			row!.dispatchEvent(event);
+		});
+
+		const menuItem = [...container.querySelectorAll<HTMLButtonElement>("button")].find((el) => el.textContent === "新建文件");
+		expect(menuItem).toBeTruthy();
+		await act(async () => menuItem!.click());
+
+		const input = container.querySelector<HTMLInputElement>('input[data-files-create="file"]')!;
+		expect(input.getAttribute("placeholder")).toBe("新文件名");
 	});
 });

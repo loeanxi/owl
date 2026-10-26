@@ -134,6 +134,16 @@ function setRatioAt(node: SplitNode, splitId: string, ratio: number): SplitNode 
 	return { ...node, a: setRatioAt(node.a, splitId, ratio), b: setRatioAt(node.b, splitId, ratio) };
 }
 
+/** 分屏比例下限：再窄一侧就只剩分隔条了。 */
+export const SPLIT_RATIO_MIN = 0.08;
+/** 分屏比例上限：留一点余量，别把另一侧挤没。 */
+export const SPLIT_RATIO_MAX = 0.92;
+
+/** 把比例夹到合法区间。setRatio 与拖动时的百分比提示共用，避免两处算法漂移。 */
+export function clampSplitRatio(ratio: number): number {
+	return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio));
+}
+
 const VALID_TAB_KIND = /^[a-z][a-z0-9-]*$/i;
 
 /** 结构化清洗（DSH sanitizeState 同职责）：重建 id、去重、夹 ratio、限深。 */
@@ -191,6 +201,14 @@ function emptyState(): SidebarState {
 	return { tree, activePane: tree.id, tabs: [], activeId: null, dirty: {}, expanded: [] };
 }
 
+export interface SidebarStoreOptions {
+	/**
+	 * 面板作用域：project（默认）按项目存一份，跨会话共用；global 全局一份，
+	 * 跨项目与跨会话都共用（短剧这类机器级面板用）。
+	 */
+	scope?: "project" | "global";
+}
+
 export class SidebarStore {
 	private listeners = new Set<() => void>();
 	private fsListeners = new Set<(dirs: string[]) => void>();
@@ -203,9 +221,10 @@ export class SidebarStore {
 	/**
 	 * @param keyPrefix 持久化 key 前缀：工具侧栏用默认值；终端底栏传
 	 * "owl.terminal.state"，两套面板各存各的布局。
+	 * @param options.scope = "global" 时不带项目段（全局一份面板状态）。
 	 */
-	constructor(cwd: string, keyPrefix = "owl.workbench.state") {
-		this.key = `${keyPrefix}.${projectKeyOf(cwd)}`;
+	constructor(cwd: string, keyPrefix = "owl.workbench.state", options: SidebarStoreOptions = {}) {
+		this.key = options.scope === "global" ? keyPrefix : `${keyPrefix}.${projectKeyOf(cwd)}`;
 		this.state = this.load();
 		this.editorClose = new EditorCloseCoordinator(() => this.state.tabs, (id) => Boolean(this.state.dirty[id]));
 	}
@@ -473,10 +492,10 @@ export class SidebarStore {
 		this.commit({ tree: next, activePane: targetLeafId });
 	}
 
-	/** 分隔条拖拽调比例（夹 0.08–0.92，与 DSH 一致）；persist=false 时不落盘。 */
+	/** 分隔条拖拽调比例（夹 SPLIT_RATIO_MIN–SPLIT_RATIO_MAX，与 DSH 一致）；persist=false 时不落盘。 */
 	setRatio(splitId: string, ratio: number, opts?: { persist?: boolean }): void {
 		if (this.state.tree.kind !== "split") return;
-		const tree = setRatioAt(this.state.tree, splitId, Math.min(0.92, Math.max(0.08, ratio)));
+		const tree = setRatioAt(this.state.tree, splitId, clampSplitRatio(ratio));
 		this.commit({ tree }, { persist: opts?.persist });
 	}
 

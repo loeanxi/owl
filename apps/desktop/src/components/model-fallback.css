@@ -10,8 +10,8 @@
 
 /* 换了厂商才加警示色：上下文行为与计费都可能不同。 */
 .owl-model-fallback-warn {
-	border-left-color: var(--color-owl-warn, #d97706);
-	background: color-mix(in srgb, var(--color-owl-warn, #d97706) 10%, transparent);
+	border-left-color: var(--color-owl-warning);
+	background: color-mix(in srgb, var(--color-owl-warning) 10%, transparent);
 }
 
 .owl-model-fallback-action {

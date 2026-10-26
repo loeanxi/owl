@@ -12,14 +12,27 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TabComponentProps } from "../registry.ts";
+import { clearTerminalTail, reportTerminalTail } from "../terminal-state.ts";
 import { observeWorkbenchTheme, readWorkbenchPalette, resolveSurfaceTheme } from "../theme-observer.ts";
 import { terminalTheme } from "./terminal-theme.ts";
 
 type Status = "connecting" | "ready" | "exited" | "error";
 
-export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Element {
+/** xterm 滚屏尾部（最近若干行）：给模型看用户终端里刚发生了什么。 */
+function readTerminalTail(term: Terminal, lines = 40): string {
+	const buffer = term.buffer.active;
+	const out: string[] = [];
+	const start = Math.max(buffer.baseY, buffer.cursorY - lines);
+	for (let index = start; index <= buffer.cursorY; index += 1) {
+		out.push(buffer.getLine(index)?.translateToString(true) ?? "");
+	}
+	return out.join("\n").trim();
+}
+
+export function TerminalTab({ client, cwd, tab, onToChat }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const host = useRef<HTMLDivElement>(null);
+	const termRef = useRef<Terminal | null>(null);
 	const [status, setStatus] = useState<Status>("connecting");
 	const [error, setError] = useState("");
 	const [nonce, setNonce] = useState(0); // 重启：换代重跑整个 effect
@@ -61,6 +74,7 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 		const fit = new FitAddon();
 		term.loadAddon(fit);
 		term.open(el);
+		termRef.current = term;
 		// Update the existing renderer without restarting the PTY or losing scrollback.
 		const offTheme = observeWorkbenchTheme(el, () => { term.options.theme = readTheme(); });
 		try {
@@ -70,6 +84,12 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 		}
 		term.onData((data) => {
 			if (alive && termId) void client.request({ type: "term.input", termId, data }).catch(() => {});
+		});
+		// 滚屏尾巴：模型问「终端里刚跑了什么」时能看到用户手动跑的那段输出。
+		// 用 onWriteParsed（写入解析完之后才触发）：term.write 是异步的，写完立刻读
+		// 缓冲区会读到旧内容，尾巴就少了最后一段。
+		const offWrite = term.onWriteParsed(() => {
+			reportTerminalTail(tab.id, readTerminalTail(term));
 		});
 
 		const offTerm = client.onTermMessage((message) => {
@@ -137,12 +157,24 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 			disposed = true;
 			alive = false;
 			offTerm();
+			offWrite.dispose();
+			clearTerminalTail(tab.id);
 			offTheme();
 			observer.disconnect();
 			if (termId) void client.request({ type: "term.kill", termId }).catch(() => {});
 			term.dispose();
+			termRef.current = null;
 		};
-	}, [client, cwd, nonce]);
+	}, [client, cwd, nonce, tab.id]);
+
+	/** 把终端里刚跑出来的输出交给对话：用户在终端看到报错后一键让模型看这段。 */
+	const askOwl = (): void => {
+		const term = termRef.current;
+		if (!term || onToChat === undefined) return;
+		const tail = readTerminalTail(term);
+		if (tail === "") return;
+		onToChat(`${t("term.askOwlPrompt")}\n\n${tail}`);
+	};
 
 	const badge =
 		status === "ready" ? (
@@ -167,6 +199,16 @@ export function TerminalTab({ client, cwd }: TabComponentProps): React.JSX.Eleme
 		<div className="flex h-full flex-col overflow-hidden bg-owl-rail">
 			<div className="flex shrink-0 select-none items-center gap-2 border-b border-owl-border/40 px-2.5 py-1 text-[10px] text-owl-faint">
 				<span className="font-mono">{cwd}</span>
+				{onToChat !== undefined && (
+					<button
+						type="button"
+						className="rounded border border-owl-border/70 px-1.5 py-0.5 text-[10px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+						title={t("term.askOwlTitle")}
+						onClick={askOwl}
+					>
+						✦ {t("term.askOwl")}
+					</button>
+				)}
 				<span className="ml-auto">{badge}</span>
 			</div>
 			<div ref={host} className="min-h-0 flex-1 px-1.5 py-1" />

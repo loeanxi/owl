@@ -457,3 +457,8 @@ html[data-owl-chat-motion="off"] .owl-work-process :is(*, *::before, *::after),
 	.owl-work-process :is(*, *::before, *::after),
 	.owl-work-process .owl-collapse-body { animation: none !important; }
 }
+
+/* 工具记录就地开关（2026-10-25 R12）：与问题计数同款弱链接样式，激活时强调色。 */
+.owl-work-records-toggle { display: inline-flex; align-items: center; flex-shrink: 0; gap: 4px; border: 0; border-radius: 5px; padding: 3px 6px; background: transparent; color: var(--owl-ui-muted); font-size: 10px; }
+.owl-work-records-toggle:hover { color: var(--owl-ui-text); background: var(--owl-ui-hover); }
+.owl-work-records-toggle[aria-pressed="true"] { color: var(--color-owl-accent); }

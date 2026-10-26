@@ -8,23 +8,32 @@
  * session.resume 静默回放；权限确认走 App 的全局对话框（按 requestId 响应，
  * 与会话无关）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
-import type { BridgeClient } from "../../bridge/client.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
 import { applyEvent, rebuild, type ChatEntry } from "../../hooks/transcript.ts";
 import { renderMarkdown, InlineSummary } from "../../components/ChatStream.tsx";
+import { ExecutionContext } from "../execution-context.tsx";
 import { IconChatDiscussion } from "../quick.tsx";
 import { IconLoader, IconRefresh, IconX } from "../icons.tsx";
 import { normProjectKey } from "../store.ts";
+import type { TabComponentProps } from "../registry.ts";
 
-function sideChatKey(cwd: string): string {
-	return `owl.sidechat.${normProjectKey(cwd)}`;
+/**
+ * 侧聊线程的绑定键：按「项目 + 宿主会话」存。
+ * 侧聊是这次对话的支线线程：换个对话就该换一条线程，否则会话 B 里会看到会话 A
+ * 的支线（连「带回主对话」都会把别的会话的问答带过来）。
+ */
+function sideChatKey(cwd: string, sessionId: string | undefined): string {
+	return `owl.sidechat.${normProjectKey(cwd)}${sessionId ? `.${sessionId}` : ""}`;
 }
 
-export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string }): React.JSX.Element {
+export function SideChatTab({ client, cwd, onToChat }: TabComponentProps): React.JSX.Element {
 	const t = useT();
+	const execution = useContext(ExecutionContext);
+	// 侧聊归属的宿主会话：主对话换了，侧聊就换一条线程。
+	const ownerSessionId = execution.sessionId;
 	const [entries, setEntries] = useState<ChatEntry[]>([]);
 	const [running, setRunning] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -47,7 +56,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 		setEntries([]);
 		setRunning(false);
 		setAttached(false);
-		const saved = localStorage.getItem(sideChatKey(cwd));
+		const saved = localStorage.getItem(sideChatKey(cwd, ownerSessionId));
 		if (!saved) {
 			setAttached(true);
 			return;
@@ -64,17 +73,17 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 					bindSession(response.result.sessionId);
 					setEntries(rebuild(response.result.messages ?? []));
 				} else {
-					localStorage.removeItem(sideChatKey(cwd));
+					localStorage.removeItem(sideChatKey(cwd, ownerSessionId));
 				}
 			} catch {
-				if (!cancelled) localStorage.removeItem(sideChatKey(cwd));
+				if (!cancelled) localStorage.removeItem(sideChatKey(cwd, ownerSessionId));
 			}
 			if (!cancelled) setAttached(true);
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [client, cwd]);
+	}, [client, cwd, ownerSessionId]);
 
 	// -- 事件订阅：只消费本线程的事件（app 层会过滤旁路会话，主转录不受影响） --
 	useEffect(() => {
@@ -103,7 +112,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 		});
 		if (!response.ok || !response.result) return undefined;
 		bindSession(response.result.sessionId);
-		localStorage.setItem(sideChatKey(cwd), response.result.sessionId);
+		localStorage.setItem(sideChatKey(cwd, ownerSessionId), response.result.sessionId);
 		return response.result.sessionId;
 	};
 
@@ -124,7 +133,7 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 
 	const newThread = (): void => {
 		bindSession(null);
-		localStorage.removeItem(sideChatKey(cwd));
+		localStorage.removeItem(sideChatKey(cwd, ownerSessionId));
 		setEntries([]);
 		setRunning(false);
 		setAttached(true);
@@ -139,6 +148,33 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 		return undefined;
 	}, [entries]);
 
+	/** 最近这一问一答（带回主对话用）：先找最后一条回答，再往前找对应的问题。 */
+	const lastExchange = useMemo(() => {
+		let answer = "";
+		let question = "";
+		for (let index = entries.length - 1; index >= 0; index -= 1) {
+			const entry = entries[index];
+			if (entry.kind === "assistant" && answer === "") {
+				answer = entry.text ?? "";
+				continue;
+			}
+			if (entry.kind === "user" && answer !== "") {
+				question = entry.text;
+				break;
+			}
+		}
+		return { question, answer };
+	}, [entries]);
+
+	/** 把这条小线程的问答放进主对话，接着在主对话里做。 */
+	const sendToMainChat = (): void => {
+		if (onToChat === undefined || lastExchange.answer.trim() === "") return;
+		const parts = [t("sidechat.backToChatPrompt")];
+		if (lastExchange.question.trim() !== "") parts.push(`问：${lastExchange.question.trim()}`);
+		parts.push(`答：${lastExchange.answer.trim()}`);
+		onToChat(parts.join("\n\n"));
+	};
+
 	return (
 		<div className="flex h-full flex-col overflow-hidden">
 			{/* 头：标识 + 新线程 */}
@@ -147,6 +183,18 @@ export function SideChatTab({ client, cwd }: { client: BridgeClient; cwd: string
 				<span className="font-medium text-owl-text">{t("sidechat.title")}</span>
 				<span className="rounded-full border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">beta</span>
 				<span className="ml-auto text-owl-faint">{t("sidechat.caption")}</span>
+				{onToChat !== undefined && (
+					<button
+						type="button"
+						title={t("sidechat.backToChatTitle")}
+						aria-label={t("sidechat.backToChat")}
+						disabled={lastExchange.answer.trim() === ""}
+						className="rounded border border-owl-border/60 px-1.5 py-0.5 text-[10px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-not-allowed disabled:opacity-40"
+						onClick={sendToMainChat}
+					>
+						{t("sidechat.backToChat")}
+					</button>
+				)}
 				<button
 					type="button"
 					title={t("sidechat.newThreadTitle")}

@@ -26,6 +26,15 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 	const blockKeys = useRef(new WeakMap<HTMLElement, string>());
 	const copyRequests = useRef(new WeakMap<HTMLButtonElement, symbol>());
 	const [preview, setPreview] = useState<{ images: ImageViewerItem[]; index: number }>();
+	const [outline, setOutline] = useState<{ id: string; heading: HTMLElement; text: string; level: number }[]>();
+	const jumpToHeading = (event: React.MouseEvent<HTMLAnchorElement>, heading: HTMLElement): void => {
+		event.preventDefault();
+		heading.scrollIntoView({ behavior: "smooth", block: "start" });
+		// 与改动审查回跳同一套闪烁反馈；连点同一节也能重闪。
+		heading.classList.remove("owl-answer-toc-flash");
+		void heading.offsetWidth;
+		heading.classList.add("owl-answer-toc-flash");
+	};
 
 	const openImage = (selected: HTMLImageElement): void => {
 		const pictures = [...(root.current?.querySelectorAll<HTMLImageElement>("img[src]") ?? [])].filter((picture) => picture.currentSrc || picture.src);
@@ -38,6 +47,15 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 	useLayoutEffect(() => {
 		const answer = root.current;
 		if (!answer) return;
+		// 目录：回答成文后收集 h1–h3 补锚点（索引即 id，内容变了重新收集）；不足 3 个不出目录。
+		const headings = [...answer.querySelectorAll<HTMLElement>("h1, h2, h3")];
+		const nextOutline = headings.map((heading, index) => {
+			heading.id = `answer-heading-${index}`;
+			return { id: heading.id, heading, text: heading.textContent ?? "", level: Number(heading.tagName.slice(1)) };
+		});
+		// effect 只随 html/语言重跑（其余依赖是稳定引用），直接换新数组即可，
+		// 并保证目录里持有的是本轮 DOM 的节点引用（html 局部变化时旧引用已脱链）。
+		setOutline(nextOutline.length >= 3 ? nextOutline : []);
 		for (const [index, picture] of [...answer.querySelectorAll<HTMLImageElement>("img[src]")].entries()) {
 			if (!picture.currentSrc && !picture.src) continue;
 			picture.tabIndex = 0;
@@ -125,7 +143,14 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 		};
 	}, [html, language, text, imageText]);
 
-	return <><div
+	return <>{outline && outline.length > 0 && (
+		<details className="owl-answer-toc">
+			<summary>{text("tocTitle")}<span className="owl-answer-toc-count">{text("tocSection", { n: outline.length })}</span></summary>
+			<ol>
+				{outline.map((item) => <li key={item.id} data-level={item.level}><a href={`#${item.id}`} onClick={(event) => jumpToHeading(event, item.heading)}>{item.text}</a></li>)}
+			</ol>
+		</details>
+	)}<div
 		ref={root}
 		className="owl-answer owl-answer-reading"
 		dangerouslySetInnerHTML={markup}

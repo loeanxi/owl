@@ -13,6 +13,8 @@ const zh = {
 	tableScroll: "可左右滚动查看其余列",
 	tableScrollLeft: "可向左滚动查看其余列",
 	tableScrollRight: "可向右滚动查看其余列",
+	tocTitle: "本页要点",
+	tocSection: "{n} 节",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -28,9 +30,11 @@ const en: Record<keyof typeof zh, string> = {
 	tableScroll: "Scroll left or right to see more columns",
 	tableScrollLeft: "Scroll left to see more columns",
 	tableScrollRight: "Scroll right to see more columns",
+	tocTitle: "On this page",
+	tocSection: "{n} sections",
 };
 
-export const replyReadingText = (key: keyof typeof zh): string => (getUiLanguage() === "en" ? en : zh)[key];
+export const replyReadingText = (key: keyof typeof zh, vars?: Record<string, string | number>): string => (getUiLanguage() === "en" ? en : zh)[key].replace(/\{(\w+)\}/g, (_, name: string) => String(vars?.[name] ?? ""));
 
 export function useReplyReadingText(): typeof replyReadingText {
 	useT();

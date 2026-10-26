@@ -357,26 +357,129 @@ function isEmDash(char: string): boolean {
 const NOT_FOUND_HINT =
 	"Line endings are normalized (CRLF and LF both match), so the text itself differs from the file, often a misremembered comment or line. Re-read that region and retry with its exact text; do not rewrite the whole file to get around this.";
 
-function getNotFoundError(path: string, editIndex: number, totalEdits: number): Error {
+/**
+ * 在 oldText 与文件不匹配时，定位文件里与它最相似的行，给模型一条"最近似位置"提示。
+ * 用字符三元组重合度做行级评分（纯词法，无网络/无模型），让模型一次重试就能对准真实区域，
+ * 而不是对着 "not found" 盲改。信号不足（oldText 太短/无重合）时返回空串，不强行指路。
+ */
+export function describeClosestRegion(content: string, oldText: string): string {
+	const MIN_SIGNAL_CHARS = 12;
+	const MIN_OVERLAP = 0.34;
+	const PREVIEW_MAX = 120;
+
+	const clean = (line: string) => line.replace(/\s+/g, " ").trim();
+	const trigrams = (text: string): Set<string> => {
+		const compact = text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "");
+		const set = new Set<string>();
+		if (compact.length < 3) {
+			if (compact) set.add(compact);
+			return set;
+		}
+		for (let i = 0; i <= compact.length - 3; i++) set.add(compact.slice(i, i + 3));
+		return set;
+	};
+
+	const oldLines = oldText
+		.split("\n")
+		.map(clean)
+		.filter((line) => line.length >= 4);
+	const anchorText = oldLines
+		.sort((a, b) => b.length - a.length)
+		.slice(0, 3)
+		.join(" ");
+	if (anchorText.length < MIN_SIGNAL_CHARS) return "";
+	const oldGrams = trigrams(anchorText);
+	if (oldGrams.size === 0) return "";
+
+	let bestLine = -1;
+	let bestScore = 0;
+	const contentLines = content.split("\n");
+	for (let i = 0; i < contentLines.length; i++) {
+		const grams = trigrams(clean(contentLines[i]!));
+		if (grams.size === 0) continue;
+		let overlap = 0;
+		for (const gram of grams) if (oldGrams.has(gram)) overlap++;
+		const score = overlap / Math.min(grams.size, oldGrams.size);
+		if (score > bestScore) {
+			bestScore = score;
+			bestLine = i;
+		}
+	}
+	if (bestLine < 0 || bestScore < MIN_OVERLAP) return "";
+
+	const preview = clean(contentLines[bestLine]!).slice(0, PREVIEW_MAX);
+	return `Closest matching region is near line ${bestLine + 1}: "${preview}". Re-read that area and align oldText with what is actually there.`;
+}
+
+function getNotFoundError(path: string, editIndex: number, totalEdits: number, closestHint = ""): Error {
+	const suffix = closestHint ? ` ${closestHint}` : "";
 	if (totalEdits === 1) {
 		return new Error(
-			`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines. ${NOT_FOUND_HINT}`,
+			`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.${suffix} ${NOT_FOUND_HINT}`,
 		);
 	}
 	return new Error(
-		`Could not find edits[${editIndex}] in ${path}. The oldText must match exactly including all whitespace and newlines. ${NOT_FOUND_HINT}`,
+		`Could not find edits[${editIndex}] in ${path}. The oldText must match exactly including all whitespace and newlines.${suffix} ${NOT_FOUND_HINT}`,
 	);
 }
 
-function getDuplicateError(path: string, editIndex: number, totalEdits: number, occurrences: number): Error {
+function getDuplicateError(
+	path: string,
+	editIndex: number,
+	totalEdits: number,
+	occurrences: number,
+	lineHint = "",
+): Error {
+	const suffix = lineHint ? ` ${lineHint}` : "";
 	if (totalEdits === 1) {
 		return new Error(
-			`Found ${occurrences} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.`,
+			`Found ${occurrences} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.${suffix}`,
 		);
 	}
 	return new Error(
-		`Found ${occurrences} occurrences of edits[${editIndex}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.`,
+		`Found ${occurrences} occurrences of edits[${editIndex}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.${suffix}`,
 	);
+}
+
+/**
+ * oldText 命中多处时，列出每次出现所在行，让模型直接锚定要改的那一处（附 1 行预览），
+ * 而不是靠"多加一点上下文"盲猜。列出至多 5 处，超出以 … 收尾。
+ */
+export function describeOccurrenceLines(content: string, oldText: string, totalOccurrences = 0): string {
+	const MAX_LISTED = 5;
+	const positions: number[] = [];
+	let pos = 0;
+	while (positions.length < MAX_LISTED + 1) {
+		const idx = content.indexOf(oldText, pos);
+		if (idx === -1) break;
+		positions.push(idx);
+		pos = idx + oldText.length;
+	}
+	if (!positions.length) return "";
+	const lineStarts: number[] = [0];
+	for (let i = 0; i < content.length; i++) if (content[i] === "\n") lineStarts.push(i + 1);
+	const lineOf = (index: number): number => {
+		let lo = 0;
+		let hi = lineStarts.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (lineStarts[mid]! <= index) lo = mid;
+			else hi = mid - 1;
+		}
+		return lo + 1;
+	};
+	const parts = positions.slice(0, MAX_LISTED).map((idx) => {
+		const lineNo = lineOf(idx);
+		const lineEnd = content.indexOf("\n", idx);
+		const preview = content
+			.slice(idx, lineEnd === -1 ? undefined : lineEnd)
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 100);
+		return `line ${lineNo}: "${preview}"`;
+	});
+	if (positions.length > MAX_LISTED) parts.push(`… (${totalOccurrences || positions.length} total)`);
+	return `Occurrences: ${parts.join("; ")}.`;
 }
 
 function getEmptyOldTextError(path: string, editIndex: number, totalEdits: number): Error {
@@ -429,12 +532,23 @@ export function applyEditsToNormalizedContent(
 		const edit = normalizedEdits[i];
 		const matchResult = fuzzyFindText(fuzzyContent, edit.oldText);
 		if (!matchResult.found) {
-			throw getNotFoundError(path, i, normalizedEdits.length);
+			throw getNotFoundError(
+				path,
+				i,
+				normalizedEdits.length,
+				describeClosestRegion(normalizedContent, edit.oldText),
+			);
 		}
 
 		const occurrences = countOccurrences(normalizedContent, edit.oldText);
 		if (occurrences > 1) {
-			throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
+			throw getDuplicateError(
+				path,
+				i,
+				normalizedEdits.length,
+				occurrences,
+				describeOccurrenceLines(normalizedContent, edit.oldText, occurrences),
+			);
 		}
 
 		if (usedFuzzyMatch) {

@@ -62,6 +62,22 @@ export function loadAppKeybindings(storage: Pick<Storage, "getItem">): AppKeybin
 	return bindings;
 }
 
+/**
+ * 当前生效的键位快照。App 是唯一事实源（useState + localStorage），UI 侧
+ * 需要显示键位提示时（工具菜单）读这里，避免另写一份硬编码提示后与真实键位脱节。
+ */
+let activeBindings: AppKeybindings = DEFAULT_APP_KEYBINDINGS;
+
+/** 发布当前生效的键位；App 在键位变化时调用。 */
+export function publishAppKeybindings(bindings: AppKeybindings): void {
+	activeBindings = bindings;
+}
+
+/** 当前生效的键位快照（尚未发布时回落默认键位）。 */
+export function activeAppKeybindings(): AppKeybindings {
+	return activeBindings;
+}
+
 export function matchingAppAction(event: KeyboardEvent, bindings: AppKeybindings): AppKeybindingAction | undefined {
 	if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return undefined;
 	const key = appKeybindingFromEvent(event);

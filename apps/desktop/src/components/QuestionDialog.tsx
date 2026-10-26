@@ -32,9 +32,12 @@ function initialState(): QuestionUiState {
 export function QuestionDialog({
 	request,
 	onAnswer,
+	onAnsweredChange,
 }: {
 	request: QuestionRequest;
 	onAnswer: (answers: QuestionAnswerPayload[], cancelled: boolean) => void;
+	/** 已答题号集合变化（含恢复草稿时）；小地图用它区分已答/未答。 */
+	onAnsweredChange?: (answered: ReadonlySet<number>) => void;
 }): React.JSX.Element | null {
 	const t = useT();
 	const questionId = useId();
@@ -44,10 +47,24 @@ export function QuestionDialog({
 	const draft = controller?.questionDrafts.get(request.requestId);
 	const total = request.questions.length;
 	const [states, setStates] = useState<QuestionUiState[]>(() => draft?.states.length === total ? draft.states : request.questions.map(initialState));
+	// 草稿晚到（弹卷挂载时 controller 还没存过，随后旧实例恢复/事件补写）：本地尚无任何作答
+	// 且草稿有内容时同步一次；用户已开始作答则不覆盖。
+	useLayoutEffect(() => {
+		if (!draft || draft.states.length !== total) return;
+		setStates((current) => current.some((s) => isAnswered(s)) ? current : draft.states);
+		setCurrent((value) => value === 0 && draft.current !== 0 ? draft.current : value);
+		setCollapsed(draft.collapsed);
+	}, [draft]);
 	const [current, setCurrent] = useState(draft?.current ?? 0);
 	const [missing, setMissing] = useState<Set<number>>(draft?.missing ?? new Set());
 	const [collapsed, setCollapsed] = useState(draft?.collapsed ?? false);
 	useLayoutEffect(() => { controller?.saveQuestionDraft(request.requestId, { states, current, missing, collapsed }); }, [controller, request.requestId, states, current, missing, collapsed]);
+	// 已答题号随作答/恢复草稿上报（R18）：小地图的实心/空心依据。
+	useLayoutEffect(() => {
+		const answered = new Set<number>();
+		states.forEach((state, index) => { if (isAnswered(state)) answered.add(index); });
+		onAnsweredChange?.(answered);
+	}, [states, onAnsweredChange]);
 
 	const isAnswered = (s: QuestionUiState) => s.picked.size > 0 || s.custom.trim() !== "";
 

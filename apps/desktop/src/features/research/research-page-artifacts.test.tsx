@@ -74,7 +74,10 @@ function cardPosition(html: string, title: string): number {
 }
 
 function userPosition(html: string, text: string): number {
-	const position = html.indexOf(`<div class="owl-user-bubble">${text}</div>`);
+	// 气泡带悬停时间 title（R11），不再精确匹配开标签；正文之后紧跟收标签仍是唯一定位。
+	const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const match = new RegExp(`<div class="owl-user-bubble"[^>]*>${escaped}</div>`).exec(html);
+	const position = match?.index ?? -1;
 	expect(position).toBeGreaterThanOrEqual(0);
 	return position;
 }
