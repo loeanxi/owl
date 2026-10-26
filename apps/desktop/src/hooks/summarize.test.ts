@@ -48,7 +48,9 @@ test("separates non-zero exits and gate refusals from real failures", () => {
 	assert.equal(errorKindOf("bash", "=== 检查残留 ===\n(无输出=已清理)\n\nCommand exited with code 1"), "exit");
 	assert.equal(errorKindOf("bash", "\n\nCommand exited with code 1"), "failed");
 	assert.equal(errorKindOf("bash", "mysql: command not found\n\nCommand exited with code 127"), "failed");
-	assert.equal(errorKindOf("bash", "BLOCKED by Owl Safety Net"), "failed");
+	// 安全网策略拦截是防护在按策略执行，不是执行失败（与采集端 POLICY_BLOCK 同一判定）。
+	assert.equal(errorKindOf("bash", "BLOCKED by Owl Safety Net"), "blocked");
+	assert.equal(errorKindOf("bash", "先写了点输出\nBLOCKED by CC Safety Net\n\nReason: policy"), "blocked");
 	assert.equal(errorKindOf("read", "x\nCommand exited with code 1"), "failed");
 	assert.equal(
 		errorKindOf(

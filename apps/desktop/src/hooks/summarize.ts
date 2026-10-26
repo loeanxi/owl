@@ -88,6 +88,9 @@ export function isInvalidToolCall(outputText: string | undefined): boolean {
  */
 export function errorKindOf(name: string, outputText: string | undefined): "exit" | "blocked" | "invalid" | "failed" {
 	if (outputText?.includes(GATE_SNAPSHOT_MARKER)) return "blocked";
+	// 安全网策略拦截（Owl/CC Safety Net 等）：防护按策略拒绝越界操作，不是执行失败。
+	// 与 coding-agent execution-anomaly-capture 的 POLICY_BLOCK 规则保持同一判定。
+	if (/^BLOCKED by \S+ Safety Net\b/m.test(outputText ?? "")) return "blocked";
 	if (isInvalidToolCall(outputText)) return "invalid";
 	if (name === "bash" || name === "powershell") {
 		const code = exitCodeOf(outputText);

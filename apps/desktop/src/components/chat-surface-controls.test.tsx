@@ -5,7 +5,6 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage } from "../i18n/index.ts";
-import { chatToolText } from "./chat-tool-copy.ts";
 import { Composer } from "./Composer.tsx";
 
 vi.mock("../bridge/native.ts", () => ({ listenForOsFileDrop: async () => () => {}, readLocalImage: async () => undefined }));
@@ -55,12 +54,5 @@ describe("rich paste downgrade", () => {
 		await act(async () => editor().dispatchEvent(pasteEvent("", "纯文本粘贴")));
 		// 未 preventDefault：linkedom 里编辑器内容不变（默认插入不发生），也不抛错。
 		expect(editor().textContent).toBe(before);
-	});
-});
-
-describe("tool records in-place toggle copy", () => {
-	it("pairs expand and collapse labels", () => {
-		expect(chatToolText("expandRecords")).toBe("展开工具记录");
-		expect(chatToolText("collapseRecords")).toBe("收起工具记录");
 	});
 });

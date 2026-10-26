@@ -2,7 +2,7 @@ import { createContext, memo, useCallback, useContext, useEffect, useId, useLayo
 import { currentRunStartIndex, outputRate, type AssistantSegment, type ChatEntry, type MessageUsage, type ToolCard, type ToolResultImage, type ToolStatus } from "../hooks/transcript.ts";
 import { errorKindOf, exitCodeOf } from "../hooks/summarize.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { IconAlert, IconCheck, IconChevron, IconClock, IconCompose, IconLightbulb, IconList, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
+import { IconAlert, IconCheck, IconChevron, IconClock, IconCompose, IconLightbulb, IconMore, IconRefresh, IconTerminal } from "./icons.tsx";
 import { MessageCopyButton, MessageMoreMenu } from "./MessageActions.tsx";
 import { useMessageActionsText } from "./message-actions-copy.ts";
 import { GenuiAnswerCard, GenuiToolCardView } from "./Genui.tsx";
@@ -18,7 +18,6 @@ import { deliveryChecklist } from "../hooks/delivery.ts";
 import { StartPage } from "./StartPage.tsx";
 import type { StartRecentSession } from "../hooks/use-start-recent-sessions.ts";
 import type { BridgeClient } from "../bridge/client.ts";
-import { chatToolText } from "./chat-tool-copy.ts";
 import { promptQueueText } from "./prompt-queue-copy.ts";
 import type { SessionSearchMessageResult } from "../bridge/protocol.ts";
 import { ScheduleDeliveryCard } from "../features/automation/ScheduleDeliveryCard.tsx";
@@ -38,8 +37,6 @@ import { ImageViewer } from "./ImageViewer.tsx";
 
 const AttachmentToolContext = createContext<{ toolId: string; ownerIndex?: number; requestId: number } | undefined>(undefined);
 const WorkToolFocusContext = createContext<{ toolId: string; ownerIndex?: number } | undefined>(undefined);
-/** 工具记录全局展开：值 + 就地切换（写 dataset 并持久化），供工作过程头部按钮消费。 */
-const WorkRecordsContext = createContext<{ expanded: boolean; toggle: () => void }>({ expanded: false, toggle: () => undefined });
 type WorkPresentation = {
 	processes: Map<string, boolean>;
 	tools: Map<string, boolean>;
@@ -193,10 +190,6 @@ function turnGapLabel(at: number, now: number): string {
 	if (at >= yesterday.getTime()) return `${t("sidebar.yesterday")} ${clock}`;
 	return `${date.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} ${clock}`;
 }
-
-	function recordOf(value: unknown): Record<string, unknown> | undefined {
-		return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-	}
 
 /** 渲染含 `code` 反引号的摘要行（工具摘要里的命令/路径/模式）。 */
 export function InlineSummary({ text }: { text: string }): React.JSX.Element {
@@ -528,7 +521,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	searchTarget?: MessageSearchTarget;
 }): React.JSX.Element {
 	const copy = useWorkProcessText();
-	const records = useContext(WorkRecordsContext);
 	const root = useRef<HTMLDivElement>(null);
 	const { view, onInspectTool } = useContext(ExecutionViewContext);
 	const workEffects = useWorkEffects();
@@ -699,10 +691,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 					<span className="owl-work-primary" role={running ? "status" : undefined} aria-live={running ? "polite" : undefined}>{current && workActionPath(current.card) ? primary : <InlineSummary text={primary} />}</span>
 					<span className="owl-work-metadata">{elapsed !== undefined && <span className="owl-work-secs">{formatDuration(elapsed)}</span>}{elapsed !== undefined && (metadataTail !== "" || terminalWord !== undefined) ? " · " : ""}{metadataTail}{terminalWord !== undefined && metadataTail !== "" ? " · " : ""}{terminalWord !== undefined && <span className="owl-work-terminal-word" data-tone={terminalWord.tone}>{terminalWord.text}</span>}</span>
 					<IconChevron className={"owl-work-summary-chevron h-3 w-3 shrink-0 transition-transform " + (open ? "rotate-90" : "")} />
-				</button>
-				<button type="button" className="owl-work-records-toggle" aria-pressed={records.expanded} title={records.expanded ? chatToolText("collapseRecords") : chatToolText("expandRecords")} aria-label={records.expanded ? chatToolText("collapseRecords") : chatToolText("expandRecords")} data-message-action-ui="" onClick={records.toggle}>
-					<IconList className="h-3 w-3 shrink-0" />
-					<span>{records.expanded ? chatToolText("collapseRecords") : chatToolText("expandRecords")}</span>
 				</button>
 				{/* 过程中的失败不再挂红色角标：每个工具行自带状态图标，报错文本在记录详情与异常存储里均可查。
 				    证据保留（workActionFacts 的 issues/recovered 语义不变），只撤掉这个常驻的警报入口。 */}
@@ -1895,22 +1883,6 @@ export function ChatStream({
 		window.addEventListener("owl-chat-appearance-change", update);
 		return () => window.removeEventListener("owl-chat-appearance-change", update);
 	}, []);
-	// 就地切换工具记录展开：与设置页同一数据源（settings.json → dataset → 事件广播），
-	// 失败（桥未连/请求挂）仍本地生效，重进会话回落到已保存值。
-	const toggleExpandedTools = (): void => {
-		const next = expandedTools ? "compact" : "expanded";
-		document.documentElement.dataset.owlToolRecords = next;
-		setExpandedTools(next === "expanded");
-		void (async () => {
-			try {
-				const current = await client?.request<Record<string, unknown>>({ type: "settings.get" });
-				if (!current?.ok) return;
-				const settings = (current.result ?? {}) as Record<string, unknown>;
-				const chat = recordOf(settings.desktopChatAppearance) ?? {};
-				await client?.request({ type: "settings.set", values: { desktopChatAppearance: { ...chat, toolRecords: next } } });
-			} catch { /* 本地已生效；持久化失败不打扰 */ }
-		})();
-	};
 	const turnCard = useMemo(() => {
 		if (cwd === undefined || client === undefined || openReviewStable === undefined) return undefined;
 		return (turnArtifacts: FileArtifact[]): React.JSX.Element | null => (
@@ -2184,7 +2156,6 @@ export function ChatStream({
 	return (
 		<AttachmentToolContext.Provider value={receiptTarget}>
 		<WorkPresentationContext.Provider value={workPresentation}>
-		<WorkRecordsContext.Provider value={{ expanded: expandedTools, toggle: toggleExpandedTools }}>
 			<ExecutionViewContext.Provider value={executionPresentation}>
 		<div className="owl-chat-surface" data-activity={activity} data-execution-view={executionView}>
 			{questions.length > 0 && <QuestionMinimap questions={questions} active={activeQuestion} answered={answeredQuestions} onJump={jumpToQuestion} />}
@@ -2267,7 +2238,6 @@ export function ChatStream({
 			}}>{activity === "idle" && readingProcess.current && rows.findLastIndex((row) => row.answer) > rows.findLastIndex((row) => row.questionIndex) ? workProcessText("answerReady") + " · " + workProcessText("viewAnswer") : activity === "working" ? workProcessText("latestUpdate") + " · " + t("chat.backToLatest") : t("chat.backToLatest")} <span aria-hidden="true">↓</span></button>}
 		</div>
 		</ExecutionViewContext.Provider>
-			</WorkRecordsContext.Provider>
 		</WorkPresentationContext.Provider>
 		</AttachmentToolContext.Provider>
 	);
