@@ -11,6 +11,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
+import type { Product } from "../hooks/products.ts";
 import { FileIcon } from "../file-icons/FileIcon.tsx";
 import { useT } from "../i18n/index.ts";
 import { PanelErrorBoundary } from "../components/PanelErrorBoundary.tsx";
@@ -79,6 +80,8 @@ export interface WorkbenchProps {
 	onToChat?: (text: string) => void;
 	/** Reuse the workspace snapshot for conversation controls without another Git query. */
 	onGitStatusChange?: (cwd: string, profile: string | undefined, status: GitStatusResult | undefined) => void;
+	/** 当前会话的产物清单（产物页页签用它渲染产物）。 */
+	products?: readonly Product[];
 }
 
 const DESIGNED_TAB_KINDS = new Set(["files", "changes", "review", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
@@ -104,7 +107,7 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", onOpenPanel, developerLayout = false, onToChat, onGitStatusChange }: WorkbenchProps): React.JSX.Element {
+export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", onOpenPanel, developerLayout = false, onToChat, onGitStatusChange, products }: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	// 模型甩过来的说明（sidebar_show 的 note）：显示几秒后自动收掉。
 	const notice = useSidebarNotice();
@@ -146,7 +149,9 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 	});
 	const shellRef = useRef<HTMLElement>(null);
 	const containerSize = usePaneContainer(shellRef);
-	const effectiveDock = containerSize === null ? dock : workbenchDock(dock, containerSize.width);
+	// 停靠看「工作区宽度」而不是内容区宽度：侧栏挤不下会塌成抽屉，内容区宽度随之
+	// 涨一截；若拿它判停靠，侧栏一塌工作台就从右栏跳到底排，拖窗口边框时整窗重排。
+	const effectiveDock = containerSize === null ? dock : workbenchDock(dock, containerSize.workspaceWidth);
 	const compact = dock === "right" && effectiveDock === "bottom";
 	// Only an open terminal needs a second vertical reserve in a stacked workspace.
 	const heightReserve = CONVERSATION_MIN_HEIGHT + (compact && containerSize?.terminalVisible ? WORKBENCH_MIN_HEIGHT : 0);
@@ -344,8 +349,9 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			gitStatus,
 			onGitRefresh: refreshGit,
 			...(onToChat !== undefined ? { onToChat } : {}),
+			...(products !== undefined ? { products } : {}),
 		}),
-		[api, store, cwd, profile, client, state.tabs, openFile, gitStatus, refreshGit, onToChat],
+		[api, store, cwd, profile, client, state.tabs, openFile, gitStatus, refreshGit, onToChat, products],
 	);
 
 	// -- 拖拽调宽 / 调高（工作台外壳；每次手势持有独立尺寸，结束时持久化） ----
