@@ -1,11 +1,11 @@
 import type { Page, Request, Response } from "playwright-core";
+import { isSecretKey, REDACTED, redactSecrets, redactUrl } from "./browser-redaction.ts";
 
 const MAX_ENTRIES = 300;
 const MAX_LIST = 100;
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_BODY_CHARS = 32 * 1024;
 const MAX_HEADER_CHARS = 16 * 1024;
-const REDACTED = "[REDACTED]";
 
 export interface BrowserNetworkListOptions {
 	/** Only requests first issued after this sequence; this is not a lifecycle-update cursor. */
@@ -67,50 +67,6 @@ function bounded(value: number | undefined, fallback: number, maximum: number): 
 	return value === undefined || !Number.isFinite(value) ? fallback : Math.max(1, Math.min(Math.floor(value), maximum));
 }
 
-function secretKey(key: string): boolean {
-	return /auth|cookie|password|passwd|passphrase|token|apikey|secret|credential|sessionid|csrf|xsrf/.test(
-		key.toLowerCase().replace(/[^a-z0-9]/g, ""),
-	);
-}
-
-/** Redact labelled credentials in plain text as well as strings embedded in JSON. */
-function safeText(text: string, depth = 0): string {
-	return text
-		.replace(/<(input|meta)\b[^>]*>/gi, (tag) => {
-			const fields = [...tag.matchAll(/\b(?:name|id|type)\s*=\s*["']([^"']*)["']/gi)];
-			if (!fields.some((field) => secretKey(field[1]))) return tag;
-			return tag.replace(/(\b(?:value|content)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/gi, `$1"${REDACTED}"`);
-		})
-		.replace(/<([a-z][a-z0-9:_-]*)\b[^>]*>([^<]*)<\/\1\s*>/gi, (match, key: string) =>
-			secretKey(key) ? `<${key}>${REDACTED}</${key}>` : match,
-		)
-		.replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, (value) => safeUrl(value, depth + 1))
-		.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9+/_=.-]+/gi, `$1 ${REDACTED}`)
-		.replace(
-			/(["']?[a-z0-9_-]*(?:auth|cookie|password|passwd|passphrase|token|api[-_]?key|secret|credential|session[-_]?id|csrf|xsrf)[a-z0-9_-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;&<>]+)/gi,
-			(_match, prefix: string) => `${prefix}"${REDACTED}"`,
-		);
-}
-
-function safeUrl(value: string, depth = 0): string {
-	if (depth > 4) return "[nested URL omitted]";
-	try {
-		const url = new URL(value);
-		if (url.protocol === "data:") return "data:[body omitted]";
-		url.username = "";
-		url.password = "";
-		url.hash = "";
-		const parameters = [...url.searchParams.entries()];
-		url.search = "";
-		for (const [key, content] of parameters) {
-			url.searchParams.append(key, secretKey(key) ? REDACTED : safeText(content, depth));
-		}
-		return url.toString();
-	} catch {
-		return "[invalid URL omitted]";
-	}
-}
-
 function safeHeaders(raw: Record<string, string>): BrowserNetworkHeaders {
 	const values: Record<string, string> = {};
 	let remaining = MAX_HEADER_CHARS;
@@ -120,11 +76,11 @@ function safeHeaders(raw: Record<string, string>): BrowserNetworkHeaders {
 			truncated = true;
 			continue;
 		}
-		const safe = secretKey(key)
+		const safe = isSecretKey(key)
 			? REDACTED
 			: /^(location|content-location|referer|origin)$/i.test(key)
-				? safeUrl(value)
-				: safeText(value);
+				? redactUrl(value)
+				: redactSecrets(value);
 		const limit = Math.min(2048, remaining - key.length);
 		values[key.toLowerCase()] = safe.slice(0, limit);
 		remaining -= key.length + values[key.toLowerCase()].length;
@@ -135,11 +91,11 @@ function safeHeaders(raw: Record<string, string>): BrowserNetworkHeaders {
 
 function redactedJson(value: unknown, depth = 0): unknown {
 	if (depth > 64) throw new Error("JSON nesting exceeds the redaction budget");
-	if (typeof value === "string") return safeText(value);
+	if (typeof value === "string") return redactSecrets(value);
 	if (Array.isArray(value)) return value.map((item) => redactedJson(item, depth + 1));
 	if (typeof value !== "object" || value === null) return value;
 	return Object.fromEntries(
-		Object.entries(value).map(([key, item]) => [key, secretKey(key) ? REDACTED : redactedJson(item, depth + 1)]),
+		Object.entries(value).map(([key, item]) => [key, isSecretKey(key) ? REDACTED : redactedJson(item, depth + 1)]),
 	);
 }
 
@@ -165,11 +121,11 @@ function formatBody(buffer: Buffer, contentType: string, maxChars: number): Brow
 			text = [...parameters.entries()]
 				.map(
 					([key, value]) =>
-						`${encodeURIComponent(key)}=${encodeURIComponent(secretKey(key) ? REDACTED : safeText(value))}`,
+						`${encodeURIComponent(key)}=${encodeURIComponent(isSecretKey(key) ? REDACTED : redactSecrets(value))}`,
 				)
 				.join("&");
 		} else {
-			text = safeText(source);
+			text = redactSecrets(source);
 		}
 	} catch {
 		return bodyResult("unsupported", buffer.length, "body_cannot_be_safely_parsed");
@@ -231,7 +187,7 @@ export class BrowserNetworkJournal {
 		const requestId = String(sequence);
 		this.requestIds.set(request, requestId);
 		const from = request.redirectedFrom();
-		const url = safeUrl(request.url());
+		const url = redactUrl(request.url());
 		const timing = request.timing();
 		const summary: BrowserNetworkSummary = {
 			requestId,
@@ -283,7 +239,7 @@ export class BrowserNetworkJournal {
 		const entry = this.find(request);
 		if (!entry) return;
 		entry.summary.state = "failed";
-		const failure = safeText(request.failure()?.errorText ?? "Request failed (no error details)");
+		const failure = redactSecrets(request.failure()?.errorText ?? "Request failed (no error details)");
 		entry.summary.failure = failure.slice(0, 2048);
 		entry.summary.truncated ||= failure.length > 2048;
 		const timing = request.timing();
@@ -313,6 +269,8 @@ export class BrowserNetworkJournal {
 		return {
 			requests,
 			cursor: truncated ? requests[requests.length - 1].sequence : Math.max(this.sequence, since),
+			// 本次已见的最大序号：直接拿它当下次的 since 就能只读增量。
+			lastSequence: this.sequence,
 			oldestSequence: this.entries.values().next().value?.summary.sequence ?? null,
 			dropped: this.dropped,
 			truncated,

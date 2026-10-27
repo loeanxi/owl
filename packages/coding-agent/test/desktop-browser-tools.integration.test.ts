@@ -3,7 +3,10 @@
  * process and a loopback HTTP fixture; no desktop bridge or model provider.
  */
 import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { encodeIabPath, parseIabPath } from "../../../apps/desktop/src/sidebar/iab-bound.ts";
 import type { ToolDefinition } from "../src/core/extensions/index.ts";
@@ -46,7 +49,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Browser to
 <p id="hover-state">idle</p><div id="scroll-box" role="region" aria-label="Scrollable region"><div id="scroll-content">Scrollable content</div></div>
 <button id="report" onclick="report('manual')">Report state</button>
 <button id="network" onclick="runNetwork()">Run network fixture</button>
-<p id="network-status">idle</p>
+<p id="network-status">idle</p><p id="ua"></p><a id="download" href="/download" download>下载文件</a>
 <script>
 const field = (id) => document.getElementById(id);
 async function report(kind) {
@@ -56,6 +59,7 @@ async function report(kind) {
     documentScrollTop:document.documentElement.scrollTop,width:document.documentElement.clientWidth,
     focusedId:document.activeElement.id || ''})});
 }
+document.getElementById('ua').textContent = navigator.userAgent + '|touch=' + ('ontouchstart' in window);
 document.addEventListener('focusin', (event) => report('focus:'+event.target.id));
 document.addEventListener('focusout', (event) => queueMicrotask(() => report('blur:'+event.target.id)));
 async function runNetwork() {
@@ -78,6 +82,12 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 		let slowNavigations = 0;
 		const responseTimers = new Set<ReturnType<typeof setTimeout>>();
 		const frames: Array<{ pageId: string; width: number; height: number }> = [];
+		const highlights: Array<{
+			pageId: string;
+			rect: { x: number; y: number; width: number; height: number } | null;
+		}> = [];
+		/** 下载落盘目录：浏览器工具的工作区根。 */
+		let workspaceRoot = "";
 
 		beforeAll(async () => {
 			server = createServer((request, response) => {
@@ -134,6 +144,28 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 					responseTimers.add(timer);
 					return;
 				}
+				if (url.pathname === "/download") {
+					response
+						.writeHead(200, {
+							"content-type": "application/octet-stream",
+							"content-disposition": 'attachment; filename="owl-fixture.txt"',
+						})
+						.end("owl download fixture");
+					return;
+				}
+				if (url.pathname === "/many") {
+					// 300 个可交互元素：用来验快照分页（单页 120 条）。
+					const many = Array.from(
+						{ length: 300 },
+						(_item, index) => `<button id="many-${index}">Item ${index}</button>`,
+					).join("");
+					response
+						.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+						.end(
+							`<!doctype html><html><head><meta charset="utf-8"><title>Many</title></head><body>${many}</body></html>`,
+						);
+					return;
+				}
 				response.writeHead(200, { "content-type": "text/html" }).end(HTML);
 			});
 			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -142,9 +174,11 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 			baseUrl = `http://127.0.0.1:${address.port}`;
 		});
 
-		beforeEach(() => {
+		beforeEach(async () => {
 			receipts.length = 0;
 			frames.length = 0;
+			highlights.length = 0;
+			workspaceRoot = await mkdtemp(join(tmpdir(), "owl-browser-workspace-"));
 			barrierResponses = [];
 			barrierPaired = false;
 			slowNavigations = 0;
@@ -152,6 +186,7 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 				onFrame: (pageId, _data, width, height) => frames.push({ pageId, width, height }),
 				onPagesChanged: () => {},
 				onFileChooser: () => {},
+				onHighlight: (pageId, rect) => highlights.push({ pageId, rect }),
 				onDiagnostic: () => {},
 			});
 		});
@@ -168,7 +203,7 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 		});
 
 		async function invoke(sessionId: string, name: string, input: Record<string, unknown> = {}): Promise<ToolResult> {
-			const tool = hub.tools(sessionId).find((candidate) => candidate.name === name);
+			const tool = hub.tools(sessionId, { workspaceRoot }).find((candidate) => candidate.name === name);
 			if (!tool) throw new Error(`Missing browser tool: ${name}`);
 			// These tools use their bound BrowserHub and do not read the agent extension context.
 			return tool.execute(randomUUID(), input, undefined, undefined, undefined as never);
@@ -403,6 +438,97 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 					(item) => item.type === "image" && item.mimeType === "image/png" && item.data.length > 100,
 				),
 			).toBe(true);
+		}, 30_000);
+
+		it("pages a large snapshot and keeps the refs stable across pages", async () => {
+			await open("chat-a", "/many");
+			const first = text(await invoke("chat-a", "browser_snapshot"));
+			const page1 = first.match(/\[快照 ([0-9a-f-]+) · 第 1\/(\d+) 页 · 共 (\d+) 条\]/);
+			if (!page1) throw new Error(`Snapshot did not report pagination: ${first.slice(0, 200)}`);
+			const [, snapshotId, pageCount, total] = page1;
+			expect(Number(pageCount)).toBeGreaterThan(1);
+			expect(Number(total)).toBeGreaterThan(120);
+			const firstRefs = [...first.matchAll(/\[ref=(\d+)\]/g)].map((item) => Number(item[1]));
+			const second = text(await invoke("chat-a", "browser_snapshot", { snapshotId, offset: 120 }));
+			expect(second).toContain(`第 2/${pageCount} 页`);
+			const secondRefs = [...second.matchAll(/\[ref=(\d+)\]/g)].map((item) => Number(item[1]));
+			expect(secondRefs.length).toBeGreaterThan(0);
+			// 两页的 ref 不重叠，且第二页接在第一页之后
+			expect(secondRefs[0]).toBeGreaterThan(Math.max(...firstRefs));
+			await expect(
+				invoke("chat-a", "browser_snapshot", { snapshotId: "not-a-real-snapshot" }),
+			).rejects.toMatchObject({
+				code: "STALE_REF",
+			});
+		}, 30_000);
+
+		it("selects a native option by its visible label and by index", async () => {
+			await open("chat-a");
+			await invoke("chat-a", "browser_select", { selector: "#choice", values: ["Two"] });
+			expect((await report("chat-a")).choice).toBe("two");
+			await invoke("chat-a", "browser_select", { selector: "#choice", values: ["1"] });
+			expect((await report("chat-a")).choice).toBe("two");
+			await expect(
+				invoke("chat-a", "browser_select", { selector: "#choice", values: ["没有这个"] }),
+			).rejects.toMatchObject({
+				code: "INVALID_INPUT",
+			});
+		}, 30_000);
+
+		it("accepts a triple click and highlights the target for the sidebar", async () => {
+			await open("chat-a");
+			await invoke("chat-a", "browser_click", { selector: "#report", clickCount: 3 });
+			const lit = highlights.filter((entry) => entry.rect !== null);
+			expect(lit.length).toBeGreaterThan(0);
+			expect(lit.at(-1)?.rect?.width).toBeGreaterThan(0);
+			// 动作结束后高亮被清掉
+			expect(highlights.at(-1)?.rect).toBeNull();
+		}, 30_000);
+
+		it("reads the accessibility tree with actionable refs", async () => {
+			await open("chat-a");
+			const result = await invoke("chat-a", "browser_query", { kind: "accessibility" });
+			const details = result.details as { kind: string; total: number; text: string };
+			expect(details.kind).toBe("accessibility");
+			expect(details.total).toBeGreaterThan(0);
+			// 角色与可访问名按 ARIA 规则给出
+			expect(details.text).toContain('heading "Integration fixture"');
+			expect(details.text).toContain('textbox "Name"');
+			expect(details.text).toContain('combobox "Choice"');
+			// 语义树里的 ref 同样可以拿去操作
+			const ref = Number(details.text.match(/\[ref=(\d+)\] textbox "Name"/)?.[1]);
+			expect(ref).toBeGreaterThan(0);
+			await invoke("chat-a", "browser_fill", { ref, text: "via-ax" });
+			expect((await report("chat-a")).name).toBe("via-ax");
+		}, 30_000);
+
+		it("applies the device profile: user agent, mobile layout and touch", async () => {
+			const page = await open("chat-a");
+			const ua = "Mozilla/5.0 (Linux; Android 14; Owl Fixture) AppleWebKit/537.36 Mobile Safari/537.36";
+			await hub.setViewport(page.pageId, 390, 844, { userAgent: ua, mobile: true, touch: true });
+			await invoke("chat-a", "browser_wait", { ms: 300 });
+			const result = await invoke("chat-a", "browser_query", { kind: "text", selector: "#ua" });
+			const details = result.details as { text: string };
+			expect(details.text).toContain("Android 14; Owl Fixture");
+			expect(details.text).toContain("touch=true");
+		}, 30_000);
+
+		it("saves a download into the workspace instead of dropping it", async () => {
+			await open("chat-a");
+			await invoke("chat-a", "browser_click", { selector: "#download" });
+			const target = join(workspaceRoot, ".owl", "downloads", "owl-fixture.txt");
+			await expect
+				.poll(
+					async () => {
+						try {
+							return await readFile(target, "utf8");
+						} catch {
+							return "";
+						}
+					},
+					{ timeout: 10_000 },
+				)
+				.toContain("owl download fixture");
 		}, 30_000);
 	},
 );

@@ -1,5 +1,6 @@
 import type { Locator, Page } from "playwright-core";
 import pw from "playwright-core";
+import { type BrowserErrorCode, BrowserToolError } from "./browser-errors.ts";
 
 export interface BrowserTarget {
 	ref?: number;
@@ -50,6 +51,8 @@ interface BrowserElement {
 
 interface BrowserOption {
 	value: string;
+	label: string;
+	index: number;
 	disabled: boolean;
 	closest(selector: string): unknown;
 }
@@ -280,8 +283,10 @@ export class BrowserInteraction {
 						isSelect: el.tagName === "SELECT",
 						disabled: el.matches(":disabled") || !!el.closest('[aria-disabled="true"]'),
 						multiple: !!el.multiple,
-						options: Array.from(el.options ?? []).map((option) => ({
+						options: Array.from(el.options ?? []).map((option, index) => ({
 							value: option.value,
+							label: (option.label ?? "").trim(),
+							index,
 							disabled: option.disabled || !!option.closest("optgroup[disabled]"),
 						})),
 					};
@@ -293,13 +298,36 @@ export class BrowserInteraction {
 			if (state.disabled) throw new InteractionError("下拉框已禁用，不能选择。");
 			const uniqueValues = [...new Set(values)];
 			if (!state.multiple && uniqueValues.length > 1) throw new InteractionError("该下拉框只允许单选。");
-			for (const value of uniqueValues) {
-				const option = state.options.find((candidate) => candidate.value === value);
-				if (!option) throw new InteractionError("指定的 option value 不存在，请重新观察下拉选项。");
-				if (option.disabled) throw new InteractionError("指定的下拉选项已禁用。");
-			}
+			// 取值可以是 option 的 value、可见标签，或序号（从 0 开始）——模型看到的
+			// 多半是标签，硬要它先读 value 会多一轮往返。
+			const resolved = [
+				...new Set(
+					uniqueValues.map((wanted) => {
+						const option =
+							state.options.find((candidate) => candidate.value === wanted) ??
+							state.options.find((candidate) => candidate.label === wanted) ??
+							(/^\d+$/.test(wanted) ? state.options[Number(wanted)] : undefined);
+						if (!option) {
+							const available = state.options
+								.slice(0, 20)
+								.map((candidate) =>
+									candidate.label && candidate.label !== candidate.value
+										? `${candidate.value}（${candidate.label}）`
+										: candidate.value,
+								)
+								.join(", ");
+							throw new InteractionError(
+								`指定的选项不存在："${wanted}"。当前可选：${available || "（空）"}。`,
+								"INVALID_INPUT",
+							);
+						}
+						if (option.disabled) throw new InteractionError("指定的下拉选项已禁用。");
+						return option.value;
+					}),
+				),
+			];
 			await locator.selectOption(
-				uniqueValues.map((value) => ({ value })),
+				resolved.map((value) => ({ value })),
 				{ timeout: this.timeoutMs },
 			);
 			const actual = await this.verify(
@@ -312,7 +340,7 @@ export class BrowserInteraction {
 						undefined,
 						{ timeout: this.timeoutMs },
 					),
-				(value) => JSON.stringify([...value].sort()) === JSON.stringify([...uniqueValues].sort()),
+				(value) => JSON.stringify([...value].sort()) === JSON.stringify([...resolved].sort()),
 				"选中值读回校验失败；页面可能重置了选择，请重新观察下拉框。",
 			);
 			return { verified: true, values: actual };
@@ -413,6 +441,7 @@ export class BrowserInteraction {
 		if (count === 0) {
 			throw new InteractionError(
 				hasRef ? `ref=${target.ref} 已失效，请重新 browser_snapshot。` : "selector 未匹配到元素，请重新观察页面。",
+				"STALE_REF",
 			);
 		}
 		if (count > 1) throw new InteractionError(`selector 匹配到 ${count} 个元素，目标不唯一，请缩小选择范围。`);
@@ -459,4 +488,9 @@ export class BrowserInteraction {
 	}
 }
 
-class InteractionError extends Error {}
+class InteractionError extends BrowserToolError {
+	constructor(message: string, code: BrowserErrorCode = "EXECUTION_FAILED") {
+		super(code, message);
+		this.name = "InteractionError";
+	}
+}

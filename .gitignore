@@ -63,3 +63,10 @@ packages/ai/.vendor-*/
 
 # Pool runtime: live DB, sessions, backups, per-account bridge caches
 apps/pool-server/data/
+data/
+
+# One-off debug harnesses and screenshots (not part of the build)
+dbg-*.mjs
+debug-*.png
+apps/desktop/debug-*.html
+apps/desktop/src/debug-*/

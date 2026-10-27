@@ -14,6 +14,7 @@ import {
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { killSessionProcess, type ProcessEntry, registerSessionProcess, waitSessionProcess } from "./process-store.ts";
 
@@ -283,6 +284,7 @@ export function knownBashQueryExitStatus(command: string, exitCode: number, outp
 
 const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
+	title: actionTitleParameter,
 	timeout: Type.Optional(
 		Type.Number({
 			description:
@@ -346,6 +348,8 @@ export type BashToolOutput = Static<typeof bashOutputSchema>;
 export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 }
 
 /**
@@ -592,7 +596,12 @@ export function createShellToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
-			{ command, timeout, yield_time_ms }: { command: string; timeout?: number; yield_time_ms?: number },
+			{
+				command,
+				timeout,
+				yield_time_ms,
+				title,
+			}: { command: string; timeout?: number; yield_time_ms?: number; title?: string },
 			signal?: AbortSignal,
 			onUpdate?,
 			ctx?: ExtensionContext,
@@ -626,6 +635,7 @@ export function createShellToolDefinition(
 					details: {
 						truncation: snapshot.truncation.truncated ? snapshot.truncation : undefined,
 						fullOutputPath: snapshot.fullOutputPath,
+						...(actionTitleOf({ title }) !== undefined ? { title: actionTitleOf({ title }) } : {}),
 					},
 				});
 			};
@@ -677,7 +687,11 @@ export function createShellToolDefinition(
 				let text = snapshot.content || emptyText;
 				let details: BashToolDetails | undefined;
 				if (truncation.truncated) {
-					details = { truncation, fullOutputPath: snapshot.fullOutputPath };
+					details = {
+						truncation,
+						fullOutputPath: snapshot.fullOutputPath,
+						...(actionTitleOf({ title }) !== undefined ? { title: actionTitleOf({ title }) } : {}),
+					};
 					const startLine = truncation.totalLines - truncation.outputLines + 1;
 					const endLine = truncation.totalLines;
 					if (truncation.lastLinePartial) {

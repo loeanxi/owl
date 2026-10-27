@@ -580,6 +580,19 @@ export interface SessionSetApprovalModeRequest {
 }
 
 /**
+ * 会话进行中开关浏览器控制。
+ *
+ * enabled=false 是「撤销」：本会话的浏览器动作此后一律 fail closed
+ * （BROWSER_CONTROL_DISABLED），不碰页面就失败。
+ */
+export interface SessionSetBrowserControlRequest {
+	type: "session.setBrowserControl";
+	id: string;
+	sessionId: string;
+	enabled: boolean;
+}
+
+/**
  * 会话切换 Agent 预设。只有空白会话（还没跑过第一轮）允许切换：跑过的历史是在
  * 原预设的工具与提示词下产生的，换组合会让记录悬空（DSH 的 agent-preset-locked 不变量）。
  */
@@ -2280,16 +2293,32 @@ export interface IabFileChooserMessage {
 	multiple: boolean;
 }
 
-/** screencast 帧（JPEG base64，尺寸 = 页面视口）。 */
+/** screencast 帧（base64 图像，format 说明编码，尺寸 = 页面视口）。 */
 export interface IabFrameMessage {
 	type: "iab.frame";
 	pageId: string;
 	data: string;
+	/** 图像编码：JPEG（帧流默认）或 PNG（回退）。前端据此拼 data URL 的 MIME。 */
+	format: "jpeg" | "png";
 	width: number;
 	height: number;
 }
 
-export type IabServerMessage = IabPagesMessage | IabFrameMessage | IabFileChooserMessage;
+/**
+ * agent 正在操作某个元素（侧栏高亮）。
+ *
+ * 侧栏是像素镜像，画面里没有 DOM，agent 点哪里只能靠这层高亮告诉用户。
+ * rect 是页面 CSS 像素坐标（与 viewport 同坐标系）；null 表示清除高亮。
+ */
+export interface IabHighlightMessage {
+	type: "iab.highlight";
+	pageId: string;
+	rect: { x: number; y: number; width: number; height: number } | null;
+	/** 触发高亮的工具名（click / fill / …），界面可据此提示。 */
+	action?: string;
+}
+
+export type IabServerMessage = IabPagesMessage | IabFrameMessage | IabFileChooserMessage | IabHighlightMessage;
 
 /** 打开/绑定一个页面：带 url 找不到就新建，带 pageId 直接复用（不存在则报错）。 */
 export interface IabOpenRequest {
@@ -2313,6 +2342,18 @@ export interface IabNavRequest {
 	action: "back" | "forward" | "reload";
 }
 
+/** 设备模拟档案：User-Agent / 移动端布局 / 触控 / 像素比。 */
+export interface IabDeviceProfile {
+	/** 覆盖 User-Agent；留空用浏览器真实 UA。 */
+	userAgent?: string;
+	/** 移动端布局（viewport meta 生效）。 */
+	mobile?: boolean;
+	/** 触控事件。 */
+	touch?: boolean;
+	/** 设备像素比。 */
+	deviceScaleFactor?: number;
+}
+
 /** 调整页面视口（CSS 像素；前端「适应窗口」按缩放显示，不改这个值）。 */
 export interface IabViewportRequest {
 	type: "iab.viewport";
@@ -2320,6 +2361,8 @@ export interface IabViewportRequest {
 	pageId: string;
 	width: number;
 	height: number;
+	/** 可选设备档案：切换设备模拟。 */
+	device?: IabDeviceProfile;
 }
 
 /** 输入转发：坐标均为页面视口坐标（前端按画布缩放换算）。 */
@@ -2787,6 +2830,7 @@ export type DesktopClientRequest =
 	| SessionSetModelRequest
 	| SessionSetThinkingLevelRequest
 	| SessionSetApprovalModeRequest
+	| SessionSetBrowserControlRequest
 	| SessionSetPresetRequest
 	| PresetListRequest
 	| PresetSetDefaultRequest

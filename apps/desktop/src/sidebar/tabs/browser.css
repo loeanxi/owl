@@ -107,3 +107,33 @@
 
 /* This colors only the empty canvas; captured website pixels remain untouched. */
 .owl-browser-stage canvas { background: var(--workbench-canvas, var(--owl-ui-canvas, var(--color-owl-bg))); }
+
+/* agent 正在操作的元素：像素镜像里没有 DOM，靠这层高亮让用户看得见它点哪 */
+.owl-browser-highlight {
+	position: absolute;
+	border: 2px solid var(--color-owl-accent);
+	background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent);
+	border-radius: 3px;
+	pointer-events: none;
+}
+
+/* 标签页条：agent 开多个页时侧栏要看得见、能切 */
+.owl-browser-tab {
+	max-width: 180px;
+	padding: 3px 8px;
+	border-radius: 6px;
+	font-size: 11px;
+	color: var(--color-owl-muted);
+	background: transparent;
+	cursor: pointer;
+}
+
+.owl-browser-tab:hover {
+	background: color-mix(in srgb, var(--color-owl-border) 35%, transparent);
+	color: var(--color-owl-text);
+}
+
+.owl-browser-tab--active {
+	background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent);
+	color: var(--color-owl-accent);
+}

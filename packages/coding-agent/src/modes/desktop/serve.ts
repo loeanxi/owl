@@ -136,7 +136,8 @@ import {
 	type LoadedBridgePlugin,
 	loadBridgePlugins,
 } from "./bridge-plugins.ts";
-import { BrowserHub } from "./browser-hub.ts";
+import { BROWSER_CORE_TOOL_NAMES, BROWSER_SKILL_NAME, BrowserHub } from "./browser-hub.ts";
+import { describeIrreversibleBrowserAction } from "./browser-irreversible.ts";
 import { isReadOnlyDesktopTool, requiresDesktopConfirmation } from "./browser-permissions.ts";
 import { BuildChecker } from "./build-check.ts";
 import { createEditorDraftGuard } from "./editor-draft-guard.ts";
@@ -144,6 +145,7 @@ import { DesktopEventFanout } from "./event-fanout.ts";
 import { ExecutionAnomalyStore } from "./execution-anomalies.ts";
 import { captureExecutionAnomalyEvent, captureExecutionAnomalyMessages } from "./execution-anomaly-capture.ts";
 import { createExecutionAnomalyExtension, EXECUTION_ANOMALY_REPORT_TOOL } from "./execution-anomaly-extension.ts";
+import { FrameDelivery } from "./frame-delivery.ts";
 import { type AccountHandlerContext, handleAccountRequest } from "./handlers/account.ts";
 import { type AuthHandlerContext, createAuthLoginState, handleAuthRequest } from "./handlers/auth.ts";
 import { type BrowserHandlerContext, handleIabRequest } from "./handlers/browser.ts";
@@ -340,6 +342,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			runtime: AgentSessionRuntime;
 			unsubscribe: () => void;
 			approvalMode: { current: ApprovalMode };
+			/** 浏览器控制总闸：false = 本会话的浏览器动作一律 fail closed。 */
+			browserControl: { current: boolean };
 			preset: { current: AgentPresetDefinition };
 			runStart: { priorEntryIds?: Set<string> };
 			subagentDetails: Map<string, unknown>;
@@ -440,6 +444,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const viewerRequests = new WeakMap<WebSocket, Set<AbortController>>();
 	/** IAB 帧流订阅：连接 → 它在看的 pageId 集合（断线兜底回收）。 */
 	const iabSubscriptions = new WeakMap<WebSocket, Set<string>>();
+	/** IAB 帧流投递：按 (连接, pageId) 记账，界面卡顿时只保留最新一帧，不堆缓冲。 */
+	const iabFrames = new FrameDelivery<IabFrameMessage>((message) => message.pageId);
 	/** 镜像帧流订阅：连接 → 它在看的 windowId 集合（断线兜底回收）。 */
 	const mirrorSubscriptions = new WeakMap<WebSocket, Set<string>>();
 	const mirrorFrames = new MirrorFrameDelivery();
@@ -455,18 +461,13 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	const mirrorProjectionAccess = new MirrorProjectionAccess(mirror);
 	/** 内嵌浏览器 hub：UI 面板与 agent 工具共用的无头浏览器。 */
 	const iab = new BrowserHub({
-		onFrame: (pageId, data, width, height) => {
-			const message: IabFrameMessage = { type: "iab.frame", pageId, data, width, height };
-			const payload = JSON.stringify(message);
-			for (const client of clients) {
-				if (client.readyState === client.OPEN && iabSubscriptions.get(client)?.has(pageId)) {
-					client.send(payload);
-				}
-			}
+		onFrame: (pageId, data, width, height, format) => {
+			iabFrames.publish({ type: "iab.frame", pageId, data, format, width, height });
 		},
 		onPagesChanged: (pages: IabPageInfo[], origin, originSessionId) =>
 			broadcast({ type: "iab.pages", pages, origin, originSessionId }),
 		onFileChooser: (pageId: string, multiple: boolean) => broadcast({ type: "iab.filechooser", pageId, multiple }),
+		onHighlight: (pageId, rect, action) => broadcast({ type: "iab.highlight", pageId, rect, action }),
 		onDiagnostic,
 	});
 	/** requestId → resolver for tool calls awaiting a user decision */
@@ -630,7 +631,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					? await connectMcpServers(servers, onDiagnostic)
 					: { tools: [], connections: [], close: async () => {} };
 		}
-		return mcp.tools;
+		// 侧栏浏览器是产品自己的浏览器。同一会话里再声明一个外部浏览器族，模型会在
+		// 两个后端之间随机挑：ref 是后端专属的，挑错就失效；用户在侧栏也只看得到一半
+		// 操作。外部浏览器族改为按需发现——显式点名（tool_search）仍能取用。
+		return mcp.tools.map((tool) =>
+			/^mcp_.+_browser_/.test(tool.name) ? { ...tool, exposure: "deferred" as const } : tool,
+		);
 	}
 
 	const eventFanout = new DesktopEventFanout({
@@ -899,6 +905,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 	): CreateAgentSessionRuntimeFactory {
 		return async (runtimeOptions) => {
 			const sessionId = runtimeOptions.sessionManager.getSessionId();
+			// 内置浏览器技能的落盘位置：技能门禁靠它判断模型读没读过这份规程。
+			const browserSkillPath = join(dirname(agentDir), "skills", "control-in-app-browser", "SKILL.md");
 			const researchMode = getResearchMode(runtimeOptions.sessionManager);
 			const presetTools = desktopPresetToolAllowlist(preset, Boolean(researchMode));
 			const services = await createAgentSessionServices({
@@ -932,6 +940,9 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				services,
 				sessionManager: runtimeOptions.sessionManager,
 				toolActivation: preset.runtime === "pi" ? "eager" : "on-demand",
+				// 桌面端渲染的是 Claude 式回答流：工具组组头是模型写的标题，
+				// 每批工具跑完后另起一次无工具请求要一句标签。
+				toolBatchLabels: true,
 				...(researchMode
 					? {
 							initialActiveToolNames: researchToolLoadout(
@@ -948,7 +959,10 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						? [createPiBashTool(runtimeOptions.cwd, services.settingsManager) as ToolDefinition]
 						: [
 								...(await getMcpTools()),
-								...iab.tools(sessionId),
+								...iab.tools(sessionId, {
+									workspaceRoot: runtimeOptions.cwd,
+									skillPath: browserSkillPath,
+								}),
 								...(await sidebarShowToolFor(agentDir, runtimeOptions.cwd)),
 								...createNewsTools(newsRequest, sessionId, broadcast),
 								...(await bridgePluginSessionTools(
@@ -1316,11 +1330,36 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				(researchMode ? "confirm" : "auto"),
 		};
 		if (!researchMode) saveSessionApprovalMode(sessionManager, approvalModeHolder.current);
+		/**
+		 * 技能门禁记账：模型读到浏览器技能（read 或 bash）就算读过。
+		 *
+		 * 只认 read 会漏掉 pi 运行时——那边用 bash 读技能文件；只认 bash 会漏掉标准
+		 * 运行时。两边都认，入参里出现技能目录名即算。
+		 */
+		const recordBrowserSkillRead = (toolName: string, input: Record<string, unknown>): void => {
+			if (toolName === "read") {
+				if (typeof input.path !== "string" || !input.path.includes(BROWSER_SKILL_NAME)) return;
+			} else if (toolName === "bash" || toolName === "powershell") {
+				if (typeof input.command !== "string" || !input.command.includes(BROWSER_SKILL_NAME)) return;
+			} else {
+				return;
+			}
+			iab.markSkillLoaded(sessionIdHolder.current, BROWSER_SKILL_NAME);
+		};
 		const permissionExtension: InlineExtension = {
 			name: "owl-permissions",
 			factory: (pi) => {
+				pi.on("input", (event) => {
+					// 用户用 /skill:control-in-app-browser 展开技能，也算读过。
+					if (event.text.includes(`/skill:${BROWSER_SKILL_NAME}`)) {
+						iab.markSkillLoaded(sessionIdHolder.current, BROWSER_SKILL_NAME);
+					}
+				});
 				pi.on("tool_call", async (event) => {
 					const mode = approvalModeHolder.current;
+					// 技能门禁记账：模型读到浏览器技能才允许操作浏览器。read 与 bash
+					// 两条路都要认——pi 运行时用 bash 读技能，只认 read 会误判成没读。
+					recordBrowserSkillRead(event.toolName, event.input as Record<string, unknown>);
 					// ask_user_question 本身就是向用户提问，再套权限确认就循环了：全模式放行
 					if (event.toolName === "ask_user_question" || event.toolName === EXECUTION_ANOMALY_REPORT_TOOL)
 						return {};
@@ -1346,6 +1385,20 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 								"and browser observation/target selection are allowed. 调研并产出计划，不要修改页面或清空证据。",
 						};
 					}
+					// 浏览器不可逆动作（支付/删除/授权等）：对外可见且常不可撤销。
+					// auto 模式不额外弹窗——用户既然选了「自动」，就不该被常规流程打断；
+					// 这类动作由技能里的纪律让模型自己判断要不要先问用户。
+					// confirm 模式本来就会逐次询问，这里只补上目标名，让弹窗直接写清
+					// 「要点的是什么」，而不是让用户对着一个 ref 猜。
+					const irreversible =
+						mode === "confirm"
+							? await describeIrreversibleBrowserAction(
+									iab,
+									sessionIdHolder.current,
+									event.toolName,
+									event.input,
+								)
+							: undefined;
 					// auto（以及 plan 下的只读工具）：不询问直接放行
 					if (!requiresDesktopConfirmation(event.toolName, event.input, mode)) return {};
 					const requestId = randomUUID();
@@ -1354,7 +1407,12 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 						requestId,
 						sessionId: sessionIdHolder.current,
 						toolName: event.toolName,
-						input: event.input,
+						input: {
+							...(event.input as Record<string, unknown>),
+							...(irreversible
+								? { irreversibleTarget: irreversible.targetName, irreversibleKind: irreversible.kind }
+								: {}),
+						},
 					};
 					const approved = await pendingPermissions.request(message);
 					return approved ? {} : { block: true, reason: "Denied by user" };
@@ -1533,10 +1591,14 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			runtime,
 			unsubscribe,
 			approvalMode: approvalModeHolder,
+			browserControl: { current: true },
 			preset: presetHolder,
 			runStart,
 			subagentDetails,
 		});
+		// 侧栏浏览器的核心动作常驻激活：模型判断需要浏览器时直接调用，不必先
+		// tool_search 去发现；同时让原生族在检索里压过外部 MCP 浏览器。
+		runtime.session.setActiveToolsByName([...runtime.session.getActiveToolNames(), ...BROWSER_CORE_TOOL_NAMES]);
 		void schedule.onSessionMounted(sessionId);
 		reply(ws, requestId, {
 			ok: true,
@@ -1695,6 +1757,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				| "session.setModel"
 				| "session.setThinkingLevel"
 				| "session.setApprovalMode"
+				| "session.setBrowserControl"
 				| "session.setPreset";
 		}
 	>;
@@ -2131,6 +2194,18 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 					});
 				}
 				reply(ws, request.id, { ok: true, result: { approvalMode: request.approvalMode } });
+				return;
+			}
+			case "session.setBrowserControl": {
+				const session = sessions.get(request.sessionId);
+				if (!session) {
+					reply(ws, request.id, { ok: false, error: `Unknown session: ${request.sessionId}` });
+					return;
+				}
+				// 撤销即刻生效：hub 的总闸在最外层，下一次浏览器动作就 fail closed。
+				session.browserControl.current = request.enabled;
+				iab.setSessionControl(request.sessionId, request.enabled);
+				reply(ws, request.id, { ok: true, result: { browserControlEnabled: request.enabled } });
 				return;
 			}
 			case "session.setPreset": {
@@ -3175,6 +3250,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		reply,
 		iab,
 		iabSubscriptions,
+		iabFrames,
 	};
 	const mirrorContext: MirrorHandlerContext = {
 		reply,
@@ -3647,6 +3723,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				wsTerms.delete(ws);
 			}
 			iabSubscriptions.delete(ws);
+			iabFrames.disconnect(ws);
 			mirrorFrames.disconnect(ws);
 			const mirrorOwned = mirrorSubscriptions.get(ws);
 			if (mirrorOwned) {

@@ -13,6 +13,7 @@ import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
 import { FileIcon } from "../file-icons/FileIcon.tsx";
 import { useT } from "../i18n/index.ts";
+import { PanelErrorBoundary } from "../components/PanelErrorBoundary.tsx";
 import { createSidebarApi } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
 import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconPlus, IconX } from "./icons.tsx";
@@ -503,15 +504,18 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 									data-tab-kind={tab.kind}
 									className={`owl-workbench-pane ${DESIGNED_TAB_KINDS.has(tab.kind) ? "owl-workbench-designed-pane" : ""} absolute inset-0 ${isActive ? "" : "hidden"}`}
 								>
-									<Suspense
-										fallback={
-											<div className="flex h-full items-center justify-center">
-												<IconLoader size={18} className="animate-spin text-owl-faint" />
-											</div>
-										}
-									>
-										<Component {...tabPropsOf(tab.id)} />
-									</Suspense>
+									{/* 懒加载 chunk（终端/编辑器）拉取失败只坍塌这一格，绝不放任 React 卸掉整棵树白屏桌面 */}
+									<PanelErrorBoundary label={String(def.title)}>
+										<Suspense
+											fallback={
+												<div className="flex h-full items-center justify-center">
+													<IconLoader size={18} className="animate-spin text-owl-faint" />
+												</div>
+											}
+										>
+											<Component {...tabPropsOf(tab.id)} />
+										</Suspense>
+									</PanelErrorBoundary>
 								</div>
 							);
 						})

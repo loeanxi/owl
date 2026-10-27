@@ -6,7 +6,8 @@
 
 import type { WebSocket } from "ws";
 import type { BrowserHub } from "../browser-hub.ts";
-import type { DesktopClientRequest, IabOpenResult, IabStateResult } from "../protocol.ts";
+import type { FrameDelivery } from "../frame-delivery.ts";
+import type { DesktopClientRequest, IabFrameMessage, IabOpenResult, IabStateResult } from "../protocol.ts";
 
 type Reply = (ws: WebSocket, id: string, result: { ok: boolean; result?: unknown; error?: string }) => void;
 
@@ -14,6 +15,8 @@ export interface BrowserHandlerContext {
 	reply: Reply;
 	iab: BrowserHub;
 	iabSubscriptions: WeakMap<WebSocket, Set<string>>;
+	/** 帧流投递：按 (连接, pageId) 记账，界面卡顿时只保留最新一帧。 */
+	iabFrames: FrameDelivery<IabFrameMessage>;
 }
 
 /** Iab 域：原 handleRequest 的对应分支原样搬迁，主 switch 只保留分组路由。 */
@@ -49,7 +52,7 @@ export async function handleIabRequest(ws: WebSocket, request: IabRequest, ctx: 
 		}
 		case "iab.viewport": {
 			try {
-				await ctx.iab.setViewport(request.pageId, request.width, request.height);
+				await ctx.iab.setViewport(request.pageId, request.width, request.height, request.device);
 				ctx.reply(ws, request.id, { ok: true });
 			} catch (error) {
 				ctx.reply(ws, request.id, { ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -70,12 +73,14 @@ export async function handleIabRequest(ws: WebSocket, request: IabRequest, ctx: 
 			const owned = ctx.iabSubscriptions.get(ws) ?? new Set<string>();
 			owned.add(request.pageId);
 			ctx.iabSubscriptions.set(ws, owned);
+			ctx.iabFrames.subscribe(ws, request.pageId);
 			await ctx.iab.captureFrame(request.pageId);
 			ctx.reply(ws, request.id, { ok: true });
 			return;
 		}
 		case "iab.detach": {
 			ctx.iabSubscriptions.get(ws)?.delete(request.pageId);
+			ctx.iabFrames.unsubscribe(ws, request.pageId);
 			ctx.reply(ws, request.id, { ok: true });
 			return;
 		}

@@ -29,20 +29,34 @@ const QUICK_URLS = [
 	"http://127.0.0.1:3000",
 ];
 
-/** 设备的 CSS 视口尺寸；预设只调整布局尺寸，不改变 UA 或触控模式。 */
-const VIEWPORT_PRESETS: { label: string; labelKey?: TextKey; width: number; height: number }[] = [
+/** 设备模拟档案：User-Agent / 移动端布局 / 触控。 */
+interface DeviceProfile {
+	mobile?: boolean;
+	touch?: boolean;
+	userAgent?: string;
+}
+
+const IOS_PHONE_UA =
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const IOS_TABLET_UA =
+	"Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+const ANDROID_PHONE_UA =
+	"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
+
+/** 设备的 CSS 视口尺寸；预设只改尺寸与设备档案（UA / 触控），不改真实浏览器。 */
+const VIEWPORT_PRESETS: { label: string; labelKey?: TextKey; width: number; height: number; device?: DeviceProfile }[] = [
 	{ label: "4K", width: 3840, height: 2160 },
 	{ label: "Laptop L", width: 1440, height: 900 },
 	{ label: "笔记本电脑", labelKey: "browser.presetLaptop", width: 1280, height: 860 },
-	{ label: "Surface Pro 7", width: 912, height: 1368 },
-	{ label: "iPad Air", width: 820, height: 1180 },
-	{ label: "iPad Mini", width: 768, height: 1024 },
-	{ label: "Surface Duo", width: 540, height: 720 },
-	{ label: "iPhone 15 Pro Max", width: 430, height: 932 },
-	{ label: "Pixel 8", width: 412, height: 915 },
-	{ label: "iPhone 15 Pro", width: 393, height: 852 },
-	{ label: "Samsung Galaxy S24 Ultra", width: 412, height: 915 },
-	{ label: "iPhone SE", width: 375, height: 667 },
+	{ label: "Surface Pro 7", width: 912, height: 1368, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+	{ label: "iPad Air", width: 820, height: 1180, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+	{ label: "iPad Mini", width: 768, height: 1024, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+	{ label: "Surface Duo", width: 540, height: 720, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+	{ label: "iPhone 15 Pro Max", width: 430, height: 932, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
+	{ label: "Pixel 8", width: 412, height: 915, device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA } },
+	{ label: "iPhone 15 Pro", width: 393, height: 852, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
+	{ label: "Samsung Galaxy S24 Ultra", width: 412, height: 915, device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA } },
+	{ label: "iPhone SE", width: 375, height: 667, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
 ];
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5];
@@ -81,6 +95,8 @@ function normalizeUrl(raw: string): string {
 
 interface Frame {
 	data: string;
+	/** 帧的编码：帧流默认 JPEG，格式由后端告知，前端不猜。 */
+	format: "jpeg" | "png";
 	width: number;
 	height: number;
 }
@@ -110,6 +126,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	const [viewportPending, setViewportPending] = useState(false);
 	const [viewportError, setViewportError] = useState("");
 	const [zoom, setZoom] = useState<"auto" | number>("auto");
+	/** agent 能否操作本页：关掉后本会话的浏览器动作一律 fail closed。 */
+	const [agentControl, setAgentControl] = useState(true);
+	/** 本会话的页面清单：agent 会开多个页，侧栏要看得见、能切。 */
+	const [pages, setPages] = useState<IabPageInfo[]>([]);
+	/** agent 正在操作的元素（页面 CSS 坐标）：侧栏像素镜像里靠它高亮。 */
+	const [highlight, setHighlight] = useState<{ x: number; y: number; width: number; height: number } | undefined>(
+		undefined,
+	);
 	const stageRef = useRef<HTMLDivElement>(null);
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -151,7 +175,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			if (frameRef.current !== current) return;
 			canvas.getContext("2d")?.drawImage(image, 0, 0, current.width, current.height);
 		};
-		image.src = `data:image/png;base64,${current.data}`;
+		image.src = `data:image/${current.format};base64,${current.data}`;
 	}, []);
 
 	const scheduleDraw = useCallback((): void => {
@@ -281,7 +305,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		return client.onIabMessage((message) => {
 			if (message.type === "iab.frame") {
 				if (message.pageId === pageRef.current?.pageId) {
-					const next = { data: message.data, width: message.width, height: message.height };
+					const next = { data: message.data, format: message.format, width: message.width, height: message.height };
 					frameRef.current = next;
 					// 尺寸变化（视口切换）才进 state；普通帧只重绘 canvas
 					setFrameSize((prev) =>
@@ -297,7 +321,15 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				if (message.pageId === pageRef.current?.pageId) setFileChooser({ multiple: message.multiple });
 				return;
 			}
-			if (message.type === "iab.pages" && pageRef.current) {
+			if (message.type === "iab.highlight") {
+				if (message.pageId === pageRef.current?.pageId) setHighlight(message.rect ?? undefined);
+				return;
+			}
+			if (message.type === "iab.pages") {
+				setPages(
+					message.pages.filter((candidate) => !sessionId || !candidate.sessionId || candidate.sessionId === sessionId),
+				);
+				if (!pageRef.current) return;
 				const current = pageRef.current;
 				const mine = message.pages.find((candidate) => candidate.pageId === current.pageId);
 				if (mine) {
@@ -407,7 +439,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		void client.request({ type: "iab.nav", pageId: current.pageId, action }).catch(() => {});
 	};
 
-	const applyViewport = (width: number, height: number, preset = "responsive"): void => {
+	const applyViewport = (width: number, height: number, preset = "responsive", device?: DeviceProfile): void => {
 		const current = pageRef.current;
 		if (!current || viewportPending) return;
 		if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -420,13 +452,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		};
 		setViewportError("");
 		setViewportDraft({ width: String(next.width), height: String(next.height) });
-		if (next.width === current.viewport.width && next.height === current.viewport.height) {
+		const sameSize = next.width === current.viewport.width && next.height === current.viewport.height;
+		if (sameSize && !device) {
 			setViewportPreset(preset);
 			return;
 		}
 		setViewportPending(true);
 		void client
-			.request({ type: "iab.viewport", pageId: current.pageId, ...next })
+			.request({ type: "iab.viewport", pageId: current.pageId, ...next, ...(device ? { device } : {}) })
 			.then((response) => {
 				if (pageRef.current?.pageId !== current.pageId) return;
 				if (!response.ok) throw new Error(response.error ?? t("browser.resizeFailed"));
@@ -477,6 +510,18 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	};
 
 	// -- 收藏与独立窗口 --------------------------------------------------------
+
+	/** agent 操作总闸：关掉后本会话的浏览器动作立刻 fail closed。 */
+	const toggleAgentControl = (): void => {
+		if (!sessionId) return;
+		const next = !agentControl;
+		setAgentControl(next);
+		void client
+			.request({ type: "session.setBrowserControl", sessionId, enabled: next })
+			.catch(() => {
+				setAgentControl(!next);
+			});
+	};
 
 	const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => readBookmarks());
 	const currentBookmarked = page?.url ? bookmarks.some((bookmark) => bookmark.url === page.url) : false;
@@ -538,6 +583,24 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 
 	return (
 		<div className="owl-browser flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
+			{/* 标签页条：agent 会开多个页，侧栏要看得见、能切。 */}
+			{pages.length > 1 ? (
+				<div className="owl-browser-tabs flex shrink-0 items-center gap-1 overflow-x-auto border-b border-owl-border/40 px-2 py-1">
+					{pages.map((candidate) => (
+						<button
+							key={candidate.pageId}
+							type="button"
+							className={`owl-browser-tab ${candidate.pageId === page?.pageId ? "owl-browser-tab--active" : ""}`}
+							title={candidate.title || candidate.url}
+							onClick={() => {
+								void client.request({ type: "iab.open", pageId: candidate.pageId }).catch(() => {});
+							}}
+						>
+							<span className="truncate">{candidate.title || candidate.url || t("browser.newTab")}</span>
+						</button>
+					))}
+				</div>
+			) : null}
 			{/* 导航工具条；响应式控制单独一行，侧栏收窄时自然换行。 */}
 			<div className="flex shrink-0 select-none flex-wrap items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
 				<button type="button" title={t("browser.back")} className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
@@ -626,6 +689,26 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 				</button>
 				<button
 					type="button"
+					title={agentControl ? t("browser.agentControl") : t("browser.agentControlOff")}
+					aria-label={agentControl ? t("browser.agentControl") : t("browser.agentControlOff")}
+					aria-pressed={agentControl}
+					className={`${toolbarButton} ${agentControl ? "text-owl-accent hover:text-owl-accent" : ""}`}
+					disabled={!sessionId}
+					onClick={toggleAgentControl}
+				>
+					<svg
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.3"
+						className="h-3 w-3"
+					>
+						<path d="M8 4.5a3.5 3.5 0 0 1 3.5 3.5v1.2l1.3 1.8H3.2l1.3-1.8V8A3.5 3.5 0 0 1 8 4.5Z" />
+						<path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
+					</svg>
+				</button>
+				<button
+					type="button"
 					title={t("browser.openExternal")}
 					className={toolbarButton}
 					disabled={!page?.url}
@@ -646,7 +729,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 							onChange={(event) => {
 								const selected = event.target.value;
 								const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === selected);
-								if (preset) applyViewport(preset.width, preset.height, preset.label);
+								if (preset) applyViewport(preset.width, preset.height, preset.label, preset.device);
 								else setViewportPreset("responsive");
 							}}
 						>
@@ -689,7 +772,14 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						aria-label={t("browser.rotate")}
 						title={page.viewport.width > 2160 ? t("browser.rotateBlocked") : t("browser.rotate")}
 						disabled={viewportPending || page.viewport.width > 2160}
-						onClick={() => applyViewport(page.viewport.height, page.viewport.width, viewportPreset)}
+						onClick={() =>
+								applyViewport(
+									page.viewport.height,
+									page.viewport.width,
+									viewportPreset,
+									VIEWPORT_PRESETS.find((candidate) => candidate.label === viewportPreset)?.device,
+								)
+							}
 					>
 						<svg
 							viewBox="0 0 16 16"
@@ -840,6 +930,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 								}}
 							>
 								<canvas ref={canvasRef} className="h-full w-full select-none bg-white" />
+								{highlight && scale ? (
+									<div
+										className="owl-browser-highlight"
+										style={{
+											left: highlight.x * scale,
+											top: highlight.y * scale,
+											width: Math.max(highlight.width * scale, 4),
+											height: Math.max(highlight.height * scale, 4),
+										}}
+									/>
+								) : null}
 							</div>
 						</div>
 					) : (
