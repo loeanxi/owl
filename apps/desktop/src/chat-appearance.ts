@@ -8,6 +8,18 @@ export interface ChatAppearance {
 	width: number;
 	toolRecords: "compact" | "expanded";
 	motion: boolean;
+	/**
+	 * Claude 观感的回答流：工具组、公开说明与思考块平铺在正文之间，
+	 * 不收进「工作过程」总折叠（Claude Desktop 就没有这一层）。
+	 */
+	claudeFlow: boolean;
+	/**
+	 * 思考的呈现方式。
+	 *  - "claude"：对齐 Claude Desktop —— 只显示 provider 的推理摘要，
+	 *    原始思考文字永不显示（没有摘要时这段思考就不出现）。
+	 *  - "expandable"：owl 原本的做法 —— 折叠成一行，点开看思考原文。
+	 */
+	thinkingStyle: "claude" | "expandable";
 	/** 工作过程动效逐条开关。 */
 	workEffects: WorkEffects;
 }
@@ -19,6 +31,10 @@ export const DEFAULT_CHAT_APPEARANCE: Readonly<ChatAppearance> = Object.freeze({
 	width: 880,
 	toolRecords: "compact",
 	motion: true,
+	// Claude 式回答流是默认观感：工具调用平铺在正文之间，读起来像对话而不是日志。
+	claudeFlow: true,
+	// 思考默认按 Claude 的方式呈现（只显示摘要）。
+	thinkingStyle: "claude",
 	workEffects: DEFAULT_WORK_EFFECTS,
 });
 
@@ -40,6 +56,8 @@ export function parseChatAppearance(raw: unknown): ChatAppearance {
 		width: boundedNumber(value.width, DEFAULT_CHAT_APPEARANCE.width, 640, 960, 1),
 		toolRecords: value.toolRecords === "expanded" ? "expanded" : "compact",
 		motion: typeof value.motion === "boolean" ? value.motion : DEFAULT_CHAT_APPEARANCE.motion,
+		claudeFlow: typeof value.claudeFlow === "boolean" ? value.claudeFlow : DEFAULT_CHAT_APPEARANCE.claudeFlow,
+		thinkingStyle: value.thinkingStyle === "expandable" ? "expandable" : "claude",
 		workEffects: parseWorkEffects(value.workEffects),
 	};
 }
@@ -54,6 +72,10 @@ export function applyChatAppearance(value: ChatAppearance): void {
 	root.style.setProperty("--owl-chat-width", `${value.width}px`);
 	root.dataset.owlToolRecords = value.toolRecords;
 	root.dataset.owlChatMotion = value.motion ? "on" : "off";
+	// Claude 观感的回答流：工具组平铺在正文之间。
+	root.dataset.owlClaudeFlow = value.claudeFlow ? "on" : "off";
+	// 思考呈现：claude = 只显示摘要（Claude 的做法）；expandable = 可展开看原文。
+	root.dataset.owlThinkingStyle = value.thinkingStyle;
 	// 工作过程动效逐条开关：落 dataset，组件订阅同一份值。
 	applyWorkEffects(value.workEffects);
 	window.dispatchEvent(new Event("owl-chat-appearance-change"));

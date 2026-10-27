@@ -49,6 +49,7 @@
 ### 改进
 
 - `ai` 三个 API 适配层透传网关的推理摘要，`thinking_start`/`thinking_end` 可带 summaries
+- `desktop` 外观配置增加 claudeFlow 与 thinkingStyle 两项，落 dataset 供组件订阅
 
 ### 移除
 

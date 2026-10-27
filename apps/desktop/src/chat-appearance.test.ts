@@ -75,13 +75,13 @@ test("applying preferences changes only chat variables and publishes the complet
 		"--owl-chat-line-height": "1.9",
 		"--owl-chat-width": "920px",
 	});
-	assert.deepEqual(dataset, { owlTheme: "dark", owlToolRecords: "expanded", owlChatMotion: "off", owlWorkEffects: "rail enter morph count spine stream breathe nudge" });
+	assert.deepEqual(dataset, { owlTheme: "dark", owlToolRecords: "expanded", owlChatMotion: "off", owlClaudeFlow: "on", owlThinkingStyle: "claude", owlWorkEffects: "rail enter morph count spine breathe nudge" });
 	assert.deepEqual(notifications, ["owl-chat-appearance-change:expanded:off:20px"]);
 
 	applyChatAppearance(parseChatAppearance(undefined));
 	assert.equal(dataset.owlToolRecords, "compact");
 	assert.equal(dataset.owlChatMotion, "on");
-	assert.equal(dataset.owlWorkEffects, "rail enter morph count spine stream breathe nudge");
+	assert.equal(dataset.owlWorkEffects, "rail enter morph count spine breathe nudge");
 	assert.deepEqual(notifications, [
 		"owl-chat-appearance-change:expanded:off:20px",
 		"owl-chat-appearance-change:compact:on:16px",
