@@ -183,7 +183,12 @@ export class BridgeClient {
 				for (const handler of this.termHandlers) handler(message);
 				return;
 			}
-			if (message.type === "iab.frame" || message.type === "iab.pages" || message.type === "iab.filechooser") {
+			if (
+				message.type === "iab.frame" ||
+				message.type === "iab.pages" ||
+				message.type === "iab.filechooser" ||
+				message.type === "iab.highlight"
+			) {
 				for (const handler of this.iabHandlers) handler(message);
 				return;
 			}
