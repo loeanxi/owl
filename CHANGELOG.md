@@ -22,6 +22,7 @@
 - `coding-agent` 侧栏浏览器显示本会话的多个页面，可直接切换
 - `coding-agent` 浏览器视口预设带设备档案：手机与平板预设会改 User-Agent、移动端布局并开启触控
 - `coding-agent` 页面触发的下载落到工作区的 .owl/downloads，不再被无头浏览器静默丢弃
+- `coding-agent` 浏览器可按可见文字在页面上找控件（browser_query kind=find），命中元素带 ref 可直接操作
 
 ### 改进
 

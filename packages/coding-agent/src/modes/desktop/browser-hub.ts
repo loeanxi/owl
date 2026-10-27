@@ -21,6 +21,7 @@ import { BrowserConsoleJournal } from "./browser-console.ts";
 import { BrowserToolError } from "./browser-errors.ts";
 import { BrowserInteraction, type BrowserTarget, initializeBrowserInteraction } from "./browser-interaction.ts";
 import { BrowserNetworkJournal } from "./browser-network.ts";
+import { loadSessionCookies, saveSessionCookies } from "./browser-profile.ts";
 import { BrowserOperationQueue } from "./browser-queue.ts";
 import { authorizeBrowserUpload } from "./browser-upload.ts";
 import type { IabInputPayload, IabPageInfo } from "./protocol.ts";
@@ -53,6 +54,8 @@ export interface BrowserToolOptions {
 	/** 会话工作区根目录：上传围栏用。 */
 	workspaceRoot?: string;
 	/** 浏览器技能的 SKILL.md 路径：技能门禁的提示用。 */
+	/** 登录态落盘目录：按会话保存 cookie，重开对话时恢复。 */
+	profileDir?: string;
 	skillPath?: string;
 	/**
 	 * 用浏览器前必须先读过的技能名。
@@ -164,6 +167,28 @@ const QUERY_SCRIPT = `
 			);
 			return { kind: "editable", found: true, total: nodes.length, elements: nodes.slice(0, 40).map(describe), nextRef: refs.next };
 		}
+		if (args.kind === "find") {
+			// 按可见文字找元素：长页面上控件可能在快照的后几页，CSS 选择器又不好猜，
+			// 「页面上写着 X 的那个按钮」才是模型手上真正有的信息。命中元素带 ref，可直接操作。
+			const needle = (args.text || "").trim().toLowerCase();
+			if (!needle) return { kind: "find", found: false, reason: "kind=find 需要提供 text", nextRef: refs.next };
+			const nodes = Array.from(
+				document.querySelectorAll(
+					'a[href], button, input, textarea, select, summary, option, [role], [contenteditable="true"], label, li, td, th, h1, h2, h3, h4, h5, h6, p, span, div',
+				),
+			);
+			const hits = [];
+			for (const el of nodes) {
+				if (hits.length >= 20) break;
+				if (!(el instanceof Element) || ariaIsHidden(el)) continue;
+				const text = (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || "")
+					.replace(/s+/g, " ")
+					.trim();
+				if (!text || !text.toLowerCase().includes(needle)) continue;
+				hits.push({ ref: register(el), tag: el.tagName.toLowerCase(), text: text.slice(0, 120) });
+			}
+			return { kind: "find", found: hits.length > 0, total: hits.length, elements: hits, nextRef: refs.next };
+		}
 		if (args.kind === "accessibility") {
 			// 语义树：只列有 ARIA 角色的节点（标题、地标、控件、列表项…），
 			// 每个节点都登记进 ref 记账器，可以直接交给后续动作。
@@ -266,6 +291,8 @@ export class BrowserHub {
 	private readonly sessionControl = new Map<string, boolean>();
 	/** 会话 → 工作区根目录：下载落盘用（浏览器所在的工作区）。 */
 	private readonly sessionWorkspaces = new Map<string, string>();
+	/** 会话 → 登录态落盘目录。 */
+	private readonly profileDirs = new Map<string, string>();
 	/** 未完成的下载：关闭浏览器前先取消，否则 browser.close() 会一直等下载结束。 */
 	private readonly activeDownloads = new Set<Download>();
 	/** 本会话已读过的技能：浏览器动作前必须先读过浏览器技能。 */
@@ -397,6 +424,12 @@ export class BrowserHub {
 		if (!context) {
 			context = await browser.newContext();
 			if (sessionId) this.contexts.set(sessionId, context);
+			// 恢复这个会话上次的登录态：同一个对话重开，agent 不用让用户重新登一遍。
+			const profileDir = sessionId ? this.profileDirs.get(sessionId) : undefined;
+			if (profileDir && sessionId) {
+				const cookies = await loadSessionCookies(profileDir, sessionId);
+				if (cookies.length > 0) await context.addCookies(cookies).catch(() => {});
+			}
 		}
 		if (sessionId) {
 			const owned = this.ownedContexts.get(sessionId) ?? new Set<BrowserContext>();
@@ -568,7 +601,15 @@ export class BrowserHub {
 					await this.withPage(entry.info.pageId, (current) => current.page.close());
 			}
 			this.activePages.delete(sessionId);
+			// 留下登录态：下次重开这个对话，agent 不用让用户重新登录。
+			// 要在 context 被删之前取 cookie。
+			const profileDir = this.profileDirs.get(sessionId);
+			const sessionContext = this.contexts.get(sessionId);
 			this.contexts.delete(sessionId);
+			if (profileDir && sessionContext) {
+				const cookies = await sessionContext.cookies().catch(() => []);
+				await saveSessionCookies(profileDir, sessionId, cookies);
+			}
 			const contexts = this.ownedContexts.get(sessionId);
 			this.ownedContexts.delete(sessionId);
 			for (const context of contexts ?? []) await context.close();
@@ -860,7 +901,8 @@ export class BrowserHub {
 
 	tools(sessionId: string, options: BrowserToolOptions = {}): ToolDefinition[] {
 		if (!sessionId.trim()) throw new BrowserToolError("INVALID_INPUT", "浏览器工具必须绑定聊天");
-		const { workspaceRoot, skillPath } = options;
+		const { workspaceRoot, skillPath, profileDir } = options;
+		if (profileDir) this.profileDirs.set(sessionId, profileDir);
 		const requiredSkill = options.requiredSkill;
 		if (workspaceRoot) this.sessionWorkspaces.set(sessionId, workspaceRoot);
 		const pageFields = {
@@ -1401,7 +1443,7 @@ export class BrowserHub {
 				name: "browser_query",
 				label: "浏览器：按需读取页面",
 				description:
-					"按指定方式读取本聊天页面：text 读可见文本；dom 读 DOM 标记；editable 列出可编辑控件；semantic 按可访问名定位元素；accessibility 读语义树（ARIA 角色、可访问名与状态）。命中元素带 ref，与 browser_snapshot 同源，可直接交给后续动作。",
+					"按指定方式读取本聊天页面：text 读可见文本；dom 读 DOM 标记；editable 列出可编辑控件；semantic 按可访问名定位元素；accessibility 读语义树（ARIA 角色、可访问名与状态）；find 按可见文字找元素（命中元素带 ref）。命中元素带 ref，与 browser_snapshot 同源，可直接交给后续动作。",
 				promptSnippet: "browser_query: 用 text/dom/editable/semantic/accessibility 读取页面",
 				promptGuidelines: [
 					"先 browser_snapshot 观察；快照没给出所需信息时再用 browser_query 按形态补读，不要反复快照。",
@@ -1415,11 +1457,13 @@ export class BrowserHub {
 						Type.Literal("editable"),
 						Type.Literal("semantic"),
 						Type.Literal("accessibility"),
+						Type.Literal("find"),
 					]),
 					selector: Type.Optional(
 						Type.String({ minLength: 1, description: "kind=text 时的 CSS 选择器，省略读整页" }),
 					),
 					name: Type.Optional(Type.String({ minLength: 1, description: "kind=semantic 时的可访问名" })),
+					text: Type.Optional(Type.String({ minLength: 1, description: "kind=find 时要找的可见文字" })),
 					maxChars: Type.Optional(
 						Type.Number({ minimum: 1, maximum: 200_000, description: "读取长度上限，默认 20000" }),
 					),
