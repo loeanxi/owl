@@ -11,6 +11,9 @@
  * 逐帧 setState 会把地址栏/横幅这类受控输入正在编辑的内容冲掉（受控组件
  * 重渲染会拿 state 覆写 DOM value）。state 只留低频量：绑定页元信息、帧的
  * 尺寸（视口切换才变）、舞台尺寸、文件选择横幅。
+ *
+ * 帧的解码在合成器线程做（createImageBitmap），画布按显示尺寸开：拖窗口
+ * 边框时主线程要处理整页重排，帧的解码与缩放都挤在主线程上，面板就会一直抖。
  */
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { t, useT, type TextKey } from "../../i18n/index.ts";
@@ -108,6 +111,45 @@ interface StageGeometry {
 	rect: DOMRect;
 }
 
+/** 拿 2D 上下文：没有 canvas 实现的环境里 getContext 会抛。 */
+function canvasContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
+	try {
+		return canvas.getContext("2d");
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * 解码一帧图像。
+ *
+ * 优先 createImageBitmap：解码在合成器线程做，主线程不阻塞 —— 拖窗口边框时
+ * 主线程本来就要处理整页重排，JPEG 解码挤进来，面板画面就掉帧、看着在抖。
+ * 环境不支持时退回 Image（解码在主线程，但每帧仍只解一次）。
+ */
+async function decodeFrameImage(frame: Frame): Promise<CanvasImageSource | undefined> {
+	if (typeof createImageBitmap === "function" && typeof atob === "function") {
+		try {
+			const binary = atob(frame.data);
+			const bytes = new Uint8Array(binary.length);
+			for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+			return await createImageBitmap(new Blob([bytes], { type: `image/${frame.format}` }));
+		} catch {
+			/* 落到 Image 路径 */
+		}
+	}
+	try {
+		return await new Promise<CanvasImageSource | undefined>((resolve) => {
+			const image = new Image();
+			image.onload = () => resolve(image);
+			image.onerror = () => resolve(undefined);
+			image.src = `data:image/${frame.format};base64,${frame.data}`;
+		});
+	} catch {
+		return undefined;
+	}
+}
+
 export function BrowserTab({ api, tab, store, client }: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const sessionId = useContext(BrowserSessionContext);
@@ -143,6 +185,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	pageRef.current = page;
 	const frameRef = useRef<Frame | undefined>(undefined);
 	const drawScheduled = useRef(false);
+	/** 已解码的当前帧：重绘直接贴它，不必重新解码整张 JPEG。 */
+	const decodedRef = useRef<CanvasImageSource | undefined>(undefined);
+	/** 当前缩放（重绘时算画布尺寸用）。 */
+	const scaleRef = useRef(1);
+
+	/** 适应缩放：auto 时按舞台尺寸等比缩放，其余是用户指定的倍率。 */
+	const scale = (() => {
+		if (!frameSize || stageSize.width === 0) return undefined;
+		return zoom === "auto" ? Math.min(stageSize.width / frameSize.width, stageSize.height / frameSize.height) : zoom;
+	})();
+	scaleRef.current = scale ?? 1;
 
 	const applyPage = useCallback(
 		(next: IabPageInfo): void => {
@@ -158,24 +211,33 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		[store, tab.id],
 	);
 
-	/** 把 frameRef 里的最新帧画到 canvas（setTimeout 合并同帧多次触发）。
+	/** 把当前帧画到 canvas（setTimeout 合并同帧多次触发）。
 	 *  刻意不用 requestAnimationFrame：内嵌在桌面壳里的页面 rAF 可能被永久饿死
 	 *  （实测 ZCode IAB 中 rAF 不触发而 visibilityState 仍为 visible），会黑屏。 */
 	const drawFrame = useCallback((): void => {
 		drawScheduled.current = false;
 		const canvas = canvasRef.current;
+		const source = decodedRef.current;
 		const current = frameRef.current;
-		if (!canvas || !current) return;
-		if (canvas.width !== current.width || canvas.height !== current.height) {
-			canvas.width = current.width;
-			canvas.height = current.height;
+		if (!canvas || !source || !current) return;
+		// 画布按「显示尺寸 × 设备像素」开，合成器 1:1 贴图。
+		// 早先按帧原始尺寸（1280×860）开、再靠 CSS 缩到 40% 显示：拖窗口边框时
+		// 每次布局变化都要把整张位图重新缩放采样，画面整片都在动 —— 看着就是抖。
+		const ratio = Math.min(window.devicePixelRatio || 1, 2);
+		const width = Math.max(1, Math.round(current.width * scaleRef.current * ratio));
+		const height = Math.max(1, Math.round(current.height * scaleRef.current * ratio));
+		// 改后备存储会清空画布，紧接着同一次绘制补上：中间不留空白帧。
+		if (canvas.width !== width || canvas.height !== height) {
+			canvas.width = width;
+			canvas.height = height;
 		}
-		const image = new Image();
-		image.onload = () => {
-			if (frameRef.current !== current) return;
-			canvas.getContext("2d")?.drawImage(image, 0, 0, current.width, current.height);
-		};
-		image.src = `data:image/${current.format};base64,${current.data}`;
+		const context = canvasContext(canvas);
+		if (!context) return;
+		try {
+			context.drawImage(source, 0, 0, width, height);
+		} catch {
+			/* 源不可用（解码失败/被回收）：这一帧跳过，下一帧补上 */
+		}
 	}, []);
 
 	const scheduleDraw = useCallback((): void => {
@@ -183,6 +245,15 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		drawScheduled.current = true;
 		setTimeout(drawFrame, 0);
 	}, [drawFrame]);
+
+	/** canvas 元素换了（挂上/重挂）时补画：新画布是空的。 */
+	const setCanvas = useCallback(
+		(element: HTMLCanvasElement | null): void => {
+			canvasRef.current = element;
+			if (element) scheduleDraw();
+		},
+		[scheduleDraw],
+	);
 
 	/** 从实际画面取几何信息，固定缩放后滚动舞台仍能正确换算点击坐标。 */
 	const stageGeometry = (): StageGeometry | undefined => {
@@ -313,7 +384,16 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 							? prev
 							: { width: next.width, height: next.height },
 					);
-					scheduleDraw();
+					// 解码异步做：解码没回来之前继续显示旧帧（不闪），回来才换。
+					void decodeFrameImage(next).then((source) => {
+						if (!source || frameRef.current !== next) return;
+						const previous = decodedRef.current;
+						decodedRef.current = source;
+						if (previous !== undefined && typeof (previous as ImageBitmap).close === "function") {
+							(previous as ImageBitmap).close();
+						}
+						scheduleDraw();
+					});
 				}
 				return;
 			}
@@ -369,11 +449,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		});
 	}, [page?.pageId, page?.viewport.width, page?.viewport.height]);
 
-	// canvas 挂载/舞台尺寸就位时补画缓冲帧：后台绑定期间收到的帧当时画不进
-	// （canvas 未挂载），激活切回来时靠这次补绘显示，否则白屏
+	// 画布就位/缩放变了时补画缓冲帧：后台绑定期间收到的帧当时画不进
+	// （canvas 未挂载），激活切回来时靠这次补绘显示，否则白屏。
+	// 依赖缩放而不是舞台尺寸：拖窗口边框时舞台尺寸每步都变，可画面内容没变，
+	// 不该每步都重画（重画要贴一次图，积多了面板就跟着抖）。
 	useEffect(() => {
-		if (frameSize && stageSize.width > 0) scheduleDraw();
-	}, [frameSize, stageSize.width, scheduleDraw]);
+		if (frameSize && scale !== undefined) scheduleDraw();
+	}, [frameSize, scale, scheduleDraw]);
 
 	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 1s 兜底轮询：
 	// 嵌在桌面壳里的页面 ResizeObserver/rAF 可能被永久饿死（实测连初始回调
@@ -576,10 +658,6 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 
 	const toolbarButton =
 		"flex h-6 w-6 items-center justify-center rounded text-owl-faint transition-colors hover:bg-owl-hover hover:text-owl-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
-	const scale = (() => {
-		if (!frameSize || stageSize.width === 0) return undefined;
-		return zoom === "auto" ? Math.min(stageSize.width / frameSize.width, stageSize.height / frameSize.height) : zoom;
-	})();
 
 	return (
 		<div className="owl-browser flex h-full flex-col overflow-hidden bg-owl-bg" data-iab-capture>
@@ -929,7 +1007,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 									sendInput({ kind: "mouse", action: "move", x: coords.x, y: coords.y });
 								}}
 							>
-								<canvas ref={canvasRef} className="h-full w-full select-none bg-white" />
+								<canvas ref={setCanvas} className="h-full w-full select-none bg-white" />
 								{highlight && scale ? (
 									<div
 										className="owl-browser-highlight"

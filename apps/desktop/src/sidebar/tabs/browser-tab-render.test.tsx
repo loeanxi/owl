@@ -24,13 +24,14 @@ vi.mock("../iab-bound.ts", () => ({
 let root: Root;
 let host: HTMLElement;
 let handlers: Array<(message: unknown) => void>;
+let dom: ReturnType<typeof parseHTML>;
 
 function push(message: unknown): void {
 	for (const handler of handlers) handler(message);
 }
 
 beforeEach(() => {
-	const dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
+	dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
 	vi.stubGlobal("window", dom.window);
 	vi.stubGlobal("document", dom.document);
 	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
@@ -38,6 +39,22 @@ beforeEach(() => {
 	vi.stubGlobal("Node", dom.window.Node);
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+	// 帧解码走 Image 路径（这里没有 createImageBitmap）：立刻 onload，让测试能等到绘制。
+	vi.stubGlobal(
+		"Image",
+		class {
+			onload: (() => void) | null = null;
+			onerror: (() => void) | null = null;
+			#src = "";
+			set src(value: string) {
+				this.#src = value;
+				setTimeout(() => this.onload?.(), 0);
+			}
+			get src(): string {
+				return this.#src;
+			}
+		},
+	);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 	vi.stubGlobal("ResizeObserver", class {
 		observe(): void {}
@@ -148,5 +165,31 @@ describe("browser tab rendering", () => {
 		expect(tabs.length).toBe(2);
 		expect(tabs[0]?.textContent).toContain("甲页");
 		expect(tabs[1]?.textContent).toContain("乙页");
+	});
+
+	it("opens the canvas at the display size, not at the frame size", async () => {
+		// 舞台 600×400、帧 1280×860 → 缩放 0.465，画布后备存储按显示尺寸开。
+		// 早先按帧原始尺寸开、再靠 CSS 缩到 46% 显示：拖窗口时整张位图被反复
+		// 缩放采样，面板看着一直在抖。
+		Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 600 });
+		Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 400 });
+		await renderTab();
+		act(() => {
+			push({
+				type: "iab.pages",
+				pages: [{ pageId: "page-1", sessionId: "chat-1", url: "https://example.test/", title: "示例", viewport: { width: 1280, height: 860 }, active: true }],
+				origin: "agent",
+			});
+		});
+		act(() => {
+			push({ type: "iab.frame", pageId: "page-1", data: "AAAA", format: "jpeg", width: 1280, height: 860 });
+		});
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		});
+		const canvas = host.querySelector(".owl-browser-stage canvas") as HTMLCanvasElement | null;
+		expect(canvas).not.toBeNull();
+		expect(canvas?.width).toBe(595);
+		expect(canvas?.height).toBe(400);
 	});
 });
