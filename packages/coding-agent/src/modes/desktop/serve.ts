@@ -962,6 +962,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 								...iab.tools(sessionId, {
 									workspaceRoot: runtimeOptions.cwd,
 									skillPath: browserSkillPath,
+									// 登录态按会话落盘：同一个对话重开，用户不用重新登录。
+									profileDir: join(defaultAgentDir(), "browser-sessions"),
 								}),
 								...(await sidebarShowToolFor(agentDir, runtimeOptions.cwd)),
 								...createNewsTools(newsRequest, sessionId, broadcast),
@@ -3430,6 +3432,7 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 			// 插件侧捕获也经同一注册表实例写，broadcast 由注册表的 onChanged 触发。
 			case "diffApproval.list":
 			case "diffApproval.diff":
+			case "diffApproval.diffs":
 			case "diffApproval.preview":
 			case "diffApproval.resolve":
 			case "diffApproval.clear":

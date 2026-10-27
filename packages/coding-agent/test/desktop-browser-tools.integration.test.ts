@@ -144,6 +144,17 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 					responseTimers.add(timer);
 					return;
 				}
+				if (url.pathname === "/cookie") {
+					response
+						.writeHead(200, {
+							"content-type": "text/html; charset=utf-8",
+							"set-cookie": "sid=fixture-session; Path=/",
+						})
+						.end(
+							'<!doctype html><html><body><p id="cookie"></p><script>document.getElementById("cookie").textContent = document.cookie;</script></body></html>',
+						);
+					return;
+				}
 				if (url.pathname === "/download") {
 					response
 						.writeHead(200, {
@@ -202,8 +213,15 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 			await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 		});
 
-		async function invoke(sessionId: string, name: string, input: Record<string, unknown> = {}): Promise<ToolResult> {
-			const tool = hub.tools(sessionId, { workspaceRoot }).find((candidate) => candidate.name === name);
+		async function invoke(
+			sessionId: string,
+			name: string,
+			input: Record<string, unknown> = {},
+			profileDir?: string,
+		): Promise<ToolResult> {
+			const tool = hub
+				.tools(sessionId, { workspaceRoot, ...(profileDir ? { profileDir } : {}) })
+				.find((candidate) => candidate.name === name);
 			if (!tool) throw new Error(`Missing browser tool: ${name}`);
 			// These tools use their bound BrowserHub and do not read the agent extension context.
 			return tool.execute(randomUUID(), input, undefined, undefined, undefined as never);
@@ -529,6 +547,19 @@ describe.skipIf(process.env.OWL_BROWSER_INTEGRATION_TESTS !== "1")(
 					{ timeout: 10_000 },
 				)
 				.toContain("owl download fixture");
+		}, 30_000);
+		it("keeps the login state across a session teardown", async () => {
+			const profileDir = await mkdtemp(join(tmpdir(), "owl-browser-profile-"));
+			await invoke("chat-a", "browser_navigate", { url: baseUrl + "/cookie" });
+			await invoke("chat-a", "browser_wait", { ms: 200 });
+			const before = await invoke("chat-a", "browser_query", { kind: "text", selector: "#cookie" });
+			expect((before.details as { text: string }).text).toContain("sid=fixture-session");
+
+			await hub.disposeSession("chat-a");
+			await invoke("chat-a", "browser_navigate", { url: baseUrl + "/cookie" }, profileDir);
+			await invoke("chat-a", "browser_wait", { ms: 200 });
+			const after = await invoke("chat-a", "browser_query", { kind: "text", selector: "#cookie" }, profileDir);
+			expect((after.details as { text: string }).text).toContain("sid=fixture-session");
 		}, 30_000);
 	},
 );
