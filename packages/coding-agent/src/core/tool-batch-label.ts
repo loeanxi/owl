@@ -60,6 +60,30 @@ function shortField(value: unknown): string {
 	return `${text.slice(0, MAX_FIELD_CHARS - 3)}...`;
 }
 
+/** owl 自家浏览器工具的统一前缀（browser_navigate / browser_click / …）。 */
+const BROWSER_TOOL_PREFIX = "browser_";
+
+/**
+ * 这一批是不是全是浏览器动作。
+ *
+ * 外部 MCP 浏览器族（`mcp_playwright_browser_click` 之类）不算：那是别的后端，
+ * 名字前缀也不同。
+ */
+function isBrowserBatch(batch: AgentToolBatch): boolean {
+	return batch.toolCalls.length > 0 && batch.toolCalls.every((call) => call.name.startsWith(BROWSER_TOOL_PREFIX));
+}
+
+/**
+ * 浏览器批次的固定组标题。
+ *
+ * 措辞对齐 Claude 自己的浏览器分支（它写的是 "Used Claude in Chrome"），
+ * 但 owl 的浏览器是侧栏内置浏览器，所以说的是 "the browser"。
+ */
+export function browserBatchSummary(batch: AgentToolBatch): string {
+	const count = batch.toolCalls.length;
+	return count === 1 ? "Used the browser" : `Used the browser (${count} actions)`;
+}
+
 /**
  * 组装用户提示词。
  *
@@ -117,6 +141,10 @@ export async function generateToolBatchLabel(
 	options: GenerateToolBatchLabelOptions,
 ): Promise<string | undefined> {
 	if (batch.toolCalls.length === 0) return undefined;
+	// 浏览器批次不请求模型：一次浏览器动作基本就是一批（navigate、snapshot、click
+	// 各占一批），每批再额外往返一次模型只为写一句组标题，实测中位 1.76 秒 ——
+	// 比标题本身贵得多。固定文案够用。
+	if (isBrowserBatch(batch)) return browserBatchSummary(batch);
 	const requestOptions: SimpleStreamOptions = {
 		// 标签只有一行，几十个 token 足够；压低上限避免模型展开写。
 		maxTokens: 128,
