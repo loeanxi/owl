@@ -1,12 +1,7 @@
-import { getUiLanguage, useT } from "../i18n/index.ts";
+import { getUiLanguage } from "../i18n/index.ts";
 
-const zh = {
-	title: "待处理消息", current: "当前任务调整", next: "任务结束后处理", delivering: "正在送达，已无法取回或取消", emptyText: "仅附带材料", images: "{n} 张图片", files: "{n} 个文件引用", preview: "查看完整内容", collapse: "收起预览", remove: "取消排队", promote: "提前处理", take: "取回修改", pending: "正在处理…", failed: "队列操作失败", retry: "重试", cancelled: "已取消这条排队消息。", promoted: "已移入当前任务，等待下一次可处理时点。", taken: "已取回完整输入，材料已保留。点击下方追加后再修改。", returned: "已取回的输入", source: "来源会话 {id}", append: "追加到当前草稿", appended: "已放入草稿；原始材料仍保留在这里。", again: "再次追加到草稿", retained: "切换会话后仍可在这里找回，追加会保留当前草稿。", forget: "移除此取回记录", confirmForget: "确认删除这份取回材料", keep: "保留", previewFailed: "无法读取完整内容", returnedFailed: "无法加载已取回的输入", offline: "连接断开，恢复后可重试。", unknownProfile: "账号尚未确认，暂无法安全取回材料。", noSession: "当前没有可操作的会话。", stale: "这条消息已变化，请查看最新队列。", missingPayload: "服务端没有返回完整输入，请重试。", attachment: "取回的图片 {n}", removedReceipt: "已移除此取回记录。", sourceProject: "来源项目", loading: "正在读取完整材料…",
-} as const;
-const en: Record<keyof typeof zh, string> = {
-	title: "Pending messages", current: "Adjust current task", next: "After the task finishes", delivering: "Being delivered; it can no longer be retrieved or cancelled", emptyText: "Materials only", images: "{n} images", files: "{n} file references", preview: "View full input", collapse: "Hide preview", remove: "Cancel queued message", promote: "Process earlier", take: "Retrieve to edit", pending: "Working…", failed: "Queue action failed", retry: "Retry", cancelled: "This queued message was cancelled.", promoted: "Moved to the current task, awaiting the next processing boundary.", taken: "Full input retrieved and retained. Append it below before editing.", returned: "Retrieved inputs", source: "From conversation {id}", append: "Append to current draft", appended: "Added to the draft. The original materials are still retained here.", again: "Append to draft again", retained: "Available after switching conversations. Appending preserves your current draft.", forget: "Remove this retrieved record", confirmForget: "Confirm deleting these retrieved materials", keep: "Keep", previewFailed: "Could not read the full input", returnedFailed: "Could not load retrieved inputs", offline: "Disconnected. Reconnect and retry.", unknownProfile: "Account identity is not confirmed; materials cannot be retrieved safely yet.", noSession: "No active conversation is available.", stale: "This message has changed. Check the latest queue.", missingPayload: "The server returned no complete input. Retry the request.", attachment: "Retrieved image {n}", removedReceipt: "Retrieved record removed.", sourceProject: "Source project", loading: "Loading full materials…",
-};
-export function promptQueueText(key: keyof typeof zh, vars: Record<string, string | number> = {}): string {
-	return (getUiLanguage() === "en" ? en : zh)[key].replace(/\{(\w+)\}/g, (match, name: string) => String(vars[name] ?? match));
+const zh = { promote: "提前处理", remove: "取消排队" } as const;
+const en: Record<keyof typeof zh, string> = { promote: "Process earlier", remove: "Cancel queued message" };
+export function promptQueueText(key: keyof typeof zh): string {
+	return (getUiLanguage() === "en" ? en : zh)[key];
 }
-export function usePromptQueueText(): typeof promptQueueText { useT(); return promptQueueText; }

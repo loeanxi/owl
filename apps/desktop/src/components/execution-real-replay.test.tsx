@@ -75,7 +75,7 @@ it("opens one real turn directly into twelve operations, without round-count fol
 it("keeps the historical path failure in its original record instead of presenting it as latest output after completion", async () => {
 	const entries = rebuild(REAL_REPLAY_MESSAGES, REAL_REPLAY_ENTRY_IDS);
 	await act(async () => root.render(<ChatStream entries={entries} sessionId="actual-session-replay" activity="idle" executionView="normal" />));
-	expect(host.querySelector(".owl-work-latest-output")).toBeNull();
+	expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 	expect(host.querySelector(".owl-work-latest-state")).toBeNull();
 	await act(async () => host.querySelector<HTMLButtonElement>(".owl-work-process-summary")!.click());
 	const error = host.querySelector('[data-tool-id="call_02_xvax6Up245ygbIQ6Num13607"]');

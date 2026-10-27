@@ -28,7 +28,6 @@ async function renderHeader(view: ConversationView = "chat"): Promise<void> {
 	await act(async () => root.render(
 		<ConversationHeader
 			title="你好"
-			workspaceDir=""
 			view={view}
 			onViewChange={onViewChange}
 			terminalOpen={false}
@@ -42,17 +41,21 @@ async function renderHeader(view: ConversationView = "chat"): Promise<void> {
 }
 
 describe("ConversationHeader view switcher", () => {
-	it("默认只露出当前视图名，不渲染弹层", async () => {
+	it("触发钮只显示当前视图图标，悬浮不出列表", async () => {
 		await renderHeader("chat");
 		const tabs = container.querySelector(".owl-view-tabs")!;
-		expect(tabs.querySelector(".owl-view-tabs-trigger")?.textContent).toContain("对话");
+		const trigger = tabs.querySelector(".owl-view-tabs-trigger")!;
+		expect(trigger.textContent).not.toContain("对话");
+		expect(trigger.querySelector("svg")).toBeTruthy();
+		expect(trigger.getAttribute("title")).toBe("对话");
+		await act(async () => tabs.dispatchEvent(new window.Event("mouseover", { bubbles: true })));
 		expect(container.querySelector(".owl-view-tabs-popover")).toBeNull();
 	});
 
-	it("悬停弹出三项视图列表并标记当前项", async () => {
+	it("点击触发钮展开三项视图列表并标记当前项", async () => {
 		await renderHeader("context");
-		const tabs = container.querySelector(".owl-view-tabs")!;
-		await act(async () => tabs.dispatchEvent(new window.Event("mouseover", { bubbles: true })));
+		const trigger = container.querySelector(".owl-view-tabs-trigger")!;
+		await act(async () => trigger.click());
 		const popover = container.querySelector(".owl-view-tabs-popover")!;
 		const items = [...popover.querySelectorAll("button")];
 		expect(items.map((item) => item.textContent)).toEqual(["对话", "上下文", "轨迹"]);
@@ -61,8 +64,8 @@ describe("ConversationHeader view switcher", () => {
 
 	it("点击列表项切换视图并收起弹层", async () => {
 		await renderHeader("chat");
-		const tabs = container.querySelector(".owl-view-tabs")!;
-		await act(async () => tabs.dispatchEvent(new window.Event("mouseover", { bubbles: true })));
+		const trigger = container.querySelector(".owl-view-tabs-trigger")!;
+		await act(async () => trigger.click());
 		const target = [...container.querySelectorAll<HTMLButtonElement>(".owl-view-tabs-popover button")].find((item) => item.textContent?.includes("轨迹"));
 		expect(target).toBeTruthy();
 		await act(async () => target!.click());

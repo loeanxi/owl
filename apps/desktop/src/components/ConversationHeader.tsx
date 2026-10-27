@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n/index.ts";
-import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
-import { IconDownload, IconFolder, IconPanelBottom, IconPanelRight } from "../sidebar/icons.tsx";
-import { IconPencil } from "../sidebar/icons.tsx";
-import { IconDrama } from "../sidebar/quick.tsx";
+import { useProjectSidebarRevision } from "../project-sidebar-model.ts";
+import { IconDownload, IconGitBranch, IconPanelBottom, IconPanelRight, IconPencil } from "../sidebar/icons.tsx";
+import { IconChatDiscussion, IconDrama, IconLayers } from "../sidebar/quick.tsx";
 import { Menu } from "./Menu.tsx";
 import "./conversation-responsive.css";
 
@@ -15,10 +14,16 @@ const exportItemClass =
 
 const VIEW_OPTIONS = ["chat", "context", "trajectory"] as const satisfies readonly ConversationView[];
 
+/** 各视图的图标：触发钮只露当前视图图标，悬浮 title 出视图名。 */
+const VIEW_ICONS: Record<ConversationView, (props: { size?: number }) => ReactNode> = {
+	chat: IconChatDiscussion,
+	context: IconLayers,
+	trajectory: IconGitBranch,
+};
+
 /** Shared conversation chrome for ordinary and research sessions. */
-export function ConversationHeader({ title, workspaceDir, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, mirrorOpen, onToggleMirror, sessionId, onRenameSession, renameDisabled, exporting, onExport, onExportTurns, actions }: {
+export function ConversationHeader({ title, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, mirrorOpen, onToggleMirror, sessionId, onRenameSession, renameDisabled, exporting, onExport, onExportTurns, actions }: {
 	title: string;
-	workspaceDir: string;
 	/** 当前会话的 Agent 预设名：顶栏标签，resume 一眼可辨本会话用的组合。 */
 	presetName?: string;
 	view: ConversationView;
@@ -52,14 +57,10 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 		context: t("app.viewContext"),
 		trajectory: t("app.viewTrajectory"),
 	};
-	// 视图切换收进悬停小列表：默认只露出当前视图名，降低顶栏常驻按钮。
+	const ViewIcon = VIEW_ICONS[view];
+	// 视图切换收进图标菜单：触发钮只露当前视图图标（悬浮 title 出视图名），点击才展开列表。
 	const [viewMenuOpen, setViewMenuOpen] = useState(false);
 	const viewMenuRootRef = useRef<HTMLDivElement>(null);
-	const viewMenuCloseTimer = useRef<number | null>(null);
-
-	useEffect(() => () => {
-		if (viewMenuCloseTimer.current !== null) window.clearTimeout(viewMenuCloseTimer.current);
-	}, []);
 
 	useEffect(() => {
 		if (!viewMenuOpen) return;
@@ -77,17 +78,6 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 		};
 	}, [viewMenuOpen]);
 
-	const openViewMenu = (): void => {
-		if (viewMenuCloseTimer.current !== null) {
-			window.clearTimeout(viewMenuCloseTimer.current);
-			viewMenuCloseTimer.current = null;
-		}
-		setViewMenuOpen(true);
-	};
-	const scheduleCloseViewMenu = (): void => {
-		if (viewMenuCloseTimer.current !== null) window.clearTimeout(viewMenuCloseTimer.current);
-		viewMenuCloseTimer.current = window.setTimeout(() => setViewMenuOpen(false), 150);
-	};
 	// 行内重命名：铅笔进入，Enter 提交 / Esc 取消；空名视为放弃。
 	const [renaming, setRenaming] = useState(false);
 	const [renameDraft, setRenameDraft] = useState("");
@@ -147,43 +137,45 @@ export function ConversationHeader({ title, workspaceDir, presetName, view, onVi
 					{presetName}
 				</span>
 			)}
-			{/* 空目录 = 未选择对话目录（叉掉了 chip），此时不显示项目标签。 */}
-			{workspaceDir !== "" && (
-				<span className="owl-shell-project" title={workspaceDir}><IconFolder size={12} /><span className="owl-shell-project-label">{getProjectDisplayName(workspaceDir)}</span></span>
-			)}
 		</div>
-		<div className="owl-view-tabs" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false" ref={viewMenuRootRef} onMouseEnter={openViewMenu} onMouseLeave={scheduleCloseViewMenu}>
+		<div className="owl-view-tabs" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false" ref={viewMenuRootRef}>
 			<button
 				type="button"
 				className={`owl-view-tabs-trigger${viewMenuOpen ? " is-open" : ""}`}
-				title={t("app.viewSwitchTitle")}
+				title={viewLabels[view]}
+				aria-label={viewLabels[view]}
 				aria-haspopup="menu"
 				aria-expanded={viewMenuOpen}
 				onClick={() => setViewMenuOpen((value) => !value)}
 			>
-				{viewLabels[view]}
-				<svg className="owl-view-tabs-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 6l4 4 4-4" /></svg>
+				<ViewIcon size={16} />
 			</button>
 			{viewMenuOpen && (
 				<div className="owl-view-tabs-popover" role="menu">
-					{VIEW_OPTIONS.map((candidate) => (
-						<button
-							key={candidate}
-							type="button"
-							role="menuitemradio"
-							aria-checked={candidate === view}
-							className={candidate === view ? "is-current" : undefined}
-							onClick={() => {
-								setViewMenuOpen(false);
-								onViewChange(candidate);
-							}}
-						>
-							<span className="owl-view-tabs-label">{viewLabels[candidate]}</span>
-							{candidate === view && (
-								<svg className="owl-view-tabs-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 8.5l3.5 3.5L13 5" /></svg>
-							)}
-						</button>
-					))}
+					{VIEW_OPTIONS.map((candidate) => {
+						const OptionIcon = VIEW_ICONS[candidate];
+						return (
+							<button
+								key={candidate}
+								type="button"
+								role="menuitemradio"
+								aria-checked={candidate === view}
+								className={candidate === view ? "is-current" : undefined}
+								onClick={() => {
+									setViewMenuOpen(false);
+									onViewChange(candidate);
+								}}
+							>
+								<span className="owl-view-tabs-item">
+									<OptionIcon size={14} />
+									<span className="owl-view-tabs-label">{viewLabels[candidate]}</span>
+								</span>
+								{candidate === view && (
+									<svg className="owl-view-tabs-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 8.5l3.5 3.5L13 5" /></svg>
+								)}
+							</button>
+						);
+					})}
 				</div>
 			)}
 		</div>

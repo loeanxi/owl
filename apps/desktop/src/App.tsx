@@ -43,8 +43,6 @@ import { presentLife } from "./features/life-monitor/present.ts";
 import { useLifeProbe } from "./features/life-monitor/use-life-probe.ts";
 import { MediaOverlays } from "./features/media/MediaOverlays.tsx";
 import { ChatStream, type ChatActivity, type MessageSearchTarget } from "./components/ChatStream.tsx";
-import { ExecutionToolbar } from "./components/ExecutionToolbar.tsx";
-import { isExecutionView, nextExecutionView, type ExecutionView } from "./components/execution-view.ts";
 import { executionText } from "./components/execution-copy.ts";
 import { APP_KEYBINDINGS_KEY, DEFAULT_APP_KEYBINDINGS, loadAppKeybindings, matchingAppAction, publishAppKeybindings, type AppKeybindingAction } from "./app-keybindings.ts";
 import type { SessionSearchHit, SessionSearchMessageResult } from "./bridge/protocol.ts";
@@ -118,6 +116,7 @@ import { focusEditorLine } from "./sidebar/editor-line-focus.ts";
 import { focusChangesFile } from "./sidebar/changes-focus.ts";
 import { pushSidebarNotice } from "./sidebar/notice.ts";
 import { summarizeReviewState } from "./sidebar/review-state.ts";
+import { useTurnDiff } from "./components/turn-diff.ts";
 import { peekEditorFocus } from "./sidebar/focus-state.ts";
 import { peekTerminalTail } from "./sidebar/terminal-state.ts";
 import { notifyAgentStatus } from "./utils/notification.ts";
@@ -153,8 +152,6 @@ const WORKBENCH_DOCK_KEY = "owl.workbench.dock";
 const TERMINAL_OPEN_KEY = "owl.terminal.open";
 const WORKBENCH_LAYOUT_KEY = "owl.workbench.layout";
 const CONVERSATION_VIEW_KEY = "owl.conversation.view";
-const EXECUTION_VIEW_KEY = "owl.execution.view";
-const EXECUTION_TOOLBAR_COLLAPSED_KEY = "owl.execution.toolbarCollapsed";
 const RESEARCH_CONVERSATION_VIEW_KEY = "owl.research.conversation.view";
 const ZOOM_KEY = "owl.ui.zoom";
 /** 缩放挡位（对照浏览器 Ctrl+- / Ctrl+Shift+= / Ctrl+0），实际大小 = 1。 */
@@ -467,6 +464,8 @@ export default function App(): React.JSX.Element {
 		localStorage.setItem(WORKSPACE_KEY, DEFAULT_WORKSPACE_DIR);
 		return DEFAULT_WORKSPACE_DIR;
 	});
+	// 本轮改动摘要：Claude 式回答流用它给总结行算 +N −M，并给行内 code 染色。
+	const turnDiff = useTurnDiff(client, workspaceDir, sessionId);
 	// 目录选择状态：叉掉 chip 后为 false——输入框不再绑定目录，会话默认进 DEFAULT_WORKSPACE_DIR。
 	const [workspaceSelected, setWorkspaceSelected] = useState(
 		() => localStorage.getItem(WORKSPACE_SELECTED_KEY) !== "0",
@@ -506,37 +505,12 @@ export default function App(): React.JSX.Element {
 	const [conversationView, setConversationView] = useState<ConversationView>(() =>
 		localStorage.getItem(CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
-	// Display preference is global; it never carries task or output data between sessions.
-	const [executionView, setExecutionView] = useState<ExecutionView>(() => {
-		try { const stored = localStorage.getItem(EXECUTION_VIEW_KEY); return isExecutionView(stored) ? stored : "normal"; } catch { return "normal"; }
-	});
-	const setExecutionViewPersisted = (view: ExecutionView): void => {
-		setExecutionView(view);
-		try { localStorage.setItem(EXECUTION_VIEW_KEY, view); } catch { /* Display remains usable without persistence. */ }
-	};
-	const [executionToolbarCollapsed, setExecutionToolbarCollapsed] = useState(() => {
-		try { return localStorage.getItem(EXECUTION_TOOLBAR_COLLAPSED_KEY) === "1"; } catch { return false; }
-	});
-	const toggleExecutionToolbar = (): void => {
-		setExecutionToolbarCollapsed((current) => {
-			const next = !current;
-			try { localStorage.setItem(EXECUTION_TOOLBAR_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* The toggle stays usable without persistence. */ }
-			return next;
-		});
-	};
+	// 执行记录视图固定为「正常」，入口已移除；不再读写 owl.execution.view。
 	const [appKeybindings, setAppKeybindings] = useState(() => loadAppKeybindings(localStorage));
 	const appKeybindingsRef = useRef(appKeybindings);
 	appKeybindingsRef.current = appKeybindings;
 	// 键位变更时发布快照：工具菜单等 UI 读真实键位显示提示，不另写一份硬编码。
 	useEffect(() => { publishAppKeybindings(appKeybindings); }, [appKeybindings]);
-	const setExecutionShortcut = (binding: string | undefined): boolean => {
-		const next = binding ? [binding] : [...DEFAULT_APP_KEYBINDINGS.cycleExecutionView];
-		if ((Object.keys(appKeybindings) as AppKeybindingAction[]).some((action) => action !== "cycleExecutionView" && appKeybindings[action].some((existing) => next.includes(existing)))) return false;
-		const updated = { ...appKeybindings, cycleExecutionView: next };
-		setAppKeybindings(updated);
-		try { localStorage.setItem(APP_KEYBINDINGS_KEY, JSON.stringify(updated)); } catch { /* The current binding still takes effect. */ }
-		return true;
-	};
 	const [researchConversationView, setResearchConversationView] = useState<ConversationView>(() =>
 		localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "trajectory" ? "trajectory" : localStorage.getItem(RESEARCH_CONVERSATION_VIEW_KEY) === "context" ? "context" : "chat",
 	);
@@ -625,7 +599,6 @@ export default function App(): React.JSX.Element {
 	const [mirrorOpen, setMirrorOpen] = useState(() => localStorage.getItem(MIRROR_OPEN_KEY) === "1");
 	const [workbenchGit, setWorkbenchGit] = useState<{ cwd: string; profile?: string; status?: GitStatusResult }>();
 	const onWorkbenchGitStatus = useCallback((cwd: string, profile: string | undefined, status: GitStatusResult | undefined): void => setWorkbenchGit({ cwd, profile, status }), []);
-	const changeCount = connected && workbenchGit?.cwd === workspaceDir && workbenchGit.profile === agentDir && workbenchGit.status?.repo ? workbenchGit.status.entries.length : undefined;
 	useEffect(() => {
 		const unregister = registerEditorExitGuard({ prepare: () => workbenchStore.prepareToLeave(), needsWarning: () => workbenchStore.hasUnprotectedEdits() });
 		const stopUnloadGuard = listenForUnprotectedEditorUnload(window);
@@ -1722,7 +1695,7 @@ export default function App(): React.JSX.Element {
 					await client.request({ type: "settings.set", values: { owlWallpaper: next } });
 				} catch {
 					// 清单拉不到（桥重启中等）：下个周期再试
-				}
+					}
 			})();
 		}, intervalMs);
 		return () => clearTimeout(timer);
@@ -2095,7 +2068,7 @@ export default function App(): React.JSX.Element {
 			await openSession(String(next.id));
 		} catch {
 			// 桥离线：菜单项通常已禁用，快捷键静默放弃
-		}
+			}
 	};
 
 	useWorkspaceMemory({
@@ -2389,16 +2362,27 @@ export default function App(): React.JSX.Element {
 			next.delete(target!);
 			return next;
 		});
-		if (!queueing) {
+		if (queueing) {
 				// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
 				// 运行中的排队和追加不写进对话，等 queue_update 出现在输入框上方。
-				optimisticEntry = {
-					kind: "user",
-					text: message,
-					timestamp: Date.now(),
-					...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
-					...(hasAttachments ? { attachedPaths: [...attachedPaths!] } : {}),
-				};
+			optimisticEntry = {
+				kind: "user",
+				text: message,
+				timestamp: Date.now(),
+				queued: true,
+				...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+				...(hasAttachments ? { attachedPaths: [...attachedPaths!] } : {}),
+			};
+			setEntries((current) => [...current, optimisticEntry!]);
+		} else {
+			// 乐观行先取本地时钟，entry_appended 事件随后补 entryId。
+			optimisticEntry = {
+				kind: "user",
+				text: message,
+				timestamp: Date.now(),
+				...(hasImages ? { images: images!.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+				...(hasAttachments ? { attachedPaths: [...attachedPaths!] } : {}),
+			};
 			setEntries((current) => [...current, optimisticEntry!]);
 			setPendingPrompts((current) => new Set(current).add(target!));
 		}
@@ -2732,10 +2716,6 @@ export default function App(): React.JSX.Element {
 		openProject: (): void => {
 			if (railView !== "research") setRailView("chat");
 			setShowProjectDialog(true);
-		},
-		cycleExecutionView: (): void => {
-			if (railView !== "chat" || showSettings || visibleSubagent) return;
-			setExecutionViewPersisted(nextExecutionView(executionView));
 		},
 		closeWindow: (): void => { void closeMainWindow(); },
 		quit: (): void => { void quitDesktopApp(); },
@@ -3173,8 +3153,6 @@ export default function App(): React.JSX.Element {
 				<ConversationHeader
 					title={visibleSubagent ? activeSubagent?.agent ?? t("chat.subagentPlain") : railView === "research" ? researchConversationTitle ?? t("app.newConversation") : sessionTitle}
 					onRenameSession={visibleSubagent ? undefined : railView === "research" ? (researchSessionId ? renameResearchFromHeader : undefined) : renameSessionFromHeader}
-					// 未选目录时顶栏不显示项目 chip（会话实际落在默认目录）。
-					workspaceDir={railView === "research" ? (researchWorkspaceSelected ? researchWorkspaceDir : "") : (workspaceSelected ? workspaceDir : "")}
 					presetName={(() => {
 						if (railView === "research" || visibleSubagent) return undefined;
 						const id = sessionId ? sessionPreset ?? stagedPreset : stagedPreset;
@@ -3245,7 +3223,7 @@ export default function App(): React.JSX.Element {
 						</div>}
 						<AgentConversation
 							hidden={railView === "research" || Boolean(visibleSubagent)}
-							header={conversationView === "chat" && entries.length > 0 ? <ExecutionToolbar view={executionView} onView={setExecutionViewPersisted} shortcut={appKeybindings.cycleExecutionView[0]} onShortcut={setExecutionShortcut} onTerminal={toggleTerminalPanel} onTasks={() => openExecution("tasks")} onChanges={() => requestOpenKind("changes")} terminalOpen={terminalOpen} changeCount={changeCount} collapsed={executionToolbarCollapsed} onToggleCollapsed={toggleExecutionToolbar} plan={<TodoPin entries={entries} presentation="summary" />} /> : undefined}
+							header={conversationView === "chat" && entries.length > 0 ? <TodoPin entries={entries} presentation="summary" /> : undefined}
 							view={conversationView}
 							trajectory={(
 							<TrajectoryView entries={entries} active={railView === "chat" && !showSettings} />
@@ -3255,7 +3233,7 @@ export default function App(): React.JSX.Element {
 							)}
 							chat={(
 							<>
-								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream executionView={executionView} onInspectTool={(card, ownerIndex) => openExecution("tool", card, ownerIndex)} key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={requestRegenerate} onEditMessage={handleEditMessage} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} answeredQuestions={answeredQuestions} onQueuedRemove={queuedRemove} onQueuedPromote={queuedPromote} queuedItems={(() => { const snapshot = profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined; return snapshot ? [...snapshot.steering.map((item) => ({ messageId: item.messageId, lane: "steering" as const, text: item.text })), ...snapshot.followUp.map((item) => ({ messageId: item.messageId, lane: "followUp" as const, text: item.text }))] : undefined; })()} />
+								<GenuiSessionProvider client={client} sessionId={sessionId}><ChatStream executionView="normal" diffSummary={turnDiff} onInspectTool={(card, ownerIndex) => openExecution("tool", card, ownerIndex)} key={sessionId ?? workspaceDir} sessionId={sessionId} profile={agentDir} startReady={profileReady && connected} recentSessions={startRecentSessions} onResumeSession={(id) => void openSession(id)} deliveryRequest={deliveryTarget?.sessionId === sessionId ? deliveryTarget?.requestId : undefined} searchHistoryMessage={searchHistory !== undefined && searchHistory.sessionId === sessionId && !entries.some((entry) => (entry.kind === "user" || entry.kind === "assistant") && entry.entryId === searchHistory.result.entryId) ? searchHistory.result : undefined} searchTarget={searchTarget?.sessionId === sessionId ? searchTarget : undefined} entries={entries} cwd={workspaceDir} onOpenFile={openTaskFile} onOpenUrl={openUrlInSidebarBrowser} onQuickAction={requestOpenKind} onPromptExample={(text) => setDraftRequest({ id: ++draftSequence.current, text })} onOpenDeveloper={openDeveloper} artifacts={<TurnArtifacts artifacts={artifacts} cwd={workspaceDir} client={client} sessionId={sessionId} disabled={running || submitting} onOpenFile={openTaskFile} onOpenReview={openWorkbenchReview} />} client={client} onOpenReview={openWorkbenchReview} activity={chatActivity} onRewind={handleRewindClick} onRegenerate={requestRegenerate} onEditMessage={handleEditMessage} onBranch={(entryId) => void handleBranch(entryId)} onOpenAutomation={openAutomation} onOpenSubagent={openSubagentCard} answeredQuestions={answeredQuestions} onQueuedRemove={queuedRemove} onQueuedPromote={queuedPromote} queuedItems={(() => { const snapshot = profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined; return snapshot ? [...snapshot.steering.map((item) => ({ messageId: item.messageId, lane: "steering" as const, text: item.text })), ...snapshot.followUp.map((item) => ({ messageId: item.messageId, lane: "followUp" as const, text: item.text }))] : undefined; })()} />
 								</GenuiSessionProvider>
 								{fileOpenError && <p className="px-4 py-1 text-xs text-red-400" role="alert">{fileOpenError}</p>}
 							</>
@@ -3265,7 +3243,7 @@ export default function App(): React.JSX.Element {
 							<>
 						<SchedulePin client={client} sessionId={sessionId} active={railView === "chat" && !showSettings} onOpenAutomation={openAutomation} />
 						{/* 自动重试横幅：桥端 auto-retry 进行中/耗尽时贴在输入框上方（此前事件过线无人渲染） */}
-						<RetryPin status={retryStatus?.phase === "retrying" ? retryStatus : null} />
+						<RetryPin status={retryStatus?.phase === "retrying" ? retryStatus : null} onDismiss={() => setRetryStatus(null)} />
 						<TaskRecoveryNotice key={sessionId} recovery={!running && !submitting && retryStatus?.phase !== "retrying" ? taskRecovery(entries, retryStatus) : undefined} providers={chatProviders} model={sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue} disabled={!connected} onContinue={resumePaused} onRetry={() => { requestRegenerate(); return true; }} onOpenSettings={() => openSettings("models")} />
 							</>
 							)}
@@ -3294,13 +3272,11 @@ export default function App(): React.JSX.Element {
 								hideEnvironment={connected && (Boolean(activeQuestion) || running)}
 							questionPending={Boolean(activeQuestion)}
 								onSend={sendPrompt}
-								queued={profileReady && sessionId ? promptQueues[promptQueueKey(agentDir, sessionId)] : undefined}
 								queueSessionId={sessionId}
 								queueProfile={profileReady ? agentDir : undefined}
 								queueOwnerRevision={sessionViewSeq.current}
 								queueIsCurrent={() => sessionIdRef.current === sessionId && agentDirRef.current === agentDir && workspaceRef.current === workspaceDir && sessionViewSeq.current === modelScopeRevision}
 								followUp={latestTurn(entries)}
-								onQueueChange={(queue) => { if (sessionId && sessionId === sessionIdRef.current && agentDir === agentDirRef.current) setPromptQueues((current) => ({ ...current, [promptQueueKey(agentDir, sessionId)]: queue })); }}
 								onAbort={() => void abort()}
 								onPause={pauseSession}
 								onResume={() => void resumePaused()}

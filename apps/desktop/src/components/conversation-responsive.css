@@ -17,11 +17,6 @@
 	flex: 1 1 auto;
 }
 
-.owl-desktop-shell .owl-shell-project {
-	flex: 0 1 auto;
-	max-width: 100px;
-}
-
 .owl-desktop-shell .owl-shell-preset-tag {
 	flex: 0 1 auto;
 	max-width: 100px;
@@ -36,10 +31,6 @@
 .owl-desktop-shell .owl-chat-header .owl-shell-header-actions {
 	grid-column: 3;
 	grid-row: 1;
-}
-
-.owl-desktop-shell .owl-chat-header .owl-view-tabs .owl-view-tabs-trigger {
-	padding-inline: 12px;
 }
 
 .owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
@@ -89,10 +80,6 @@
 		grid-column: 1 / -1;
 		grid-row: 2;
 		justify-self: start;
-	}
-
-	.owl-desktop-shell .owl-shell-project {
-		max-width: 64px;
 	}
 }
 

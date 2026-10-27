@@ -8,8 +8,6 @@ import type { ChatEntry, ToolCard } from "./hooks/transcript.ts";
 import type { ExecutionView } from "./components/execution-view.ts";
 import { ExecutionContext, type ExecutionContextValue } from "./sidebar/execution-context.tsx";
 import type { WorkbenchProps } from "./sidebar/Workbench.tsx";
-import { executionText } from "./components/execution-copy.ts";
-import { APP_KEYBINDINGS_KEY } from "./app-keybindings.ts";
 import type { PermissionRequest, QuestionRequest, SessionQueueSnapshot } from "./bridge/protocol.ts";
 import type { DynamicIslandProps } from "./components/DynamicIsland.tsx";
 import { QuestionDock } from "./components/QuestionDock.tsx";
@@ -23,9 +21,10 @@ type ReplayCallbacks = {
 	onResumeSession: (id: string) => void;
 	onEditMessage: (entryId: string, text: string) => boolean | Promise<boolean>;
 	entries: ChatEntry[];
+	queuedItems?: ReadonlyArray<{ messageId: string; lane: "steering" | "followUp"; text: string }>;
 };
 type SidebarCallbacks = { onNewChat: () => void; onOpenSession: (id: string) => void; activeId?: string };
-type ComposerInput = { draftRequest?: { text: string }; onSend: (message: string) => Promise<boolean>; sessionInfo?: { model?: { id: string } }; model: string; onModel: (value: string) => void; modelSelection?: { status: string; actual: string; target: string; error?: string }; onRetryModelSelection: () => void; queued?: SessionQueueSnapshot; queueProfile?: string; queueSessionId?: string; queueIsCurrent?: () => boolean; onQueueChange: (queue: SessionQueueSnapshot) => void };
+type ComposerInput = { draftRequest?: { text: string }; onSend: (message: string) => Promise<boolean>; sessionInfo?: { model?: { id: string } }; model: string; onModel: (value: string) => void; modelSelection?: { status: string; actual: string; target: string; error?: string }; onRetryModelSelection: () => void; queueProfile?: string; queueSessionId?: string; queueIsCurrent?: () => boolean };
 type ResearchCallbacks = { onOpenFile: (path: string) => Promise<void>; onSwitchProject: (path: string) => void; cwd: string };
 const fixture = vi.hoisted(() => ({
 	request: vi.fn<(request: Record<string, unknown>) => Promise<unknown>>(),
@@ -190,52 +189,23 @@ async function shortcut(key: string, shiftKey = false): Promise<void> {
 }
 
 describe("App execution controls", () => {
-	it("cycles a global view preference without changing sessions, sending or stopping work", async () => {
+	it("keeps the execution view pinned to normal and leaves Ctrl+O free for the browser", async () => {
 		expect(fixture.chat!.executionView).toBe("normal");
 		fixture.request.mockClear();
-		await shortcut("o"); expect(fixture.chat!.executionView).toBe("thinking");
-		await shortcut("o"); expect(fixture.chat!.executionView).toBe("verbose");
 		await shortcut("o"); expect(fixture.chat!.executionView).toBe("normal");
-		expect(storage.get("owl.execution.view")).toBe("normal");
 		expect(fixture.sidebar!.activeId).toBe("source-session");
 		expect(fixture.request.mock.calls.filter(([request]) => ["session.prompt", "session.abort", "session.resume"].includes(String(request.type)))).toEqual([]);
 		await shortcut("o", true);
 		expect(document.querySelector('[data-testid="project-dialog"]')).not.toBeNull();
 	});
 
-	it("saves a configurable view shortcut and keeps the former key available to the browser", async () => {
-		await act(async () => responseButton(`${executionText("normal")} ${executionText("view")}⌄`).click());
-		const change = responseButton(executionText("captureShortcut"));
-		await act(async () => change.click());
-		await act(async () => {
-			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
-			Object.assign(event, { key: "u", code: "KeyU", ctrlKey: true, altKey: false, metaKey: false, shiftKey: false });
-			change.dispatchEvent(event);
-		});
-		expect(JSON.parse(storage.get(APP_KEYBINDINGS_KEY)!)).toMatchObject({ cycleExecutionView: ["ctrl+u"] });
-		await shortcut("o"); expect(fixture.chat!.executionView).toBe("normal");
-		await shortcut("u"); expect(fixture.chat!.executionView).toBe("thinking");
-	});
-
-	it("opens tool evidence and background tasks as session-bound execution tabs", async () => {
+	it("opens tool evidence as a session-bound execution tab", async () => {
 		const card: ToolCard = { id: "check-one", name: "bash", args: '{"command":"check"}', summary: "check", status: "running" };
 		await act(async () => fixture.chat!.onInspectTool(card, 1));
 		const evidence = fixture.workbench!.store.getState().tabs.find((tab) => tab.kind === "execution")!;
 		expect(JSON.parse(evidence.path!)).toEqual({ sessionId: "source-session", profile: "D:/profile-one", mode: "tool", toolId: "check-one", ownerIndex: 1 });
 		expect(fixture.workbench!.open).toBe(true);
-		await act(async () => responseButton(executionText("tasks")).click());
-		expect(fixture.workbench!.store.getState().tabs.filter((tab) => tab.kind === "execution")).toHaveLength(2);
 		expect(fixture.workbench!.store.getState().tabs.some((tab) => tab.kind === "terminal")).toBe(false);
-	});
-
-	it("uses the existing Git snapshot for counts and rejects late snapshots from another project or profile", async () => {
-		const snapshot = { repo: true, entries: [{ path: "a.ts", x: " ", y: "M" }, { path: "b.ts", x: " ", y: "M" }] };
-		await act(async () => fixture.workbench!.onGitStatusChange!("D:/project", "D:/profile-one", snapshot));
-		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)?.textContent).toBe("2");
-		await act(async () => fixture.workbench!.onGitStatusChange!("D:/old-project", "D:/profile-one", snapshot));
-		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)).toBeNull();
-		await act(async () => fixture.workbench!.onGitStatusChange!("D:/project", "D:/other-profile", snapshot));
-		expect(document.querySelector(`[aria-label="${executionText("changes")}"] b`)).toBeNull();
 	});
 
 	it("acknowledges feedback only after a real prompt succeeds and uses steering during execution", async () => {
@@ -302,21 +272,19 @@ describe("App queue snapshot ownership", () => {
 		await act(async () => fixture.status?.(false)); await act(async () => fixture.status?.(true));
 		expect(fixture.composer!.queueProfile).toBe(profile);
 	}
-	it("retains stable identities from events and ignores an old conversation's acknowledgement callback", async () => {
+	it("retains stable identities from events and drops them when the conversation changes", async () => {
 		await loadProfile("D:/profile-one");
 		await act(async () => fixture.event?.({ type: "event", sessionId: "source-session", event: { type: "queue_update", ...queue } }));
-		expect(fixture.composer!.queued).toEqual(queue);
-		const oldUpdate = fixture.composer!.onQueueChange;
+		expect(fixture.chat!.queuedItems).toEqual([{ messageId: "queued-one", lane: "followUp", text: "检查材料" }]);
 		await act(async () => fixture.sidebar!.onOpenSession("other-session"));
-		await act(async () => oldUpdate(queue));
-		expect(fixture.composer!.queueSessionId).toBe("other-session"); expect(fixture.composer!.queued).toBeUndefined();
+		expect(fixture.composer!.queueSessionId).toBe("other-session"); expect(fixture.chat!.queuedItems).toBeUndefined();
 	});
 	it("does not reuse another profile's queue even when the conversation ID is unchanged", async () => {
 		await loadProfile("D:/profile-one");
 		await act(async () => fixture.event?.({ type: "event", sessionId: "source-session", event: { type: "queue_update", ...queue } }));
-		expect(fixture.composer!.queued).toEqual(queue);
+		expect(fixture.chat!.queuedItems).toEqual([{ messageId: "queued-one", lane: "followUp", text: "检查材料" }]);
 		await loadProfile("D:/profile-two");
-		expect(fixture.composer!.queued).toBeUndefined(); expect(fixture.composer!.queueSessionId).toBe("source-session");
+		expect(fixture.chat!.queuedItems).toBeUndefined(); expect(fixture.composer!.queueSessionId).toBe("source-session");
 	});
 });
 

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ChatEntry, ToolCard } from "../hooks/transcript.ts";
 import { setUiLanguage } from "../i18n/index.ts";
 import { ChatStream } from "./ChatStream.tsx";
-import { isExecutionView, nextExecutionView, type ExecutionView } from "./execution-view.ts";
+import type { ExecutionView } from "./execution-view.ts";
 
 vi.mock("./OwlMascot.tsx", () => ({ OwlMascot: () => null, useSessionOwlPose: () => "idle" }));
 
@@ -86,7 +86,8 @@ it("keeps finished historical errors in the disclosure without pinning stale out
 	const failed = tool("missing", "error", "Path not found: D:/owl/owl-re-v1/packages");
 	const corrected = tool("correct-path", "ok", "owl-mono/packages exists");
 	await render({ entries: turn(assistant("work", [failed, corrected]), assistant("answer", [], { text: "项目根目录已经确认。" })), activity: "idle" });
-	expect(host.querySelector(".owl-work-latest-state, .owl-work-latest-output")).toBeNull();
+	expect(host.querySelector(".owl-work-latest-state")).toBeNull();
+	expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 	// 结束态不再显示失败角标；历史错误仍在工具记录详情里可查。
 	expect(host.querySelector(".owl-work-issue-link")).toBeNull();
 	expect(visibleText()).not.toContain("Path not found");
@@ -110,20 +111,12 @@ it("keeps compact tool headers to one action and exposes the full-output action 
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(call, 1);
 });
 
-it("cycles exactly the supported execution views", () => {
-	expect(nextExecutionView("normal")).toBe("thinking");
-	expect(nextExecutionView("thinking")).toBe("verbose");
-	expect(nextExecutionView("verbose")).toBe("normal");
-	expect(isExecutionView("verbose")).toBe(true);
-	expect(isExecutionView("full")).toBe(false);
-});
-
 it("keeps finished cancellation in the original records while normal history stays folded", async () => {
 	const output = ["first", "second", "third", "fourth", "取消前的原始输出"].join("\n");
 	await render({ entries: turn(assistant("work", [tool("old"), tool("current", "cancelled", output)])), activity: "idle" });
 	expect(host.querySelector(".owl-work-process-summary")?.getAttribute("aria-expanded")).toBe("false");
 	expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
-	expect(host.querySelector(".owl-work-latest-output, .owl-work-latest-state")).toBeNull();
+	expect(host.querySelector(".owl-work-latest-state, .owl-work-issue-tail")).toBeNull();
 	expect(visibleText()).not.toMatch(/已通过|100%|剩余.*秒/);
 	expect(host.querySelector(".owl-work-metadata")?.textContent).not.toMatch(/\d+s/);
 	await click(".owl-work-process-summary");
@@ -173,7 +166,7 @@ it("returns automatically expanded history to normal defaults after leaving verb
 	await render({ executionView: "normal" });
 	expect(host.querySelector(".owl-work-process-summary")?.getAttribute("aria-expanded")).toBe("false");
 	expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
-	expect(host.querySelector(".owl-work-latest-output")).toBeNull();
+	expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 });
 
 it("retains a manually opened process while automatic tool and output expansion returns to normal", async () => {
@@ -222,12 +215,12 @@ it("retains manual thinking expansion through streaming text growth and persiste
 	expect(visibleText()).toContain("正在核对第一处，然后检查第二处，核对结束");
 });
 
-it("opens the exact tool owner in the workspace from the latest output", async () => {
+it("opens the exact tool owner in the workspace from the failure tail", async () => {
 	const onInspectTool = vi.fn();
 	const first = tool("shared", "ok", "earlier owner");
 	const last = tool("shared", "error", "原始失败输出");
 	await render({ onInspectTool, entries: turn(assistant("first", [first]), assistant("last", [last])) });
-	await click(".owl-work-latest-toolbar button[data-work-reading]");
+	await click(".owl-work-issue-tail");
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(last, 2);
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("执行失败");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).not.toContain("已完成");
@@ -242,17 +235,18 @@ it("keeps a non-zero check visible during work until the identical check succeed
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("执行结果待核对");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("运行项目检查");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("执行失败");
-	expect(host.querySelector(".owl-work-latest-output pre")?.textContent).toBe(failed.output!.text);
-	await click(".owl-work-latest-toolbar button[data-work-reading]");
+	expect(host.querySelector(".owl-work-issue-tail")?.textContent).toBe(failed.output!.text);
+	await click(".owl-work-issue-tail");
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(failed, 1);
 	const recovered: ToolCard = { ...failed, id: "successful-retry", status: "ok", output: { text: "相同检查已返回退出码 0", totalLines: 1 } };
 	await render({ entries: turn(assistant("work", [failed, unrelated, recovered])) });
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).not.toContain("执行结果待核对");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("已完成");
-	expect(host.querySelector(".owl-work-latest-output pre")?.textContent).toBe(recovered.output!.text);
+	// 重试成功后失败末行随之撤下：运行中的常驻信息只留给还没被修复的失败。
+	expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 	expect(visibleText()).toContain("1 项操作重试成功");
 	await render({ activity: "idle" });
-	expect(host.querySelector(".owl-work-latest-output, .owl-work-latest-state")).toBeNull();
+	expect(host.querySelector(".owl-work-latest-state, .owl-work-issue-tail")).toBeNull();
 });
 
 it.each(["normal", "thinking", "verbose"] as ExecutionView[])("keeps progress, tool groups and the final answer in real order in %s", async (executionView) => {

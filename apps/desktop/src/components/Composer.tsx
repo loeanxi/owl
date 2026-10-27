@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { BridgeClient } from "../bridge/client.ts";
-import type { AgentPresetDefinition, ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionQueueSnapshot, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
+import type { AgentPresetDefinition, ApprovalMode, FsSearchHit, ProviderModelsMessage, SessionStatsResult, SlashCommandEntry } from "../bridge/protocol.ts";
 import { getUiLanguage, t, useT, type TextKey } from "../i18n/index.ts";
 import { Menu } from "./Menu.tsx";
 import { NewProjectDialog } from "./NewProjectDialog.tsx";
@@ -12,10 +12,8 @@ import { extractPlainText } from "./AttachedFileChip.tsx";
 import { ComposerMaterials } from "./ComposerMaterials.tsx";
 import type { ModelSelectionFeedback } from "../hooks/use-model-selection.ts";
 import { ModelSelectionNotice } from "./ModelSelectionNotice.tsx";
-import { usePromptQueue } from "../hooks/use-prompt-queue.ts";
 import { usePromptSuggestion } from "../hooks/use-prompt-suggestion.ts";
-import { PromptQueue } from "./PromptQueue.tsx";
-import { absoluteAttachmentPath, checkAttachmentPaths, type AttachmentIssue } from "../hooks/attachment-preflight.ts";
+import { checkAttachmentPaths, type AttachmentIssue } from "../hooks/attachment-preflight.ts";
 import { AttachmentPreflightNotice } from "./AttachmentPreflightNotice.tsx";
 import { classifyHtmlDrop, dropPointHits, fileBasename, imageMimeOfName, splitDroppedPaths } from "./composer-drop.ts";
 import { PresetAvatar } from "./agent-preset-meta.tsx";
@@ -524,12 +522,10 @@ export function Composer({
 	initialDraft,
 	onDraftChange,
 	onOpenContext,	owlPose = "idle",
-	queued,
 	queueSessionId,
 	queueProfile,
 	queueOwnerRevision,
 	queueIsCurrent,
-	onQueueChange,
 	followUp,
 	hideMascot = false,
 	questionPending = false,
@@ -549,13 +545,11 @@ export function Composer({
 	environmentAccessory?: ReactNode;
 	/** false or rejection leaves the complete draft intact; void preserves synchronous callers. */
 	onSend: (text: string, images?: ComposerImage[], attachedPaths?: string[], delivery?: "queue" | "steer") => boolean | void | Promise<boolean | void>;
-	/** Pending lines while the session is running. Steering is delivered at the next tool boundary. */
-	queued?: SessionQueueSnapshot;
+	/** 队列归属的会话与身份，用于发送动效的所有权判定。 */
 	queueSessionId?: string;
 	queueProfile?: string;
 	queueOwnerRevision?: string | number;
 	queueIsCurrent?: () => boolean;
-	onQueueChange?: (queue: SessionQueueSnapshot) => void;
 	/** Latest user and assistant text, so the next-prompt hint can follow this turn. */
 	followUp?: { user: string; assistant: string };
 	/** 输入框上方已经有排队或任务清单时，把沿口上的猫头鹰收起来。 */
@@ -711,25 +705,6 @@ export function Composer({
 		draftRevision.current++;
 		updateAttachedPaths(next);
 	};
-	const promptQueue = usePromptQueue({
-		client, connected, sessionId: queueSessionId, profile: queueProfile, cwd: workspaceDir,
-		conversationScope: sessionScope, ownerRevision: queueOwnerRevision, isCurrent: queueIsCurrent, queue: queued, onQueueChange,
-		onAppend: (receipt) => {
-			const references = receipt.input.attachedPaths.map((path) => {
-				const absolute = absoluteAttachmentPath(path, receipt.sourceCwd);
-				if (!absolute) throw new Error(`无法解析原文件引用：${path}`);
-				return absolute;
-			});
-			const text = receipt.input.text;
-			if (text) {
-				setDraftValue(value.trim() ? `${value}\n\n${text}` : text);
-				if (editorRef.current) appendPlainText(editorRef.current, text, value.trim().length > 0);
-			}
-			if (receipt.input.images.length) setPendingImages((current) => [...current, ...receipt.input.images.map((image) => ({ ...image, id: `img-${++imageSeq}` }))]);
-			if (references.length) setAttachedPaths((current) => [...new Set([...current, ...references])]);
-			editorRef.current?.focus();
-		},
-	});
 	const [mentionOpen, setMentionOpen] = useState(false);
 	const [mentionQuery, setMentionQuery] = useState("");
 	const [mentionItems, setMentionItems] = useState<FsSearchHit[]>([]);
@@ -1591,7 +1566,7 @@ export function Composer({
 		`${modelDisplayName(providers, model, t("composer.defaultModel"))} · ${thinkingName}`,
 	].filter(Boolean).join(" · ");
 	const settingsTitle = `${settingsSummary}\n${approvalMode === "auto" ? `${t("composer.owlAutoWarning")}\n` : ""}${t("composer.owlSettings")}`;
-	const mascotHidden = hideMascot || questionPending || Boolean(queued?.steering.length || queued?.followUp.length);
+	const mascotHidden = hideMascot || questionPending;
 
 	return (
 		<div
@@ -1724,7 +1699,6 @@ export function Composer({
 					</button>
 					{environmentAccessory && <div className="owl-composer-environment-accessory">{environmentAccessory}</div>}
 				</div>}
-				<PromptQueue queue={queueProfile ? queued : undefined} controller={promptQueue} />
 				<ComposerMaterials key={attachmentOwner} images={pendingImages} files={chipEntries} onPreview={(image) => setZoomedImage(pendingImages.find((pending) => pending.id === image.id) ?? null)} onRemoveImage={(id) => {
 					setPendingImages((current) => current.filter((image) => image.id !== id));
 					editorRef.current?.focus({ preventScroll: true });
