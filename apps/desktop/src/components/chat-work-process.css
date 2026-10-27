@@ -85,7 +85,7 @@
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-record-foot button:hover,
 .owl-work-process .owl-work-process-item:not([data-work-kind="interactive"]) .owl-work-output-toggle:hover { background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent); color: var(--owl-reading-text); }
 /* 文字式按钮补一层悬停下划线：灰色小字与普通元信息靠这层 affordance 区分开。 */
-.owl-work-process :is(.owl-work-issue-link, .owl-work-answer-link, .owl-work-output-toggle, .owl-work-inspect, .owl-work-latest-toolbar button, .owl-work-process-foot button):hover { text-decoration: underline; text-underline-offset: 3px; }
+.owl-work-process :is(.owl-work-issue-link, .owl-work-answer-link, .owl-work-output-toggle, .owl-work-inspect, .owl-work-issue-tail, .owl-work-process-foot button):hover { text-decoration: underline; text-underline-offset: 3px; }
 .owl-work-process .owl-thinking > button:hover { color: var(--owl-reading-text); }
 
 .owl-work-process .owl-work-process-body {
@@ -115,8 +115,7 @@
 .owl-work-process .owl-thinking-count { color: var(--owl-reading-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .owl-work-process .owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer { color: var(--owl-reading-text); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); }
 
-.owl-work-process .owl-work-latest-state,
-.owl-work-process .owl-work-latest-toolbar {
+.owl-work-process .owl-work-latest-state {
 	display: flex;
 	min-width: 0;
 	align-items: center;
@@ -137,14 +136,25 @@
 /* 结束态结果词：成功的绿字是「这轮成了」的唯一信号；取消保持中性灰。 */
 .owl-work-process .owl-work-terminal-word[data-tone="ok"] { color: var(--color-owl-success); }
 .owl-work-process .owl-work-terminal-word[data-tone="neutral"] { color: var(--owl-reading-muted); }
-/* 截断提示比工具栏文字再弱一档，只负责告诉人「看到的是尾巴」。 */
-.owl-work-process .owl-work-latest-lines { color: var(--owl-reading-faint); }
-.owl-work-process .owl-work-latest-output { min-width: 0; margin: 4px 0 8px var(--owl-work-text-inset); padding: 8px 12px; border: 1px solid var(--owl-reading-border); border-left: 2px solid color-mix(in srgb, var(--color-owl-accent) 55%, var(--owl-reading-border)); border-radius: 7px; background: var(--owl-reading-panel); }
-/* 输出块左沿随结果着色：失败红，与状态词、竖轨同一套语义。 */
-.owl-work-process .owl-work-latest-output[data-output-status="error"] { border-left-color: color-mix(in srgb, var(--color-owl-danger) 55%, var(--owl-reading-border)); }
-.owl-work-process .owl-work-latest-toolbar > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.owl-work-process .owl-work-latest-output pre { margin: 4px 0 0; color: var(--owl-reading-text); font-family: var(--font-mono); font-size: var(--owl-chat-code-font-size, 13px); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.owl-work-process .owl-work-latest-toolbar button,
+/* 失败末行：不带面板的红色 mono 文本，直接跟在最近状态行下，点击进完整记录。
+   成功的输出尾巴不上屏——运行中的常驻信息只有失败值得占一块版面。 */
+.owl-work-process .owl-work-issue-tail {
+	display: block;
+	width: 100%;
+	margin: 2px 0 4px;
+	padding: 0 0 0 var(--owl-work-text-inset);
+	border: 0;
+	background: transparent;
+	color: var(--color-owl-danger);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.6;
+	text-align: left;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+}
+.owl-work-process .owl-work-issue-tail:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
 .owl-work-process .owl-work-inspect {
 	display: inline-flex;
 	min-height: 32px;
@@ -183,10 +193,132 @@
 .owl-work-process .owl-work-go-answer:hover { background: color-mix(in srgb, var(--color-owl-accent) 20%, transparent); }
 .owl-work-process .owl-work-go-answer:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }
 .owl-work-process .owl-work-inspect { flex: none; min-width: 32px; justify-content: center; }
-/* 折叠态里「查看完整输出」是唯一的深挖入口，用轻强调色和元信息区分开。 */
-.owl-work-process .owl-work-latest-toolbar button { color: var(--color-owl-accent); }
-.owl-work-process :is(.owl-work-latest-toolbar button, .owl-work-inspect):hover { background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent); color: var(--owl-reading-text); }
-.owl-work-process :is(.owl-work-latest-toolbar button, .owl-work-inspect):focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
+.owl-work-process .owl-work-inspect:hover { background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent); color: var(--owl-reading-text); }
+.owl-work-process .owl-work-inspect:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
+
+/* 思考时长：Claude 在思考标题旁标出「Thought for 12s」，是思考有多贵的直接读数。 */
+.owl-work-process .owl-thinking-duration { flex: none; color: var(--owl-reading-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* 工具分组头：Claude 的「Ran N commands」是整组的折叠入口。
+   组头与组内工具行共用同一套缩进轨道，展开后行不跳位。 */
+.owl-work-process .owl-work-tool-group { margin: 2px 0; }
+.owl-work-process .owl-work-group-head {
+	display: flex;
+	width: 100%;
+	min-height: 28px;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 0;
+	border-radius: 5px;
+	color: var(--owl-reading-muted);
+	font-size: 13px;
+	line-height: 1.6;
+	text-align: left;
+	transition: background 120ms ease, color 120ms ease;
+}
+.owl-work-process .owl-work-group-head:hover { background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent); color: var(--owl-reading-text); }
+.owl-work-process .owl-work-group-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
+.owl-work-process .owl-work-group-chevron { transform: rotate(90deg); }
+.owl-work-process .owl-work-tool-group[data-collapsed="true"] .owl-work-group-chevron { transform: rotate(0deg); }
+.owl-work-process .owl-work-group-label { min-width: 0; flex: 1; font-weight: 500; }
+.owl-work-process .owl-work-group-count { flex: none; color: var(--owl-reading-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.owl-work-process .owl-work-group-body[hidden] { display: none; }
+
+
+/* ============================================================================
+   Claude 风格的回答流
+   工具组、公开说明与思考块直接平铺在正文之间 —— Claude Desktop 没有
+   「工作过程」这一层总折叠，所以这里也不造。
+
+   规格取自 Claude Desktop 实机截图：
+     组头    纯文字、14px、正文色、箭头在右，无边框无底
+     组盒    12px 圆角、细边框、背景比正文略深
+     组内行  13px 次级色，右侧箭头
+     输出区  等宽字体、浅底、可滚动
+   ========================================================================== */
+.owl-claude-flow-item { margin: 6px 0; }
+
+/* 组头：一行文字加一个箭头，和正文同层。 */
+.owl-claude-group { margin: 0; }
+.owl-claude-group-head {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 0;
+	color: var(--owl-reading-text);
+	font-size: 14px;
+	line-height: 1.6;
+	text-align: left;
+	transition: color 120ms ease;
+}
+.owl-claude-group-head:hover { color: var(--owl-reading-text); }
+.owl-claude-group-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
+.owl-claude-group-title { min-width: 0; flex: 1; }
+.owl-claude-group-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
+.owl-claude-group-head[aria-expanded="true"] .owl-claude-group-chevron { transform: rotate(90deg); }
+
+/* 组盒：整组一个圆角盒，盒内每条工具一行。 */
+.owl-claude-group-box {
+	margin-top: 4px;
+	border: 1px solid var(--owl-reading-border);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--owl-reading-text) 3%, transparent);
+	overflow: hidden;
+}
+.owl-claude-group-row + .owl-claude-group-row { border-top: 1px solid color-mix(in srgb, var(--owl-reading-text) 8%, transparent); }
+.owl-claude-group-row { position: relative; }
+.owl-claude-group-row-head {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 14px;
+	color: var(--owl-reading-muted);
+	font-size: 13px;
+	line-height: 1.6;
+	text-align: left;
+	transition: background 120ms ease, color 120ms ease;
+}
+.owl-claude-group-row-head:hover { background: color-mix(in srgb, var(--owl-reading-text) 5%, transparent); color: var(--owl-reading-text); }
+.owl-claude-group-row-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: -2px; }
+.owl-claude-group-row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-claude-group-row-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
+.owl-claude-group-row-head[aria-expanded="true"] .owl-claude-group-row-chevron { transform: rotate(90deg); }
+/* 失败：整行标红，并在行首留一个红点 —— Claude 靠颜色表达失败，不加图标占位。 */
+.owl-claude-group-row[data-status="error"] .owl-claude-group-row-label { color: var(--color-owl-danger); }
+.owl-claude-group-row[data-status="error"] .owl-claude-group-row-chevron { color: var(--color-owl-danger); }
+.owl-claude-group-row-failed {
+	position: absolute;
+	left: 4px;
+	top: 50%;
+	width: 4px;
+	height: 4px;
+	margin-top: -2px;
+	border-radius: 50%;
+	background: var(--color-owl-danger);
+}
+/* 组头的失败计数：与 Claude 的错误计数同色。 */
+.owl-claude-group-failed-count {
+	flex: none;
+	color: var(--color-owl-danger);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+/* 展开后是原始工具输出（grep 的行号前缀就在文本里），等宽、可滚动。 */
+.owl-claude-group-output {
+	margin: 0;
+	padding: 10px 14px 14px;
+	max-height: 320px;
+	overflow: auto;
+	color: var(--owl-reading-muted);
+	font-family: ui-monospace, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre;
+	tab-size: 4;
+}
 
 /* Every record uses a 16px icon slot followed by the same 8px gap.
    块内行距收紧：行高 28px（仍高于 24px 触达下限），纵向留白交给块间分隔。 */
@@ -306,14 +438,14 @@
 /* ============================================================================
    执行过程动效
 
-   八条动效由根节点的 data-fx 空格分词表开关，删掉一个 token 即关掉一条：
+   七条动效由根节点的 data-fx 空格分词表开关，删掉一个 token 即关掉一条：
      rail 状态流光条 / enter 新行落位 / morph 完成跃迁 / count 秒数跳动
-     spine 左侧进度轨 / stream 输出提示 / breathe 等待呼吸 / nudge 失败微震
+     spine 左侧进度轨 / breathe 等待呼吸 / nudge 失败微震
 
    硬约束：
    - 不触发布局。只动 opacity、transform、background、box-shadow，不改宽高、内外边距、行高。
    - 不参与内容可见性。任何动效都不允许让用户正在读的文字被裁掉或变透明，
-     否则一旦动画被暂停、节流或重播就会丢内容。stream 因此只画内嵌描边。
+     否则一旦动画被暂停、节流或重播就会丢内容。
    - 需要动画的伪元素必须自己写静止态 opacity: 0 —— 关掉动画时 animation-fill-mode
      不再生效，否则扩散环和光晕会退化成常驻描边。
    ========================================================================== */
@@ -418,12 +550,6 @@
 .owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row[data-status="pending"]::before { background: color-mix(in srgb, var(--color-owl-warning) 55%, var(--owl-reading-border)); }
 .owl-work-process[data-fx~="spine"] .owl-work-tool-list .owl-tool-row .owl-tool-detail { margin-left: 0; }
 
-/* stream：最新输出块左沿一次短促的强调色提示。
-   原型里用过 clip-path 横向揭开和整体淡入，但在真实组件里实测到这条动画会被反复触发，
-   一旦停在首帧就会把用户正在读的实时输出整块遮住。因此改成只动内嵌描边：
-   纯绘制变化，不参与内容可见性，即使动画被暂停或重播也永远不会遮住任何文字。 */
-@keyframes owl-work-stream-in { from { box-shadow: inset 2px 0 0 0 var(--color-owl-accent); } to { box-shadow: inset 2px 0 0 0 transparent; } }
-.owl-work-process[data-fx~="stream"]:is([data-state="running"], [data-state="waiting"]) .owl-work-latest-output { animation: owl-work-stream-in 560ms cubic-bezier(0.22, 0.72, 0.28, 1) both; }
 
 /* breathe：等用户确认时主行缓呼吸，时钟一圈琥珀 halo */
 @keyframes owl-work-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
@@ -457,3 +583,35 @@ html[data-owl-chat-motion="off"] .owl-work-process :is(*, *::before, *::after),
 	.owl-work-process :is(*, *::before, *::after),
 	.owl-work-process .owl-collapse-body { animation: none !important; }
 }
+
+/* Claude 风格的思考区块：有摘要时就地展开在正文流里，不是折叠行。 */
+.owl-claude-thinking { margin: 6px 0; }
+.owl-claude-thinking-summary {
+	margin: 0 0 4px;
+	color: var(--owl-reading-muted);
+	font-size: 13.5px;
+	line-height: 1.65;
+}
+.owl-claude-thinking-duration { color: var(--owl-reading-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* 轮末总结行：Claude 的形态是「做过什么 + diff 统计」，灰字、可点开。 */
+.owl-claude-summary { margin: 10px 0 2px; }
+.owl-claude-summary-head {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 2px 0;
+	color: var(--owl-reading-muted);
+	font-size: 13px;
+	line-height: 1.6;
+	text-align: left;
+}
+.owl-claude-summary-head:hover { color: var(--owl-reading-text); }
+.owl-claude-summary-text { min-width: 0; }
+.owl-claude-summary-added { color: var(--color-owl-success); font-variant-numeric: tabular-nums; }
+.owl-claude-summary-removed { color: var(--color-owl-danger); font-variant-numeric: tabular-nums; }
+.owl-claude-summary-tail { color: var(--owl-reading-faint); font-size: 12px; }
+.owl-claude-summary-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
+.owl-claude-summary-head[aria-expanded="true"] .owl-claude-summary-chevron { transform: rotate(90deg); }
+.owl-claude-summary-body { margin-top: 4px; padding-left: 2px; }
+.owl-claude-summary-failed { color: var(--color-owl-danger); font-size: 12px; line-height: 1.6; }

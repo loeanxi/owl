@@ -56,7 +56,7 @@ export type PiMessagesEvent =
 	| { type: "text_start"; contentIndex: number }
 	| { type: "text_delta"; contentIndex: number; delta: string }
 	| { type: "text_end"; contentIndex: number; content: string; contentSignature?: string }
-	| { type: "thinking_start"; contentIndex: number }
+	| { type: "thinking_start"; contentIndex: number; summaries?: string[] }
 	| { type: "thinking_delta"; contentIndex: number; delta: string }
 	| {
 			type: "thinking_end";
@@ -64,6 +64,8 @@ export type PiMessagesEvent =
 			content: string;
 			contentSignature?: string;
 			redacted?: boolean;
+			/** 网关透传的推理摘要（Claude Desktop 用它替代原始思考文字）。 */
+			summaries?: string[];
 	  }
 	| { type: "toolcall_start"; contentIndex: number; id: string; toolName: string }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string }
@@ -230,7 +232,13 @@ function createEventConverter(model: Model<"pi-messages">) {
 				});
 				break;
 			case "thinking_start":
-				partial.content[event.contentIndex] = { type: "thinking", thinking: "" };
+				partial.content[event.contentIndex] = {
+					type: "thinking",
+					thinking: "",
+					...(event.summaries !== undefined && event.summaries.length > 0
+						? { summaries: [...event.summaries] }
+						: {}),
+				};
 				break;
 			case "thinking_delta":
 				(partial.content[event.contentIndex] as { thinking: string }).thinking += event.delta;
@@ -240,6 +248,9 @@ function createEventConverter(model: Model<"pi-messages">) {
 					thinking: event.content,
 					thinkingSignature: event.contentSignature,
 					redacted: event.redacted,
+					...(event.summaries !== undefined && event.summaries.length > 0
+						? { summaries: [...event.summaries] }
+						: {}),
 				});
 				break;
 			case "toolcall_start":

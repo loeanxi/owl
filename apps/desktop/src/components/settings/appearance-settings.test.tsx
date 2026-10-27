@@ -144,7 +144,7 @@ describe("Appearance settings real-page integration", () => {
 		expect(settingWrites()).toEqual([]);
 		expect(document.documentElement.style.getPropertyValue("--owl-chat-font-size")).toBeUndefined();
 		await act(async () => buttonWithin(group("reading"), t("settings.general.saveReading")).click());
-		expect(settingWrites()).toEqual([{ type: "settings.set", values: { desktopChatAppearance: { fontSize: 20, codeFontSize: 14, lineHeight: 1.8, width: 860, toolRecords: "expanded", motion: false, workEffects: { rail: true, enter: true, morph: true, count: true, spine: true, stream: true, breathe: true, nudge: true } } } }]);
+		expect(settingWrites()).toEqual([{ type: "settings.set", values: { desktopChatAppearance: { fontSize: 20, codeFontSize: 14, lineHeight: 1.8, width: 860, toolRecords: "expanded", motion: false, claudeFlow: true, thinkingStyle: "claude", workEffects: { rail: true, enter: true, morph: true, count: true, spine: true, breathe: true, nudge: true } } } }]);
 		expect(document.documentElement.style.getPropertyValue("--owl-chat-font-size")).toBe("20px");
 		expect(props.onWallpaperChange).not.toHaveBeenCalled();
 	});
@@ -157,7 +157,6 @@ describe("Appearance settings real-page integration", () => {
 			"settings.general.workEffectMorph",
 			"settings.general.workEffectCount",
 			"settings.general.workEffectSpine",
-			"settings.general.workEffectStream",
 			"settings.general.workEffectBreathe",
 			"settings.general.workEffectNudge",
 		] as const;

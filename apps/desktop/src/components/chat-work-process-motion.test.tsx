@@ -82,20 +82,20 @@ describe("work process motion wiring", () => {
 	it("exposes every motion as a separate token on the process root", async () => {
 		await render({ entries: turn(assistant("work-entry", [readTool("only", "src/only.ts")])) });
 		const tokens = workProcess().dataset.fx?.split(" ") ?? [];
-		expect(tokens).toEqual(["rail", "enter", "morph", "count", "spine", "stream", "breathe", "nudge"]);
+		expect(tokens).toEqual(["rail", "enter", "morph", "count", "spine", "breathe", "nudge"]);
 	});
 
 	it("drops the token of an effect the user turned off", async () => {
 		applyWorkEffects({ ...DEFAULT_WORK_EFFECTS, spine: false, nudge: false });
 		await render({ entries: turn(assistant("work-entry", [readTool("only", "src/only.ts")])) });
 		const tokens = workProcess().dataset.fx?.split(" ") ?? [];
-		expect(tokens).toEqual(["rail", "enter", "morph", "count", "stream", "breathe"]);
+		expect(tokens).toEqual(["rail", "enter", "morph", "count", "breathe"]);
 		expect(tokens).not.toContain("spine");
 		expect(tokens).not.toContain("nudge");
 	});
 
 	it("drops every token when the user turns all effects off", async () => {
-		applyWorkEffects({ ...DEFAULT_WORK_EFFECTS, rail: false, enter: false, morph: false, count: false, spine: false, stream: false, breathe: false, nudge: false });
+		applyWorkEffects({ ...DEFAULT_WORK_EFFECTS, rail: false, enter: false, morph: false, count: false, spine: false, breathe: false, nudge: false });
 		await render({ entries: turn(assistant("work-entry", [readTool("only", "src/only.ts")])) });
 		expect(workProcess().dataset.fx).toBe("");
 	});

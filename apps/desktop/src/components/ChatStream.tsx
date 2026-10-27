@@ -30,10 +30,15 @@ import { collectAttachmentReceipts, type AttachmentReceipt as Receipt } from "..
 import { AttachmentReceipt } from "./AttachmentReceipt.tsx";
 import { useWorkProcessText, workProcessText } from "./work-process-copy.ts";
 import { enabledWorkEffectIds, useWorkEffects } from "./work-process-effects.ts";
-import { workActionFacts, workActionPath, workActionStatus, workActionTitle, workLatestOutput, type WorkAction } from "./work-process-model.ts";
+import { workActionFacts, workActionPath, workActionStatus, workActionTitle, type WorkAction } from "./work-process-model.ts";
 import type { ExecutionView } from "./execution-view.ts";
 import "./chat-work-process.css";
 import { ImageViewer } from "./ImageViewer.tsx";
+import { formatThinkingDuration, thinkingDurationText } from "./claude-answer-groups.ts";
+import { ClaudeTurnSummaryRow } from "./ClaudeTurnSummaryRow.tsx";
+import { ClaudeToolGroupView } from "./ClaudeToolGroupView.tsx";
+import { claudeThinkingShape } from "./claude-thinking-shape.ts";
+import type { TurnDiffSummary } from "./turn-diff.ts";
 
 const AttachmentToolContext = createContext<{ toolId: string; ownerIndex?: number; requestId: number } | undefined>(undefined);
 const WorkToolFocusContext = createContext<{ toolId: string; ownerIndex?: number } | undefined>(undefined);
@@ -46,6 +51,11 @@ type WorkPresentation = {
 };
 const WorkPresentationContext = createContext<WorkPresentation | undefined>(undefined);
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
+/**
+ * 工具分组（Claude 的「Ran N commands」）的收起状态。
+ * 单独一个 context：它变化时只有工具列表需要重画，不该把整棵会话树带着重算。
+ */
+const ToolGroupContext = createContext<{ collapsed: ReadonlySet<string>; setCollapsed: (groupKey: string, collapsed: boolean) => void }>({ collapsed: EMPTY_KEYS, setCollapsed: () => {} });
 /** 本次运行中才出现的工具行，键是 ToolRowView 用的 `ownerIndex:toolId`。会话恢复的老行不在其中。 */
 const WorkArrivedContext = createContext<ReadonlySet<string>>(EMPTY_KEYS);
 /** 过程区运行中的秒针（WorkProcessRow 的 now 状态）：运行中的行耗时跟着它每秒更新，收尾后冻结。 */
@@ -251,7 +261,32 @@ function StatusSlot({ status, errorKind, justDone }: { status: ToolStatus; error
 /** 思考原文预览行数：超过才出「查看全文」，展开后全高进页面滚动，不再嵌套内滚。 */
 const THINKING_PREVIEW_LINES = 12;
 
-function ThinkingRow({ thinking, segments, searchTarget }: { thinking: string; segments?: readonly { key?: string; entryId?: string; text: string }[]; searchTarget?: MessageSearchTarget }): React.JSX.Element {
+/** 思考块的实测时长：起止时刻都齐才算数，缺一端不给假时长。 */
+function thinkingMsOf(segment: AssistantSegment): number | undefined {
+	if (segment.kind !== "thinking") return undefined;
+	if (segment.startedAt === undefined || segment.endedAt === undefined) return undefined;
+	const ms = segment.endedAt - segment.startedAt;
+	return ms > 0 ? ms : undefined;
+}
+
+/** 思考时长文案：Claude 的「Thought for 12s」，按界面语言组装。 */
+function thinkingDurationLabel(segment: AssistantSegment): string | undefined {
+	const ms = thinkingMsOf(segment);
+	if (ms === undefined) return undefined;
+	const duration = formatThinkingDuration(ms);
+	if (duration === undefined) return undefined;
+	const text = thinkingDurationText(duration, (value, unit) => `${value}${unit}`);
+	return workProcessText("thoughtFor", { time: text });
+}
+
+/** 同上，但直接吃毫秒数（合并多段时用）。 */
+function thinkingDurationTextOrUndefined(ms: number): string | undefined {
+	const duration = formatThinkingDuration(ms);
+	if (duration === undefined) return undefined;
+	return workProcessText("thoughtFor", { time: thinkingDurationText(duration, (value, unit) => `${value}${unit}`) });
+}
+
+function ThinkingRow({ thinking, segments, searchTarget, duration, summaries, claudeThinking }: { thinking: string; segments?: readonly { key?: string; entryId?: string; text: string; ms?: number }[]; searchTarget?: MessageSearchTarget; duration?: string; summaries?: string[]; claudeThinking?: boolean }): React.JSX.Element {
 	const copy = useWorkProcessText();
 	const revealsHit = Boolean(searchTarget && segments?.some((segment) => segment.entryId === searchTarget.entryId));
 	const presentation = useContext(WorkPresentationContext);
@@ -263,26 +298,56 @@ function ThinkingRow({ thinking, segments, searchTarget }: { thinking: string; s
 	const lines = useMemo(() => allLines.filter((line) => line.trim() !== "").length, [allLines]);
 	const canExpand = allLines.length > THINKING_PREVIEW_LINES;
 	const bodyKey = "thinking:" + (keys[0] ?? thinking);
+	// 合并成一段的思考：时长取各段实测之和，缺一段就整体不给（不给假时长）。
+	const mergedMs = useMemo(() => {
+		const values = (segments ?? []).map((segment) => segment.ms).filter((ms): ms is number => ms !== undefined);
+		if (values.length === 0 || values.length !== (segments?.length ?? 0)) return undefined;
+		return values.reduce((sum, ms) => sum + ms, 0);
+	}, [segments]);
+	const durationText = duration ?? (mergedMs === undefined ? undefined : thinkingDurationTextOrUndefined(mergedMs));
+
+	// Claude 模式：完全按 Claude 的规则 —— 原始思考文字永不显示，
+	// 显示的是 provider 给的 summaries；没有摘要时只留标题（原始思考的第一行）。
+	const shape = claudeThinking ? claudeThinkingShape(thinking, summaries, workProcessText("thinkingOriginal")) : undefined;
+	if (shape?.kind === "hidden") return <></>;
+	if (shape?.kind === "in-place") {
+		return (
+			<div className="owl-claude-thinking">
+				{shape.summaries?.map((summary, index) => (
+					<p key={index} className="owl-claude-thinking-summary">{summary}</p>
+				))}
+				{shape.summaries === undefined && shape.label !== undefined && (
+					<p className="owl-claude-thinking-summary">{shape.label}</p>
+				)}
+				{durationText !== undefined && <span className="owl-claude-thinking-duration">{durationText}</span>}
+			</div>
+		);
+	}
 	return (
 		<div className="owl-thinking" data-open={open || undefined}>
 			<button type="button" className="flex w-full cursor-pointer select-none items-center gap-1.5 py-0.5 text-left" data-message-action-ui="" aria-expanded={open} onClick={() => { for (const key of keys) presentation?.thoughts.set(key, !open); setOpen(!open); }}>
 				<IconLightbulb className="h-3.5 w-3.5" />
 				<IconChevron className="owl-thinking-chevron h-3 w-3 shrink-0 transition-transform" />
 				<span title={t("chat.thinkingLines", { n: lines })}>{workProcessText("thinkingOriginal")}</span>
+				{durationText !== undefined && <span className="owl-thinking-duration">{durationText}</span>}
 				<span className="owl-thinking-count" aria-hidden="true">{lines}</span>
 			</button>
 			<div className="owl-collapse-body" data-open={open || undefined}>
-				<div className="owl-thinking-panel">
-					<div className="owl-thinking-toolbar" data-message-action-ui="">
-						<span className="owl-thinking-count">{t("chat.thinkingLines", { n: lines })}</span>
-						<MessageCopyButton text={thinking} label={copy("copyOutput")} identity={bodyKey + ":copy"} showLabel />
-						{canExpand && <button type="button" className="owl-work-output-toggle" data-work-reading="" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? copy("collapseOutput") : copy("expandOutput", { n: allLines.length })}</button>}
+				{/* 面板的边距/背景必须包在裁剪层内侧：0fr 只裁内容，裁不掉第一层子元素
+				    自己的 padding 和背景，直接挂上去收起时会漏出一条空面板。 */}
+				<div>
+					<div className="owl-thinking-panel">
+						<div className="owl-thinking-toolbar" data-message-action-ui="">
+							<span className="owl-thinking-count">{t("chat.thinkingLines", { n: lines })}</span>
+							<MessageCopyButton text={thinking} label={copy("copyOutput")} identity={bodyKey + ":copy"} showLabel />
+							{canExpand && <button type="button" className="owl-work-output-toggle" data-work-reading="" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? copy("collapseOutput") : copy("expandOutput", { n: allLines.length })}</button>}
+						</div>
+						<pre className="owl-thinking-text">
+							{canExpand && !expanded
+								? allLines.slice(0, THINKING_PREVIEW_LINES).join("\n")
+								: segments ? segments.map((segment, index) => <span key={String(index) + ":" + segment.entryId} data-entry-id={segment.entryId}>{index > 0 ? "\n\n" : ""}{segment.text}</span>) : thinking}
+						</pre>
 					</div>
-					<pre className="owl-thinking-text">
-						{canExpand && !expanded
-							? allLines.slice(0, THINKING_PREVIEW_LINES).join("\n")
-							: segments ? segments.map((segment, index) => <span key={String(index) + ":" + segment.entryId} data-entry-id={segment.entryId}>{index > 0 ? "\n\n" : ""}{segment.text}</span>) : thinking}
-					</pre>
 				</div>
 			</div>
 		</div>
@@ -472,6 +537,9 @@ function ToolRowView({ card, ownerIndex, entryId, expanded = false, autoOpen = t
 	);
 }
 
+/**
+ * 组内工具列表（owl 原本的一层折叠里用；Claude 模式走 ClaudeToolGroupView）。
+ */
 function ToolRecords({ cards, owners, entryIds, expanded, onOpenSubagent }: { cards: ToolCard[]; owners: ReadonlyMap<ToolCard, number>; entryIds: ReadonlyMap<number, string>; expanded: boolean; onOpenSubagent?: (card: ToolCard) => void }): React.JSX.Element {
 	return <div className="owl-work-tool-list">
 		{cards.map((card) => <ToolRowView key={String(owners.get(card)) + ":" + card.id} card={card} ownerIndex={owners.get(card)} entryId={entryIds.get(owners.get(card) ?? -1)} expanded={expanded} autoOpen={false} processView onOpenSubagent={onOpenSubagent} />)}
@@ -492,6 +560,8 @@ type WorkProcessItem = {
 	owners?: ReadonlyMap<ToolCard, number>;
 	entryIds?: ReadonlyMap<number, string>;
 	thinking?: string;
+	/** 思考块的时长（毫秒）：渲染成 Claude 的「Thought for 12s」。 */
+	thinkingMs?: number;
 	interactive?: boolean;
 	/** 公开进展：折叠时也保持可见，不随工具行一起收起。 */
 	note?: boolean;
@@ -588,7 +658,7 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 		}
 	}, [items, actions]);
 	const facts = workActionFacts(actions);
-	const thinkingSegments = items.filter((item) => item.thinking !== undefined).map((item) => ({ key: item.key, entryId: item.entryId, text: item.thinking! }));
+	const thinkingSegments = items.filter((item) => item.thinking !== undefined).map((item) => ({ key: item.key, entryId: item.entryId, text: item.thinking!, ms: item.thinkingMs }));
 	const searchedAction = searchTarget ? actions.find((action) => action.entryId === searchTarget.entryId && [action.card.summary, action.card.detail, action.card.output?.text].some((text) => text?.toLocaleLowerCase().includes(searchTarget.query.toLocaleLowerCase()))) : undefined;
 	const searchFocus = useMemo(() => searchedAction ? { toolId: searchedAction.card.id, ownerIndex: searchedAction.ownerIndex } : undefined, [searchedAction?.card.id, searchedAction?.ownerIndex, searchTarget?.requestId]);
 	const current = activeScope ? workActionFacts(actions.filter((action) => action.scope === activeScope.id)).current : undefined;
@@ -598,7 +668,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const activeActions = activeScope ? actions.filter((action) => action.scope === activeScope.id) : [];
 	const activeFacts = workActionFacts(activeActions);
 	const reviewIssue = running && !current ? activeFacts.issues.at(-1) : undefined;
-	const latestOutput = running ? reviewIssue?.card.output?.text.trim() ? reviewIssue : workLatestOutput(activeActions, current) : undefined;
 	const latestStatus = running ? reviewIssue ?? activeFacts.recent.at(-1) : undefined;
 	const issueKind = facts.issues.some(({ card }) => isHardFailure(card)) ? "failed" : facts.issues.some(({ card }) => errorKindOf(card.name, card.output?.text) === "blocked") ? "blocked" : "exit";
 	// 耗时单独成节点，好让 count 动效只改它的 opacity，不牵动整行的排版。
@@ -612,9 +681,6 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 	const allDoneRun = finishedRun && facts.issues.length === 0 && !cancelledRun;
 	const terminalWord = allDoneRun ? { text: copy("allDone"), tone: "ok" } : cancelledRun ? { text: copy("runCancelled"), tone: "neutral" } : undefined;
 	const terminalTone = allDoneRun ? "text-owl-success" : cancelledRun ? "text-owl-faint" : !finishedRun ? "" : issueKind === "failed" ? "text-owl-danger" : issueKind === "blocked" ? "text-owl-warning" : "";
-	// 预览只取末 3 行：超出时给出「末 3 行 · 共 N 行」，不让人把尾巴当全部。
-	const latestOutputLineCount = latestOutput?.card.output !== undefined ? Math.max(latestOutput.card.output.totalLines ?? 0, latestOutput.card.output.text.split("\n").length) : 0;
-	const latestOutputLines = latestOutputLineCount > 3 ? latestOutputLineCount : undefined;
 	const hasOrdinaryItems = items.some((item) => !item.interactive);
 	useEffect(() => {
 		if (!open || !focusedTool) return;
@@ -697,7 +763,9 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 			</div>}
 			{activeScope?.subagents.some((card) => card.status === "running" || card.status === "pending") && <div className="owl-work-delegations">{activeScope.subagents.filter((card) => card.status === "running" || card.status === "pending").map((card) => <SubagentLiveLine key={card.id} card={card} onOpen={() => onOpenSubagent ? onOpenSubagent(card) : setProcessOpen(true)} />)}</div>}
 			<div id={panelId} className="owl-tool-group-body owl-work-process-body" data-open={open}>
-				{items.filter((item) => !item.thinking && (open || item.interactive || item.note)).map((item) => <div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.note ? "note" : item.cards ? "tool" : "note"} data-fresh={item.cards ? "false" : arrivedItems.has(item.key) ? "true" : "false"}>{item.content}</div>)}
+				{items.filter((item) => !item.thinking && (open || item.interactive || item.note)).map((item) => (
+					<div key={item.key} data-entry-id={item.entryId} className="owl-work-process-item" data-work-kind={item.interactive ? "interactive" : item.note ? "note" : item.cards ? "tool" : "note"} data-fresh={item.cards ? "false" : arrivedItems.has(item.key) ? "true" : "false"}>{item.content}</div>
+				))}
 				{thinkingSegments.length > 0 && <div className="owl-work-process-item" data-work-kind="thinking" data-fresh={arrivedItems.has(thinkingSegments[0]!.key) ? "true" : "false"} hidden={!open && view === "normal"}>{open || view !== "normal" ? <ThinkingRow thinking={thinkingSegments.map((segment) => segment.text).join("\n\n")} segments={thinkingSegments} searchTarget={searchTarget} /> : null}</div>}
 			</div>
 			{latestStatus && <div className="owl-work-latest-state" data-status={latestStatus.card.status} data-error-kind={latestStatus.card.status === "error" ? errorKindOf(latestStatus.card.name, latestStatus.card.output?.text) : undefined}>
@@ -706,15 +774,9 @@ function WorkProcessRow({ scopes, hasAnswer, onOpenSubagent, searchTarget }: {
 				<span className="owl-work-latest-title"><InlineSummary text={workActionTitle(latestStatus.card)} /></span>
 				<span className="owl-work-status-word">{workActionStatus(latestStatus.card)}</span>
 			</div>}
-			{latestOutput && <section className="owl-work-latest-output" aria-label={copy("latestOutput")} data-output-status={latestOutput.card.status}>
-				<div className="owl-work-latest-toolbar"><span>{copy("latestOutput")}{latestOutput.key !== current?.key ? " · " + workActionTitle(latestOutput.card) : ""}</span>
-					{latestOutputLines !== undefined && <span className="owl-work-latest-lines">{copy("latestLinesHint", { n: 3, total: latestOutputLines })}</span>}
-					{/* 预览只有末 3 行：把刚出现的报错/路径直接复制走，不必为此开完整面板。 */}
-					{latestOutput.card.output?.text !== undefined && <MessageCopyButton text={latestOutput.card.output.text} label={copy("copyOutput")} identity={latestOutput.key + ":latest"} showLabel />}
-					<button type="button" data-work-reading="" onClick={() => inspectAction(latestOutput)}>{copy("inspectTool")}</button>
-				</div>
-				<pre>{tailLines(latestOutput.card.output!.text, 3).preview}</pre>
-			</section>}
+			{/* 运行中只让失败常驻：红色末行文本代替整个输出面板，点击进完整记录。
+			    成功的输出尾巴不再上屏，全部证据在记录详情里。 */}
+			{reviewIssue?.card.output?.text.trim() && <button type="button" className="owl-work-issue-tail" data-work-reading="" title={copy("inspectTool")} onClick={() => inspectAction(reviewIssue)}>{tailLines(reviewIssue.card.output!.text, 3).preview}</button>}
 			{waiting && current && <div className="owl-work-waiting-cta">
 				<button type="button" className="owl-work-go-answer" data-work-reading="" onClick={jumpToComposer}>{copy("goAnswer")}<span aria-hidden="true">↓</span></button>
 			</div>}
@@ -1012,10 +1074,19 @@ type RowOptions = {
 	cacheScope: string;
 	/** 跨条目的工具批次元素缓存（一个工具批次可横跨多条 assistant 消息）。 */
 	batchItems: Map<string, BatchItem>;
+	/** 本轮改动摘要：总结行的 +N −M 用它。 */
+	diffSummary?: TurnDiffSummary;
+	/** 思考按 Claude 的方式呈现（只显示摘要）还是 owl 的可展开原文。 */
+	claudeThinking?: boolean;
+	/**
+	 * Claude 模式：工具组、公开说明与思考块直接平铺在正文之间，
+	 * 不收进「工作过程」总折叠层。
+	 */
+	claudeFlow: boolean;
 };
 
 /** Keep prose and tool groups in the order emitted by the assistant. */
-function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, onQueuedRemove, onQueuedPromote, queuedItems, client, busy, cacheScope, batchItems }: RowOptions): TimelineRow[] {
+function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expandedTools, onRewind, cwd, onOpenFile, turnCard, renderTurnArtifacts, streaming, runActive, canRegenerate, onRegenerate, onEditMessage, onBranch, onOpenAutomation, onOpenSubagent, onQueuedRemove, onQueuedPromote, queuedItems, client, busy, cacheScope, batchItems, claudeFlow, diffSummary, claudeThinking }: RowOptions): TimelineRow[] {
 	const rows: TimelineRow[] = [];
 	const usedQueued = new Set<string>();
 	// 上一轮的末尾时刻（assistant.endedAt 优先，退化到时间戳）：轮间隔超阈值时插时间分隔线。
@@ -1157,6 +1228,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 	// 在正文出现前或当前段收口时整理过程，保持真实工作段边界。todo 仍由独立入口管理。
 	// 交互渲染卡保留原组件，不转换成普通命令或静态答案。
 	let workRows: WorkProcessItem[] = [];
+	// Claude 模式：这一轮做过的工具，用于「做过什么」那一行总结。
+	const claudeTurnCards: ToolCard[] = [];
 	let workSteps = 0;
 	let workFailed = 0;
 	let workPendingTools: ToolCard[] = [];
@@ -1191,6 +1264,21 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		// 工具批次元素按内容签名缓存：卡片对象在条目重建时换新身份，但内容不变就复用，
 		// React 对相同引用的整棵工具树跳过调和（批次可能横跨多条 assistant，不能按条目缓存）。
 		const batchSig = cards.map((card) => `${card.id}:${card.status}:${card.output === undefined ? "" : `${card.output.text.length}:o`}`).join("|");
+		const toolsKey = "tools-" + toolOwners.get(cards[0]!) + ":" + cards[0]!.id;
+		if (claudeFlow) {
+			// Claude 模式：工具组直接平铺进回答流，不进「工作过程」折叠层。
+			// 整组一个圆角盒，盒内每条一行（Claude Desktop 的真实形态）。
+			rows.push({
+				key: toolsKey,
+				entryId: entryIds.get(toolOwners.get(cards[0]!) ?? -1),
+				quiet: true,
+				content: <div className="owl-claude-flow-item"><ClaudeToolGroupView cards={cards} /></div>,
+			});
+			// 步数与卡片仍要收进轮末总结：Claude 的那行「做过什么」靠的就是它们。
+			workSteps += cards.length;
+			claudeTurnCards.push(...cards);
+			return;
+		}
 		// 键必须含 owner：供应商复用 call ID 时，不同轮次的同名批次内容不同，不能共用缓存元素。
 		const batchKey = `tools:${expandedTools ? "expanded" : "collapsed"}:${toolOwners.get(cards[0]!)}:${cards[0]!.id}:${cards.length}`;
 		const cachedBatch = batchItems.get(batchKey);
@@ -1200,19 +1288,42 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			return element;
 		})();
 		workRows.push({
-			key: "tools-" + toolOwners.get(cards[0]!) + ":" + cards[0]!.id,
+			key: toolsKey,
 			toolIds: cards.map((card) => `${toolOwners.get(card)}:${card.id}`),
 			cards,
 			owners: toolOwners,
 			entryIds,
+			// owl 原本的一层折叠：组头由「工作过程」的汇总行表达，工具组不再另起一个头，
+			// 免得同一段里出现两次「跑了几个工具」。
 			content,
 		});
 	};
 	// Preserve emitted segment order. Only the latest segment owned by the active run is live.
 	// 交互卡先于折叠行，并且在没有工具步时也要落盘。
+	// Claude 模式：在正文出现之前插一行「做过什么」。
+	// Claude 的形态是工具组之后、正文之前一行总结（Searched code, read and edited
+	// style.css, ran a command +90 −7），这行由后端撰写，这里按同样的结构合成。
+	const flushClaudeSummary = (): void => {
+		if (!claudeFlow) return;
+		if (claudeTurnCards.length === 0) return;
+		const cards = claudeTurnCards.splice(0, claudeTurnCards.length);
+		const failed = cards.filter((card) => card.status === "error").length;
+		rows.push({
+			key: "claude-summary-" + turn + "-" + cards.length,
+			quiet: true,
+			content: <ClaudeTurnSummaryRow summary={{
+				steps: cards.length,
+				failed,
+				cards,
+				added: diffSummary?.added,
+				removed: diffSummary?.removed,
+			}} />,
+		});
+	};
 	const flushWork = (finishedAt?: number): void => {
 		flushWorkTools();
-		if (workRows.length === 0) return;
+		// Claude 模式：工具组已各自平铺成行，workRows 恒空，但步数与失败数仍要收进汇总。
+		if (workRows.length === 0 && !claudeFlow) return;
 		const items = workRows;
 		const steps = workSteps;
 		const failed = workFailed;
@@ -1229,6 +1340,11 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		workSubagents = [];
 		workFinishedAt = undefined;
 		workLastEntryIndex = -1;
+		if (claudeFlow) {
+			// Claude 模式：工具组/说明/思考都已各自平铺成行，这里不再造「工作过程」折叠块。
+			// 汇总信息由 flushClaudeSummary 在正文前收成一行。
+			return;
+		}
 		if (!turnProcess) {
 			const row: TimelineRow = { key: "work-turn-" + turn + "-" + workBoundary, quiet: true, content: <></> };
 			turnProcess = { row, scopes: [], hasAnswer: turnHasAnswer, turn };
@@ -1277,6 +1393,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			if (entry.kind === "user") {
 				finishTurnFooters();
 				flushWork();
+				flushClaudeSummary();
 				flushTurnArtifacts();
 				turnEntries = [entry];
 				turnShots = [];
@@ -1360,6 +1477,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		};
 		// 回答段元素按条目身份缓存：settled 与否进键（流式中的最后一条回答每 batch
 		// 都是新条目对象，天然缓存未命中）。历史回答不再每 batch 重跑一次 markdown 解析。
+		// 正文渲染带上「本轮改动」：其中的行内 code 按 git 语义染色（Claude 的做法）。
+		const renderMarkdownWithDiff = (text: string): string => renderAnswerMarkdown(text, diffSummary);
 		const answerCard = (segmentIndex: number, text: string): React.JSX.Element =>
 			cachedAssistantItem(entry, cacheScope, `seg:${segmentIndex}:${index === lastAssistantIndex ? "live" : "settled"}`, () => (
 				<GenuiAnswerCard
@@ -1367,7 +1486,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 					text={text}
 					identity={`msg${index}-seg${segmentIndex}`}
 					settled={index !== lastAssistantIndex}
-					renderMarkdown={renderAnswerMarkdown}
+					renderMarkdown={renderMarkdownWithDiff}
 				/>
 			));
 		// 同一轮结论的多段正文合成一块，段与段之间不再各占一行、各留一段空隙。
@@ -1395,7 +1514,13 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 				// 思考进折叠区：不再打断工具聚合，也不再占独立整行
 				workSteps += 1;
 				recordWork(entry, index);
-				workRows.push({ key: "think-" + index + "-" + segmentIndex, entryId: entry.entryId, thinking: segment.text, content: <ThinkingRow thinking={segment.text} /> });
+				const thinkingElement = <ThinkingRow thinking={segment.text} duration={thinkingDurationLabel(segment)} summaries={segment.summaries} claudeThinking={claudeThinking} />;
+				if (claudeFlow) {
+					// Claude 模式：思考块平铺在正文之间（Claude 的 Thinking 区块就是这样嵌在回答流里的）。
+					rows.push({ key: "think-" + index + "-" + segmentIndex, entryId: entry.entryId, quiet: true, content: <div className="owl-claude-flow-item">{thinkingElement}</div> });
+					return;
+				}
+				workRows.push({ key: "think-" + index + "-" + segmentIndex, entryId: entry.entryId, thinking: segment.text, thinkingMs: thinkingMsOf(segment), content: thinkingElement });
 				return;
 			}
 			const followedByTool = segment.phase !== "final_answer" && !segment.text.includes("```owl-ui") && segments.slice(segmentIndex + 1).some((later) => later.kind === "tool");
@@ -1409,11 +1534,17 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 				flushWorkTools();
 				workSteps += 1;
 				recordWork(entry, index);
+				const noteElement = <div className="owl-work-progress">{answerCard(segmentIndex, segment.text)}</div>;
+				if (claudeFlow) {
+					// Claude 模式：公开进展平铺在正文之间，与工具组、思考块同层交替。
+					rows.push({ key: "note-" + index + "-" + segmentIndex, entryId: entry.entryId, quiet: true, content: <div className="owl-claude-flow-item owl-claude-flow-note">{noteElement}</div> });
+					return;
+				}
 				workRows.push({
 					key: "note-" + index + "-" + segmentIndex,
 					entryId: entry.entryId,
 					note: true,
-					content: <div className="owl-work-progress">{answerCard(segmentIndex, segment.text)}</div>,
+					content: noteElement,
 				});
 				return;
 			}
@@ -1422,6 +1553,8 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 			// 响应开始时刻，用它会把「生成了 3s」收成「工作了 1s」。
 			if (!answerWorkFlushed) {
 				answerWorkFlushed = true;
+				// Claude 模式：总结行落在工具组之后、正文之前。
+				flushClaudeSummary();
 				flushWork(entry.endedAt);
 			}
 			answerParts.push(answerCard(segmentIndex, segment.text));
@@ -1479,6 +1612,7 @@ function buildRows({ entries, sessionId, onLocateAttachment, searchTarget, expan
 		}
 		});
 	flushWork();
+	flushClaudeSummary();
 	if (runActive) {
 		const active = workSegments.findLast(segment => segment.lastEntryIndex >= activeRunIndex);
 		if (active) { active.running = true; active.waiting = !streaming; }
@@ -1621,6 +1755,7 @@ export function ChatStream({
 	activity = "idle",
 	onRewind,
 	client,
+	diffSummary,
 	onOpenReview,
 	onRegenerate,
 	onEditMessage,
@@ -1662,6 +1797,8 @@ export function ChatStream({
 	onRewind?: (entryId: string) => void;
 	/** 桥客户端：历史轮的改动卡（diffApproval.*）需要；缺省回退旧「成果文件」卡。 */
 	client?: BridgeClient;
+	/** 本轮改动摘要：总结行的 +N −M 与行内 code 染色都用它。 */
+	diffSummary?: TurnDiffSummary;
 	/** 历史轮改动卡的「工作台审查」跳转（带聚焦路径）。 */
 	onOpenReview?: (focusPath: string) => void;
 	/** 回答操作栏的「重新生成」：对最后一条用户消息整轮仅回退对话后重发。 */
@@ -1690,6 +1827,18 @@ export function ChatStream({
 	const container = useRef<HTMLElement>(null);
 	const receiptScope = JSON.stringify([profile, sessionId, cwd]);
 	const workPresentation = useMemo<WorkPresentation>(() => ({ processes: new Map(), tools: new Map(), outputs: new Map(), thoughts: new Map() }), [receiptScope]);
+	// 工具分组（Claude 的「Ran N commands」）的收起集合。工具列表据此整组隐藏；
+	// 单独一个 context，切换时只重画工具区。默认展开：收起是用户的显式动作。
+	const [collapsedToolGroups, setCollapsedToolGroups] = useState<ReadonlySet<string>>(() => new Set<string>());
+	const toolGroupPresentation = useMemo(() => ({
+		collapsed: collapsedToolGroups,
+		setCollapsed: (groupKey: string, collapsed: boolean) => setCollapsedToolGroups((current) => {
+			const next = new Set(current);
+			if (collapsed) next.add(groupKey);
+			else next.delete(groupKey);
+			return next;
+		}),
+	}), [collapsedToolGroups]);
 	// App 每次渲染都会传新的回调引用；经 ref 委托转成稳定身份，行内容缓存与 rows
 	// memo 才不会被无关的 App 重渲染打断。语义不变：调用时取最新闭包。
 	const onRewindRef = useRef(onRewind);
@@ -1877,11 +2026,25 @@ export function ChatStream({
 	}, []);
 
 	const [expandedTools, setExpandedTools] = useState(() => document.documentElement.dataset.owlToolRecords === "expanded");
+	// Claude 观感的回答流：工具组平铺在正文之间，不收进「工作过程」总折叠。
+	const [claudeFlow, setClaudeFlow] = useState(() => document.documentElement.dataset.owlClaudeFlow === "on");
+	// 思考呈现：claude = 只显示 provider 摘要（Claude Desktop 的做法）；expandable = 可展开看原文。
+	const [claudeThinking, setClaudeThinking] = useState(() => document.documentElement.dataset.owlThinkingStyle !== "expandable");
 	useEffect(() => {
 		const update = (): void => setExpandedTools(document.documentElement.dataset.owlToolRecords === "expanded");
+		const updateFlow = (): void => setClaudeFlow(document.documentElement.dataset.owlClaudeFlow === "on");
+		const updateThinking = (): void => setClaudeThinking(document.documentElement.dataset.owlThinkingStyle !== "expandable");
 		update();
+		updateFlow();
+		updateThinking();
 		window.addEventListener("owl-chat-appearance-change", update);
-		return () => window.removeEventListener("owl-chat-appearance-change", update);
+		window.addEventListener("owl-chat-appearance-change", updateFlow);
+		window.addEventListener("owl-chat-appearance-change", updateThinking);
+		return () => {
+			window.removeEventListener("owl-chat-appearance-change", update);
+			window.removeEventListener("owl-chat-appearance-change", updateFlow);
+			window.removeEventListener("owl-chat-appearance-change", updateThinking);
+		};
 	}, []);
 	const turnCard = useMemo(() => {
 		if (cwd === undefined || client === undefined || openReviewStable === undefined) return undefined;
@@ -1928,8 +2091,11 @@ export function ChatStream({
 				busy,
 				cacheScope,
 				batchItems,
+				claudeFlow,
+				diffSummary,
+				claudeThinking,
 			}),
-		[entries, sessionId, onLocateAttachment, activeSearch, expandedTools, rewindStable, cwd, openFileStable, turnCard, renderTurnArtifacts, activity, canRegenerate, regenerateStable, editMessageStable, branchStable, openAutomationStable, openSubagentStable, queuedRemoveStable, queuedPromoteStable, queuedItems, client, busy, cacheScope, batchItems],
+		[entries, sessionId, onLocateAttachment, activeSearch, expandedTools, rewindStable, cwd, openFileStable, turnCard, renderTurnArtifacts, activity, canRegenerate, regenerateStable, editMessageStable, branchStable, openAutomationStable, openSubagentStable, queuedRemoveStable, queuedPromoteStable, queuedItems, client, busy, cacheScope, batchItems, claudeFlow, diffSummary, claudeThinking],
 	);
 	const rememberWorkReading = (): void => {
 		const el = container.current;
@@ -2155,6 +2321,7 @@ export function ChatStream({
 
 	return (
 		<AttachmentToolContext.Provider value={receiptTarget}>
+		<ToolGroupContext.Provider value={toolGroupPresentation}>
 		<WorkPresentationContext.Provider value={workPresentation}>
 			<ExecutionViewContext.Provider value={executionPresentation}>
 		<div className="owl-chat-surface" data-activity={activity} data-execution-view={executionView}>
@@ -2239,6 +2406,7 @@ export function ChatStream({
 		</div>
 		</ExecutionViewContext.Provider>
 		</WorkPresentationContext.Provider>
+		</ToolGroupContext.Provider>
 		</AttachmentToolContext.Provider>
 	);
 }

@@ -1,4 +1,28 @@
 import Anthropic, { type ClientOptions } from "@anthropic-ai/sdk";
+
+/**
+ * 把 Anthropic thinking block 的 `summary` 数组压成纯文本列表。
+ * 只取字符串项（Anthropic 用 {type:"summary",text}），其他形态一律忽略。
+ *
+ * SDK 的 BetaThinkingBlock 类型里没有 summary 字段，但 API 实际会返回它，
+ * 所以这里从 unknown 起步逐层收窄，不依赖 SDK 的类型声明。
+ */
+function thinkingSummaries(summary: unknown): string[] {
+	if (!Array.isArray(summary)) return [];
+	const out: string[] = [];
+	for (const item of summary) {
+		if (typeof item === "string") {
+			if (item.trim() !== "") out.push(item);
+			continue;
+		}
+		if (item !== null && typeof item === "object" && "text" in item) {
+			const text = (item as { text?: unknown }).text;
+			if (typeof text === "string" && text.trim() !== "") out.push(text);
+		}
+	}
+	return out;
+}
+
 import type {
 	BetaInputTransformation,
 	BetaStopReason,
@@ -706,6 +730,12 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 							type: "thinking",
 							thinking: event.content_block.thinking ?? "",
 							thinkingSignature: event.content_block.signature ?? "",
+							// Anthropic sends short reasoning digests next to the raw thinking
+							// text. Claude Desktop shows those instead of the raw text, so they
+							// have to survive the stream to reach the renderer.
+							...(thinkingSummaries((event.content_block as { summary?: unknown }).summary).length > 0
+								? { summaries: thinkingSummaries((event.content_block as { summary?: unknown }).summary) }
+								: {}),
 							index: event.index,
 						};
 						output.content.push(block);

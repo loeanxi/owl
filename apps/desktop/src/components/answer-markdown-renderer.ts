@@ -2,6 +2,22 @@ import MarkdownIt from "markdown-it";
 import { highlightCodeHtml } from "../../../../packages/coding-agent/src/utils/syntax-highlight.ts";
 import { pathCandidateFromCode } from "../utils/paths.ts";
 import { replyReadingText } from "./reply-reading-copy.ts";
+import { classifyChip, type TurnDiffSummary } from "./turn-diff.ts";
+
+/**
+ * 本轮改动的染色上下文（渲染期间有效）。
+ *
+ * markdown-it 的渲染器是模块级单例，没法按调用带上下文；渲染是同步的，
+ * 所以在渲染前后设置这个模块变量即可，不会串味。
+ */
+let diffOfRender: TurnDiffSummary | undefined;
+
+/** 芯片的 class：added 绿 / removed 红 / modified 黄，跟 Claude 的 git 三色一致。 */
+const CHIP_CLASS = {
+	added: "owl-chip-added",
+	removed: "owl-chip-removed",
+	modified: "owl-chip-modified",
+} as const;
 
 function createMarkdownRenderer(): MarkdownIt {
 	const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
@@ -9,6 +25,12 @@ function createMarkdownRenderer(): MarkdownIt {
 	const inlineCodeDefault = md.renderer.rules.code_inline;
 	md.renderer.rules.code_inline = (tokens, idx, _options, _env, self): string => {
 		const token = tokens[idx]!;
+		// 本轮改动过的代码：Claude 按 git 语义染色（新增绿 / 删除红 / 修改黄）。
+		// 判定在路径识别之前 —— 改动过的标识符（版本号、类名）不一定是路径。
+		const tint = diffOfRender === undefined ? undefined : classifyChip(token.content, diffOfRender);
+		if (tint !== undefined) {
+			return `<code class="${CHIP_CLASS[tint]}"${self.renderAttrs(token)}>${md.utils.escapeHtml(token.content)}</code>`;
+		}
 		if (pathCandidateFromCode(token.content) === "") {
 			return inlineCodeDefault
 				? inlineCodeDefault(tokens, idx, _options, _env, self)
@@ -83,9 +105,19 @@ md.renderer.rules.table_open = (tokens, idx, options, _env, self): string => {
 };
 md.renderer.rules.table_close = (tokens, idx, options, _env, self): string => `${self.renderToken(tokens, idx, options)}</div></div>\n`;
 
-/** Safe answer Markdown with complete code/table content and delegated reading controls. */
-export function renderAnswerMarkdown(text: string): string {
-	return md.render(text);
+/**
+ * Safe answer Markdown with complete code/table content and delegated reading controls.
+ *
+ * @param diff 本轮改动的染色上下文：其中的行内 code 按 git 语义染色（Claude 的做法）。
+ */
+export function renderAnswerMarkdown(text: string, diff?: TurnDiffSummary): string {
+	const previous = diffOfRender;
+	diffOfRender = diff;
+	try {
+		return md.render(text);
+	} finally {
+		diffOfRender = previous;
+	}
 }
 
 /** Shared previews keep their original markup without controls requiring MarkdownAnswer. */

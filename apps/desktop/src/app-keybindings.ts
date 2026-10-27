@@ -2,7 +2,6 @@
 export const DEFAULT_APP_KEYBINDINGS = {
 	newChat: ["ctrl+n"],
 	openProject: ["ctrl+shift+o"],
-	cycleExecutionView: ["ctrl+o"],
 	closeWindow: ["ctrl+w"],
 	quit: ["ctrl+q"],
 	openSettings: ["ctrl+,"],

@@ -401,6 +401,12 @@ export interface ThinkingContent {
 	type: "thinking";
 	thinking: string;
 	thinkingSignature?: string; // Provider-specific opaque or serialized reasoning replay data
+	/**
+	 * Provider-supplied thinking summaries (Anthropic's `summary` array on a
+	 * thinking block). These are the short, human-readable digests of the model's
+	 * reasoning that Claude Desktop shows in place of the raw thinking text.
+	 */
+	summaries?: string[];
 	/** When true, the thinking content was redacted by safety filters. The opaque
 	 *  encrypted payload is stored in `thinkingSignature` so it can be passed back
 	 *  to the API for multi-turn continuity. */

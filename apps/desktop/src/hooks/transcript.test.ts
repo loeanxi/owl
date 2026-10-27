@@ -84,6 +84,14 @@ test("errors and explicit cancellation retain their output immediately", () => {
 	assert.equal(current(entries).tools[0].output?.text, "File not found");
 });
 
+test("the model-authored action title reaches the tool card", () => {
+	let entries = started();
+	entries = event(entries, { type: "tool_execution_end", toolCallId: "read-1", toolName: "read",
+		result: { content: [{ type: "text", text: "file contents" }], details: { title: "Read admin HTML structure" } }, isError: false });
+	// Claude Desktop 的工具行标题就是模型写的这一句，前端直接用它。
+	assert.equal(current(entries).tools[0].output?.title, "Read admin HTML structure");
+});
+
 test("tool result artifacts and agent_end match replay without duplicating rows or losing history", () => {
 	const history: ChatEntry[] = [{ kind: "user", text: "上一轮" }, { kind: "assistant", text: "旧回答", thinking: "", tools: [] }];
 	let entries = [...history, ...started()];
@@ -465,6 +473,64 @@ test("queued follow-up does not freeze the in-progress assistant", () => {
 	assert.equal(queued.text, "再看日志");
 });
 
+test("a queued optimistic row is replaced by the delivered message and loses the queued flag", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries, { kind: "user", text: "再看日志", queued: true, timestamp: 1 }];
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
+	const rows = entries.filter((entry) => entry.kind === "user" && entry.text === "再看日志");
+	assert.equal(rows.length, 1);
+	assert.ok(rows[0]?.kind === "user");
+	assert.notEqual(rows[0].queued, true);
+});
+
+test("delivery removes the queued row even after newer entries streamed past it", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries, { kind: "user", text: "再看日志", queued: true, timestamp: 1 }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "继续" } });
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
+	const userRows = entries.filter((entry) => entry.kind === "user");
+	assert.equal(userRows.length, 2);
+	assert.equal(userRows.some((entry) => entry.queued), false);
+	// 正式行按到达顺序追加在尾部，占位行被摘掉
+	assert.equal(userRows.at(-1)?.text, "再看日志");
+});
+
+test("duplicate queued texts are delivered in FIFO order", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries,
+		{ kind: "user", text: "继续", queued: true, timestamp: 1 },
+		{ kind: "user", text: "继续", queued: true, timestamp: 2 },
+	];
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "继续" } });
+	const rows = entries.filter((entry) => entry.kind === "user" && entry.text === "继续");
+	assert.equal(rows.length, 2);
+	assert.ok(rows[0]?.kind === "user" && rows[0].queued === true, "第二条占位行仍在排队");
+	assert.ok(rows[1]?.kind === "user" && rows[1].queued !== true, "送达的正式行不再是 queued");
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "继续" } });
+	const after = entries.filter((entry) => entry.kind === "user" && entry.text === "继续");
+	assert.equal(after.length, 2);
+	assert.equal(after.some((entry) => entry.kind === "user" && entry.queued), false);
+});
+
+test("delivery that omits image data keeps the optimistic row's images and flags the omission", () => {
+	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
+	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
+	entries = [...entries, {
+		kind: "user", text: "看这张图", queued: true, timestamp: 1,
+		images: [{ type: "image", data: "aGk=", mimeType: "image/png" }],
+	}];
+	entries = event(entries, { type: "message_start", message: { role: "user", content: "看这张图\n\n[Image omitted: conversion failed]" } });
+	const row = entries.find((entry) => entry.kind === "user" && entry.text === "看这张图");
+	assert.ok(row?.kind === "user");
+	assert.ok(row.queued !== true);
+	assert.equal(row.omittedImages, 1);
+	assert.equal(row.images?.length, 1);
+});
+
 test("an aborted run keeps a follow-up the snapshot did not include", () => {
 	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "agent_start" });
@@ -662,4 +728,22 @@ test("estimateTokens：中日韩字符按 1 个，其余按 4 字符 1 个", () 
 	assert.equal(estimateTokens("你好"), 2);
 	assert.equal(estimateTokens("abcdefgh"), 2);
 	assert.equal(estimateTokens(""), 0);
+});
+
+test("tool_use_summary 把模型写的组标题贴到这批工具卡上", () => {
+	let entries = started();
+	entries = event(entries, { type: "tool_use_summary", summary: "Searched code", toolCallIds: ["read-1", "bash-1"] });
+	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), ["Searched code", "Searched code"]);
+});
+
+test("tool_use_summary 只贴到事件点名的工具卡上", () => {
+	let entries = started();
+	entries = event(entries, { type: "tool_use_summary", summary: "Searched code", toolCallIds: ["read-1"] });
+	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), ["Searched code", undefined]);
+});
+
+test("tool_use_summary 内容为空时不改任何卡片", () => {
+	let entries = started();
+	entries = event(entries, { type: "tool_use_summary", summary: "   ", toolCallIds: ["read-1"] });
+	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), [undefined, undefined]);
 });

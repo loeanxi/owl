@@ -124,7 +124,7 @@ describe("working through a turn in the real conversation", () => {
 		await click(process.querySelector<HTMLButtonElement>('[data-tool-id="first"] .owl-tool-summary')!);
 		expect(process.textContent).toContain("第一项的完整输出");
 		expect(process.querySelector('[data-tool-id="second"] .owl-tool-output')).toBeNull();
-		expect(process.querySelector(".owl-work-latest-output")).toBeNull();
+		expect(process.querySelector(".owl-work-issue-tail")).toBeNull();
 		expect(process.querySelector('[data-tool-id="second"] .owl-tool-summary')?.getAttribute("aria-expanded")).toBe("false");
 	});
 
@@ -253,23 +253,14 @@ describe("working through a turn in the real conversation", () => {
 		expect(host.querySelector(".owl-work-process-summary svg")?.getAttribute("class")).toContain("text-owl-danger");
 	});
 
-	it("admits when the latest output preview truncates", async () => {
+	it("keeps running success output out of the stream; only failures stay on screen", async () => {
 		const longOutput = ["第一行", "第二行", "第三行", "第四行", "第五行"].join("\n");
 		await render({ entries: turn(assistant("work-entry", [
 			readTool("done", "src/done.ts", "ok", "只有一行"),
 			readTool("live", "src/live.ts", "running", longOutput),
 		])) });
-		expect(host.querySelector(".owl-work-latest-lines")?.textContent).toBe("末 3 行 · 共 5 行");
-		expect(host.querySelector(".owl-work-latest-output pre")?.textContent).not.toContain("第一行");
-		expect(host.querySelector(".owl-work-latest-output pre")?.textContent).toContain("第五行");
-		// 预览区直接给复制：把尾巴带走不必开完整面板。
-		expect(host.querySelector(".owl-work-latest-toolbar .owl-message-copy button")?.getAttribute("aria-label")).toBe("复制输出结果");
-
-		await render({ entries: turn(assistant("work-entry", [
-			readTool("done", "src/done.ts", "ok", "只有一行"),
-			readTool("live", "src/live.ts", "running", "尾巴一行"),
-		])) });
-		expect(host.querySelector(".owl-work-latest-lines")).toBeNull();
+		expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("已完成");
+		expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 	});
 
 	it("gives thinking text the same reading controls as tool output", async () => {
@@ -287,6 +278,18 @@ describe("working through a turn in the real conversation", () => {
 		expect(text.textContent).not.toContain("思考第 13 行");
 		await click(host.querySelector<HTMLButtonElement>(".owl-thinking-toolbar .owl-work-output-toggle")!);
 		expect(host.querySelector(".owl-thinking-text")?.textContent).toContain("思考第 20 行");
+	});
+
+	it("keeps the collapsed thinking row from leaking the panel chrome", async () => {
+		const thinking = "第一行\n第二行";
+		await render({ entries: turn(assistant("work-entry", [readTool("done", "src/done.ts", "ok")], { thinking, endedAt: 4000 })), activity: "idle" });
+		await click(processToggle());
+		// 收起时不许漏出面板：0fr 裁剪层裁不掉第一层子元素自己的边距/内边距/背景，
+		// 面板必须包在裁剪层内侧（.owl-collapse-body > div > .owl-thinking-panel）。
+		expect(host.querySelector(".owl-collapse-body > .owl-thinking-panel")).toBeNull();
+		await click(host.querySelector<HTMLButtonElement>(".owl-thinking > button")!);
+		expect(host.querySelector(".owl-collapse-body > .owl-thinking-panel")).toBeNull();
+		expect(host.querySelector(".owl-collapse-body .owl-thinking-panel")).not.toBeNull();
 	});
 
 	it("keeps a finished failed result inspectable in the records without an alarm badge", async () => {

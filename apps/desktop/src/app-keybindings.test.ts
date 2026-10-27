@@ -6,19 +6,18 @@ function key(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
 }
 
 describe("desktop keybinding registry", () => {
-	it("reserves Ctrl+O for execution view and keeps open project on Ctrl+Shift+O", () => {
-		expect(matchingAppAction(key(), DEFAULT_APP_KEYBINDINGS)).toBe("cycleExecutionView");
+	it("keeps Ctrl+O free and open project on Ctrl+Shift+O", () => {
+		expect(matchingAppAction(key(), DEFAULT_APP_KEYBINDINGS)).toBeUndefined();
 		expect(matchingAppAction(key({ shiftKey: true }), DEFAULT_APP_KEYBINDINGS)).toBe("openProject");
 		expect(matchingAppAction(key({ key: "+", code: "Equal", shiftKey: true }), DEFAULT_APP_KEYBINDINGS)).toBe("zoomIn");
 		expect(matchingAppAction(key({ key: "{", code: "BracketLeft", shiftKey: true }), DEFAULT_APP_KEYBINDINGS)).toBe("prevSession");
 	});
-	it("loads only validated overrides and preserves omitted actions", () => {
+	it("loads only validated overrides and ignores removed or invalid actions", () => {
 		const bindings = loadAppKeybindings({ getItem: (name) => name === APP_KEYBINDINGS_KEY ? JSON.stringify({ cycleExecutionView: ["ALT+CTRL+V"], newChat: ["a"], openProject: [] }) : null });
-		expect(bindings.cycleExecutionView).toEqual(["ctrl+alt+v"]);
+		expect("cycleExecutionView" in bindings).toBe(false);
 		expect(bindings.newChat).toEqual(DEFAULT_APP_KEYBINDINGS.newChat);
 		expect(bindings.openProject).toEqual([]);
 		expect(matchingAppAction(key(), bindings)).toBeUndefined();
-		expect(matchingAppAction(key({ key: "v", code: "KeyV", altKey: true }), bindings)).toBe("cycleExecutionView");
 	});
 	it("leaves text, composition, handled events, repeats and unrelated modifiers untouched", () => {
 		expect(normalizeAppKeybinding("shift+o")).toBeUndefined();

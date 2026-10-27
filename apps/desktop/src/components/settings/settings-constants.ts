@@ -23,7 +23,6 @@ export const WORK_EFFECT_FIELDS = [
 	{ id: "morph", titleKey: "settings.general.workEffectMorph", descKey: "settings.general.workEffectMorphDesc" },
 	{ id: "count", titleKey: "settings.general.workEffectCount", descKey: "settings.general.workEffectCountDesc" },
 	{ id: "spine", titleKey: "settings.general.workEffectSpine", descKey: "settings.general.workEffectSpineDesc" },
-	{ id: "stream", titleKey: "settings.general.workEffectStream", descKey: "settings.general.workEffectStreamDesc" },
 	{ id: "breathe", titleKey: "settings.general.workEffectBreathe", descKey: "settings.general.workEffectBreatheDesc" },
 	{ id: "nudge", titleKey: "settings.general.workEffectNudge", descKey: "settings.general.workEffectNudgeDesc" },
 ] as const;

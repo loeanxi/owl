@@ -13,7 +13,14 @@ export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
 /** 原始消息内容的时间顺序；不从文字猜测进度或最终回答的模型通道。 */
 export type AssistantSegment =
 	| { kind: "text"; text: string; phase?: "commentary" | "final_answer" }
-	| { kind: "thinking"; text: string }
+	| {
+			kind: "thinking";
+			text: string;
+			startedAt?: number;
+			endedAt?: number;
+			/** Provider 给的思考摘要（Claude 用它替代原始思考文字）。 */
+			summaries?: string[];
+		}
 	| { kind: "tool"; toolId: string };
 
 /** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
@@ -25,6 +32,8 @@ export type ToolOutput = {
 	text: string;
 	totalLines: number;
 	images?: ToolResultImage[];
+	/** 模型自己写的动作短语（Claude Desktop 的工具行标题就是它写的）。 */
+	title?: string;
 	/** Plugin-produced files, taken from the successful tool result rather than assistant prose. */
 	artifacts?: ToolResultArtifact[];
 	/** bash 等超限截断时，服务端把全文写入的临时文件路径（details.fullOutputPath）。 */
@@ -51,6 +60,14 @@ export type ToolCard = {
 	finishedAt?: number;
 	/** codemode 等工具的子调用，归属同一条 assistant。 */
 	parentToolCallId?: string;
+	/**
+	 * 整组工具的标题 —— 模型自己写的那句（Claude 的 `tool_use_summary`）。
+	 *
+	 * Claude Desktop 的工具组组头（"Searched code"）是模型写的，不是前端拼的：
+	 * 一批工具跑完后，服务端另起一次无工具的模型请求要一句 Label。
+	 * 同一批里的每张卡都带上它，渲染时取组内任意一张即可。
+	 */
+	batchLabel?: string;
 };
 
 /** 单条 LLM 回复的 token 用量（消息操作栏的「用量」展示）。 */
@@ -255,25 +272,97 @@ function assistantTextPhase(signature: unknown): "commentary" | "final_answer" |
 	}
 }
 
-function segmentsOf(content: unknown): AssistantSegment[] {
+/** provider 给的思考摘要：只取字符串项，忽略其它形态。 */
+function thinkingSummariesOf(summary: unknown): string[] {
+	if (!Array.isArray(summary)) return [];
+	const out: string[] = [];
+	for (const item of summary) {
+		if (typeof item === "string") {
+			if (item.trim() !== "") out.push(item);
+			continue;
+		}
+		if (item !== null && typeof item === "object" && "text" in item) {
+			const text = (item as { text?: unknown }).text;
+			if (typeof text === "string" && text.trim() !== "") out.push(text);
+		}
+	}
+	return out;
+}
+
+/**
+ * 从 wire 的 content 重建 segments。
+ * 流式阶段已经为思考块记了起止时刻，重建时按顺序把它们接回去，
+ * 否则 message_end 会把思考时长冲掉。
+ */function segmentsOf(content: unknown, previous?: AssistantSegment[]): AssistantSegment[] {
 	if (!Array.isArray(content)) return typeof content === "string" ? [{ kind: "text", text: content }] : [];
+	let thinkingIndex = 0;
 	return content.flatMap((part): AssistantSegment[] => {
 		if (part.type === "text") {
 			const phase = assistantTextPhase(part.textSignature);
 			return [{ kind: "text", text: part.text ?? "", ...(phase ? { phase } : {}) }];
 		}
-		if (part.type === "thinking") return [{ kind: "thinking", text: part.thinking ?? "" }];
+		if (part.type === "thinking") {
+			const timed = previous?.filter((segment) => segment.kind === "thinking")[thinkingIndex++];
+			const summaries = thinkingSummariesOf(part.summaries);
+			return [{
+				kind: "thinking",
+				text: part.thinking ?? "",
+				...(timed?.startedAt !== undefined ? { startedAt: timed.startedAt } : {}),
+				...(timed?.endedAt !== undefined ? { endedAt: timed.endedAt } : {}),
+				...(summaries.length > 0 ? { summaries } : {}),
+			}];
+		}
 		if (part.type === "toolCall") return [{ kind: "tool", toolId: part.id }];
 		return [];
 	});
 }
 
-function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string, phase?: "commentary" | "final_answer"): void {
+function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string, phase?: "commentary" | "final_answer", at?: number, summaries?: string[]): void {
 	const segments = (entry.segments ??= []);
 	const last = segments.at(-1);
-	if (last?.kind === kind && (last.kind !== "text" || last.phase === phase)) last.text += text;
-	else if (kind === "text") segments.push({ kind, text, ...(phase ? { phase } : {}) });
-	else segments.push({ kind, text });
+	if (last?.kind === kind && (last.kind !== "text" || last.phase === phase)) {
+		last.text += text;
+		// 思考块的计时从第一段增量开始，到下一段内容到达时结算。
+		if (last.kind === "thinking" && at !== undefined) {
+			last.startedAt ??= at;
+			last.endedAt = at;
+		}
+		// provider 给的思考摘要随 thinking_start 一起到，补进已建的思考段。
+		if (last.kind === "thinking" && summaries !== undefined && summaries.length > 0) {
+			last.summaries = [...(last.summaries ?? []), ...summaries];
+		}
+		return;
+	}
+	// 新的一段开始：上一段思考到此结束，计时在这里结算。
+	if (last?.kind === "thinking" && at !== undefined) last.endedAt = at;
+	if (kind === "text") segments.push({ kind, text, ...(phase ? { phase } : {}) });
+	else segments.push({
+		kind,
+		text,
+		...(at !== undefined ? { startedAt: at } : {}),
+		...(summaries !== undefined && summaries.length > 0 ? { summaries } : {}),
+	});
+}
+
+/**
+ * 把模型写的组标题贴到这批工具卡上。
+ *
+ * 事件带的是一批工具调用 id（Claude 的 `precedingToolUseIds`），标题写进
+ * 组内每一张卡，渲染时取任意一张即可 —— 这样即使前端的分组边界和
+ * 服务端的批次边界不完全一致，也不会丢标题。
+ */
+function applyBatchLabel(entries: ChatEntry[], toolCallIds: string[], label: string): ChatEntry[] {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry.kind !== "assistant") continue;
+		if (!entry.tools.some((tool) => toolCallIds.includes(tool.id))) continue;
+		const updated = cloneAssistant(entry);
+		for (const card of updated.tools) {
+			if (toolCallIds.includes(card.id)) card.batchLabel = label;
+		}
+		return [...entries.slice(0, index), updated, ...entries.slice(index + 1)];
+	}
+	return entries;
 }
 
 function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyEvent, isError: boolean, toolName?: string): ChatEntry[] {
@@ -463,10 +552,19 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 		}
 		case "message_start": {
 			const message = event.message as AnyEvent | undefined;
-			// 空闲时发出的用户消息已有乐观行。排队/追加要等真正送达才进对话，
-			// 这时末尾还是助手气泡，补上这一行；和乐观行文本相同则不重复。
+			// 用户消息送达：先摘掉发送时乐观追加的同文 queued 占位行（FIFO 取最早一条，
+			// 正式行按到达顺序追加在尾部——此后 entry_appended 才能从尾部给它补条目 id）；
+			// 没有占位行时走空闲乐观行合并/直接追加的老路。
 			if (message?.role === "user") {
 				const delivered = userEntryOf(message);
+				const queuedRow = entries.find((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && entry.queued === true && userSourceText(entry.text) === userSourceText(delivered.text));
+				if (queuedRow) {
+					const queuedIndex = entries.indexOf(queuedRow);
+					const replacement = delivered.omittedImages && !queuedRow.omittedImages
+						? { ...queuedRow, queued: undefined, omittedImages: delivered.omittedImages }
+						: { ...delivered };
+					return [...entries.slice(0, queuedIndex), ...entries.slice(queuedIndex + 1), replacement];
+				}
 				const last = entries.at(-1);
 				if (last?.kind === "user" && userSourceText(last.text) === userSourceText(delivered.text)) {
 					if (!delivered.omittedImages || last.omittedImages) return entries;
@@ -488,11 +586,18 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			switch (ae.type) {
 				case "text_delta":
 					current.text += ae.delta ?? "";
-					appendSegment(current, "text", ae.delta ?? "", assistantTextPhase(ae.partial?.content?.[ae.contentIndex]?.textSignature));
+					appendSegment(current, "text", ae.delta ?? "", assistantTextPhase(ae.partial?.content?.[ae.contentIndex]?.textSignature), Date.now());
 					break;
 				case "thinking_delta":
 					current.thinking += ae.delta ?? "";
-					appendSegment(current, "thinking", ae.delta ?? "");
+					appendSegment(
+						current,
+						"thinking",
+						ae.delta ?? "",
+						undefined,
+						Date.now(),
+						thinkingSummariesOf(ae.partial?.content?.[ae.contentIndex]?.summaries),
+					);
 					break;
 				case "toolcall_start": {
 					const toolCall = ae.partial?.content?.[ae.contentIndex];
@@ -533,6 +638,13 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 		}
 		case "tool_execution_end":
 			return applyToolResult(entries, event.toolCallId, event.result ?? {}, event.isError === true, event.toolName);
+		case "tool_use_summary": {
+			// 模型为这批工具写的组标题（Claude 的 tool_use_summary）。
+			const summary = typeof event.summary === "string" ? event.summary.trim() : "";
+			const ids = Array.isArray(event.toolCallIds) ? event.toolCallIds.filter((id): id is string => typeof id === "string") : [];
+			if (summary === "" || ids.length === 0) return entries;
+			return applyBatchLabel(entries, ids, summary);
+		}
 		case "message_end": {
 			const message = event.message as AnyEvent | undefined;
 			if (!message) return entries;
@@ -557,7 +669,7 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 				(message.content ?? []).filter((part: AnyEvent) => part.type === "toolCall").map((part: AnyEvent) => part.id),
 			);
 			current.tools = current.tools.filter((tool) => keptToolIds.has(tool.id));
-			current.segments = segmentsOf(message.content);
+			current.segments = segmentsOf(message.content, current.segments);
 			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
 			// 用户暂停（stopReason=aborted）不算错误：红色报错换成一个 aborted 标记，
 			// 由 ChatStream 渲染成置灰小字；只有真正的 error 才保留报错文案。
@@ -565,6 +677,9 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			current.aborted = message.stopReason === "aborted" ? true : undefined;
 			// wire 时间戳是响应开始时刻；此刻（本地）才是真实结束点，记下来供轮耗时用
 			const endedAt = Date.now();
+			// 消息结束时结算最后一段思考：它后面没有新内容，计时在这里收口。
+			const lastSegment = current.segments.at(-1);
+			if (lastSegment?.kind === "thinking" && lastSegment.endedAt === undefined) lastSegment.endedAt = endedAt;
 			const startedAt = timestampOf(message);
 			if (startedAt !== undefined) {
 				rememberAssistantEndedAt(startedAt, endedAt);
@@ -756,6 +871,7 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 		text,
 		totalLines: text === "" ? 0 : text.split("\n").length,
 		...(images.length > 0 ? { images } : {}),
+		...(typeof details.title === "string" && details.title.trim() !== "" ? { title: details.title.trim() } : {}),
 		...(artifacts.length > 0 ? { artifacts } : {}),
 		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
 		...(details.genuiSpec !== undefined ? { genuiSpec: details.genuiSpec } : {}),

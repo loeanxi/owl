@@ -10,7 +10,6 @@ const zh = {
 	pending: "准备执行",
 	generating: "正在整理答案",
 	waitingModel: "等待模型响应",
-	latestOutput: "最新输出",
 	latestStatus: "最近状态",
 	inspectTool: "查看完整输出",
 	succeeded: "已完成",
@@ -34,7 +33,6 @@ const zh = {
 	goAnswer: "去回答",
 	allDone: "全部完成",
 	runCancelled: "已取消",
-	latestLinesHint: "末 {n} 行 · 共 {total} 行",
 	answerReady: "答案已生成",
 	latestUpdate: "有新进展",
 	runCommand: "运行命令",
@@ -43,6 +41,10 @@ const zh = {
 	writeFile: "写入 {name}",
 	editFile: "编辑 {name}",
 	thinkingOriginal: "查看思考原文",
+	ranCommands: "Ran {n} command",
+	ranCommandsPlural: "Ran {n} commands",
+	thoughtFor: "Thought for {time}",
+	thinkingLabel: "Thinking",
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -55,7 +57,6 @@ const en: Record<keyof typeof zh, string> = {
 	pending: "Preparing to run",
 	generating: "Preparing the answer",
 	waitingModel: "Waiting for the model",
-	latestOutput: "Latest output",
 	latestStatus: "Latest status",
 	inspectTool: "View full output",
 	succeeded: "Completed",
@@ -79,7 +80,6 @@ const en: Record<keyof typeof zh, string> = {
 	goAnswer: "Go answer",
 	allDone: "All done",
 	runCancelled: "Cancelled",
-	latestLinesHint: "Last {n} of {total} lines",
 	answerReady: "Answer ready",
 	latestUpdate: "New progress",
 	runCommand: "Run command",
@@ -88,6 +88,10 @@ const en: Record<keyof typeof zh, string> = {
 	writeFile: "Write {name}",
 	editFile: "Edit {name}",
 	thinkingOriginal: "View original thinking",
+	ranCommands: "Ran {n} command",
+	ranCommandsPlural: "Ran {n} commands",
+	thoughtFor: "Thought for {time}",
+	thinkingLabel: "Thinking",
 };
 
 export function workProcessText(key: keyof typeof zh, vars?: Record<string, string | number>): string {

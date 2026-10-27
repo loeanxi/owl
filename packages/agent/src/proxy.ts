@@ -38,9 +38,9 @@ export type ProxyAssistantMessageEvent =
 	| { type: "text_start"; contentIndex: number }
 	| { type: "text_delta"; contentIndex: number; delta: string }
 	| { type: "text_end"; contentIndex: number; contentSignature?: string }
-	| { type: "thinking_start"; contentIndex: number }
+	| { type: "thinking_start"; contentIndex: number; summaries?: string[] }
 	| { type: "thinking_delta"; contentIndex: number; delta: string }
-	| { type: "thinking_end"; contentIndex: number; contentSignature?: string }
+	| { type: "thinking_end"; contentIndex: number; contentSignature?: string; summaries?: string[] }
 	| { type: "toolcall_start"; contentIndex: number; id: string; toolName: string }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string }
 	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall }
@@ -308,8 +308,19 @@ function processProxyEvent(
 		}
 
 		case "thinking_start":
-			partial.content[proxyEvent.contentIndex] = { type: "thinking", thinking: "" };
-			return { type: "thinking_start", contentIndex: proxyEvent.contentIndex, partial };
+			partial.content[proxyEvent.contentIndex] = {
+				type: "thinking",
+				thinking: "",
+				...(proxyEvent.summaries !== undefined && proxyEvent.summaries.length > 0
+					? { summaries: [...proxyEvent.summaries] }
+					: {}),
+			};
+			return {
+				type: "thinking_start",
+				contentIndex: proxyEvent.contentIndex,
+				...(proxyEvent.summaries !== undefined ? { summaries: [...proxyEvent.summaries] } : {}),
+				partial,
+			};
 
 		case "thinking_delta": {
 			const content = partial.content[proxyEvent.contentIndex];
@@ -329,10 +340,13 @@ function processProxyEvent(
 			const content = partial.content[proxyEvent.contentIndex];
 			if (content?.type === "thinking") {
 				content.thinkingSignature = proxyEvent.contentSignature;
+				const summaries = proxyEvent.summaries ?? content.summaries ?? [];
+				if (summaries.length > 0) content.summaries = [...summaries];
 				return {
 					type: "thinking_end",
 					contentIndex: proxyEvent.contentIndex,
 					content: content.thinking,
+					...(summaries.length > 0 ? { summaries: [...summaries] } : {}),
 					partial,
 				};
 			}

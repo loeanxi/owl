@@ -695,6 +695,11 @@ export async function processResponsesStream<TApi extends Api>(
 		} else if (event.type === "response.reasoning_summary_part.done") {
 			const slot = getSlot(event.output_index, "thinking");
 			if (!slot) continue;
+			// 摘要单独收一份：Claude 的思考呈现靠它，原始文字只用来取第一行。
+			const partText = event.part?.text ?? "";
+			if (partText.trim() !== "") {
+				slot.block.summaries = [...(slot.block.summaries ?? []), partText];
+			}
 			slot.block.thinking += "\n\n";
 			stream.push({
 				type: "thinking_delta",
@@ -759,8 +764,11 @@ export async function processResponsesStream<TApi extends Api>(
 			const slot = getOrCreateSlot(event.output_index, item);
 
 			if (item.type === "reasoning" && slot?.type === "thinking") {
-				const summaryText = item.summary?.map((s) => s.text).join("\n\n") || "";
+				const summaryParts = item.summary?.map((s) => s.text).filter((text) => text.trim() !== "") ?? [];
+				const summaryText = summaryParts.join("\n\n");
 				const contentText = item.content?.map((c) => c.text).join("\n\n") || "";
+				// 摘要与原始文字分开存：Claude 的思考呈现只用摘要，原始文字只取第一行。
+				if (summaryParts.length > 0) slot.block.summaries = summaryParts;
 				slot.block.thinking = summaryText || contentText || slot.block.thinking;
 				slot.block.thinkingSignature = JSON.stringify(item);
 				reasoningBlocksById.set(item.id, slot.block);

@@ -9,10 +9,10 @@
  */
 import { useSyncExternalStore } from "react";
 
-export type WorkEffectId = "rail" | "enter" | "morph" | "count" | "spine" | "stream" | "breathe" | "nudge";
+export type WorkEffectId = "rail" | "enter" | "morph" | "count" | "spine" | "breathe" | "nudge";
 
 /** 动效清单，顺序即设置页里的展示顺序。 */
-export const WORK_EFFECT_IDS: readonly WorkEffectId[] = ["rail", "enter", "morph", "count", "spine", "stream", "breathe", "nudge"];
+export const WORK_EFFECT_IDS: readonly WorkEffectId[] = ["rail", "enter", "morph", "count", "spine", "breathe", "nudge"];
 
 export type WorkEffects = Readonly<Record<WorkEffectId, boolean>>;
 
@@ -23,7 +23,6 @@ export const DEFAULT_WORK_EFFECTS: WorkEffects = Object.freeze({
 	morph: true,
 	count: true,
 	spine: true,
-	stream: true,
 	breathe: true,
 	nudge: true,
 });
