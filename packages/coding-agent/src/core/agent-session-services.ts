@@ -68,6 +68,8 @@ export interface CreateAgentSessionFromServicesOptions {
 	noTools?: CreateAgentSessionOptions["noTools"];
 	customTools?: ToolDefinition[];
 	toolActivation?: CreateAgentSessionOptions["toolActivation"];
+	/** 给每个工具批次生成模型撰写的组标题（Claude 的 tool_use_summary）。 */
+	toolBatchLabels?: CreateAgentSessionOptions["toolBatchLabels"];
 }
 
 /**
@@ -239,6 +241,7 @@ export async function createAgentSessionFromServices(
 		noTools: options.noTools,
 		customTools: options.customTools,
 		toolActivation: options.toolActivation,
+		toolBatchLabels: options.toolBatchLabels,
 		sessionStartEvent: options.sessionStartEvent,
 	});
 }

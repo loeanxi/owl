@@ -87,6 +87,14 @@ export interface CreateAgentSessionOptions {
 	customTools?: ToolDefinition[];
 	/** Register all permitted tools, but only activate defaults until tool_search loads more. */
 	toolActivation?: "eager" | "on-demand";
+	/**
+	 * Give every tool batch a model-written label (Claude's `tool_use_summary`).
+	 *
+	 * Each finished batch triggers one extra **tool-free** model request whose
+	 * answer becomes the group's heading. That is an extra model call per batch,
+	 * so it is off by default; hosts that render the Claude answer form turn it on.
+	 */
+	toolBatchLabels?: boolean;
 
 	/** Resource loader. When omitted, DefaultResourceLoader is used. */
 	resourceLoader?: ResourceLoader;
@@ -552,6 +560,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		cacheWarmer,
 		initialActiveToolNames,
 		toolActivation: options.toolActivation,
+		toolBatchLabels: options.toolBatchLabels,
 		usesDefaultTools: options.tools === undefined && options.initialActiveToolNames === undefined && !options.noTools,
 		allowedToolNames,
 		excludedToolNames,

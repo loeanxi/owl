@@ -6,6 +6,7 @@ import path from "path";
 import { type Static, Type } from "typebox";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import {
@@ -19,6 +20,7 @@ import {
 
 const grepSchema = Type.Object({
 	pattern: Type.String({ description: "Search pattern (regex or literal string)" }),
+	title: actionTitleParameter,
 	path: Type.Optional(Type.String({ description: "Directory or file to search (default: current directory)" })),
 	glob: Type.Optional(Type.String({ description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'" })),
 	ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search (default: false)" })),
@@ -33,13 +35,15 @@ const grepSchema = Type.Object({
 
 export const grepToolSystemPromptContribution = {
 	snippet: "Search file contents for patterns (respects .gitignore)",
-	guidelines: [],
+	guidelines: [actionTitleGuideline],
 } as const;
 
 export type GrepToolInput = Static<typeof grepSchema>;
 const DEFAULT_LIMIT = 100;
 
 export interface GrepToolDetails {
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 	truncation?: TruncationResult;
 	matchLimitReached?: number;
 	linesTruncated?: boolean;
@@ -76,11 +80,13 @@ export function createGrepToolDefinition(
 		label: "grep",
 		description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
 		promptSnippet: grepToolSystemPromptContribution.snippet,
+		promptGuidelines: [...grepToolSystemPromptContribution.guidelines],
 		parameters: grepSchema,
 		async execute(
 			_toolCallId,
 			{
 				pattern,
+				title,
 				path: searchDir,
 				glob,
 				ignoreCase,
@@ -89,6 +95,7 @@ export function createGrepToolDefinition(
 				limit,
 			}: {
 				pattern: string;
+				title?: string;
 				path?: string;
 				glob?: string;
 				ignoreCase?: boolean;
@@ -292,6 +299,8 @@ export function createGrepToolDefinition(
 							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 							let output = truncation.content;
 							const details: GrepToolDetails = {};
+							const actionTitle = actionTitleOf({ title });
+							if (actionTitle !== undefined) details.title = actionTitle;
 							// Build actionable notices for truncation and match limits.
 							const notices: string[] = [];
 							if (matchLimitReached) {

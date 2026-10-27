@@ -114,6 +114,8 @@ export interface HarnessOptions {
 	tools?: AgentTool[];
 	initialActiveToolNames?: string[];
 	toolActivation?: "eager" | "on-demand";
+	/** Give every tool batch a model-written label (Claude's tool_use_summary). */
+	toolBatchLabels?: boolean;
 	allowedToolNames?: string[];
 	excludedToolNames?: string[];
 	resourceLoader?: ResourceLoader;
@@ -240,6 +242,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		baseToolsOverride: toolMap,
 		initialActiveToolNames: options.initialActiveToolNames,
 		toolActivation: options.toolActivation,
+		toolBatchLabels: options.toolBatchLabels,
 		allowedToolNames: options.allowedToolNames,
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,

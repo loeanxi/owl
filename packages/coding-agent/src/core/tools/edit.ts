@@ -5,6 +5,7 @@ import { type Static, Type } from "typebox";
 import { splitBom } from "../../utils/text.ts";
 import { recordDiffApprovalMutationBefore } from "../diff-approval/registry.ts";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import {
 	applyEditsToNormalizedContent,
 	type Edit,
@@ -35,6 +36,7 @@ const editSchema = Type.Object(
 			description:
 				'One or more targeted replacements. Each item MUST be an object like {"oldText": "<exact existing text>", "newText": "<replacement text>"} — never a bare string and never an object without oldText. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.',
 		}),
+		title: actionTitleParameter,
 	},
 	{},
 );
@@ -42,6 +44,7 @@ const editSchema = Type.Object(
 export const editToolSystemPromptContribution = {
 	snippet: "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
 	guidelines: [
+		actionTitleGuideline,
 		"Use edit for precise changes (edits[].oldText must match exactly)",
 		"When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
 		"The top-level path applies to every edits[] entry in a call. Group replacements by file and use separate edit calls for different file paths.",
@@ -127,6 +130,8 @@ function isSingleEditInput(value: unknown): value is SingleEditInput {
 }
 
 export interface EditToolDetails {
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 	/** Display-oriented diff of the changes made */
 	diff: string;
 	/** Standard unified patch of the changes made */
@@ -231,6 +236,7 @@ export function createEditToolDefinition(
 		prepareArguments: prepareEditArguments,
 		async execute(_toolCallId, input: EditToolInput, signal?: AbortSignal, _onUpdate?, ctx?: ExtensionToolContext) {
 			const { path, edits } = validateEditInput(input);
+			const actionTitle = actionTitleOf(input);
 			const absolutePath = resolveToCwd(path, ctx?.cwd || cwd);
 
 			return withFileMutationQueue(absolutePath, async () => {
@@ -293,7 +299,12 @@ export function createEditToolDefinition(
 							text: `Successfully replaced ${edits.length} block(s) in ${path}.${mergeNote}`,
 						},
 					],
-					details: { diff: diffResult.diff, patch, firstChangedLine: diffResult.firstChangedLine },
+					details: {
+						diff: diffResult.diff,
+						patch,
+						firstChangedLine: diffResult.firstChangedLine,
+						...(actionTitle !== undefined ? { title: actionTitle } : {}),
+					},
 				};
 			});
 		},

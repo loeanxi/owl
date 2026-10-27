@@ -6,6 +6,7 @@ import { type Static, Type } from "typebox";
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { correctMissingPath, pathCorrectionNote, resolveReadPathAsync } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
@@ -14,6 +15,7 @@ const readSchema = Type.Object({
 	path: Type.String({ description: "Path to the file or directory to read (relative or absolute)" }),
 	offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
 	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+	title: actionTitleParameter,
 });
 
 export const readToolSystemPromptContribution = {
@@ -24,6 +26,7 @@ export const readToolSystemPromptContribution = {
 		"A known path must come from the user or an actual tool result. Copy that path exactly, including every directory segment; do not reconstruct it from a basename, and do not insert or drop a directory segment from memory.",
 		"If a path still needs discovery, wait for the directory listing or file search result before reading it. Discovery and the read that depends on it are sequential; only independent, already known paths may be read in parallel.",
 		"Read independent known files, such as source and its test, together in one tool-call batch or with codemode Promise.all; avoid a separate model round trip for each file.",
+		actionTitleGuideline,
 	],
 } as const;
 
@@ -32,6 +35,8 @@ export type ReadToolInput = Static<typeof readSchema>;
 export interface ReadToolDetails {
 	truncation?: TruncationResult;
 	directory?: boolean;
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 	/** The actual file read when a missing path was corrected; the notice is display-only. */
 	pathCorrection?: { requestedPath: string; resolvedPath: string };
 }
@@ -96,7 +101,7 @@ export function createReadToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
-			{ path, offset, limit }: { path: string; offset?: number; limit?: number },
+			{ path, offset, limit, title }: { path: string; offset?: number; limit?: number; title?: string },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?: ExtensionContext,
@@ -153,6 +158,7 @@ export function createReadToolDefinition(
 									details: {
 										directory: true,
 										truncation: listing,
+										...(actionTitleOf({ title }) !== undefined ? { title: actionTitleOf({ title }) } : {}),
 										...(correctedFrom
 											? { pathCorrection: { requestedPath: correctedFrom, resolvedPath: absolutePath } }
 											: {}),
@@ -255,7 +261,16 @@ export function createReadToolDefinition(
 							}
 							if (aborted) return;
 							signal?.removeEventListener("abort", onAbort);
-							resolve({ content, details });
+							const actionTitle = actionTitleOf({ title });
+							resolve({
+								content,
+								details:
+									details === undefined
+										? actionTitle !== undefined
+											? { title: actionTitle }
+											: undefined
+										: { ...details, ...(actionTitle !== undefined ? { title: actionTitle } : {}) },
+							});
 						} catch (error: any) {
 							signal?.removeEventListener("abort", onAbort);
 							if (!aborted) reject(error);

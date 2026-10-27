@@ -58,6 +58,28 @@ export type QueueMode = "all" | "one-at-a-time";
 export type AgentToolCall = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
 
 /**
+ * 一次工具批次的素材。
+ *
+ * 一条 assistant 消息里的全部工具调用算一个批次 —— Claude Desktop 界面上的
+ * 一个工具组就是它。批次素材用于给这一组生成一句模型撰写的标题。
+ */
+export interface AgentToolBatch {
+	/** 批次里的工具调用。 */
+	toolCalls: Array<{
+		/** 工具调用 id（与 `tool_execution_end` 的 toolCallId 一致）。 */
+		id: string;
+		/** 工具名。 */
+		name: string;
+		/** 工具入参（模型发出的原始参数）。 */
+		input: unknown;
+		/** 工具输出（结果的 content 数组）。 */
+		output: unknown;
+	}>;
+	/** 批次之前 assistant 最后一段正文（用户的真实意图）。 */
+	lastAssistantText?: string;
+}
+
+/**
  * Result returned from `beforeToolCall`.
  *
  * Returning `{ block: true }` prevents the tool from executing. The loop emits an error tool result instead.
@@ -356,6 +378,18 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * The hook receives the agent abort signal and is responsible for honoring it.
 	 */
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+
+	/**
+	 * Called after a batch of tool calls finished, before the loop continues.
+	 *
+	 * Return a short label describing what the batch accomplished. The loop emits
+	 * it as a `tool_use_summary` event carrying the batch's tool call ids, so a
+	 * UI can title the whole group — Claude Desktop's group heading is a
+	 * model-written label, not a frontend summary.
+	 *
+	 * Contract: must not throw or reject. Return undefined to skip the label.
+	 */
+	afterToolBatch?: (batch: AgentToolBatch, signal?: AbortSignal) => Promise<string | undefined> | string | undefined;
 }
 
 /**
@@ -543,4 +577,6 @@ export type AgentEvent =
 	// Tool execution lifecycle
 	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
-	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
+	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean }
+	// Model-written label for a finished tool batch (Claude's "tool_use_summary")
+	| { type: "tool_use_summary"; summary: string; toolCallIds: string[] };

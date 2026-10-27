@@ -4,6 +4,7 @@ import { dirname } from "path";
 import { type Static, Type } from "typebox";
 import { recordDiffApprovalMutationBefore } from "../diff-approval/registry.ts";
 import type { ExtensionToolContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { assertFullFileRead } from "./edit-read-gate.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
 import { pathExists, resolveToCwd } from "./path-utils.ts";
@@ -12,11 +13,13 @@ import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 const writeSchema = Type.Object({
 	path: Type.String({ description: "Path to the file to write (relative or absolute)" }),
 	content: Type.String({ description: "Content to write to the file" }),
+	title: actionTitleParameter,
 });
 
 export const writeToolSystemPromptContribution = {
 	snippet: "Create or overwrite files",
 	guidelines: [
+		actionTitleGuideline,
 		"Use write only for new files or complete rewrites.",
 		"For a .ps1 script intended for Windows PowerShell 5.1, UTF-8 without a BOM can be decoded using the Windows ANSI code page. If its content contains non-ASCII text, start content with the actual U+FEFF character (JSON escape \\uFEFF) so write emits a UTF-8 BOM, or keep a temporary script ASCII-only. Validate the generated file with PowerShell Parser.ParseFile before executing it; parsing does not execute the script.",
 		"Overwriting an existing file requires having seen the whole current file: a full read or `cat` of it, or your own successful complete write tool call; your own later edits keep either current, and earlier turns count while the file is unchanged on disk. A shell redirection or heredoc does not count as a write tool call: read the whole resulting file before overwriting it with write. Prefer edit for small changes to an existing file. New files can be written directly.",
@@ -24,6 +27,11 @@ export const writeToolSystemPromptContribution = {
 } as const;
 
 export type WriteToolInput = Static<typeof writeSchema>;
+
+export interface WriteToolDetails {
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
+}
 
 /**
  * Pluggable operations for the write tool.
@@ -54,7 +62,7 @@ export interface WriteToolOptions {
 export function createWriteToolDefinition(
 	cwd: string,
 	options?: WriteToolOptions,
-): ToolDefinition<typeof writeSchema, undefined> {
+): ToolDefinition<typeof writeSchema, WriteToolDetails | undefined, unknown> {
 	const ops = options?.operations ?? defaultWriteOperations;
 	const exists = ops.exists ?? pathExists;
 	return {
@@ -68,7 +76,7 @@ export function createWriteToolDefinition(
 		constrainedSampling: { type: "json_schema", strict: "prefer" },
 		async execute(
 			_toolCallId,
-			{ path, content }: { path: string; content: string },
+			{ path, content, title }: { path: string; content: string; title?: string },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?: ExtensionToolContext,
@@ -116,7 +124,7 @@ export function createWriteToolDefinition(
 
 				return {
 					content: [{ type: "text", text: `Successfully wrote to ${path}` }],
-					details: undefined,
+					details: actionTitleOf({ title }) !== undefined ? { title: actionTitleOf({ title }) } : undefined,
 				};
 			});
 		},

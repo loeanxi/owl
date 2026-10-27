@@ -23,6 +23,7 @@ import type {
 	AgentLoopConfig,
 	AgentMessage,
 	AgentTool,
+	AgentToolBatch,
 	AgentToolCall,
 	AgentToolCallOutcome,
 	AgentToolResult,
@@ -303,6 +304,10 @@ async function runLoop(
 					: message.stopReason === "length"
 						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
 						: await executeToolCalls(currentContext, message, config, signal, emit);
+				// Refused or truncated batches never ran: they have nothing to summarize.
+				if (!refusal && message.stopReason !== "length") {
+					await emitToolBatchSummary(message, toolCalls, executedToolBatch.messages, config, signal, emit);
+				}
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !refusal && !executedToolBatch.terminate;
 				if (!refusal) {
@@ -1272,6 +1277,58 @@ async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: A
 		toolName: finalized.toolCall.name,
 		result: finalized.result,
 		isError: finalized.isError,
+	});
+}
+
+/** assistant 消息里最后一段正文（工具批次之前的用户意图）。 */
+function lastAssistantTextOf(message: AssistantMessage): string | undefined {
+	for (let index = message.content.length - 1; index >= 0; index--) {
+		const block = message.content[index]!;
+		if (block.type === "text" && block.text.trim() !== "") return block.text.trim();
+	}
+	return undefined;
+}
+
+/**
+ * Give the finished tool batch a model-written label and publish it.
+ *
+ * Claude calls this `tool_use_summary`: one short label for the whole group of
+ * tool calls, emitted with the ids of the calls it covers. A UI can then title
+ * the group the way Claude Desktop does — with the model's own words instead
+ * of a frontend summary of the arguments.
+ */
+async function emitToolBatchSummary(
+	assistantMessage: AssistantMessage,
+	toolCalls: AgentToolCall[],
+	toolResults: ToolResultMessage[],
+	config: AgentLoopConfig,
+	signal: AbortSignal | undefined,
+	emit: AgentEventSink,
+): Promise<void> {
+	if (config.afterToolBatch === undefined || toolCalls.length === 0) return;
+	const outputs = new Map(toolResults.map((result) => [result.toolCallId, result.content]));
+	const batch: AgentToolBatch = {
+		toolCalls: toolCalls.map((call) => ({
+			id: call.id,
+			name: call.name,
+			input: call.arguments,
+			output: outputs.get(call.id) ?? [],
+		})),
+		lastAssistantText: lastAssistantTextOf(assistantMessage),
+	};
+	let summary: string | undefined;
+	try {
+		summary = await config.afterToolBatch(batch, signal);
+	} catch {
+		// A failed label must never break the run.
+		return;
+	}
+	const trimmed = summary?.trim();
+	if (trimmed === undefined || trimmed === "") return;
+	await emit({
+		type: "tool_use_summary",
+		summary: trimmed,
+		toolCallIds: batch.toolCalls.map((call) => call.id),
 	});
 }
 

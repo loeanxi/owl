@@ -5,6 +5,7 @@ import path from "path";
 import { type Static, Type } from "typebox";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
@@ -23,6 +24,7 @@ export function relativizeFindResultPath(
 }
 
 const findSchema = Type.Object({
+	title: actionTitleParameter,
 	pattern: Type.String({
 		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
 	}),
@@ -32,7 +34,7 @@ const findSchema = Type.Object({
 
 export const findToolSystemPromptContribution = {
 	snippet: "Find files by glob pattern (respects .gitignore)",
-	guidelines: [],
+	guidelines: [actionTitleGuideline],
 } as const;
 
 export type FindToolInput = Static<typeof findSchema>;
@@ -40,6 +42,8 @@ export type FindToolInput = Static<typeof findSchema>;
 const DEFAULT_LIMIT = 1000;
 
 export interface FindToolDetails {
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 	truncation?: TruncationResult;
 	resultLimitReached?: number;
 }
@@ -76,10 +80,11 @@ export function createFindToolDefinition(
 		label: "find",
 		description: `Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: findToolSystemPromptContribution.snippet,
+		promptGuidelines: [...findToolSystemPromptContribution.guidelines],
 		parameters: findSchema,
 		async execute(
 			_toolCallId,
-			{ pattern, path: searchDir, limit }: { pattern: string; path?: string; limit?: number },
+			{ pattern, path: searchDir, limit, title }: { pattern: string; path?: string; limit?: number; title?: string },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?: ExtensionContext,
@@ -154,6 +159,8 @@ export function createFindToolDefinition(
 							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 							let resultOutput = truncation.content;
 							const details: FindToolDetails = {};
+							const actionTitle = actionTitleOf({ title });
+							if (actionTitle !== undefined) details.title = actionTitle;
 							const notices: string[] = [];
 							if (resultLimitReached) {
 								notices.push(`${effectiveLimit} results limit reached`);

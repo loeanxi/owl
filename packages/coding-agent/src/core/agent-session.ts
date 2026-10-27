@@ -25,6 +25,7 @@ import {
 	type AgentMessage,
 	type AgentState,
 	type AgentTool,
+	type AgentToolBatch,
 	type AgentToolCallOutcome,
 	type BeforeToolCallContext,
 	type BeforeToolCallResult,
@@ -149,6 +150,7 @@ import {
 	type NormalizedBuildSystemPromptOptions,
 	normalizeBuildSystemPromptOptions,
 } from "./system-prompt.ts";
+import { generateToolBatchLabel } from "./tool-batch-label.ts";
 import {
 	isActivatedOnRegistration,
 	isAllowedToolName,
@@ -283,6 +285,15 @@ export interface AgentSessionConfig {
 	initialActiveToolNames?: string[];
 	/** On-demand keeps registered tools discoverable without declaring them at startup. */
 	toolActivation?: "eager" | "on-demand";
+	/**
+	 * 给每个工具批次生成一句模型撰写的组标题（Claude 的 `tool_use_summary`）。
+	 *
+	 * 开启后，每批工具跑完会另起一次**不带工具**的模型请求要一句标签，
+	 * 结果随 `tool_use_summary` 事件下发，前端用它当工具组的组头。
+	 * 这是额外的一次模型调用，所以默认关闭 —— 只有需要 Claude 观感的宿主
+	 * （桌面端）才打开。
+	 */
+	toolBatchLabels?: boolean;
 	/**
 	 * Whether the initial tools come from the `defaultTools` setting. When true, reload activates
 	 * tools newly added to the setting. Tools removed from it stay active.
@@ -494,6 +505,11 @@ export class AgentSession {
 
 	constructor(config: AgentSessionConfig) {
 		this.agent = config.agent;
+		// Claude 的工具组组头是模型写的标题（tool_use_summary）：批次跑完后另起一次无工具请求。
+		// 这是额外的一次模型调用，只在宿主明确要求时才挂上。
+		if (config.toolBatchLabels) {
+			this.agent.afterToolBatch = (batch, signal) => this._afterToolBatch(batch, signal);
+		}
 		this.sessionManager = config.sessionManager;
 		this.settingsManager = config.settingsManager;
 		this._scopedModels = config.scopedModels ?? [];
@@ -619,6 +635,33 @@ export class AgentSession {
 			);
 		}
 		throw new Error(formatNoApiKeyFoundMessage(model.provider));
+	}
+
+	/**
+	 * 工具批次跑完后，让模型给这一组写一句标题。
+	 *
+	 * Claude Desktop 的组头（"Searched code"）是模型写的，不是前端拼的：
+	 * 批次结束后另起一次**不带工具**的模型请求，只问一句 "Label:"。
+	 * 失败、被中断、无鉴权都返回 undefined —— 组头回退到前端的兜底合成。
+	 */
+	private async _afterToolBatch(batch: AgentToolBatch, signal?: AbortSignal): Promise<string | undefined> {
+		const sessionModel = this.agent.state.model;
+		if (!sessionModel) return undefined;
+		try {
+			const request = await this._compactionSummaryRequest(sessionModel, signal ?? new AbortController().signal);
+			return await generateToolBatchLabel(batch, {
+				model: request.model,
+				apiKey: request.apiKey,
+				headers: request.headers,
+				env: request.env,
+				signal,
+				sessionId: this.sessionManager.getSessionId(),
+				streamFn: this.agent.streamFunction,
+				retry: this.settingsManager.getRetrySettings(),
+			});
+		} catch {
+			return undefined;
+		}
 	}
 
 	/**

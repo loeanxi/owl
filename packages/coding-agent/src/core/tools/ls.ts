@@ -3,18 +3,20 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import nodePath from "path";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { actionTitleGuideline, actionTitleOf, actionTitleParameter } from "./action-title.ts";
 import { correctMissingPath, pathCorrectionNote, pathExists, resolveToCwd } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.ts";
 
 const lsSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
+	title: actionTitleParameter,
 	limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
 });
 
 export const lsToolSystemPromptContribution = {
 	snippet: "List directory contents",
-	guidelines: [],
+	guidelines: [actionTitleGuideline],
 } as const;
 
 export type LsToolInput = Static<typeof lsSchema>;
@@ -22,6 +24,8 @@ export type LsToolInput = Static<typeof lsSchema>;
 const DEFAULT_LIMIT = 500;
 
 export interface LsToolDetails {
+	/** 模型写的动作短语（工具行标题）。 */
+	title?: string;
 	truncation?: TruncationResult;
 	entryLimitReached?: number;
 }
@@ -60,10 +64,11 @@ export function createLsToolDefinition(
 		label: "ls",
 		description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
 		promptSnippet: lsToolSystemPromptContribution.snippet,
+		promptGuidelines: [...lsToolSystemPromptContribution.guidelines],
 		parameters: lsSchema,
 		async execute(
 			_toolCallId,
-			{ path, limit }: { path?: string; limit?: number },
+			{ path, limit, title }: { path?: string; limit?: number; title?: string },
 			signal?: AbortSignal,
 			_onUpdate?,
 			ctx?: ExtensionContext,
@@ -148,6 +153,8 @@ export function createLsToolDefinition(
 						const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 						let output = truncation.content;
 						const details: LsToolDetails = {};
+						const actionTitle = actionTitleOf({ title });
+						if (actionTitle !== undefined) details.title = actionTitle;
 						// Build actionable notices for truncation and entry limits.
 						const notices: string[] = [];
 						if (entryLimitReached) {
