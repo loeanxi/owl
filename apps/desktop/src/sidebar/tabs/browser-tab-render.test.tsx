@@ -3,10 +3,11 @@
  *
  * 这两块只靠协议层验证不够——面板里画没画出来是前端的事，这里直接渲染组件断言 DOM。
  */
+
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserSessionContext } from "../registry.ts";
 import { BrowserTab } from "./BrowserTab.tsx";
@@ -56,14 +57,25 @@ beforeEach(() => {
 		},
 	);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class {
-		observe(): void {}
-		disconnect(): void {}
-	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1280 });
 	Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
 	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
-		x: 0, y: 0, width: 600, height: 400, top: 0, left: 0, right: 600, bottom: 400, toJSON: () => ({}),
+		x: 0,
+		y: 0,
+		width: 600,
+		height: 400,
+		top: 0,
+		left: 0,
+		right: 600,
+		bottom: 400,
+		toJSON: () => ({}),
 	});
 	handlers = [];
 	host = dom.document.getElementById("root") as HTMLElement;
@@ -76,7 +88,18 @@ afterEach(() => {
 
 async function renderTab(): Promise<void> {
 	const client = {
-		request: vi.fn(async () => ({ ok: true, result: { page: { pageId: "page-1", url: "https://example.test/", title: "示例", viewport: { width: 1280, height: 860 }, active: true } } })),
+		request: vi.fn(async () => ({
+			ok: true,
+			result: {
+				page: {
+					pageId: "page-1",
+					url: "https://example.test/",
+					title: "示例",
+					viewport: { width: 1280, height: 860 },
+					active: true,
+				},
+			},
+		})),
 		onIabMessage: (handler: (message: unknown) => void) => {
 			handlers.push(handler);
 			return () => {};
@@ -108,12 +131,32 @@ async function renderTab(): Promise<void> {
 
 describe("browser tab rendering", () => {
 	it("highlights the element the agent is acting on and clears it afterwards", async () => {
+		// 高亮坐标按「页面 CSS 坐标 × 缩放」画：这里量一次 1:1 的舞台（1280×860），
+		// 高亮位置就等于页面坐标本身。
+		dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+			x: 0,
+			y: 0,
+			width: 1280,
+			height: 860,
+			top: 0,
+			left: 0,
+			right: 1280,
+			bottom: 860,
+			toJSON: () => ({}),
+		});
 		await renderTab();
 		act(() => {
 			push({
 				type: "iab.pages",
 				pages: [
-					{ pageId: "page-1", sessionId: "chat-1", url: "https://example.test/", title: "示例", viewport: { width: 1280, height: 860 }, active: true },
+					{
+						pageId: "page-1",
+						sessionId: "chat-1",
+						url: "https://example.test/",
+						title: "示例",
+						viewport: { width: 1280, height: 860 },
+						active: true,
+					},
 				],
 				origin: "agent",
 			});
@@ -155,8 +198,22 @@ describe("browser tab rendering", () => {
 			push({
 				type: "iab.pages",
 				pages: [
-					{ pageId: "page-1", sessionId: "chat-1", url: "https://a.test/", title: "甲页", viewport: { width: 1280, height: 860 }, active: true },
-					{ pageId: "page-2", sessionId: "chat-1", url: "https://b.test/", title: "乙页", viewport: { width: 1280, height: 860 }, active: false },
+					{
+						pageId: "page-1",
+						sessionId: "chat-1",
+						url: "https://a.test/",
+						title: "甲页",
+						viewport: { width: 1280, height: 860 },
+						active: true,
+					},
+					{
+						pageId: "page-2",
+						sessionId: "chat-1",
+						url: "https://b.test/",
+						title: "乙页",
+						viewport: { width: 1280, height: 860 },
+						active: false,
+					},
 				],
 				origin: "agent",
 			});
@@ -177,7 +234,16 @@ describe("browser tab rendering", () => {
 		act(() => {
 			push({
 				type: "iab.pages",
-				pages: [{ pageId: "page-1", sessionId: "chat-1", url: "https://example.test/", title: "示例", viewport: { width: 1280, height: 860 }, active: true }],
+				pages: [
+					{
+						pageId: "page-1",
+						sessionId: "chat-1",
+						url: "https://example.test/",
+						title: "示例",
+						viewport: { width: 1280, height: 860 },
+						active: true,
+					},
+				],
 				origin: "agent",
 			});
 		});
@@ -191,5 +257,29 @@ describe("browser tab rendering", () => {
 		expect(canvas).not.toBeNull();
 		expect(canvas?.width).toBe(595);
 		expect(canvas?.height).toBe(400);
+	});
+
+	it("lets CSS fill the stage instead of pinning a JS-measured size", async () => {
+		// 回归：包裹层曾按 clientWidth（四舍五入的整数）定宽高。亚像素布局下整数
+		// 与真实内容盒差出的零点几像素会让 overflow-auto 冒出滚动条，拖窗口边框
+		// 时小数部分反复扫过取整边界、滚动条不停出现消失，画面一直抖。现在填满
+		// 交给 CSS（100% 恰好贴合），内容尺寸只作 min-* 撑滚动区。
+		Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 600 });
+		Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 400 });
+		await renderTab();
+		act(() => {
+			push({ type: "iab.frame", pageId: "page-1", data: "AAAA", format: "jpeg", width: 1280, height: 860 });
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		const fit = host.querySelector(".owl-browser-fit") as HTMLElement | null;
+		expect(fit).not.toBeNull();
+		const scale = Math.min(600 / 1280, 400 / 860);
+		expect(fit?.style.minWidth).toBe(`${1280 * scale}px`);
+		expect(fit?.style.minHeight).toBe(`${860 * scale}px`);
+		// width/height 不再由 JS 定死（填满交给 CSS）：内联样式里只有 min-* 两项。
+		expect(fit?.getAttribute("style")?.match(/(?:^|;)\s*width/)).toBeNull();
+		expect(fit?.getAttribute("style")?.match(/(?:^|;)\s*height/)).toBeNull();
 	});
 });

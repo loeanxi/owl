@@ -18,9 +18,11 @@ afterEach(() => {
 
 describe("turn usage display", () => {
 	it("shows one request's total input including cache separately from output", () => {
-		const html = renderToStaticMarkup(createElement(ContextRequestUsage, {
-			usage: { input: 20, output: 7, cacheRead: 70, cacheWrite: 10 },
-		}));
+		const html = renderToStaticMarkup(
+			createElement(ContextRequestUsage, {
+				usage: { input: 20, output: 7, cacheRead: 70, cacheWrite: 10 },
+			}),
+		);
 		expect(html).toContain("本次输入 100");
 		expect(html).toContain("未缓存 20");
 		expect(html).toContain("缓存读 70");
@@ -31,7 +33,10 @@ describe("turn usage display", () => {
 	it("counts every assistant call once, includes cache tokens, and resets on the next user turn", () => {
 		vi.stubGlobal("document", { documentElement: { dataset: {} } });
 		const assistant = (text: string): ChatEntry => ({
-			kind: "assistant", text, thinking: "", tools: [],
+			kind: "assistant",
+			text,
+			thinking: "",
+			tools: [],
 			usage: { input: 10, output: 5, cacheRead: 80, cacheWrite: 5 },
 		});
 		const entries: ChatEntry[] = [

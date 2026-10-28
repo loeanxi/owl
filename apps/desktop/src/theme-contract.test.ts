@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -19,7 +19,8 @@ test("desktop theme color references use declared roles instead of silently fall
 	const declared = new Set<string>();
 	for (const { source } of sources) {
 		for (const match of source.matchAll(/(--(?:color-owl|owl-ui)-[\w-]+)["']?\s*:/g)) declared.add(match[1]);
-		for (const match of source.matchAll(/setProperty\(["'](--(?:color-owl|owl-ui)-[\w-]+)["']/g)) declared.add(match[1]);
+		for (const match of source.matchAll(/setProperty\(["'](--(?:color-owl|owl-ui)-[\w-]+)["']/g))
+			declared.add(match[1]);
 	}
 	const missing: string[] = [];
 	for (const { path, source } of sources) {

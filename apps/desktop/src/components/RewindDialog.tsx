@@ -83,17 +83,26 @@ export function RewindDialog({
 	};
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={() => !executing && onClose()}>
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+			onClick={() => !executing && onClose()}
+		>
 			<div
 				className="flex max-h-[70vh] w-[540px] max-w-full flex-col rounded-xl border border-owl-border bg-owl-panel shadow-2xl shadow-black/40"
 				onClick={(event) => event.stopPropagation()}
 			>
 				<div className="border-b border-owl-border px-4 py-3">
 					<h2 className="text-sm font-semibold">{t("rewind.title")}</h2>
-					<p className="mt-1 line-clamp-2 rounded-lg bg-owl-sidebar px-2.5 py-1.5 text-xs text-owl-muted">{brief}</p>
+					<p className="mt-1 line-clamp-2 rounded-lg bg-owl-sidebar px-2.5 py-1.5 text-xs text-owl-muted">
+						{brief}
+					</p>
 				</div>
 				<div className="flex-1 overflow-y-auto px-4 py-3">
-					{error && <p className="mb-2 rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger">{error}</p>}
+					{error && (
+						<p className="mb-2 rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger">
+							{error}
+						</p>
+					)}
 					{stage === "choose" ? (
 						<div className="space-y-2">
 							<button
@@ -132,7 +141,9 @@ export function RewindDialog({
 										</ul>
 									)}
 									{impact.unchanged > 0 && (
-										<p className="mt-2 text-[11px] text-owl-muted">{t("rewind.unchangedNote", { n: impact.unchanged })}</p>
+										<p className="mt-2 text-[11px] text-owl-muted">
+											{t("rewind.unchangedNote", { n: impact.unchanged })}
+										</p>
 									)}
 								</>
 							)}

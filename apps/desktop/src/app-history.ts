@@ -23,21 +23,30 @@ export interface AppHistory {
 const MAX_PLACES = 50;
 
 export function samePlace(a: AppPlace, b: AppPlace): boolean {
-	return a.rail === b.rail
-		&& a.settings === b.settings
-		&& a.settingsTab === b.settingsTab
-		&& a.chatSession === b.chatSession
-		&& a.researchSession === b.researchSession
-		&& normPath(a.workspace) === normPath(b.workspace)
-		&& normPath(a.researchWorkspace) === normPath(b.researchWorkspace);
+	return (
+		a.rail === b.rail &&
+		a.settings === b.settings &&
+		a.settingsTab === b.settingsTab &&
+		a.chatSession === b.chatSession &&
+		a.researchSession === b.researchSession &&
+		normPath(a.workspace) === normPath(b.workspace) &&
+		normPath(a.researchWorkspace) === normPath(b.researchWorkspace)
+	);
 }
 
 /** 空白会话被真正创建出来时，只补上 id，不当成用户又走了一步。 */
 function isSessionFill(prev: AppPlace, next: AppPlace): boolean {
-	if (prev.rail !== next.rail || prev.settings !== next.settings || prev.settingsTab !== next.settingsTab) return false;
-	if (normPath(prev.workspace) !== normPath(next.workspace) || normPath(prev.researchWorkspace) !== normPath(next.researchWorkspace)) return false;
-	const chatFilled = prev.chatSession === undefined && next.chatSession !== undefined && prev.researchSession === next.researchSession;
-	const researchFilled = prev.researchSession === undefined && next.researchSession !== undefined && prev.chatSession === next.chatSession;
+	if (prev.rail !== next.rail || prev.settings !== next.settings || prev.settingsTab !== next.settingsTab)
+		return false;
+	if (
+		normPath(prev.workspace) !== normPath(next.workspace) ||
+		normPath(prev.researchWorkspace) !== normPath(next.researchWorkspace)
+	)
+		return false;
+	const chatFilled =
+		prev.chatSession === undefined && next.chatSession !== undefined && prev.researchSession === next.researchSession;
+	const researchFilled =
+		prev.researchSession === undefined && next.researchSession !== undefined && prev.chatSession === next.chatSession;
 	return chatFilled || researchFilled;
 }
 

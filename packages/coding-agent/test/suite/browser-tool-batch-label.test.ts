@@ -33,7 +33,9 @@ describe("browser tool batch headings", () => {
 		// 三步脚本：如果多出一次「只问一句 Label:」的模型请求，它会吃掉第二条，
 		// 组标题就会变成模型写的那句。固定文案说明那次请求根本没发生。
 		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("browser_navigate", { url: "https://example.com" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("browser_navigate", { url: "https://example.com" })], {
+				stopReason: "toolUse",
+			}),
 			fauxAssistantMessage("Model wrote heading"),
 			fauxAssistantMessage("done"),
 		]);
@@ -52,7 +54,10 @@ describe("browser tool batch headings", () => {
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage(
-				[fauxToolCall("browser_navigate", { url: "https://example.com" }), fauxToolCall("grep", { pattern: "brand" })],
+				[
+					fauxToolCall("browser_navigate", { url: "https://example.com" }),
+					fauxToolCall("grep", { pattern: "brand" }),
+				],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage("Model wrote heading"),

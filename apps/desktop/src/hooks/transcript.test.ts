@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ServerEventMessage } from "../bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, estimateTokens, outputRate, rebuild, type ChatEntry, type RetryBannerState } from "./transcript.ts";
+import {
+	applyEvent,
+	applyRetryEvent,
+	type ChatEntry,
+	estimateTokens,
+	outputRate,
+	type RetryBannerState,
+	rebuild,
+} from "./transcript.ts";
 
 const user = { role: "user", content: "检查项目" };
 const calls = [
@@ -10,8 +18,11 @@ const calls = [
 ];
 const assistant = { role: "assistant", content: calls, stopReason: "toolUse" };
 const result = (id: string, text: string, isError = false) => ({
-	role: "toolResult", toolCallId: id, toolName: id === "read-1" ? "read" : "bash",
-	content: [{ type: "text", text }], isError,
+	role: "toolResult",
+	toolCallId: id,
+	toolName: id === "read-1" ? "read" : "bash",
+	content: [{ type: "text", text }],
+	isError,
 });
 function event(entries: ChatEntry[], payload: Record<string, unknown>): ChatEntry[] {
 	return applyEvent(entries, { type: "event", sessionId: "session", event: payload } as unknown as ServerEventMessage);
@@ -25,12 +36,23 @@ function started(): ChatEntry[] {
 	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
 	for (const [contentIndex, call] of calls.entries()) {
-		entries = event(entries, { type: "message_update", assistantMessageEvent: {
-			type: "toolcall_start", contentIndex, id: call.id, toolName: call.name,
-		} });
-		entries = event(entries, { type: "message_update", assistantMessageEvent: {
-			type: "toolcall_end", contentIndex, toolCall: call,
-		} });
+		entries = event(entries, {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_start",
+				contentIndex,
+				id: call.id,
+				toolName: call.name,
+			},
+		});
+		entries = event(entries, {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_end",
+				contentIndex,
+				toolCall: call,
+			},
+		});
 	}
 	return entries;
 }
@@ -42,7 +64,9 @@ test("message_end drops tool cards the assistant message no longer contains", ()
 		message: {
 			role: "assistant",
 			stopReason: "stop",
-			content: [{ type: "text", text: "This response contained 17 tool calls, over the limit of 16. None were executed." }],
+			content: [
+				{ type: "text", text: "This response contained 17 tool calls, over the limit of 16. None were executed." },
+			],
 		},
 	});
 	assert.deepEqual(current(entries).tools, []);
@@ -51,24 +75,41 @@ test("message_end drops tool cards the assistant message no longer contains", ()
 
 test("wire call ids survive argument generation without pretending execution completed", () => {
 	const entries = started();
-	assert.deepEqual(current(entries).tools.map(({ id, status }) => ({ id, status })), [
-		{ id: "read-1", status: "pending" }, { id: "bash-1", status: "pending" },
-	]);
+	assert.deepEqual(
+		current(entries).tools.map(({ id, status }) => ({ id, status })),
+		[
+			{ id: "read-1", status: "pending" },
+			{ id: "bash-1", status: "pending" },
+		],
+	);
 	assert.equal(current(entries).tools[0].args, JSON.stringify(calls[0].arguments));
 });
 
 test("parallel tools settle independently while the agent is active and snapshots stay immutable", () => {
 	let entries = started();
-	for (const call of calls) entries = event(entries, {
-		type: "tool_execution_start", toolCallId: call.id, toolName: call.name, args: call.arguments,
-	});
+	for (const call of calls)
+		entries = event(entries, {
+			type: "tool_execution_start",
+			toolCallId: call.id,
+			toolName: call.name,
+			args: call.arguments,
+		});
 	const before = entries;
-	entries = event(entries, { type: "tool_execution_update", toolCallId: "bash-1", toolName: "bash",
-		partialResult: { content: [{ type: "text", text: "working" }] } });
+	entries = event(entries, {
+		type: "tool_execution_update",
+		toolCallId: "bash-1",
+		toolName: "bash",
+		partialResult: { content: [{ type: "text", text: "working" }] },
+	});
 	assert.equal(current(entries).tools[1].output?.text, "working");
 	assert.equal(current(before).tools[1].output, undefined);
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "read-1", toolName: "read",
-		result: { content: [{ type: "text", text: "file contents" }] }, isError: false });
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "read-1",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "file contents" }] },
+		isError: false,
+	});
 	assert.equal(current(entries).tools[0].status, "ok");
 	assert.equal(current(entries).tools[1].status, "running");
 	assert.equal(current(before).tools[0].status, "running");
@@ -76,34 +117,66 @@ test("parallel tools settle independently while the agent is active and snapshot
 
 test("errors and explicit cancellation retain their output immediately", () => {
 	let entries = started();
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "read-1", toolName: "read",
-		result: { content: [{ type: "text", text: "File not found" }] }, isError: true });
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "bash-1", toolName: "bash",
-		result: { content: [{ type: "text", text: "Operation aborted" }] }, isError: true });
-	assert.deepEqual(current(entries).tools.map((tool) => tool.status), ["error", "cancelled"]);
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "read-1",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "File not found" }] },
+		isError: true,
+	});
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "bash-1",
+		toolName: "bash",
+		result: { content: [{ type: "text", text: "Operation aborted" }] },
+		isError: true,
+	});
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.status),
+		["error", "cancelled"],
+	);
 	assert.equal(current(entries).tools[0].output?.text, "File not found");
 });
 
 test("the model-authored action title reaches the tool card", () => {
 	let entries = started();
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "read-1", toolName: "read",
-		result: { content: [{ type: "text", text: "file contents" }], details: { title: "Read admin HTML structure" } }, isError: false });
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "read-1",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "file contents" }], details: { title: "Read admin HTML structure" } },
+		isError: false,
+	});
 	// Claude Desktop 的工具行标题就是模型写的这一句，前端直接用它。
 	assert.equal(current(entries).tools[0].output?.title, "Read admin HTML structure");
 });
 
 test("tool result artifacts and agent_end match replay without duplicating rows or losing history", () => {
-	const history: ChatEntry[] = [{ kind: "user", text: "上一轮" }, { kind: "assistant", text: "旧回答", thinking: "", tools: [] }];
+	const history: ChatEntry[] = [
+		{ kind: "user", text: "上一轮" },
+		{ kind: "assistant", text: "旧回答", thinking: "", tools: [] },
+	];
 	let entries = [...history, ...started()];
-	const readResult = { ...result("read-1", "截图"), content: [
-		{ type: "text", text: "截图" }, { type: "image", data: "base64", mimeType: "image/png" },
-	], details: { fullOutputPath: "D:/temp/output.txt" } };
+	const readResult = {
+		...result("read-1", "截图"),
+		content: [
+			{ type: "text", text: "截图" },
+			{ type: "image", data: "base64", mimeType: "image/png" },
+		],
+		details: { fullOutputPath: "D:/temp/output.txt" },
+	};
 	const bashResult = result("bash-1", "Command failed", true);
 	entries = event(entries, { type: "message_end", message: assistant });
 	entries = event(entries, { type: "message_end", message: readResult });
 	assert.equal(current(entries).tools[0].output?.images?.[0].data, "base64");
 	assert.equal(current(entries).tools[0].output?.fullPath, "D:/temp/output.txt");
-	const messages = [user, assistant, readResult, bashResult, { role: "assistant", content: [{ type: "text", text: "完成" }] }];
+	const messages = [
+		user,
+		assistant,
+		readResult,
+		bashResult,
+		{ role: "assistant", content: [{ type: "text", text: "完成" }] },
+	];
 	entries = event(entries, { type: "agent_end", messages });
 	assert.deepEqual(entries, [...history, ...rebuild(messages)]);
 	assert.deepEqual(event(entries, { type: "agent_end", messages }), entries);
@@ -115,20 +188,33 @@ test("interrupted replay does not mark missing tool results successful, and a ne
 	assert.ok(current(previous).tools.every((tool) => tool.status === "cancelled"));
 	let entries: ChatEntry[] = [...previous, { kind: "user", text: "新任务" }];
 	const before = entries;
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "read-1", toolName: "read",
-		result: { content: [{ type: "text", text: "late old result" }] }, isError: false });
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "read-1",
+		toolName: "read",
+		result: { content: [{ type: "text", text: "late old result" }] },
+		isError: false,
+	});
 	assert.deepEqual(entries, before);
-	assert.deepEqual(rebuild([user, assistant]).filter((entry) => entry.kind === "assistant")[0].tools.map((tool) => tool.status), ["pending", "pending"]);
+	assert.deepEqual(
+		rebuild([user, assistant])
+			.filter((entry) => entry.kind === "assistant")[0]
+			.tools.map((tool) => tool.status),
+		["pending", "pending"],
+	);
 });
 
 test("text/tool/text order stays explicit through message finalization and replay", () => {
-	const message = { role: "assistant", content: [
-		{ type: "text", text: "我先检查" }, calls[0], { type: "text", text: "检查结果" },
-	] };
+	const message = {
+		role: "assistant",
+		content: [{ type: "text", text: "我先检查" }, calls[0], { type: "text", text: "检查结果" }],
+	};
 	let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message });
 	entries = event(entries, { type: "message_end", message });
 	assert.deepEqual(current(entries).segments, [
-		{ kind: "text", text: "我先检查" }, { kind: "tool", toolId: "read-1" }, { kind: "text", text: "检查结果" },
+		{ kind: "text", text: "我先检查" },
+		{ kind: "tool", toolId: "read-1" },
+		{ kind: "text", text: "检查结果" },
 	]);
 	assert.deepEqual(current(entries).segments, current(rebuild([user, message])).segments);
 });
@@ -136,16 +222,26 @@ test("text/tool/text order stays explicit through message finalization and repla
 test("live text signatures preserve public commentary and final-answer phases without merging them", () => {
 	const commentary = JSON.stringify({ v: 1, id: "progress-message", phase: "commentary" });
 	const finalAnswer = JSON.stringify({ v: 1, id: "answer-message", phase: "final_answer" });
-	let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
+	let entries = event([{ kind: "user", text: "检查项目" }], {
+		type: "message_start",
+		message: { role: "assistant", content: [] },
+	});
 	for (const [contentIndex, delta, textSignature] of [
 		[0, "先读取源码，", commentary],
 		[0, "再核对调用。", commentary],
 		[1, "核对已完成。", finalAnswer],
 		[2, "附加未标记内容。", undefined],
 	] as const) {
-		const content = Array.from({ length: contentIndex + 1 }, () => ({ type: "text", text: "", textSignature: undefined as string | undefined }));
+		const content = Array.from({ length: contentIndex + 1 }, () => ({
+			type: "text",
+			text: "",
+			textSignature: undefined as string | undefined,
+		}));
 		content[contentIndex] = { type: "text", text: delta, textSignature };
-		entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex, delta, partial: { role: "assistant", content } } });
+		entries = event(entries, {
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta", contentIndex, delta, partial: { role: "assistant", content } },
+		});
 	}
 	assert.deepEqual(current(entries).segments, [
 		{ kind: "text", text: "先读取源码，再核对调用。", phase: "commentary" },
@@ -155,13 +251,31 @@ test("live text signatures preserve public commentary and final-answer phases wi
 });
 
 test("authoritative message_end backfills phases omitted by live events and replay keeps the same segment order", () => {
-	const message = { role: "assistant", content: [
-		{ type: "text", text: "发现根因，接着修复。", textSignature: JSON.stringify({ v: 1, id: "commentary-owner", phase: "commentary" }) },
-		calls[0],
-		{ type: "text", text: "修复和核对已完成。", textSignature: JSON.stringify({ v: 1, id: "final-owner", phase: "final_answer" }) },
-	], stopReason: "stop" };
-	let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "未带签名的旧流式内容" } });
+	const message = {
+		role: "assistant",
+		content: [
+			{
+				type: "text",
+				text: "发现根因，接着修复。",
+				textSignature: JSON.stringify({ v: 1, id: "commentary-owner", phase: "commentary" }),
+			},
+			calls[0],
+			{
+				type: "text",
+				text: "修复和核对已完成。",
+				textSignature: JSON.stringify({ v: 1, id: "final-owner", phase: "final_answer" }),
+			},
+		],
+		stopReason: "stop",
+	};
+	let entries = event([{ kind: "user", text: "检查项目" }], {
+		type: "message_start",
+		message: { role: "assistant", content: [] },
+	});
+	entries = event(entries, {
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", delta: "未带签名的旧流式内容" },
+	});
 	entries = event(entries, { type: "message_end", message });
 	const expected = [
 		{ kind: "text", text: "发现根因，接着修复。", phase: "commentary" },
@@ -190,8 +304,14 @@ test("invalid or unsupported text signatures never invent phases in live events,
 	];
 	for (const textSignature of invalidSignatures) {
 		const message = { role: "assistant", content: [{ type: "text", text: "原始公开内容", textSignature }] };
-		let entries = event([{ kind: "user", text: "检查项目" }], { type: "message_start", message: { role: "assistant", content: [] } });
-		entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "原始公开内容", partial: message } });
+		let entries = event([{ kind: "user", text: "检查项目" }], {
+			type: "message_start",
+			message: { role: "assistant", content: [] },
+		});
+		entries = event(entries, {
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "原始公开内容", partial: message },
+		});
 		const expected = [{ kind: "text", text: "原始公开内容" }];
 		assert.deepEqual(current(entries).segments, expected, `live: ${String(textSignature)}`);
 		entries = event(entries, { type: "message_end", message });
@@ -202,21 +322,50 @@ test("invalid or unsupported text signatures never invent phases in live events,
 
 test("agent_end handles leading system patches and user-less continuation runs", () => {
 	const entries = started();
-	const withPatch = event(entries, { type: "agent_end", messages: [
-		{ role: "system", content: "updated prompt" }, user, assistant, result("read-1", "read"), result("bash-1", "done"),
-	] });
+	const withPatch = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "system", content: "updated prompt" },
+			user,
+			assistant,
+			result("read-1", "read"),
+			result("bash-1", "done"),
+		],
+	});
 	assert.equal(withPatch.filter((entry) => entry.kind === "user").length, 1);
-	const continuation = event(entries, { type: "agent_end", messages: [assistant, result("read-1", "read"), result("bash-1", "done")] });
+	const continuation = event(entries, {
+		type: "agent_end",
+		messages: [assistant, result("read-1", "read"), result("bash-1", "done")],
+	});
 	assert.equal(continuation.filter((entry) => entry.kind === "user").length, 1);
 	assert.equal(current(continuation).tools[1].status, "ok");
 });
 
 test("nested execution stays with its parent and canonical replay retains its actual outcome", () => {
 	let entries = started();
-	entries = event(entries, { type: "tool_execution_start", toolCallId: "nested-1", toolName: "grep", args: { pattern: "TODO" }, parentToolCallId: "read-1" });
-	entries = event(entries, { type: "tool_execution_end", toolCallId: "nested-1", toolName: "grep", parentToolCallId: "read-1", result: { content: [{ type: "text", text: "not found" }] }, isError: true });
+	entries = event(entries, {
+		type: "tool_execution_start",
+		toolCallId: "nested-1",
+		toolName: "grep",
+		args: { pattern: "TODO" },
+		parentToolCallId: "read-1",
+	});
+	entries = event(entries, {
+		type: "tool_execution_end",
+		toolCallId: "nested-1",
+		toolName: "grep",
+		parentToolCallId: "read-1",
+		result: { content: [{ type: "text", text: "not found" }] },
+		isError: true,
+	});
 	assert.equal(current(entries).tools.find((tool) => tool.id === "nested-1")?.status, "error");
-	const persisted = { ...result("read-1", "parent done"), nestedCalls: { calls: [{ id: "nested-1", name: "grep", arguments: { pattern: "TODO" }, status: "error", error: "not found" }], complete: true } };
+	const persisted = {
+		...result("read-1", "parent done"),
+		nestedCalls: {
+			calls: [{ id: "nested-1", name: "grep", arguments: { pattern: "TODO" }, status: "error", error: "not found" }],
+			complete: true,
+		},
+	};
 	entries = event(entries, { type: "agent_end", messages: [user, assistant, persisted] });
 	const nested = current(entries).tools.find((tool) => tool.id === "nested-1");
 	assert.equal(nested?.status, "error");
@@ -228,7 +377,10 @@ test("a user-less continuation replaces only its run and preserves the preceding
 	const previous = rebuild([user, assistant, result("read-1", "file contents"), result("bash-1", "v24")]);
 	let entries = event(previous, { type: "agent_start" });
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "继续后的答案" } });
+	entries = event(entries, {
+		type: "message_update",
+		assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "继续后的答案" },
+	});
 	const messages = [{ role: "assistant", content: [{ type: "text", text: "继续后的答案" }] }];
 	entries = event(entries, { type: "agent_end", messages });
 	assert.deepEqual(entries, [...previous, ...rebuild(messages)]);
@@ -238,12 +390,18 @@ test("a user-less continuation replaces only its run and preserves the preceding
 	// A third run starts after the second one, rather than inheriting its boundary.
 	entries = event(entries, { type: "agent_start" });
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "agent_end", messages: [{ role: "assistant", content: [{ type: "text", text: "最后一个回答" }] }] });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [{ role: "assistant", content: [{ type: "text", text: "最后一个回答" }] }],
+	});
 	assert.equal(entries.filter((entry) => entry.kind === "assistant").length, 3);
 });
 
 test("agent_start includes the optimistic user for a new prompt without duplicating that user", () => {
-	const history = rebuild([{ role: "user", content: "旧任务" }, { role: "assistant", content: [{ type: "text", text: "旧回答" }] }]);
+	const history = rebuild([
+		{ role: "user", content: "旧任务" },
+		{ role: "assistant", content: [{ type: "text", text: "旧回答" }] },
+	]);
 	let entries: ChatEntry[] = [...history, { kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "agent_start" });
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
@@ -255,7 +413,10 @@ test("agent_start includes the optimistic user for a new prompt without duplicat
 test("user prompt images survive the authoritative rebuild", () => {
 	const withImage = {
 		role: "user",
-		content: [{ type: "text", text: "看这张截图" }, { type: "image", data: "aGk=", mimeType: "image/png" }],
+		content: [
+			{ type: "text", text: "看这张截图" },
+			{ type: "image", data: "aGk=", mimeType: "image/png" },
+		],
 	};
 	const entries = rebuild([withImage, assistant, result("read-1", "done")]);
 	const userEntry = entries.find((entry) => entry.kind === "user") as Extract<ChatEntry, { kind: "user" }>;
@@ -267,13 +428,29 @@ test("user prompt images survive the authoritative rebuild", () => {
 	// agent_end 用含图片的用户快照整轮重建后，附图仍在
 	const snapshot = [withImage, { role: "assistant", content: [{ type: "text", text: "收到" }] }];
 	const replayed = event(rebuild([withImage]), { type: "agent_end", messages: snapshot });
-	assert.deepEqual((replayed.at(0) as Extract<ChatEntry, { kind: "user" }>).images, [{ data: "aGk=", mimeType: "image/png" }]);
+	assert.deepEqual((replayed.at(0) as Extract<ChatEntry, { kind: "user" }>).images, [
+		{ data: "aGk=", mimeType: "image/png" },
+	]);
 });
 
 test("delivered user message with core-added attachments and image hints matches the optimistic row", () => {
-	const wireText = "[Attached files for this turn]\n- D:\\omp\\README.md\n\n帮我下这俩个产品\n\n[Image: original 2201x1296, displayed at 2000x1178. Multiply coordinates by 1.10 to map to original image.]";
-	const delivered = { role: "user", content: [{ type: "text", text: wireText }, { type: "image", data: "aGk=", mimeType: "image/png" }] };
-	let entries: ChatEntry[] = [{ kind: "user", text: "帮我下这俩个产品", images: [{ data: "aGk=", mimeType: "image/png" }], attachedPaths: ["D:\\omp\\README.md"] }];
+	const wireText =
+		"[Attached files for this turn]\n- D:\\omp\\README.md\n\n帮我下这俩个产品\n\n[Image: original 2201x1296, displayed at 2000x1178. Multiply coordinates by 1.10 to map to original image.]";
+	const delivered = {
+		role: "user",
+		content: [
+			{ type: "text", text: wireText },
+			{ type: "image", data: "aGk=", mimeType: "image/png" },
+		],
+	};
+	let entries: ChatEntry[] = [
+		{
+			kind: "user",
+			text: "帮我下这俩个产品",
+			images: [{ data: "aGk=", mimeType: "image/png" }],
+			attachedPaths: ["D:\\omp\\README.md"],
+		},
+	];
 	entries = event(entries, { type: "agent_start" });
 	entries = event(entries, { type: "message_start", message: delivered });
 	assert.equal(entries.filter((entry) => entry.kind === "user").length, 1);
@@ -283,24 +460,41 @@ test("delivered user message with core-added attachments and image hints matches
 	assert.deepEqual(rebuilt.attachedPaths, ["D:\\omp\\README.md"]);
 	assert.equal(rebuilt.omittedImages, undefined);
 
-	const imageOnly = rebuild([{ role: "user", content: [{ type: "text", text: "\n\n[Image omitted: could not be resized below the inline image size limit.]" }] }]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	const imageOnly = rebuild([
+		{
+			role: "user",
+			content: [
+				{ type: "text", text: "\n\n[Image omitted: could not be resized below the inline image size limit.]" },
+			],
+		},
+	]).at(0) as Extract<ChatEntry, { kind: "user" }>;
 	assert.equal(imageOnly.text, "");
 	assert.equal(imageOnly.omittedImages, 1);
 
-	const typed = rebuild([{ role: "user", content: "说明\n[Image: 用户自己写的]" }]).at(0) as Extract<ChatEntry, { kind: "user" }>;
+	const typed = rebuild([{ role: "user", content: "说明\n[Image: 用户自己写的]" }]).at(0) as Extract<
+		ChatEntry,
+		{ kind: "user" }
+	>;
 	assert.equal(typed.text, "说明\n[Image: 用户自己写的]");
 });
 
 test("auto retry events drive the banner state independent of transcript entries", () => {
-	const wire = (payload: Record<string, unknown>) => ({ type: "event", sessionId: "session", event: payload }) as unknown as ServerEventMessage;
+	const wire = (payload: Record<string, unknown>) =>
+		({ type: "event", sessionId: "session", event: payload }) as unknown as ServerEventMessage;
 	// 无关事件不影响横幅状态（返回原引用，React 可跳过重渲染）
 	const idle: RetryBannerState | null = null;
 	assert.equal(applyRetryEvent(idle, wire({ type: "message_end", message: { role: "assistant" } })), idle);
 	// auto_retry_start → 倒计时横幅；供应商错误走 formatProviderError 人话化
-	const retrying = applyRetryEvent(null, wire({
-		type: "auto_retry_start", attempt: 2, maxAttempts: 3, delayMs: 4000,
-		errorMessage: '429: {"code":"1308","message":"已达到 5 小时的使用上限。"}',
-	}));
+	const retrying = applyRetryEvent(
+		null,
+		wire({
+			type: "auto_retry_start",
+			attempt: 2,
+			maxAttempts: 3,
+			delayMs: 4000,
+			errorMessage: '429: {"code":"1308","message":"已达到 5 小时的使用上限。"}',
+		}),
+	);
 	assert.ok(retrying?.phase === "retrying");
 	assert.equal(retrying.attempt, 2);
 	assert.equal(retrying.maxAttempts, 3);
@@ -309,21 +503,44 @@ test("auto retry events drive the banner state independent of transcript entries
 	// 成功 → 横幅清除
 	assert.equal(applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: true, attempt: 2 })), null);
 	// 用户手动停止的取消不算失败：横幅清掉
-	assert.equal(applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" })), null);
+	assert.equal(
+		applyRetryEvent(
+			retrying,
+			wire({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" }),
+		),
+		null,
+	);
 	// 重试预算耗尽 → failed 横幅（常驻到用户下次发言）
-	const failed = applyRetryEvent(retrying, wire({ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded_error" }));
+	const failed = applyRetryEvent(
+		retrying,
+		wire({ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded_error" }),
+	);
 	assert.ok(failed?.phase === "failed");
 	assert.equal(failed.attempt, 3);
 	assert.equal(failed.reason, "overloaded_error");
 	// 下一轮 auto_retry_start 重新进入 retrying
-	assert.ok(applyRetryEvent(failed, wire({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "overloaded_error" }))?.phase === "retrying");
+	assert.ok(
+		applyRetryEvent(
+			failed,
+			wire({
+				type: "auto_retry_start",
+				attempt: 1,
+				maxAttempts: 3,
+				delayMs: 2000,
+				errorMessage: "overloaded_error",
+			}),
+		)?.phase === "retrying",
+	);
 });
 
 test("agent_end 权威重建保留用户消息行的 entryId（会话回退按钮依赖）", () => {
 	// 乐观追加的用户行经 entry_appended 补上条目 id
 	let entries: ChatEntry[] = [{ kind: "user", text: "你好", entryId: "e-user-1" }];
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "你好！" }] } });
+	entries = event(entries, {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "你好！" }] },
+	});
 	// agent_end 的 run 快照从本轮 user 消息起：重建曾把带 id 的用户行替换成无 id 副本
 	entries = event(entries, {
 		type: "agent_end",
@@ -338,7 +555,10 @@ test("agent_end 权威重建保留用户消息行的 entryId（会话回退按�
 	// 第二轮：乐观行 + agent_start 边界 + entry_appended 补 id，agent_end 后两条用户行都保留各自 id
 	entries = [...entries, { kind: "user", text: "第二条", entryId: undefined } as ChatEntry];
 	entries = event(entries, { type: "agent_start" });
-	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-user-2", message: { role: "user" } } });
+	entries = event(entries, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-user-2", message: { role: "user" } },
+	});
 	entries = event(entries, {
 		type: "agent_end",
 		messages: [
@@ -357,14 +577,32 @@ test("assistant 行经 entry_appended 补 entryId（新对话中分支按钮依�
 	// 新会话第一轮：乐观 user 行经 entry_appended 补 id；回答含两次 LLM 调用时，
 	// 每次落盘各发一条 entry_appended，按序逐条对号
 	let entries: ChatEntry[] = [{ kind: "user", text: "你好" }];
-	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-user-1", message: { role: "user" } } });
+	entries = event(entries, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-user-1", message: { role: "user" } },
+	});
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "第一段" }] } });
-	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-1", message: { role: "assistant" } } });
+	entries = event(entries, {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "第一段" }] },
+	});
+	entries = event(entries, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-asst-1", message: { role: "assistant" } },
+	});
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = event(entries, { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "收尾" }] } });
-	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-2", message: { role: "assistant" } } });
-	const assistantIds = () => entries.filter((entry) => entry.kind === "assistant").map((entry) => (entry.kind === "assistant" ? entry.entryId : undefined));
+	entries = event(entries, {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "收尾" }] },
+	});
+	entries = event(entries, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-asst-2", message: { role: "assistant" } },
+	});
+	const assistantIds = () =>
+		entries
+			.filter((entry) => entry.kind === "assistant")
+			.map((entry) => (entry.kind === "assistant" ? entry.entryId : undefined));
 	assert.deepEqual(assistantIds(), ["e-asst-1", "e-asst-2"]);
 
 	// agent_end 权威重建：assistant 行的 id 按尾部对齐取回——回答一结束分支按钮不再消失
@@ -380,10 +618,16 @@ test("assistant 行经 entry_appended 补 entryId（新对话中分支按钮依�
 
 	// 过期/乱序的重复落盘事件（最近一条 assistant 已有 id）不动转录，React 可跳过重渲染
 	const before = entries;
-	entries = event(entries, { type: "entry_appended", entry: { type: "message", id: "e-asst-stale", message: { role: "assistant" } } });
+	entries = event(entries, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-asst-stale", message: { role: "assistant" } },
+	});
 	assert.equal(entries, before);
 	// toolResult 不单独成行：其落盘事件与转录无关
-	entries = event(before, { type: "entry_appended", entry: { type: "message", id: "e-tool-1", message: { role: "toolResult" } } });
+	entries = event(before, {
+		type: "entry_appended",
+		entry: { type: "message", id: "e-tool-1", message: { role: "toolResult" } },
+	});
 	assert.equal(entries, before);
 });
 
@@ -395,7 +639,12 @@ test("assistant 轮耗时取 message_end 的真实结束时刻，并穿越 agent
 	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "你好！" } });
 	entries = event(entries, {
 		type: "message_end",
-		message: { role: "assistant", content: [{ type: "text", text: "你好！" }], stopReason: "stop", timestamp: startedAt },
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "你好！" }],
+			stopReason: "stop",
+			timestamp: startedAt,
+		},
 	});
 	const settled = current(entries);
 	assert.ok(settled.endedAt !== undefined);
@@ -427,7 +676,8 @@ test("a delivered queued message enters the transcript once, when the model rece
 });
 
 test("a /skill: command and its expanded skill block count as the same user message", () => {
-	const expanded = '<skill name="loean7-cosplay" location="D:/skills/loean7-cosplay/SKILL.md">\nReferences are relative to D:/skills/loean7-cosplay.\n\n# body\n</skill>';
+	const expanded =
+		'<skill name="loean7-cosplay" location="D:/skills/loean7-cosplay/SKILL.md">\nReferences are relative to D:/skills/loean7-cosplay.\n\n# body\n</skill>';
 	let entries: ChatEntry[] = [{ kind: "user", text: "/skill:loean7-cosplay" }];
 	entries = event(entries, { type: "agent_start" });
 	entries = event(entries, { type: "message_start", message: { role: "user", content: expanded } });
@@ -445,7 +695,10 @@ test("a /skill: command and its expanded skill block count as the same user mess
 		],
 	});
 	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
-	assert.equal(entries.some((entry) => entry.kind === "user" && entry.queued), false);
+	assert.equal(
+		entries.some((entry) => entry.kind === "user" && entry.queued),
+		false,
+	);
 });
 
 test("queued follow-up does not freeze the in-progress assistant", () => {
@@ -458,7 +711,12 @@ test("queued follow-up does not freeze the in-progress assistant", () => {
 	const streaming = entries.find((entry) => entry.kind === "assistant");
 	assert.ok(streaming?.kind === "assistant");
 	assert.equal(streaming.text, "先看目录");
-	entries = event(entries, { type: "tool_execution_start", toolCallId: "bash-9", toolName: "bash", args: { command: "ls" } });
+	entries = event(entries, {
+		type: "tool_execution_start",
+		toolCallId: "bash-9",
+		toolName: "bash",
+		args: { command: "ls" },
+	});
 	entries = event(entries, {
 		type: "tool_execution_end",
 		toolCallId: "bash-9",
@@ -493,7 +751,10 @@ test("delivery removes the queued row even after newer entries streamed past it"
 	entries = event(entries, { type: "message_start", message: { role: "user", content: "再看日志" } });
 	const userRows = entries.filter((entry) => entry.kind === "user");
 	assert.equal(userRows.length, 2);
-	assert.equal(userRows.some((entry) => entry.queued), false);
+	assert.equal(
+		userRows.some((entry) => entry.queued),
+		false,
+	);
 	// 正式行按到达顺序追加在尾部，占位行被摘掉
 	assert.equal(userRows.at(-1)?.text, "再看日志");
 });
@@ -501,7 +762,8 @@ test("delivery removes the queued row even after newer entries streamed past it"
 test("duplicate queued texts are delivered in FIFO order", () => {
 	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = [...entries,
+	entries = [
+		...entries,
 		{ kind: "user", text: "继续", queued: true, timestamp: 1 },
 		{ kind: "user", text: "继续", queued: true, timestamp: 2 },
 	];
@@ -513,17 +775,29 @@ test("duplicate queued texts are delivered in FIFO order", () => {
 	entries = event(entries, { type: "message_start", message: { role: "user", content: "继续" } });
 	const after = entries.filter((entry) => entry.kind === "user" && entry.text === "继续");
 	assert.equal(after.length, 2);
-	assert.equal(after.some((entry) => entry.kind === "user" && entry.queued), false);
+	assert.equal(
+		after.some((entry) => entry.kind === "user" && entry.queued),
+		false,
+	);
 });
 
 test("delivery that omits image data keeps the optimistic row's images and flags the omission", () => {
 	let entries: ChatEntry[] = [{ kind: "user", text: "检查项目" }];
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-	entries = [...entries, {
-		kind: "user", text: "看这张图", queued: true, timestamp: 1,
-		images: [{ type: "image", data: "aGk=", mimeType: "image/png" }],
-	}];
-	entries = event(entries, { type: "message_start", message: { role: "user", content: "看这张图\n\n[Image omitted: conversion failed]" } });
+	entries = [
+		...entries,
+		{
+			kind: "user",
+			text: "看这张图",
+			queued: true,
+			timestamp: 1,
+			images: [{ type: "image", data: "aGk=", mimeType: "image/png" }],
+		},
+	];
+	entries = event(entries, {
+		type: "message_start",
+		message: { role: "user", content: "看这张图\n\n[Image omitted: conversion failed]" },
+	});
 	const row = entries.find((entry) => entry.kind === "user" && entry.text === "看这张图");
 	assert.ok(row?.kind === "user");
 	assert.ok(row.queued !== true);
@@ -571,11 +845,17 @@ test("a delivered follow-up is not duplicated when the run snapshot includes it"
 test("an aborted settlement marks the current run while retaining completed and failed tool results", () => {
 	const history = rebuild([user, { role: "assistant", content: [{ type: "text", text: "旧回答" }] }]);
 	let entries = event([...history, { kind: "user", text: "检查项目" }], { type: "agent_start" });
-	entries = event(entries, { type: "agent_end", messages: [user, assistant, result("read-1", "done"), result("bash-1", "failed", true)] });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [user, assistant, result("read-1", "done"), result("bash-1", "failed", true)],
+	});
 	const before = entries;
 	entries = event(entries, { type: "agent_settled", aborted: true });
 	assert.equal(current(entries).aborted, true);
-	assert.deepEqual(current(entries).tools.map((tool) => tool.status), ["ok", "error"]);
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.status),
+		["ok", "error"],
+	);
 	assert.equal(current(before).aborted, undefined);
 	assert.deepEqual(entries.slice(0, history.length), history);
 });
@@ -586,7 +866,10 @@ test("aborted settlement cancels unfinished tools and preserves an existing assi
 	entries = event(entries, { type: "agent_settled", aborted: true });
 	assert.ok(current(entries).tools.every((tool) => tool.status === "cancelled"));
 	let failed = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
-	failed = event(failed, { type: "agent_end", messages: [user, { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed" }] });
+	failed = event(failed, {
+		type: "agent_end",
+		messages: [user, { role: "assistant", content: [], stopReason: "error", errorMessage: "provider failed" }],
+	});
 	const before = failed;
 	failed = event(failed, { type: "agent_settled", aborted: true });
 	assert.equal(current(failed).error, "provider failed");
@@ -596,7 +879,10 @@ test("aborted settlement cancels unfinished tools and preserves an existing assi
 
 test("normal or old settlement events preserve history and an idle stop cannot relabel the previous run", () => {
 	let entries = event([{ kind: "user", text: "检查项目" }], { type: "agent_start" });
-	entries = event(entries, { type: "agent_end", messages: [user, { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }] });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [user, { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" }],
+	});
 	entries = event(entries, { type: "agent_settled", aborted: false });
 	const completed = entries;
 	entries = event(entries, { type: "agent_settled", aborted: true });
@@ -605,7 +891,13 @@ test("normal or old settlement events preserve history and an idle stop cannot r
 	const abortedHistory = rebuild([user, { ...assistant, stopReason: "aborted" }]);
 	assert.deepEqual(event(abortedHistory, { type: "agent_settled" }), abortedHistory);
 	entries = event([...entries, { kind: "user", text: "next" }], { type: "agent_start" });
-	entries = event(entries, { type: "agent_end", messages: [{ role: "user", content: "next" }, { role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" }] });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "next" },
+			{ role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" },
+		],
+	});
 	entries = event(entries, { type: "agent_settled", aborted: false });
 	assert.equal(current(entries).aborted, undefined);
 });
@@ -616,7 +908,13 @@ test("the next run finishes normally while the preceding stopped run retains its
 	entries = event(entries, { type: "agent_settled", aborted: true });
 	const previous = entries;
 	entries = event([...entries, { kind: "user", text: "next" }], { type: "agent_start" });
-	entries = event(entries, { type: "agent_end", messages: [{ role: "user", content: "next" }, { role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" }] });
+	entries = event(entries, {
+		type: "agent_end",
+		messages: [
+			{ role: "user", content: "next" },
+			{ role: "assistant", content: [{ type: "text", text: "next reply" }], stopReason: "stop" },
+		],
+	});
 	entries = event(entries, { type: "agent_settled", aborted: false });
 	assert.equal(current(entries).aborted, undefined);
 	assert.deepEqual(entries.slice(0, previous.length), previous);
@@ -637,7 +935,10 @@ test("resuming an active snapshot without agent_start still marks its stopped to
 	assert.equal(entries.filter((entry) => entry.kind === "user").length, 2);
 	entries = event(entries, { type: "agent_settled", aborted: true });
 	assert.equal(current(entries).aborted, true);
-	assert.deepEqual(current(entries).tools.map((tool) => tool.status), ["ok", "cancelled"]);
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.status),
+		["ok", "cancelled"],
+	);
 	assert.deepEqual(entries.slice(0, 2), replayed.slice(0, 2));
 	assert.equal(current(replayed).aborted, undefined);
 });
@@ -650,7 +951,10 @@ test("restored active pre-settlement replies can stop while the same idle histor
 	const idle = rebuild(snapshot, undefined, { running: false, runStartMessageIndex: 1 });
 	assert.deepEqual(event(idle, { type: "agent_settled", aborted: true }), idle);
 	assert.equal(current(idle).aborted, undefined);
-	const completed = event(rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 1 }), { type: "agent_settled", aborted: false });
+	const completed = event(rebuild(snapshot, undefined, { running: true, runStartMessageIndex: 1 }), {
+		type: "agent_settled",
+		aborted: false,
+	});
 	assert.deepEqual(event(completed, { type: "agent_settled", aborted: true }), completed);
 });
 
@@ -664,8 +968,14 @@ test("a restored user-less continuation cannot mark the previous reply before it
 	const stoppedBeforeReply = event(active, { type: "agent_settled", aborted: true });
 	assert.deepEqual(stoppedBeforeReply, rebuild(snapshot));
 	assert.equal(current(stoppedBeforeReply).aborted, undefined);
-	const withReply = [...snapshot, { role: "assistant", content: [{ type: "text", text: "continued reply" }], stopReason: "stop" }];
-	const stoppedAfterReply = event(rebuild(withReply, undefined, { running: true, runStartMessageIndex: 3 }), { type: "agent_settled", aborted: true });
+	const withReply = [
+		...snapshot,
+		{ role: "assistant", content: [{ type: "text", text: "continued reply" }], stopReason: "stop" },
+	];
+	const stoppedAfterReply = event(rebuild(withReply, undefined, { running: true, runStartMessageIndex: 3 }), {
+		type: "agent_settled",
+		aborted: true,
+	});
 	assert.equal(current(stoppedAfterReply).aborted, true);
 	assert.equal(stoppedAfterReply[1]?.kind === "assistant" && stoppedAfterReply[1].aborted, undefined);
 });
@@ -676,50 +986,92 @@ test("流式增量累计估算 TPS，message_end 带用量后改用真实输出�
 	let entries: ChatEntry[] = [{ kind: "user", text: "写代码" }];
 	entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
 	clock = 12_000; // 首字延迟不计入速度
-	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "先想想" } });
+	entries = event(entries, {
+		type: "message_update",
+		assistantMessageEvent: { type: "thinking_delta", delta: "先想想" },
+	});
 	assert.equal(outputRate(current(entries)), undefined, "不足 1 秒不出速度");
 	clock = 14_000;
 	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "好的" } });
-	entries = event(entries, { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, delta: "{\"path\":\"a.ts\"}" } });
-	assert.deepEqual(current(entries).stream, { firstAt: 12_000, lastAt: 14_000, estTokens: 3 + 2 + estimateTokens("{\"path\":\"a.ts\"}") });
+	entries = event(entries, {
+		type: "message_update",
+		assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, delta: '{"path":"a.ts"}' },
+	});
+	assert.deepEqual(current(entries).stream, {
+		firstAt: 12_000,
+		lastAt: 14_000,
+		estTokens: 3 + 2 + estimateTokens('{"path":"a.ts"}'),
+	});
 	assert.deepEqual(outputRate(current(entries)), { tps: current(entries).stream!.estTokens / 2, estimated: true });
 
 	clock = 16_000;
 	entries = event(entries, {
 		type: "message_end",
-		message: { role: "assistant", content: [{ type: "text", text: "好的" }], stopReason: "stop", timestamp: 11_000, usage: { input: 10, output: 200 } },
+		message: {
+			role: "assistant",
+			content: [{ type: "text", text: "好的" }],
+			stopReason: "stop",
+			timestamp: 11_000,
+			usage: { input: 10, output: 200 },
+		},
 	});
 	assert.deepEqual(outputRate(current(entries)), { tps: 40, estimated: false });
 
 	entries = event(entries, {
 		type: "agent_end",
-		messages: [{ role: "user", content: "写代码" }, { role: "assistant", content: [{ type: "text", text: "好的" }], stopReason: "stop", timestamp: 11_000, usage: { input: 10, output: 200 } }],
+		messages: [
+			{ role: "user", content: "写代码" },
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "好的" }],
+				stopReason: "stop",
+				timestamp: 11_000,
+				usage: { input: 10, output: 200 },
+			},
+		],
 	});
-	assert.deepEqual(current(entries).stream, { firstAt: 12_000, lastAt: 14_000, estTokens: 3 + 2 + estimateTokens("{\"path\":\"a.ts\"}") });
+	assert.deepEqual(current(entries).stream, {
+		firstAt: 12_000,
+		lastAt: 14_000,
+		estTokens: 3 + 2 + estimateTokens('{"path":"a.ts"}'),
+	});
 	assert.deepEqual(outputRate(current(entries)), { tps: 40, estimated: false });
-	assert.deepEqual(outputRate({
-		kind: "assistant", text: "完成", thinking: "", tools: [],
-		timestamp: 1_000, endedAt: 4_450,
-		usage: { input: 34, output: 64, cacheRead: 13_588, cacheWrite: 0 },
-		stream: { firstAt: 4_200, lastAt: 4_400, estTokens: 64 },
-	}), { tps: 64 / 3.45, estimated: false });
+	assert.deepEqual(
+		outputRate({
+			kind: "assistant",
+			text: "完成",
+			thinking: "",
+			tools: [],
+			timestamp: 1_000,
+			endedAt: 4_450,
+			usage: { input: 34, output: 64, cacheRead: 13_588, cacheWrite: 0 },
+			stream: { firstAt: 4_200, lastAt: 4_400, estTokens: 64 },
+		}),
+		{ tps: 64 / 3.45, estimated: false },
+	);
 });
 
 test("没有流式统计时，用结束时刻与响应开始时刻算平均 TPS", () => {
 	const entry: Extract<ChatEntry, { kind: "assistant" }> = {
-		kind: "assistant", text: "完成", thinking: "", tools: [],
-		timestamp: 1_000, endedAt: 5_000,
+		kind: "assistant",
+		text: "完成",
+		thinking: "",
+		tools: [],
+		timestamp: 1_000,
+		endedAt: 5_000,
 		usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0 },
 	};
 	assert.deepEqual(outputRate(entry), { tps: 10, estimated: false });
 	assert.equal(outputRate({ ...entry, endedAt: 1_500 }), undefined);
-	const restored = rebuild([{
-		role: "assistant",
-		content: [{ type: "text", text: "完成" }],
-		timestamp: 1_000,
-		persistedAt: 5_000,
-		usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0 },
-	}]);
+	const restored = rebuild([
+		{
+			role: "assistant",
+			content: [{ type: "text", text: "完成" }],
+			timestamp: 1_000,
+			persistedAt: 5_000,
+			usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0 },
+		},
+	]);
 	assert.equal(current(restored).endedAt, 5_000);
 	assert.deepEqual(outputRate(current(restored)), { tps: 10, estimated: false });
 });
@@ -733,17 +1085,26 @@ test("estimateTokens：中日韩字符按 1 个，其余按 4 字符 1 个", () 
 test("tool_use_summary 把模型写的组标题贴到这批工具卡上", () => {
 	let entries = started();
 	entries = event(entries, { type: "tool_use_summary", summary: "Searched code", toolCallIds: ["read-1", "bash-1"] });
-	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), ["Searched code", "Searched code"]);
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.batchLabel),
+		["Searched code", "Searched code"],
+	);
 });
 
 test("tool_use_summary 只贴到事件点名的工具卡上", () => {
 	let entries = started();
 	entries = event(entries, { type: "tool_use_summary", summary: "Searched code", toolCallIds: ["read-1"] });
-	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), ["Searched code", undefined]);
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.batchLabel),
+		["Searched code", undefined],
+	);
 });
 
 test("tool_use_summary 内容为空时不改任何卡片", () => {
 	let entries = started();
 	entries = event(entries, { type: "tool_use_summary", summary: "   ", toolCallIds: ["read-1"] });
-	assert.deepEqual(current(entries).tools.map((tool) => tool.batchLabel), [undefined, undefined]);
+	assert.deepEqual(
+		current(entries).tools.map((tool) => tool.batchLabel),
+		[undefined, undefined],
+	);
 });

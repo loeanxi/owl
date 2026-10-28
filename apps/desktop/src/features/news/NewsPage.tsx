@@ -2,19 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
 	NewsItem,
 	NewsListQuery,
-	NewsReportKind,
 	NewsReaderStatus,
+	NewsReportKind,
 	NewsSnapshot,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { IconSearch } from "../../components/icons.tsx";
 import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
+import { newsEmptyCopy } from "./empty-copy.ts";
 import { NewsAssistant, type NewsContext } from "./NewsAssistant.tsx";
 import { NewsLeaderboard } from "./NewsLeaderboard.tsx";
 import { NewsManagement } from "./NewsManagement.tsx";
 import { NewsItemReader, NewsReportReader, NewsStoryReader, type NewsTarget } from "./NewsReading.tsx";
 import { NewsSources } from "./NewsSources.tsx";
-import { newsEmptyCopy } from "./empty-copy.ts";
 import { errorText, NewsClient } from "./news-client.ts";
 import { NewsQueryActivity, useNewsQuery } from "./use-news-query.ts";
 import "./news.css";
@@ -218,7 +218,7 @@ export function NewsPage({
 						(value) => {
 							if (!current || serial !== snapshotRevision.current) return;
 							setSnapshot(value);
-						setSnapshotError("");
+							setSnapshotError("");
 							setReaderRefreshing(value.status.reader?.refreshing ?? false);
 							const status = contentVersion(value);
 							const readerStatus = JSON.stringify(value.status.reader);
@@ -232,7 +232,7 @@ export function NewsPage({
 							lastReaderStatus.current = readerStatus;
 						},
 						(failure: unknown) => {
-						if (current) setSnapshotError(errorText(failure));
+							if (current) setSnapshotError(errorText(failure));
 						},
 					)
 					.finally(() => {
@@ -372,11 +372,17 @@ export function NewsPage({
 							<button
 								type="button"
 								onClick={() =>
-									section === "leaderboard" ? setLeaderboardRevision((current) => current + 1) : void updateNews(true)
+									section === "leaderboard"
+										? setLeaderboardRevision((current) => current + 1)
+										: void updateNews(true)
 								}
 								disabled={loading || !connected || (section !== "leaderboard" && isUpdating)}
 							>
-								{section === "leaderboard" ? copy.updateRanking : isUpdating ? emptyCopy.updating : emptyCopy.update}
+								{section === "leaderboard"
+									? copy.updateRanking
+									: isUpdating
+										? emptyCopy.updating
+										: emptyCopy.update}
 							</button>
 							<button
 								type="button"
@@ -395,9 +401,9 @@ export function NewsPage({
 									{t("news.disconnected")}
 								</p>
 							)}
-						{(error || snapshotError) && (
+							{(error || snapshotError) && (
 								<p className="owl-news-error" role="alert">
-								{error || snapshotError}
+									{error || snapshotError}
 									<button type="button" onClick={() => void updateNews(true)} disabled={isUpdating}>
 										{t("news.retry")}
 									</button>
@@ -463,7 +469,11 @@ export function NewsPage({
 												)}
 											</form>
 											<div className="owl-news-filters">
-												<button type="button" className={!category ? "is-active" : ""} onClick={() => setCategory("")}>
+												<button
+													type="button"
+													className={!category ? "is-active" : ""}
+													onClick={() => setCategory("")}
+												>
 													{t("news.allCategories")}
 												</button>
 												{snapshot?.categories.map((entry) => (
@@ -505,7 +515,9 @@ export function NewsPage({
 									{(section === "daily" || section === "weekly" || section === "monthly") && (
 										<NewsReportReader key={section} kind={section} onViewAll={viewLatestNews} {...reading} />
 									)}
-									{section === "sources" && <NewsSources api={api} revision={revision} onChanged={refreshed} />}
+									{section === "sources" && (
+										<NewsSources api={api} revision={revision} onChanged={refreshed} />
+									)}
 									{snapshot && section === "configuration" && (
 										<NewsManagement
 											section="configuration"
@@ -654,8 +666,12 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 							</>
 						) : (
 							<>
-								<h2>{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedTitle : emptyCopy.emptyTitle}</h2>
-								<p>{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedHint : emptyCopy.emptyHint}</p>
+								<h2>
+									{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedTitle : emptyCopy.emptyTitle}
+								</h2>
+								<p>
+									{isUnfilteredSelected && hasCollectedNews ? emptyCopy.collectedHint : emptyCopy.emptyHint}
+								</p>
 							</>
 						)}
 					</div>
@@ -669,7 +685,12 @@ function NewsFeed({ query, ...props }: FeedProps & { query: NewsListQuery }): Re
 								{emptyCopy.viewAll}
 							</button>
 						) : (
-							<button type="button" className="owl-news-primary" onClick={props.onUpdate} disabled={props.updating}>
+							<button
+								type="button"
+								className="owl-news-primary"
+								onClick={props.onUpdate}
+								disabled={props.updating}
+							>
 								{props.updating ? emptyCopy.updating : emptyCopy.update}
 							</button>
 						)}

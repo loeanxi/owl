@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CODEX_THEME_IDS, CODEX_THEMES } from "./codex-themes.ts";
-import { accentTextColor, applyOwlAppearance, DEFAULT_OWL_APPEARANCE, isGlassPreset, normalizeHexColor, parseOwlAppearance, presetThemeLock, PRESET_DEFAULT_COLORS, resolveSurfaceTheme } from "./owl-appearance.ts";
+import {
+	accentTextColor,
+	applyOwlAppearance,
+	DEFAULT_OWL_APPEARANCE,
+	isGlassPreset,
+	normalizeHexColor,
+	PRESET_DEFAULT_COLORS,
+	parseOwlAppearance,
+	presetThemeLock,
+	resolveSurfaceTheme,
+} from "./owl-appearance.ts";
 
 test("normalizeHexColor accepts only #rgb and #rrggbb and normalizes to lowercase #rrggbb", () => {
 	assert.equal(normalizeHexColor("#ABC"), "#aabbcc");
@@ -45,14 +55,41 @@ test("known presets are kept and unknown ones fall back to the default preset", 
 	assert.equal(parseOwlAppearance({ preset: "codex" }).preset, "codex");
 	assert.equal(parseOwlAppearance({ preset: "liquid-glass" }).preset, "liquid-glass");
 	assert.equal(parseOwlAppearance({ preset: "frost" }).preset, "frost");
-	for (const preset of ["claude", "ink", "polar-night", "ink-hc", "vscode-modern", "vscode-classic", "monokai", "monokai-dimmed", "solarized", "abyss", "tomorrow-night-blue", "kimbie-dark", "red", "high-contrast"]) {
+	for (const preset of [
+		"claude",
+		"ink",
+		"polar-night",
+		"ink-hc",
+		"vscode-modern",
+		"vscode-classic",
+		"monokai",
+		"monokai-dimmed",
+		"solarized",
+		"abyss",
+		"tomorrow-night-blue",
+		"kimbie-dark",
+		"red",
+		"high-contrast",
+	]) {
 		assert.equal(parseOwlAppearance({ preset }).preset, preset);
 		assert.equal(presetThemeLock(parseOwlAppearance({ preset }).preset), null);
 		assert.equal(isGlassPreset(parseOwlAppearance({ preset }).preset), false);
 	}
 	assert.equal(parseOwlAppearance({ preset: "" }).preset, "");
 	assert.equal(parseOwlAppearance({ preset: "quiet-light" }).preset, "quiet-light");
-	for (const bad of ["green", "OWL-GREEN", "CODEX", "liquid_glass", "Monokai", "solarized-dark", "cursor", "vscode", 42, {}, null]) {
+	for (const bad of [
+		"green",
+		"OWL-GREEN",
+		"CODEX",
+		"liquid_glass",
+		"Monokai",
+		"solarized-dark",
+		"cursor",
+		"vscode",
+		42,
+		{},
+		null,
+	]) {
 		assert.equal(parseOwlAppearance({ preset: bad }).preset, "");
 	}
 });
@@ -97,12 +134,41 @@ test("codex themes parse as presets and lock the only variant they ship", () => 
 test("accent text stays readable on bright, dark and middle-tone custom colors and hover shades", () => {
 	const luminance = (hex: string, shade = 1): number => {
 		const channels = [1, 3, 5].map((offset) => {
-			const channel = Number.parseInt(hex.slice(offset, offset + 2), 16) * shade / 255;
+			const channel = (Number.parseInt(hex.slice(offset, offset + 2), 16) * shade) / 255;
 			return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 		});
 		return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 	};
-	for (const color of ["#50a992", "#268574", "#4d9aff", "#0066cc", "#007aff", "#0a84ff", "#a6e22e", "#2aa198", "#1a6fa8", "#4a8ee0", "#bbdaff", "#f79a32", "#ff6666", "#81a1c1", "#2778c1", "#88c0d0", "#0064b0", "#0078d4", "#005fb8", "#007acc", "#6a92c0", "#705697", "#f38518", "#006bbd", "#ffff00", "#111111", "#777777", "#bd3473"]) {
+	for (const color of [
+		"#50a992",
+		"#268574",
+		"#4d9aff",
+		"#0066cc",
+		"#007aff",
+		"#0a84ff",
+		"#a6e22e",
+		"#2aa198",
+		"#1a6fa8",
+		"#4a8ee0",
+		"#bbdaff",
+		"#f79a32",
+		"#ff6666",
+		"#81a1c1",
+		"#2778c1",
+		"#88c0d0",
+		"#0064b0",
+		"#0078d4",
+		"#005fb8",
+		"#007acc",
+		"#6a92c0",
+		"#705697",
+		"#f38518",
+		"#006bbd",
+		"#ffff00",
+		"#111111",
+		"#777777",
+		"#bd3473",
+	]) {
 		for (const shade of [1, 0.84]) {
 			const bg = luminance(color, shade);
 			const fg = luminance(accentTextColor(color, shade));
@@ -118,20 +184,34 @@ test("appearance changes update accent foregrounds and clear custom colors when 
 	const events: string[] = [];
 	const root = {
 		dataset: { owlTheme: "dark" },
-		style: { setProperty: (name: string, value: string) => values.set(name, value), removeProperty: (name: string) => values.delete(name), getPropertyValue: (name: string) => values.get(name) ?? "" },
+		style: {
+			setProperty: (name: string, value: string) => values.set(name, value),
+			removeProperty: (name: string) => values.delete(name),
+			getPropertyValue: (name: string) => values.get(name) ?? "",
+		},
 	};
 	Object.defineProperty(globalThis, "document", { configurable: true, value: { documentElement: root } });
-	Object.defineProperty(globalThis, "window", { configurable: true, value: {
-		getComputedStyle: () => ({ getPropertyValue: (name: string) => values.get(name) ?? (name.endsWith("accent-hover") ? "#428e7a" : "#50a992") }),
-		dispatchEvent: (event: Event) => { events.push(event.type); },
-	} });
+	Object.defineProperty(globalThis, "window", {
+		configurable: true,
+		value: {
+			getComputedStyle: () => ({
+				getPropertyValue: (name: string) =>
+					values.get(name) ?? (name.endsWith("accent-hover") ? "#428e7a" : "#50a992"),
+			}),
+			dispatchEvent: (event: Event) => {
+				events.push(event.type);
+			},
+		},
+	});
 	t.after(() => {
 		if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
 		else Reflect.deleteProperty(globalThis, "document");
 		if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
 		else Reflect.deleteProperty(globalThis, "window");
 	});
-	applyOwlAppearance(parseOwlAppearance({ accent: "#ffff00", dark: { background: "#20202a", foreground: "#eee8f0" } }));
+	applyOwlAppearance(
+		parseOwlAppearance({ accent: "#ffff00", dark: { background: "#20202a", foreground: "#eee8f0" } }),
+	);
 	assert.equal(values.get("--color-owl-on-accent"), "#111111");
 	assert.equal(values.get("--color-owl-on-accent-hover"), "#111111");
 	assert.equal(values.get("--owl-ui-canvas-override"), "#20202a");

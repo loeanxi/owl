@@ -50,22 +50,29 @@ export function parseChangelog(markdown: string): ChangelogDay[] {
 		}
 		const entryMatch = ENTRY.exec(line);
 		if (entryMatch && day && kind) {
-			day.entries.push(entryMatch[1] ? { kind, scope: entryMatch[1], text: entryMatch[2] } : { kind, text: entryMatch[2] });
+			day.entries.push(
+				entryMatch[1] ? { kind, scope: entryMatch[1], text: entryMatch[2] } : { kind, text: entryMatch[2] },
+			);
 		}
 	}
 	return days.filter((item) => item.entries.length > 0).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /** 按类别与关键词（匹配说明或 scope，不区分大小写）过滤，去掉过滤后为空的日期。 */
-export function filterChangelog(days: ChangelogDay[], filter: { kind?: ChangelogKind; query?: string }): ChangelogDay[] {
+export function filterChangelog(
+	days: ChangelogDay[],
+	filter: { kind?: ChangelogKind; query?: string },
+): ChangelogDay[] {
 	const query = filter.query?.trim().toLowerCase() ?? "";
 	return days
 		.map((day) => ({
 			date: day.date,
 			entries: day.entries.filter(
 				(entry) =>
-					(!filter.kind || entry.kind === filter.kind)
-					&& (!query || entry.text.toLowerCase().includes(query) || (entry.scope?.toLowerCase().includes(query) ?? false)),
+					(!filter.kind || entry.kind === filter.kind) &&
+					(!query ||
+						entry.text.toLowerCase().includes(query) ||
+						(entry.scope?.toLowerCase().includes(query) ?? false)),
 			),
 		}))
 		.filter((day) => day.entries.length > 0);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { recordPlace, samePlace, stepBack, stepForward, type AppHistory, type AppPlace } from "./app-history.ts";
+import { type AppHistory, type AppPlace, recordPlace, samePlace, stepBack, stepForward } from "./app-history.ts";
 
 function place(patch: Partial<AppPlace> = {}): AppPlace {
 	return {

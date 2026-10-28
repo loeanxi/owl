@@ -10,12 +10,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { DiffApprovalFileSummary } from "../bridge/protocol.ts";
-import { createSidebarApi, samePath } from "../sidebar/api.ts";
-import { focusEditorDiff } from "../sidebar/editor-diff-focus.ts";
-import { DiffView } from "../sidebar/DiffView.tsx";
+import { FileIcon } from "../file-icons/FileIcon.tsx";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { useT } from "../i18n/index.ts";
-import { Artifacts } from "./Artifacts.tsx";
+import { createSidebarApi, samePath } from "../sidebar/api.ts";
+import { DiffView } from "../sidebar/DiffView.tsx";
+import { focusEditorDiff } from "../sidebar/editor-diff-focus.ts";
 import {
 	IconChevronDown,
 	IconChevronRight,
@@ -26,11 +26,11 @@ import {
 	IconUndo,
 } from "../sidebar/icons.tsx";
 import { UndoReviewPanel } from "../sidebar/UndoReviewPanel.tsx";
-import { useUndoReview } from "../sidebar/use-undo-review.ts";
 import { useUndoCopy } from "../sidebar/undo-copy.ts";
+import { useUndoReview } from "../sidebar/use-undo-review.ts";
 import { ArtifactActions } from "./ArtifactActions.tsx";
+import { Artifacts } from "./Artifacts.tsx";
 import { useArtifactActionText } from "./artifact-actions-copy.ts";
-import { FileIcon } from "../file-icons/FileIcon.tsx";
 import { IconMore } from "./icons.tsx";
 import { useReviewChangesMotion } from "./use-review-changes-motion.ts";
 
@@ -117,13 +117,18 @@ export function ReviewChangesCard({
 		const sequence = (diffSequence.current.get(key) ?? 0) + 1;
 		diffSequence.current.set(key, sequence);
 		setDiffLoading((previous) => new Set(previous).add(key));
-		void Promise.all(entryIds.map((id) => api.diffApprovalDiff(cwd, id)))
+		// 一次往返取回整组 diff：每个条目一个请求会在打开会话时并发几十次，
+		// 把桥的单线程事件循环堵到十几秒，切换会话全被排在后面。
+		void api
+			.diffApprovalDiffs(cwd, entryIds)
 			.then((results) => {
 				if (context.current !== identity || diffSequence.current.get(key) !== sequence) return;
+				const failed = results.filter((result) => result.error);
+				if (failed.length > 0) setLoadError(failed[0]!.error);
 				setDiffText((previous) =>
 					new Map(previous).set(
 						key,
-						results.map((result) => result.diff),
+						results.filter((result) => !result.error).map((result) => result.diff),
 					),
 				);
 			})
@@ -300,7 +305,13 @@ export function ReviewChangesCard({
 	const batchActions = (
 		<>
 			{tracked.some((row) => row.entry.status === "pending") && (
-				<button type="button" className="owl-changes-revert-all" disabled={busy} title={copy.turn} onClick={revertAll}>
+				<button
+					type="button"
+					className="owl-changes-revert-all"
+					disabled={busy}
+					title={copy.turn}
+					onClick={revertAll}
+				>
 					<IconUndo size={13} />
 					{copy.turn}
 				</button>
@@ -392,8 +403,12 @@ export function ReviewChangesCard({
 										</button>
 										<span className="owl-changes-result">
 											{stats !== undefined && <DiffStat added={stats.added} removed={stats.removed} mini />}
-											{status === "kept" && <span className="owl-changes-state">{t("review.keptBadge")}</span>}
-											{status === "reverted" && <span className="owl-changes-state">{t("review.revertedBadge")}</span>}
+											{status === "kept" && (
+												<span className="owl-changes-state">{t("review.keptBadge")}</span>
+											)}
+											{status === "reverted" && (
+												<span className="owl-changes-state">{t("review.revertedBadge")}</span>
+											)}
 										</span>
 										<span className="owl-changes-actions">
 											{entry !== undefined && status === "pending" && (
@@ -407,7 +422,9 @@ export function ReviewChangesCard({
 													onClick={() => toggleDiff(file)}
 												>
 													<IconEye size={14} />
-													<span className="sr-only">{isExpanded ? t("common.collapse") : t("chat.reviewCta")}</span>
+													<span className="sr-only">
+														{isExpanded ? t("common.collapse") : t("chat.reviewCta")}
+													</span>
 												</button>
 											)}
 											<button
@@ -452,7 +469,9 @@ export function ReviewChangesCard({
 												}
 												if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
 												const items = [
-													...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+													...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+														"button:not(:disabled)",
+													),
 												];
 												if (items.length === 0) return;
 												event.preventDefault();
@@ -462,7 +481,8 @@ export function ReviewChangesCard({
 														? 0
 														: event.key === "End"
 															? items.length - 1
-															: (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+															: (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
+																items.length;
 												items[next]?.focus();
 											}}
 										>
@@ -490,7 +510,9 @@ export function ReviewChangesCard({
 											)}
 										</div>
 									)}
-									{entry === undefined && <p className="px-3 py-1 text-[11px] text-owl-faint">{copy.unavailable}</p>}
+									{entry === undefined && (
+										<p className="px-3 py-1 text-[11px] text-owl-faint">{copy.unavailable}</p>
+									)}
 									{isExpanded && entry !== undefined && (
 										<div className="owl-changes-diff" id={`${cardId}-diff-${index}`}>
 											{diffLoading.has(file.path) && (

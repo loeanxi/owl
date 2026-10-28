@@ -29,8 +29,7 @@ const zh = {
 	location: "选择城市或地点",
 	positionSettings: "位置设置",
 	positionSettingsTitle: "当前位置设置",
-	positionSettingsDescription:
-		"设置你当前所在的城市、地区或具体地点。保存后，地图和 Owl 会以它作为你的当前位置。",
+	positionSettingsDescription: "设置你当前所在的城市、地区或具体地点。保存后，地图和 Owl 会以它作为你的当前位置。",
 	positionSearch: "搜索当前位置",
 	closePositionSettings: "关闭位置设置",
 	savePosition: "保存位置",
@@ -315,8 +314,7 @@ const en: Record<MapCopyKey, string> = {
 	detailLabel: "Details for {name}",
 	closeDetail: "Close place details",
 	detailAsk: "Discuss this place with Owl",
-	placePrompt:
-		"Using the information actually provided for this place, help me decide whether it suits this outing.",
+	placePrompt: "Using the information actually provided for this place, help me decide whether it suits this outing.",
 	discussing: "Discussing: {name}",
 	followContext: "Keep exploring · {name}",
 	followPlaceholder: "Add an idea, or discuss a place on the map…",

@@ -1,20 +1,44 @@
+import {
+	isResearchDiagnosis,
+	RESEARCH_DIAGNOSIS_ENTRY,
+} from "../../../../../packages/coding-agent/src/core/research/diagnosis.ts";
+import {
+	isResearchTaskRecord,
+	RESEARCH_TASK_ENTRY,
+	type ResearchTaskRecord,
+} from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { isResearchDiagnosis, RESEARCH_DIAGNOSIS_ENTRY } from "../../../../../packages/coding-agent/src/core/research/diagnosis.ts";
-import { isResearchTaskRecord, RESEARCH_TASK_ENTRY, type ResearchTaskRecord } from "../../../../../packages/coding-agent/src/core/research/task-state.ts";
+import type {
+	ApprovalMode,
+	DesktopClientRequestWithoutId,
+	ResearchDiagnosis,
+	ResearchResult,
+	ServerEventMessage,
+	SessionQueueActionResult,
+	SessionQueueSnapshot,
+	SessionRunningResult,
+	SessionSnapshotPayload,
+	SessionStatsResult,
+} from "../../bridge/protocol.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
-import type { ApprovalMode, DesktopClientRequestWithoutId, ResearchDiagnosis, ResearchResult, ServerEventMessage, SessionQueueActionResult, SessionQueueSnapshot, SessionRunningResult, SessionSnapshotPayload, SessionStatsResult } from "../../bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, rebuild, type ChatEntry, type RetryBannerState } from "../../hooks/transcript.ts";
 import { continueTask } from "../../hooks/task-recovery.ts";
-import { normPath, samePath } from "../../utils/paths.ts";
+import { applyEvent, applyRetryEvent, type ChatEntry, type RetryBannerState, rebuild } from "../../hooks/transcript.ts";
 import { t } from "../../i18n/index.ts";
-import { mergeResearchResults, publishedResults, researchResultsFromEvent } from "./research-results.ts";
+import { normPath, samePath } from "../../utils/paths.ts";
 import { researchText } from "./research-copy.ts";
+import { mergeResearchResults, publishedResults, researchResultsFromEvent } from "./research-results.ts";
 
 type ResearchImage = { type: "image"; data: string; mimeType: string };
-type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent"> & Partial<Pick<BridgeClient, "watchSessionEvents">>;
+type ResearchBridge = Pick<BridgeClient, "request" | "onSessionEvent"> &
+	Partial<Pick<BridgeClient, "watchSessionEvents">>;
 type ResearchStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export type ResearchPreferences = { model: string; thinkingLevel: string; approvalMode: ApprovalMode; agentPreset?: string };
+export type ResearchPreferences = {
+	model: string;
+	thinkingLevel: string;
+	approvalMode: ApprovalMode;
+	agentPreset?: string;
+};
 export type ResearchSessionState = ResearchPreferences & {
 	sessionId?: string;
 	sessionPreset?: string;
@@ -39,14 +63,20 @@ export function researchSessionKey(cwd: string): string {
 }
 
 /** Completed messages before the resume response are already in its atomic snapshot. */
-export function eventsAfterSnapshot(snapshot: SessionSnapshotPayload, events: ServerEventMessage[]): ServerEventMessage[] {
+export function eventsAfterSnapshot(
+	snapshot: SessionSnapshotPayload,
+	events: ServerEventMessage[],
+): ServerEventMessage[] {
 	const messages = new Set(snapshot.messages.map((message) => JSON.stringify(message)));
 	const entryIds = new Set(snapshot.messageEntryIds ?? []);
 	let covered = -1;
 	for (const [index, message] of events.entries()) {
 		const event = message.event as { type?: string; message?: unknown; entry?: { id?: string } };
-		if ((event.type === "message_end" && messages.has(JSON.stringify(event.message))) ||
-			(event.type === "entry_appended" && typeof event.entry?.id === "string" && entryIds.has(event.entry.id))) covered = index;
+		if (
+			(event.type === "message_end" && messages.has(JSON.stringify(event.message))) ||
+			(event.type === "entry_appended" && typeof event.entry?.id === "string" && entryIds.has(event.entry.id))
+		)
+			covered = index;
 	}
 	return events.slice(covered + 1);
 }
@@ -55,7 +85,13 @@ function researchDiagnosisFromEvent(event: unknown, sessionId: string | undefine
 	if (!event || typeof event !== "object") return undefined;
 	const payload = event as { type?: string; entry?: { type?: string; customType?: string; data?: unknown } };
 	const entry = payload.entry;
-	if (!sessionId || payload.type !== "entry_appended" || entry?.type !== "custom" || entry.customType !== RESEARCH_DIAGNOSIS_ENTRY) return undefined;
+	if (
+		!sessionId ||
+		payload.type !== "entry_appended" ||
+		entry?.type !== "custom" ||
+		entry.customType !== RESEARCH_DIAGNOSIS_ENTRY
+	)
+		return undefined;
 	return isResearchDiagnosis(entry.data, sessionId) ? entry.data : undefined;
 }
 
@@ -63,7 +99,13 @@ function researchTaskFromEvent(event: unknown, sessionId: string | undefined): R
 	if (!event || typeof event !== "object") return undefined;
 	const payload = event as { type?: string; entry?: { type?: string; customType?: string; data?: unknown } };
 	const entry = payload.entry;
-	if (!sessionId || payload.type !== "entry_appended" || entry?.type !== "custom" || entry.customType !== RESEARCH_TASK_ENTRY) return undefined;
+	if (
+		!sessionId ||
+		payload.type !== "entry_appended" ||
+		entry?.type !== "custom" ||
+		entry.customType !== RESEARCH_TASK_ENTRY
+	)
+		return undefined;
 	return isResearchTaskRecord(entry.data, sessionId) ? entry.data : undefined;
 }
 
@@ -98,7 +140,11 @@ export class ResearchSessionController {
 		this.storage = storage;
 		this.cwd = cwd;
 		this.defaultAgentPreset = defaults.agentPreset;
-		let preferences: ResearchPreferences = { model: defaults.model, thinkingLevel: defaults.thinkingLevel, approvalMode: defaults.approvalMode };
+		let preferences: ResearchPreferences = {
+			model: defaults.model,
+			thinkingLevel: defaults.thinkingLevel,
+			approvalMode: defaults.approvalMode,
+		};
 		try {
 			const saved: unknown = JSON.parse(storage.getItem(`${researchSessionKey(cwd)}.preferences`) ?? "null");
 			if (saved && typeof saved === "object") {
@@ -106,16 +152,35 @@ export class ResearchSessionController {
 				preferences = {
 					model: typeof value.model === "string" ? value.model : defaults.model,
 					thinkingLevel: typeof value.thinkingLevel === "string" ? value.thinkingLevel : defaults.thinkingLevel,
-					approvalMode: ["confirm", "plan", "auto"].includes(String(value.approvalMode)) ? value.approvalMode as ApprovalMode : defaults.approvalMode,
-					...(typeof value.agentPreset === "string" && value.agentPreset ? { agentPreset: value.agentPreset } : {}),
+					approvalMode: ["confirm", "plan", "auto"].includes(String(value.approvalMode))
+						? (value.approvalMode as ApprovalMode)
+						: defaults.approvalMode,
+					...(typeof value.agentPreset === "string" && value.agentPreset
+						? { agentPreset: value.agentPreset }
+						: {}),
 				};
 			}
-		} catch { /* Storage can be unavailable in restricted webviews. */ }
-		this.state = { ...preferences, entries: [], results: [], running: false, paused: false, queue: { steering: [], followUp: [] }, busy: false, ready: false, connected: false, retryStatus: null };
+		} catch {
+			/* Storage can be unavailable in restricted webviews. */
+		}
+		this.state = {
+			...preferences,
+			entries: [],
+			results: [],
+			running: false,
+			paused: false,
+			queue: { steering: [], followUp: [] },
+			busy: false,
+			ready: false,
+			connected: false,
+			retryStatus: null,
+		};
 	}
 
 	getSnapshot = (): ResearchSessionState => this.state;
-	getQueueOwnerRevision(): number { return this.epoch; }
+	getQueueOwnerRevision(): number {
+		return this.epoch;
+	}
 	isQueueOwnerCurrent(revision: number, sessionId: string | undefined): boolean {
 		return this.isCurrent(revision) && this.state.sessionId === sessionId;
 	}
@@ -154,7 +219,14 @@ export class ResearchSessionController {
 
 	private persistPreferences(): void {
 		const { model, thinkingLevel, approvalMode, agentPreset } = this.state;
-		try { this.storage.setItem(`${researchSessionKey(this.cwd)}.preferences`, JSON.stringify({ model, thinkingLevel, approvalMode, agentPreset })); } catch { /* In-memory use remains available. */ }
+		try {
+			this.storage.setItem(
+				`${researchSessionKey(this.cwd)}.preferences`,
+				JSON.stringify({ model, thinkingLevel, approvalMode, agentPreset }),
+			);
+		} catch {
+			/* In-memory use remains available. */
+		}
 	}
 
 	setDefaultAgentPreset(agentPreset: string, disabledPresetIds: readonly string[] = []): void {
@@ -196,7 +268,10 @@ export class ResearchSessionController {
 		if (type === "agent_start" || type === "agent_settled") {
 			this.runRevision++;
 			patch.running = type === "agent_start";
-			if (type === "agent_start") { patch.diagnosis = undefined; patch.paused = false; }
+			if (type === "agent_start") {
+				patch.diagnosis = undefined;
+				patch.paused = false;
+			}
 			if (type === "agent_settled") {
 				patch.busy = this.submissionEpoch === this.epoch;
 				void this.refreshStats();
@@ -222,13 +297,21 @@ export class ResearchSessionController {
 		if (this.attachPromise) return this.attachPromise;
 		const promise = this.restore();
 		this.attachPromise = promise;
-		try { await promise; } finally { if (this.attachPromise === promise) this.attachPromise = undefined; }
+		try {
+			await promise;
+		} finally {
+			if (this.attachPromise === promise) this.attachPromise = undefined;
+		}
 	}
 
 	private async restore(): Promise<void> {
 		const epoch = this.epoch;
 		let saved = this.state.sessionId;
-		try { saved ??= this.storage.getItem(researchSessionKey(this.cwd)) ?? undefined; } catch { /* Fresh in-memory thread. */ }
+		try {
+			saved ??= this.storage.getItem(researchSessionKey(this.cwd)) ?? undefined;
+		} catch {
+			/* Fresh in-memory thread. */
+		}
 		if (!saved) {
 			this.update({ ready: true, error: undefined });
 			return;
@@ -237,14 +320,25 @@ export class ResearchSessionController {
 		this.replayEvents = [];
 		this.update({ sessionId: saved, busy: true, error: undefined });
 		try {
-			const response = await this.client.request<SessionSnapshotPayload>({ type: "session.resume", sessionId: saved });
+			const response = await this.client.request<SessionSnapshotPayload>({
+				type: "session.resume",
+				sessionId: saved,
+			});
 			if (!this.isCurrent(epoch, saved)) return;
 			if (!response.ok || !response.result) throw new Error(response.error ?? researchText("restoreFailed"));
 			const snapshot = response.result;
-			if (snapshot.sessionId !== saved || !samePath(snapshot.cwd, this.cwd) || !snapshot.researchMode || !Array.isArray(snapshot.messages)) throw new Error(researchText("wrongWorkspace"));
+			if (
+				snapshot.sessionId !== saved ||
+				!samePath(snapshot.cwd, this.cwd) ||
+				!snapshot.researchMode ||
+				!Array.isArray(snapshot.messages)
+			)
+				throw new Error(researchText("wrongWorkspace"));
 			let entries = rebuild(snapshot.messages as Record<string, unknown>[], snapshot.messageEntryIds);
 			let results = publishedResults(snapshot.messages);
-			let diagnosis = isResearchDiagnosis(snapshot.researchDiagnosis, saved) ? snapshot.researchDiagnosis : undefined;
+			let diagnosis = isResearchDiagnosis(snapshot.researchDiagnosis, saved)
+				? snapshot.researchDiagnosis
+				: undefined;
 			let task = isResearchTaskRecord(snapshot.researchTask, saved) ? snapshot.researchTask : undefined;
 			let queue = snapshot.queue ?? { steering: [], followUp: [] };
 			for (const message of eventsAfterSnapshot(snapshot, this.replayEvents)) {
@@ -254,16 +348,29 @@ export class ResearchSessionController {
 				}
 				entries = applyEvent(entries, message);
 				results = mergeResearchResults(results, researchResultsFromEvent(message.event));
-				diagnosis = (message.event as { type?: string })?.type === "agent_start" ? undefined : researchDiagnosisFromEvent(message.event, saved) ?? diagnosis;
+				diagnosis =
+					(message.event as { type?: string })?.type === "agent_start"
+						? undefined
+						: (researchDiagnosisFromEvent(message.event, saved) ?? diagnosis);
 				const updatedTask = researchTaskFromEvent(message.event, saved);
 				if (updatedTask) task = newerResearchTask(task, updatedTask);
 			}
-			this.update({ entries, results, diagnosis, task, queue, sessionPreset: snapshot.agentPreset ?? "standard", ...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}), ready: true });
+			this.update({
+				entries,
+				results,
+				diagnosis,
+				task,
+				queue,
+				sessionPreset: snapshot.agentPreset ?? "standard",
+				...(snapshot.approvalMode ? { approvalMode: snapshot.approvalMode } : {}),
+				ready: true,
+			});
 			this.persistPreferences();
 			await this.reconcileRunning(epoch);
 			await this.refreshStats();
 		} catch (error) {
-			if (this.isCurrent(epoch, saved)) this.update({ error: error instanceof Error ? error.message : String(error), ready: false });
+			if (this.isCurrent(epoch, saved))
+				this.update({ error: error instanceof Error ? error.message : String(error), ready: false });
 		} finally {
 			if (this.isCurrent(epoch, saved)) {
 				this.restoring = false;
@@ -280,17 +387,42 @@ export class ResearchSessionController {
 		if (!sessionId || !this.state.connected) return;
 		try {
 			const response = await this.client.request<SessionStatsResult>({ type: "session.stats", sessionId });
-			if (response.ok && response.result && this.isCurrent(epoch, sessionId) && settingsRevision === this.settingsRevision) this.applyStats(response.result);
-		} catch { /* A reconnect refreshes authoritative state. */ }
+			if (
+				response.ok &&
+				response.result &&
+				this.isCurrent(epoch, sessionId) &&
+				settingsRevision === this.settingsRevision
+			)
+				this.applyStats(response.result);
+		} catch {
+			/* A reconnect refreshes authoritative state. */
+		}
 	}
 
 	private applyStats(stats: SessionStatsResult): void {
-		this.update({ stats, ...(stats.queue ? { queue: stats.queue } : {}), ...(stats.model ? { model: `${stats.model.provider}/${stats.model.id}` } : {}), thinkingLevel: stats.thinkingLevel });
+		this.update({
+			stats,
+			...(stats.queue ? { queue: stats.queue } : {}),
+			...(stats.model ? { model: `${stats.model.provider}/${stats.model.id}` } : {}),
+			thinkingLevel: stats.thinkingLevel,
+		});
 		this.persistPreferences();
 	}
 
-	async send(text: string, images?: ResearchImage[], attachedPaths?: string[], delivery?: "queue" | "steer"): Promise<boolean> {
-		if (!this.state.connected || !this.state.ready || this.state.busy || this.submissionEpoch === this.epoch || (!text.trim() && !images?.length && !attachedPaths?.length)) return false;
+	async send(
+		text: string,
+		images?: ResearchImage[],
+		attachedPaths?: string[],
+		delivery?: "queue" | "steer",
+	): Promise<boolean> {
+		if (
+			!this.state.connected ||
+			!this.state.ready ||
+			this.state.busy ||
+			this.submissionEpoch === this.epoch ||
+			(!text.trim() && !images?.length && !attachedPaths?.length)
+		)
+			return false;
 		const epoch = this.epoch;
 		this.submissionEpoch = epoch;
 		const queueing = this.state.running;
@@ -303,45 +435,79 @@ export class ResearchSessionController {
 			if (!sessionId) {
 				const slash = this.state.model.indexOf("/");
 				const selectedPreset = this.state.agentPreset ?? this.defaultAgentPreset;
-				const agentPreset = selectedPreset && this.disabledPresetIds.has(selectedPreset) ? "standard" : selectedPreset;
+				const agentPreset =
+					selectedPreset && this.disabledPresetIds.has(selectedPreset) ? "standard" : selectedPreset;
 				const response = await this.client.request<SessionSnapshotPayload>({
-					type: "session.create", cwd: this.cwd, approvalMode: this.state.approvalMode, thinkingLevel: this.state.thinkingLevel, researchMode: "auto",
-					...(slash > 0 ? { provider: this.state.model.slice(0, slash), model: this.state.model.slice(slash + 1) } : {}),
+					type: "session.create",
+					cwd: this.cwd,
+					approvalMode: this.state.approvalMode,
+					thinkingLevel: this.state.thinkingLevel,
+					researchMode: "auto",
+					...(slash > 0
+						? { provider: this.state.model.slice(0, slash), model: this.state.model.slice(slash + 1) }
+						: {}),
 					...(agentPreset ? { agentPreset } : {}),
 				});
 				if (!this.isCurrent(epoch)) return false;
-				if (!response.ok || !response.result?.sessionId) throw new Error(response.error ?? researchText("createFailed"));
+				if (!response.ok || !response.result?.sessionId)
+					throw new Error(response.error ?? researchText("createFailed"));
 				sessionId = response.result.sessionId;
 				this.update({ sessionId, sessionPreset: response.result.agentPreset ?? "standard" });
-				try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* In-memory binding is sufficient for the current run. */ }
+				try {
+					this.storage.setItem(researchSessionKey(this.cwd), sessionId);
+				} catch {
+					/* In-memory binding is sufficient for the current run. */
+				}
 				void this.refreshStats();
 			}
-			if (!queueing) optimisticEntry = {
-				kind: "user", text,
-				...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
-				...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
-			};
+			if (!queueing)
+				optimisticEntry = {
+					kind: "user",
+					text,
+					...(images?.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}),
+					...(attachedPaths?.length ? { attachedPaths: [...attachedPaths] } : {}),
+				};
 			submittedRunRevision = this.runRevision;
-			this.update({ ...(optimisticEntry ? { entries: [...this.state.entries, optimisticEntry], diagnosis: undefined, task: undefined, running: true } : {}), paused: false, retryStatus: null });
+			this.update({
+				...(optimisticEntry
+					? {
+							entries: [...this.state.entries, optimisticEntry],
+							diagnosis: undefined,
+							task: undefined,
+							running: true,
+						}
+					: {}),
+				paused: false,
+				retryStatus: null,
+			});
 			const response = await this.client.request({
 				type: "session.prompt",
 				sessionId,
 				message: text,
 				...(!queueing ? { researchMode: "auto" as const } : {}),
-				...(queueing ? { streamingBehavior: delivery === "steer" ? "steer" as const : "followUp" as const } : {}),
+				...(queueing
+					? { streamingBehavior: delivery === "steer" ? ("steer" as const) : ("followUp" as const) }
+					: {}),
 				...(images?.length ? { images } : {}),
 				...(attachedPaths?.length ? { attachedPaths } : {}),
 			});
 			if (!this.isCurrent(epoch, sessionId)) return false;
 			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
 			clearTimeout(this.reconcileTimer);
-			this.reconcileTimer = setTimeout(() => { void this.reconcileRunning(epoch).catch(() => {}); }, 2000);
+			this.reconcileTimer = setTimeout(() => {
+				void this.reconcileRunning(epoch).catch(() => {});
+			}, 2000);
 			return true;
 		} catch (error) {
-			if (this.isCurrent(epoch)) this.update({
-				error: error instanceof Error ? error.message : String(error), ...(!queueing && this.runRevision === submittedRunRevision ? { running: false, paused: wasPaused } : {}), failedPrompt: { text, images, attachedPaths, ...(delivery ? { delivery } : {}) },
-				...(this.runRevision === submittedRunRevision && optimisticEntry ? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) } : {}),
-			});
+			if (this.isCurrent(epoch))
+				this.update({
+					error: error instanceof Error ? error.message : String(error),
+					...(!queueing && this.runRevision === submittedRunRevision ? { running: false, paused: wasPaused } : {}),
+					failedPrompt: { text, images, attachedPaths, ...(delivery ? { delivery } : {}) },
+					...(this.runRevision === submittedRunRevision && optimisticEntry
+						? { entries: this.state.entries.filter((entry) => entry !== optimisticEntry) }
+						: {}),
+				});
 			return false;
 		} finally {
 			if (this.submissionEpoch === epoch) this.submissionEpoch = undefined;
@@ -373,26 +539,50 @@ export class ResearchSessionController {
 
 	async continue(model?: string): Promise<boolean> {
 		const sessionId = this.state.sessionId;
-		if (!sessionId || !this.state.connected || !this.state.ready || this.state.running || this.state.busy || this.submissionEpoch === this.epoch) return false;
+		if (
+			!sessionId ||
+			!this.state.connected ||
+			!this.state.ready ||
+			this.state.running ||
+			this.state.busy ||
+			this.submissionEpoch === this.epoch
+		)
+			return false;
 		const epoch = this.epoch;
 		this.submissionEpoch = epoch;
 		const paused = this.state.paused;
 		const runRevision = this.runRevision;
 		this.settingsRevision++;
-		this.update({ busy: true, running: true, paused: false, error: undefined, retryStatus: null, failedPrompt: undefined });
+		this.update({
+			busy: true,
+			running: true,
+			paused: false,
+			error: undefined,
+			retryStatus: null,
+			failedPrompt: undefined,
+		});
 		try {
 			await continueTask(this.client, sessionId, model, (stats, selectedModel) => {
 				if (!this.isCurrent(epoch, sessionId)) return;
 				this.settingsRevision++;
 				if (stats) this.applyStats(stats);
-				else { this.update({ model: selectedModel }); this.persistPreferences(); }
+				else {
+					this.update({ model: selectedModel });
+					this.persistPreferences();
+				}
 			});
 			if (!this.isCurrent(epoch, sessionId)) return false;
 			clearTimeout(this.reconcileTimer);
-			this.reconcileTimer = setTimeout(() => { void this.reconcileRunning(epoch).catch(() => {}); }, 2000);
+			this.reconcileTimer = setTimeout(() => {
+				void this.reconcileRunning(epoch).catch(() => {});
+			}, 2000);
 			return true;
 		} catch (error) {
-			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error), ...(this.runRevision === runRevision ? { running: false, paused } : {}) });
+			if (this.isCurrent(epoch, sessionId))
+				this.update({
+					error: error instanceof Error ? error.message : String(error),
+					...(this.runRevision === runRevision ? { running: false, paused } : {}),
+				});
 			return false;
 		} finally {
 			if (this.submissionEpoch === epoch) this.submissionEpoch = undefined;
@@ -409,11 +599,17 @@ export class ResearchSessionController {
 		if (!sessionId || !this.state.connected) return;
 		const epoch = this.epoch;
 		try {
-			const response = await this.client.request<SessionQueueActionResult>(promote ? { type: "session.queue.promote", sessionId, messageId } : { type: "session.queue.remove", sessionId, lane, messageId });
-			if (this.isCurrent(epoch, sessionId) && response.result?.queue) this.applyQueue(response.result.queue, sessionId);
+			const response = await this.client.request<SessionQueueActionResult>(
+				promote
+					? { type: "session.queue.promote", sessionId, messageId }
+					: { type: "session.queue.remove", sessionId, lane, messageId },
+			);
+			if (this.isCurrent(epoch, sessionId) && response.result?.queue)
+				this.applyQueue(response.result.queue, sessionId);
 			if (!response.ok) throw new Error(response.error ?? researchText("sendFailed"));
 		} catch (error) {
-			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error) });
+			if (this.isCurrent(epoch, sessionId))
+				this.update({ error: error instanceof Error ? error.message : String(error) });
 		}
 	}
 
@@ -422,8 +618,28 @@ export class ResearchSessionController {
 		if (!this.state.connected) return false;
 		this.epoch++;
 		clearTimeout(this.reconcileTimer);
-		try { this.storage.removeItem(researchSessionKey(this.cwd)); } catch { /* Reset in-memory state even when storage is unavailable. */ }
-		this.update({ sessionId: undefined, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, running: false, paused: false, queue: { steering: [], followUp: [] }, busy: false, stats: undefined, error: undefined, ready: true, retryStatus: null, failedPrompt: undefined });
+		try {
+			this.storage.removeItem(researchSessionKey(this.cwd));
+		} catch {
+			/* Reset in-memory state even when storage is unavailable. */
+		}
+		this.update({
+			sessionId: undefined,
+			sessionPreset: undefined,
+			entries: [],
+			results: [],
+			diagnosis: undefined,
+			task: undefined,
+			running: false,
+			paused: false,
+			queue: { steering: [], followUp: [] },
+			busy: false,
+			stats: undefined,
+			error: undefined,
+			ready: true,
+			retryStatus: null,
+			failedPrompt: undefined,
+		});
 		return true;
 	}
 
@@ -434,22 +650,48 @@ export class ResearchSessionController {
 		this.attachPromise = undefined;
 		this.restoring = false;
 		this.replayEvents = [];
-		try { this.storage.setItem(researchSessionKey(this.cwd), sessionId); } catch { /* The requested thread remains available in memory. */ }
-		this.update({ sessionId, sessionPreset: undefined, entries: [], results: [], diagnosis: undefined, task: undefined, stats: undefined, ready: false, busy: false, running: false, paused: false, queue: { steering: [], followUp: [] }, error: undefined, retryStatus: null, failedPrompt: undefined });
+		try {
+			this.storage.setItem(researchSessionKey(this.cwd), sessionId);
+		} catch {
+			/* The requested thread remains available in memory. */
+		}
+		this.update({
+			sessionId,
+			sessionPreset: undefined,
+			entries: [],
+			results: [],
+			diagnosis: undefined,
+			task: undefined,
+			stats: undefined,
+			ready: false,
+			busy: false,
+			running: false,
+			paused: false,
+			queue: { steering: [], followUp: [] },
+			error: undefined,
+			retryStatus: null,
+			failedPrompt: undefined,
+		});
 		await this.attach();
 	}
 
-	dismissRetry(): void { this.update({ retryStatus: null }); }
+	dismissRetry(): void {
+		this.update({ retryStatus: null });
+	}
 
 	async executeBuiltin(name: string, args: string): Promise<boolean> {
 		if (!["new", "model", "thinking", "compact"].includes(name)) return false;
-		if (name === "new") { if (this.state.connected) this.newThread(); return true; }
+		if (name === "new") {
+			if (this.state.connected) this.newThread();
+			return true;
+		}
 		if (this.state.running || this.state.busy || !this.state.ready || !this.state.connected) return true;
 		if (name === "model") {
 			if (args.trim().includes("/")) await this.setModel(args.trim());
 			else this.update({ error: t("app.modelUsage") });
 		} else if (name === "thinking") {
-			if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(args.trim())) await this.setThinkingLevel(args.trim());
+			if (["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(args.trim()))
+				await this.setThinkingLevel(args.trim());
 			else this.update({ error: t("app.thinkingUsage") });
 		} else if (this.state.sessionId) {
 			await this.setting({ type: "session.compact", sessionId: this.state.sessionId }, {});
@@ -471,32 +713,63 @@ export class ResearchSessionController {
 			this.persistPreferences();
 		} catch (error) {
 			if (this.isCurrent(epoch)) this.update({ error: error instanceof Error ? error.message : String(error) });
-		} finally { if (this.isCurrent(epoch)) this.update({ busy: false }); }
+		} finally {
+			if (this.isCurrent(epoch)) this.update({ busy: false });
+		}
 	}
 
 	async setModel(model: string): Promise<void> {
 		if (this.state.running || this.state.busy) return;
-		if (!this.state.sessionId) { this.update({ model }); this.persistPreferences(); return; }
+		if (!this.state.sessionId) {
+			this.update({ model });
+			this.persistPreferences();
+			return;
+		}
 		const slash = model.indexOf("/");
 		if (slash <= 0) return;
-		await this.setting({ type: "session.setModel", sessionId: this.state.sessionId, provider: model.slice(0, slash), model: model.slice(slash + 1) }, { model });
+		await this.setting(
+			{
+				type: "session.setModel",
+				sessionId: this.state.sessionId,
+				provider: model.slice(0, slash),
+				model: model.slice(slash + 1),
+			},
+			{ model },
+		);
 	}
 
 	async setThinkingLevel(thinkingLevel: string): Promise<void> {
 		if (this.state.running || this.state.busy) return;
-		if (!this.state.sessionId) { this.update({ thinkingLevel }); this.persistPreferences(); return; }
-		await this.setting({ type: "session.setThinkingLevel", sessionId: this.state.sessionId, level: thinkingLevel }, { thinkingLevel });
+		if (!this.state.sessionId) {
+			this.update({ thinkingLevel });
+			this.persistPreferences();
+			return;
+		}
+		await this.setting(
+			{ type: "session.setThinkingLevel", sessionId: this.state.sessionId, level: thinkingLevel },
+			{ thinkingLevel },
+		);
 	}
 
 	async setApprovalMode(approvalMode: ApprovalMode): Promise<void> {
 		if (this.state.running || this.state.busy) return;
-		if (!this.state.sessionId) { this.update({ approvalMode }); this.persistPreferences(); return; }
-		await this.setting({ type: "session.setApprovalMode", sessionId: this.state.sessionId, approvalMode }, { approvalMode });
+		if (!this.state.sessionId) {
+			this.update({ approvalMode });
+			this.persistPreferences();
+			return;
+		}
+		await this.setting(
+			{ type: "session.setApprovalMode", sessionId: this.state.sessionId, approvalMode },
+			{ approvalMode },
+		);
 	}
 
 	async setAgentPreset(agentPreset: string): Promise<void> {
 		if (!agentPreset || !this.state.connected || !this.state.ready || this.state.busy) return;
-		if (this.disabledPresetIds.has(agentPreset)) { this.update({ error: researchText("piPresetUnavailable") }); return; }
+		if (this.disabledPresetIds.has(agentPreset)) {
+			this.update({ error: researchText("piPresetUnavailable") });
+			return;
+		}
 		const sessionId = this.state.sessionId;
 		if (!sessionId || this.state.entries.length > 0) {
 			this.update({ agentPreset });
@@ -508,13 +781,20 @@ export class ResearchSessionController {
 		this.settingsRevision++;
 		this.update({ busy: true, error: undefined });
 		try {
-			const response = await this.client.request<{ agentPreset: string }>({ type: "session.setPreset", sessionId, agentPreset });
+			const response = await this.client.request<{ agentPreset: string }>({
+				type: "session.setPreset",
+				sessionId,
+				agentPreset,
+			});
 			if (!this.isCurrent(epoch, sessionId)) return;
 			if (!response.ok) throw new Error(response.error ?? researchText("settingsFailed"));
 			this.update({ agentPreset, sessionPreset: response.result?.agentPreset ?? agentPreset });
 			this.persistPreferences();
 		} catch (error) {
-			if (this.isCurrent(epoch, sessionId)) this.update({ error: error instanceof Error ? error.message : String(error) });
-		} finally { if (this.isCurrent(epoch, sessionId)) this.update({ busy: false }); }
+			if (this.isCurrent(epoch, sessionId))
+				this.update({ error: error instanceof Error ? error.message : String(error) });
+		} finally {
+			if (this.isCurrent(epoch, sessionId)) this.update({ busy: false });
+		}
 	}
 }

@@ -15,7 +15,11 @@ export interface ModelFallbackNoticeProps {
  * 以前这条信息只写进桥端日志，用户看到的是「模型怎么变笨了」而不是「模型被换了」。
  * 换厂商（crossProvider）时用警示色，因为跨厂商意味着上下文行为和计费都可能不同。
  */
-export function ModelFallbackNotice({ fallback, onChooseModel, onDismiss }: ModelFallbackNoticeProps): React.JSX.Element {
+export function ModelFallbackNotice({
+	fallback,
+	onChooseModel,
+	onDismiss,
+}: ModelFallbackNoticeProps): React.JSX.Element {
 	const t = useT();
 	const saved = `${fallback.saved.provider}/${fallback.saved.id}`;
 	const used = `${fallback.used.provider}/${fallback.used.id}`;

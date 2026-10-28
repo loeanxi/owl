@@ -29,7 +29,9 @@ export function useStartupWindow(): () => void {
 		// effect 已在 React 提交后运行，再留一帧给外观绘制。隐藏 WebView 可能暂停 rAF，需短兜底。
 		const timeout = setTimeout(reveal, 100);
 		if (typeof requestAnimationFrame === "function") {
-			frame = requestAnimationFrame(() => { frame = requestAnimationFrame(reveal); });
+			frame = requestAnimationFrame(() => {
+				frame = requestAnimationFrame(reveal);
+			});
 		}
 		return () => {
 			active = false;

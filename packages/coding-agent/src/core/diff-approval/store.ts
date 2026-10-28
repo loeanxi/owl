@@ -12,8 +12,10 @@ import {
 	fsyncSync,
 	ftruncateSync,
 	lstatSync,
+	mkdirSync,
 	openSync,
 	readFileSync,
+	statSync,
 	unlinkSync,
 	writeFileSync,
 	writeSync,
@@ -51,10 +53,19 @@ export interface DiffApprovalEntry {
 	path: string;
 	status: DiffApprovalStatus;
 	originalExisted: boolean;
-	originalContent: string | null;
+	/**
+	 * 是否有改前快照。快照正文不再内联在这条记录里，而是单独存放在
+	 * <store>.snaps/<id 前两位>/<id>.json —— 改动库动辄几十兆，
+	 * 内联的话每次落库都要整份重写。
+	 */
+	hasBefore: boolean;
+	/** 是否有改后快照。 */
+	hasAfter: boolean;
+	/** 预计算的增删行数：列表面板只读元数据，不必去碰快照正文。 */
+	added?: number | null;
+	removed?: number | null;
 	baselineAt: string;
 	resolvedAt: string | null;
-	afterContent?: string | null;
 	toolCallId?: string;
 	sessionId?: string;
 	turnId?: string;
@@ -62,6 +73,32 @@ export interface DiffApprovalEntry {
 	sequence?: number;
 	captureError?: string;
 	/** Hidden from the completed list but retained while earlier pending operations depend on it. */
+	hidden?: boolean;
+}
+
+/** 改前/改后正文快照：单独一个文件，懒加载。 */
+interface DiffApprovalSnapshot {
+	/** 改前正文；null = 没有改前快照。 */
+	before: string | null;
+	/** 改后正文；null = 没有改后快照。 */
+	after: string | null;
+}
+
+/** 旧格式（v1/v2）条目：快照正文内联。迁移时读一次。 */
+interface LegacyDiffApprovalEntry {
+	id: string;
+	path: string;
+	status: DiffApprovalStatus;
+	originalExisted: boolean;
+	originalContent: string | null;
+	baselineAt: string;
+	resolvedAt: string | null;
+	afterContent?: string | null;
+	toolCallId?: string;
+	sessionId?: string;
+	turnId?: string;
+	sequence?: number;
+	captureError?: string;
 	hidden?: boolean;
 }
 
@@ -118,7 +155,7 @@ export interface DiffApprovalMutationIO {
 	sync(fd: number): void;
 }
 
-const PERSIST_VERSION = 2;
+const PERSIST_VERSION = 3;
 export const DIFF_APPROVAL_DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024;
 const DIFF_TEXT_CAP_CHARS = 512 * 1024;
 const DIFF_OUTPUT_CAP_CHARS = 400 * 1024;
@@ -164,7 +201,8 @@ interface StoredPreview {
 interface PersistShape {
 	version: number;
 	workspaceDir: string;
-	entries: DiffApprovalEntry[];
+	/** v3 是元数据条目；v1/v2 是正文内联的旧条目。 */
+	entries: unknown[];
 }
 
 export class DiffApprovalStore {
@@ -178,6 +216,23 @@ export class DiffApprovalStore {
 	private previews = new Map<string, StoredPreview>();
 	private loaded = false;
 	private sequence = 0;
+	/**
+	 * 磁盘上的改动库可能很大（每个待审改动都存着改前/改后全文快照）。
+	 * 以前每次读接口都把整个文件同步读一遍 + JSON.parse 一遍：文件 56MB 时单次
+	 * 261ms，一个会话打开里并发几十个请求就把事件循环堵住十几秒。
+	 * 现在只在文件真的变了（mtime/大小都变）时才重新读盘，中间一直用内存副本。
+	 */
+	private persistedStamp: { mtimeNs: bigint; size: bigint } | undefined;
+	/** 条目 id → 快照正文（懒加载；需要时才去读独立快照文件）。 */
+	private contents = new Map<string, DiffApprovalSnapshot>();
+	/** 待写入的快照文件（新增或内容变化）。 */
+	private dirtySnapshots = new Set<string>();
+	/** 待删除的快照文件（条目被处理后裁剪掉正文）。 */
+	private removedSnapshots = new Set<string>();
+	/** 已经建好的快照分桶目录（批量写时不必每次 mkdir）。 */
+	private snapshotDirs = new Set<string>();
+	/** 当前内存里的条目是否还来自旧格式（正文内联）：落库时顺手迁移成新格式。 */
+	private legacyFormat = false;
 
 	constructor(options: {
 		filePath: string;
@@ -203,7 +258,34 @@ export class DiffApprovalStore {
 			this.refreshEntries();
 		} catch {
 			backupCorruptFile(this.filePath);
+			return;
 		}
+		// 旧格式迁移失败时绝不动原文件：旧文件留在原处，下次启动再迁一次。
+		try {
+			if (this.legacyFormat) this.migrateLegacy();
+		} catch {
+			/* 迁移未完成：旧文件仍然完整可读，下次加载重来。 */
+		}
+	}
+
+	/**
+	 * 旧格式 → 新格式：快照正文各自落到独立文件，元数据留在原路径。
+	 * 顺序是「先写快照，再写元数据」：中途失败时旧文件仍然完整，下次启动重来。
+	 */
+	private migrateLegacy(): void {
+		withFileLockSync(this.filePath, () => {
+			this.refreshEntries();
+			if (!this.legacyFormat) return;
+			for (const entry of this.entries) {
+				const snapshot = this.contents.get(entry.id);
+				if (!snapshot) continue;
+				this.writeSnapshotBulk(entry.id, snapshot);
+			}
+			this.writeMetadata();
+			this.legacyFormat = false;
+			this.dirtySnapshots.clear();
+			this.removedSnapshots.clear();
+		});
 	}
 
 	stage(toolCallId: string, absolutePath: string, metadata?: DiffApprovalCapture): void {
@@ -320,13 +402,20 @@ export class DiffApprovalStore {
 		if (!captureError && staged.existed && staged.content === afterContent) return;
 		withFileLockSync(this.filePath, () => {
 			this.refreshEntries();
+			const id = randomUUID();
+			const snapshot: DiffApprovalSnapshot = { before: staged.content, after: afterContent };
+			const counts = this.countsOf(snapshot);
+			this.contents.set(id, snapshot);
+			this.dirtySnapshots.add(id);
 			this.entries.unshift({
-				id: randomUUID(),
+				id,
 				path: staged.path,
 				status: "pending",
 				originalExisted: staged.existed,
-				originalContent: staged.content,
-				afterContent,
+				hasBefore: snapshot.before !== null,
+				hasAfter: snapshot.after !== null,
+				added: counts.added,
+				removed: counts.removed,
 				toolCallId,
 				sessionId: staged.metadata?.sessionId,
 				turnId: staged.metadata?.turnId,
@@ -361,13 +450,38 @@ export class DiffApprovalStore {
 	/** This diff describes the captured operation only, never unrelated later changes. */
 	diff(entryId: string): { diff: string; truncated: boolean } {
 		this.refreshEntries();
-		const entry = this.entries.find((item) => item.id === entryId);
+		return this.diffOf(
+			entryId,
+			this.entries.find((item) => item.id === entryId),
+		);
+	}
+
+	/**
+	 * 批量取 diff：一次读盘、一次遍历。
+	 * 之前「一个待审改动一个请求」，打开一个会话会并发几十个 diffApproval.diff，
+	 * 每个都要把整份改动库重读重解析一次，把桥的事件循环堵到十几秒。
+	 * 单条出错不影响其它条目：失败项只带 error。
+	 */
+	diffs(entryIds: string[]): Array<{ id: string; diff: string; truncated: boolean; error?: string }> {
+		this.refreshEntries();
+		const byId = new Map(this.entries.map((item) => [item.id, item]));
+		return entryIds.map((entryId) => {
+			try {
+				return { id: entryId, ...this.diffOf(entryId, byId.get(entryId)) };
+			} catch (error) {
+				return { id: entryId, diff: "", truncated: false, error: errorText(error) };
+			}
+		});
+	}
+
+	private diffOf(entryId: string, entry: DiffApprovalEntry | undefined): { diff: string; truncated: boolean } {
 		if (!entry) throw new Error(`Unknown diff-approval entry: ${entryId}`);
 		if (entry.status !== "pending") throw new Error("该条目已处理");
-		const before = entry.originalExisted ? entry.originalContent : "";
+		const snapshot = this.contentOf(entry);
+		const before = entry.originalExisted ? snapshot.before : "";
 		if (before === null) throw new Error("缺少改前内容");
-		if (typeof entry.afterContent !== "string") throw new Error("旧记录缺少改后快照，请人工核对");
-		return patchOf(entry.path, before, entry.afterContent);
+		if (snapshot.after === null) throw new Error("旧记录缺少改后快照，请人工核对");
+		return patchOf(entry.path, before, snapshot.after);
 	}
 
 	preview(entryIds: string[], mode: DiffApprovalUndoMode = "operations"): DiffApprovalPreviewResult {
@@ -521,9 +635,10 @@ export class DiffApprovalStore {
 			if (!current.exists) throw new Error("文件已被删除，不会自动重建；请人工核对");
 			let target = current.content;
 			for (const entry of operations.sort((a, b) => (b.sequence ?? 0) - (a.sequence ?? 0))) {
-				const after = entry.afterContent;
-				const before = entry.originalContent;
-				if (typeof after !== "string" || before === null) throw new Error("缺少撤销快照");
+				const content = this.contentOf(entry);
+				const after = content.after;
+				const before = content.before;
+				if (after === null || before === null) throw new Error("缺少撤销快照");
 				if (!entry.originalExisted) {
 					if (
 						this.entries.some(
@@ -547,11 +662,12 @@ export class DiffApprovalStore {
 							(later.sequence ?? 0) <= (entry.sequence ?? 0)
 						)
 							continue;
-						if (later.originalContent === null || typeof later.afterContent !== "string" || later.captureError) {
+						const laterContent = this.contentOf(later);
+						if (laterContent.before === null || laterContent.after === null || later.captureError) {
 							throw new Error("后续操作缺少可核对的快照，不能证明撤销不会影响它；请人工核对");
 						}
-						const beforeLater = reverseMerge(after, before, later.originalContent);
-						reverseMerge(later.originalContent, beforeLater, later.afterContent);
+						const beforeLater = reverseMerge(after, before, laterContent.before);
+						reverseMerge(laterContent.before, beforeLater, laterContent.after);
 					}
 					target = reverseMerge(after, before, target);
 				}
@@ -768,8 +884,11 @@ export class DiffApprovalStore {
 						(earlier.sequence ?? 0) < (entry.sequence ?? 0),
 				);
 			if (!earlierPending) {
-				entry.originalContent = null;
-				entry.afterContent = null;
+				// 正文裁掉：条目本身还在（历史要看得见），但不再占磁盘。
+				entry.hasBefore = false;
+				entry.hasAfter = false;
+				this.contents.delete(entry.id);
+				this.removedSnapshots.add(entry.id);
 			}
 		}
 	}
@@ -780,18 +899,132 @@ export class DiffApprovalStore {
 		);
 	}
 
+	/** 文件指纹：mtime（纳秒）+ 大小。两者都没变就说明磁盘内容没动过。 */
+	private fileStamp(): { mtimeNs: bigint; size: bigint } | undefined {
+		try {
+			const stats = statSync(this.filePath, { bigint: true });
+			return { mtimeNs: stats.mtimeNs, size: stats.size };
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** 快照正文文件：<store>.snaps/<id 前两位>/<id>.json（分桶避免单目录几千个文件）。 */
+	private snapshotPath(entryId: string): string {
+		return join(`${this.filePath}.snaps`, entryId.slice(0, 2), `${entryId}.json`);
+	}
+
+	private readSnapshot(entryId: string): DiffApprovalSnapshot {
+		try {
+			const parsed = JSON.parse(readFileSync(this.snapshotPath(entryId), "utf8")) as Partial<DiffApprovalSnapshot>;
+			return {
+				before: typeof parsed.before === "string" ? parsed.before : null,
+				after: typeof parsed.after === "string" ? parsed.after : null,
+			};
+		} catch {
+			return { before: null, after: null };
+		}
+	}
+
+	private writeSnapshot(entryId: string, snapshot: DiffApprovalSnapshot): void {
+		const path = this.snapshotPath(entryId);
+		mkdirSync(dirname(path), { recursive: true });
+		atomicWriteFileSync(path, JSON.stringify(snapshot));
+	}
+
+	/**
+	 * 批量迁移用的快写：不做临时文件 + fsync。
+	 * 迁移的顺序是「先写全部快照，再写元数据」，中途失败时旧格式文件仍然完整、
+	 * 元数据还没写，下次启动重来即可，所以这里不需要逐个 fsync。
+	 */
+	private writeSnapshotBulk(entryId: string, snapshot: DiffApprovalSnapshot): void {
+		const path = this.snapshotPath(entryId);
+		const dir = dirname(path);
+		if (!this.snapshotDirs.has(dir)) {
+			mkdirSync(dir, { recursive: true });
+			this.snapshotDirs.add(dir);
+		}
+		writeFileSync(path, JSON.stringify(snapshot));
+	}
+
+	/** 取某条目的快照正文：内存里有就用内存的，没有就去读独立快照文件。 */
+	private contentOf(entry: DiffApprovalEntry): DiffApprovalSnapshot {
+		const cached = this.contents.get(entry.id);
+		if (cached) return cached;
+		const loaded = this.readSnapshot(entry.id);
+		this.contents.set(entry.id, loaded);
+		return loaded;
+	}
+
+	/** 旧条目 → 新条目：正文拆出来单独存，行数在这里一次算好。 */
+	private fromLegacy(legacy: LegacyDiffApprovalEntry): DiffApprovalEntry {
+		const snapshot: DiffApprovalSnapshot = {
+			before: legacy.originalContent ?? null,
+			after: typeof legacy.afterContent === "string" ? legacy.afterContent : null,
+		};
+		this.contents.set(legacy.id, snapshot);
+		const counts = this.countsOf(snapshot);
+		return {
+			id: legacy.id,
+			path: legacy.path,
+			status: legacy.status,
+			originalExisted: legacy.originalExisted,
+			hasBefore: snapshot.before !== null,
+			hasAfter: snapshot.after !== null,
+			added: counts.added,
+			removed: counts.removed,
+			baselineAt: legacy.baselineAt,
+			resolvedAt: legacy.resolvedAt,
+			toolCallId: legacy.toolCallId,
+			sessionId: legacy.sessionId,
+			turnId: legacy.turnId,
+			sequence: legacy.sequence,
+			captureError: legacy.captureError,
+			hidden: legacy.hidden,
+		};
+	}
+
 	private refreshEntries(): void {
-		if (!existsSync(this.filePath)) {
-			this.entries = [];
-			this.sequence = 0;
+		const stamp = this.fileStamp();
+		if (!stamp) {
+			if (this.entries.length > 0) {
+				this.entries = [];
+				this.sequence = 0;
+				this.contents.clear();
+			}
+			this.persistedStamp = undefined;
+			return;
+		}
+		// 指纹没变：磁盘内容与内存副本一致，直接用内存副本，不读盘不解析。
+		if (
+			this.persistedStamp &&
+			this.persistedStamp.mtimeNs === stamp.mtimeNs &&
+			this.persistedStamp.size === stamp.size
+		) {
 			return;
 		}
 		const parsed = JSON.parse(readFileSync(this.filePath, "utf8")) as PersistShape;
-		if ((parsed.version !== 1 && parsed.version !== PERSIST_VERSION) || !Array.isArray(parsed.entries)) {
+		if (!Array.isArray(parsed.entries)) {
 			throw new Error("改动记录格式不可识别，已停止处理以保留原始记录");
 		}
-		this.entries = parsed.entries;
-		this.sequence = this.entries.reduce((max, entry) => Math.max(max, entry.sequence ?? 0), 0);
+		if (parsed.version === PERSIST_VERSION) {
+			this.entries = parsed.entries as DiffApprovalEntry[];
+			this.sequence = this.entries.reduce((max, entry) => Math.max(max, entry.sequence ?? 0), 0);
+			this.persistedStamp = stamp;
+			// 元数据变了：别的进程可能同时动过快照正文，正文缓存整体作废，按需重读。
+			this.contents.clear();
+			this.legacyFormat = false;
+			return;
+		}
+		if (parsed.version === 1 || parsed.version === 2) {
+			// 旧格式：正文内联。读进内存，落库时迁移成「元数据 + 独立快照」。
+			this.entries = (parsed.entries as LegacyDiffApprovalEntry[]).map((legacy) => this.fromLegacy(legacy));
+			this.sequence = this.entries.reduce((max, entry) => Math.max(max, entry.sequence ?? 0), 0);
+			this.persistedStamp = stamp;
+			this.legacyFormat = true;
+			return;
+		}
+		throw new Error("改动记录格式不可识别，已停止处理以保留原始记录");
 	}
 
 	private summarize(entry: DiffApprovalEntry, cwd: string): DiffApprovalFileSummary {
@@ -804,24 +1037,6 @@ export class DiffApprovalStore {
 		} catch {
 			/* A missing or unreadable file still has a visible operation record. */
 		}
-		let added: number | null = null;
-		let removed: number | null = null;
-		if (entry.originalContent !== null && typeof entry.afterContent === "string") {
-			if (entry.originalContent.length + entry.afterContent.length <= DIFF_TEXT_CAP_CHARS) {
-				added = 0;
-				removed = 0;
-				const changes = Diff.diffLines(entry.originalContent, entry.afterContent, { timeout: 100 });
-				if (changes) {
-					for (const part of changes) {
-						if (part.added) added += countChunkLines(part.value);
-						if (part.removed) removed += countChunkLines(part.value);
-					}
-				} else {
-					added = null;
-					removed = null;
-				}
-			}
-		}
 		const reason = captureReason(entry);
 		return {
 			id: entry.id,
@@ -830,8 +1045,8 @@ export class DiffApprovalStore {
 			status: entry.status,
 			originalExisted: entry.originalExisted,
 			currentExists,
-			added,
-			removed,
+			added: entry.added ?? null,
+			removed: entry.removed ?? null,
 			size,
 			baselineAt: entry.baselineAt,
 			resolvedAt: entry.resolvedAt,
@@ -844,13 +1059,54 @@ export class DiffApprovalStore {
 		};
 	}
 
-	private persist(): void {
+	/**
+	 * 增删行数：快照正文建好时一次算清，之后列表直接读元数据，
+	 * 不用为两千多条记录去读几十兆的快照正文。
+	 */
+	private countsOf(snapshot: DiffApprovalSnapshot): { added: number | null; removed: number | null } {
+		if (snapshot.before === null || snapshot.after === null) return { added: null, removed: null };
+		if (snapshot.before.length + snapshot.after.length > DIFF_TEXT_CAP_CHARS) return { added: null, removed: null };
+		let added = 0;
+		let removed = 0;
+		const changes = Diff.diffLines(snapshot.before, snapshot.after, { timeout: 100 });
+		if (!changes) return { added: null, removed: null };
+		for (const part of changes) {
+			if (part.added) added += countChunkLines(part.value);
+			if (part.removed) removed += countChunkLines(part.value);
+		}
+		return { added, removed };
+	}
+
+	/** 元数据落盘：只有元数据，不含快照正文（体积是原来的一小部分）。 */
+	private writeMetadata(): void {
 		const payload: PersistShape = {
 			version: PERSIST_VERSION,
 			workspaceDir: this.workspaceDir,
 			entries: this.entries,
 		};
 		atomicWriteFileSync(this.filePath, JSON.stringify(payload));
+		// 刚写出的文件就是内存副本的来源：更新指纹，下一次读接口不必把它再读一遍。
+		this.persistedStamp = this.fileStamp();
+	}
+
+	private persist(): void {
+		// 快照正文先落盘，元数据后落盘：元数据引用到的快照一定已经存在。
+		for (const id of this.dirtySnapshots) {
+			const snapshot = this.contents.get(id);
+			if (!snapshot) continue;
+			this.writeSnapshot(id, snapshot);
+		}
+		for (const id of this.removedSnapshots) {
+			try {
+				unlinkSync(this.snapshotPath(id));
+			} catch {
+				/* 快照已经不在了：没有可清理的东西。 */
+			}
+		}
+		this.dirtySnapshots.clear();
+		this.removedSnapshots.clear();
+		this.writeMetadata();
+		this.legacyFormat = false;
 	}
 }
 
@@ -921,7 +1177,7 @@ function captureReason(entry: DiffApprovalEntry): string | undefined {
 	if (!entry.sessionId || !entry.toolCallId || !entry.turnId || entry.sequence === undefined) {
 		return "旧记录缺少会话和轮次归属，只能人工核对或保留，不能自动撤销";
 	}
-	if (typeof entry.afterContent !== "string" || entry.originalContent === null) {
+	if (!entry.hasBefore || !entry.hasAfter) {
 		return "缺少完整改前和改后快照，不能自动撤销";
 	}
 	return undefined;

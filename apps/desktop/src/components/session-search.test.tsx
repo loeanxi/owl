@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionSearchHit, SessionSearchResult } from "../bridge/protocol.ts";
@@ -11,14 +11,23 @@ import { sessionSearchText as text } from "./session-search-copy.ts";
 
 type SearchResponse = { ok: boolean; result?: SessionSearchResult; error?: string };
 const hit: SessionSearchHit = {
-	sessionId: "chat-one", cwd: "D:/work/alpha", title: "质量问题排查", scope: "chat", archived: false,
-	modified: "2026-10-15T04:00:00.000Z", entryId: "later-message", role: "assistant",
-	excerpt: "后来发现 SQL 查询缺少索引", matchRanges: [{ start: 5, end: 8 }],
+	sessionId: "chat-one",
+	cwd: "D:/work/alpha",
+	title: "质量问题排查",
+	scope: "chat",
+	archived: false,
+	modified: "2026-10-15T04:00:00.000Z",
+	entryId: "later-message",
+	role: "assistant",
+	excerpt: "后来发现 SQL 查询缺少索引",
+	matchRanges: [{ start: 5, end: 8 }],
 };
 let container: HTMLElement;
 let root: Root;
 let props: SessionSearchPanelProps;
-let request = vi.fn(async (_value: unknown): Promise<SearchResponse> => ({ ok: true, result: { hits: [], hasMore: false } }));
+let request = vi.fn(
+	async (_value: unknown): Promise<SearchResponse> => ({ ok: true, result: { hits: [], hasMore: false } }),
+);
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -30,10 +39,20 @@ beforeEach(() => {
 	setUiLanguage("zh");
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
-	request = vi.fn(async (_value: unknown): Promise<SearchResponse> => ({ ok: true, result: { hits: [], hasMore: false } }));
+	request = vi.fn(
+		async (_value: unknown): Promise<SearchResponse> => ({ ok: true, result: { hits: [], hasMore: false } }),
+	);
 	props = {
-		client: { request } as unknown as BridgeClient, connected: true, query: "SQL", activeProject: "D:/work/alpha",
-		refreshKey: "one", revision: 0, metadataSessions: [], projects: [], onOpenHit: vi.fn(), onSelectProject: vi.fn(),
+		client: { request } as unknown as BridgeClient,
+		connected: true,
+		query: "SQL",
+		activeProject: "D:/work/alpha",
+		refreshKey: "one",
+		revision: 0,
+		metadataSessions: [],
+		projects: [],
+		onOpenHit: vi.fn(),
+		onSelectProject: vi.fn(),
 	};
 });
 
@@ -53,7 +72,9 @@ async function debounce(): Promise<void> {
 }
 
 function button(label: string): HTMLButtonElement {
-	const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
+	const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+		(item) => item.textContent === label,
+	);
 	if (!result) throw new Error(`Missing button: ${label}`);
 	return result;
 }
@@ -67,7 +88,13 @@ describe("conversation content search", () => {
 		await act(async () => vi.advanceTimersByTimeAsync(219));
 		expect(request).not.toHaveBeenCalled();
 		await act(async () => vi.advanceTimersByTimeAsync(1));
-		expect(request).toHaveBeenCalledExactlyOnceWith({ type: "session.search", query: "SQL", cwd: undefined, includeArchived: false, limit: 50 });
+		expect(request).toHaveBeenCalledExactlyOnceWith({
+			type: "session.search",
+			query: "SQL",
+			cwd: undefined,
+			includeArchived: false,
+			limit: 50,
+		});
 	});
 
 	it("ignores an older response after a newer query finishes", async () => {
@@ -78,15 +105,25 @@ describe("conversation content search", () => {
 		await debounce();
 		await render({ query: "new" });
 		await debounce();
-		await act(async () => recent.resolve({ ok: true, result: { hits: [{ ...hit, title: "new result" }], hasMore: false } }));
+		await act(async () =>
+			recent.resolve({ ok: true, result: { hits: [{ ...hit, title: "new result" }], hasMore: false } }),
+		);
 		expect(container.textContent).toContain("new result");
-		await act(async () => old.resolve({ ok: true, result: { hits: [{ ...hit, title: "old result" }], hasMore: false } }));
+		await act(async () =>
+			old.resolve({ ok: true, result: { hits: [{ ...hit, title: "old result" }], hasMore: false } }),
+		);
 		expect(container.textContent).toContain("new result");
 		expect(container.textContent).not.toContain("old result");
 	});
 
 	it("opens the specific matching message and safely highlights literal text", async () => {
-		const unsafe = { ...hit, scope: "research" as const, archived: true, excerpt: "<img src=x> SQL <script>boom</script>", matchRanges: [{ start: 12, end: 15 }] };
+		const unsafe = {
+			...hit,
+			scope: "research" as const,
+			archived: true,
+			excerpt: "<img src=x> SQL <script>boom</script>",
+			matchRanges: [{ start: 12, end: 15 }],
+		};
 		request.mockResolvedValueOnce({ ok: true, result: { hits: [unsafe], hasMore: false } });
 		await render();
 		await debounce();
@@ -102,21 +139,39 @@ describe("conversation content search", () => {
 	});
 
 	it("filters to the current project and explicitly opts in to archived records", async () => {
-		await render({ metadataSessions: [hit, { ...hit, sessionId: "other", cwd: "D:/work/beta", title: "other project" }, { ...hit, sessionId: "archived", archived: true, title: "archived title" }] });
+		await render({
+			metadataSessions: [
+				hit,
+				{ ...hit, sessionId: "other", cwd: "D:/work/beta", title: "other project" },
+				{ ...hit, sessionId: "archived", archived: true, title: "archived title" },
+			],
+		});
 		await debounce();
 		expect(container.textContent).toContain("other project");
 		expect(container.textContent).not.toContain("archived title");
 		await act(async () => button(text("currentProject")).click());
 		expect(container.textContent).not.toContain("other project");
 		await debounce();
-		expect(request).toHaveBeenLastCalledWith({ type: "session.search", query: "SQL", cwd: props.activeProject, includeArchived: false, limit: 50 });
+		expect(request).toHaveBeenLastCalledWith({
+			type: "session.search",
+			query: "SQL",
+			cwd: props.activeProject,
+			includeArchived: false,
+			limit: 50,
+		});
 		await act(async () => {
 			const input = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 			input.checked = true;
 			input.dispatchEvent(new window.Event("click", { bubbles: true }));
 		});
 		await debounce();
-		expect(request).toHaveBeenLastCalledWith({ type: "session.search", query: "SQL", cwd: props.activeProject, includeArchived: true, limit: 50 });
+		expect(request).toHaveBeenLastCalledWith({
+			type: "session.search",
+			query: "SQL",
+			cwd: props.activeProject,
+			includeArchived: true,
+			limit: 50,
+		});
 		expect(container.textContent).toContain("archived title");
 	});
 
@@ -127,14 +182,20 @@ describe("conversation content search", () => {
 		await debounce();
 		expect(container.querySelectorAll(".owl-session-search-hit")).toHaveLength(3);
 		expect(container.querySelectorAll(".owl-session-search-title")).toHaveLength(3);
-		await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".owl-session-search-hit")].find((item) => item.textContent?.includes(titleMatch.title))!.click());
+		await act(async () =>
+			[...container.querySelectorAll<HTMLButtonElement>(".owl-session-search-hit")]
+				.find((item) => item.textContent?.includes(titleMatch.title))!
+				.click(),
+		);
 		expect(props.onOpenHit).toHaveBeenCalledExactlyOnceWith(titleMatch, "SQL");
 		await act(async () => container.querySelector<HTMLButtonElement>(".owl-session-search-project-hit")!.click());
 		expect(props.onSelectProject).toHaveBeenCalledExactlyOnceWith("D:/work/SQL-project");
 	});
 
 	it("shows a recoverable failure and retries without losing the query", async () => {
-		request.mockResolvedValueOnce({ ok: false, error: "disk unavailable" }).mockResolvedValueOnce({ ok: true, result: { hits: [hit], hasMore: false } });
+		request
+			.mockResolvedValueOnce({ ok: false, error: "disk unavailable" })
+			.mockResolvedValueOnce({ ok: true, result: { hits: [hit], hasMore: false } });
 		await render();
 		await debounce();
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain("disk unavailable");

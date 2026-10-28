@@ -771,6 +771,18 @@ export interface DiffApprovalDiffResult {
 	truncated: boolean;
 }
 
+/** 批量 diff：一次往返取多个条目的 diff，避免「每个改动一个请求」把桥堵死。 */
+export interface DiffApprovalDiffsRequest {
+	type: "diffApproval.diffs";
+	id: string;
+	cwd: string;
+	entryIds: string[];
+}
+
+export interface DiffApprovalDiffsResult {
+	diffs: Array<{ id: string; diff: string; truncated: boolean; error?: string }>;
+}
+
 export type DiffApprovalUndoMode = "operations" | "baseline";
 
 export interface DiffApprovalPreviewRequest {
@@ -2842,6 +2854,7 @@ export type DesktopClientRequest =
 	| RewindExecuteRequest
 	| DiffApprovalListRequest
 	| DiffApprovalDiffRequest
+	| DiffApprovalDiffsRequest
 	| DiffApprovalPreviewRequest
 	| DiffApprovalResolveRequest
 	| DiffApprovalClearRequest

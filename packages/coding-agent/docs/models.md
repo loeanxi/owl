@@ -65,6 +65,8 @@ The dummy key makes the model available to Pi; Ollama ignores it. For an authent
 
 Opening `/model` reloads the file. A `models` entry adds or replaces a model with the same ID on that provider; fields the entry omits (such as `input`) keep the replaced model's values. Use `modelOverrides` to change metadata for an existing built-in or extension-provided model without replacing the provider's model list. Unknown override IDs are ignored.
 
+For a gateway that fronts several upstreams, set `"api": "pi-messages"`. See [pi-messages Gateway](pi-messages-gateway.md) for the wire protocol and how to forward reasoning summaries.
+
 ### Describe model input and caching
 
 Use `inputLimits.images.resize` to control how Pi encodes new image attachments, `read` results, and tool-result images before storing them in conversation history:

@@ -25,7 +25,10 @@ export function formatFileRef(ref: FileRef): string {
 
 /** 文本 → 引用：认 `路径:行号` / `路径:起-止`，也认裸路径；认不出返回 undefined。 */
 export function parseFileRef(text: string): FileRef | undefined {
-	const trimmed = text.trim().replace(/^`+|`+$/g, "").trim();
+	const trimmed = text
+		.trim()
+		.replace(/^`+|`+$/g, "")
+		.trim();
 	if (trimmed === "") return undefined;
 	const match = /^(.*?)(?::(\d+)(?:-(\d+))?)?$/.exec(trimmed);
 	const path = match?.[1]?.trim() ?? "";

@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { FileArtifact } from "../hooks/artifacts.ts";
@@ -29,7 +29,13 @@ beforeEach(() => {
 	request = vi.fn(async (_value: unknown): Promise<Response> => ({ ok: true, result: { isFile: true } }));
 	writeText = vi.fn(async (_value: string): Promise<void> => undefined);
 	vi.stubGlobal("navigator", { clipboard: { writeText } });
-	props = { path: "reports/报告 #1.md", title: "报告 #1.md", client: { request } as unknown as BridgeClient, cwd: "D:/owl", onOpenFile: vi.fn() };
+	props = {
+		path: "reports/报告 #1.md",
+		title: "报告 #1.md",
+		client: { request } as unknown as BridgeClient,
+		cwd: "D:/owl",
+		onOpenFile: vi.fn(),
+	};
 });
 
 afterEach(async () => {
@@ -43,7 +49,9 @@ async function render(overrides: Partial<ArtifactActionsProps> = {}): Promise<vo
 }
 
 function button(label: string): HTMLButtonElement {
-	const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
+	const result = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+		(item) => item.textContent === label,
+	);
 	if (!result) throw new Error(`Missing button: ${label}`);
 	return result;
 }
@@ -58,8 +66,18 @@ describe("artifact actions", () => {
 	});
 
 	it("keeps the original file-title button and adds all shortcuts to real artifact cards", async () => {
-		const artifact: FileArtifact = { path: props.path, title: props.title!, kind: "document", action: "written", toolId: "write-1" };
-		await act(async () => root.render(<Artifacts artifacts={[artifact]} client={props.client} cwd={props.cwd} onOpenFile={props.onOpenFile!} />));
+		const artifact: FileArtifact = {
+			path: props.path,
+			title: props.title!,
+			kind: "document",
+			action: "written",
+			toolId: "write-1",
+		};
+		await act(async () =>
+			root.render(
+				<Artifacts artifacts={[artifact]} client={props.client} cwd={props.cwd} onOpenFile={props.onOpenFile!} />,
+			),
+		);
 		const title = container.querySelector<HTMLButtonElement>(".owl-artifact-file")!;
 		expect(title.getAttribute("aria-label")).toBe(t("artifacts.openAria", { name: artifact.title }));
 		expect(button(text("reveal"))).toBeDefined();
@@ -82,7 +100,11 @@ describe("artifact actions", () => {
 
 	it("does not open a directory or swallow an asynchronous viewer failure", async () => {
 		request.mockResolvedValueOnce({ ok: true, result: { isFile: false } });
-		await render({ onOpenFile: vi.fn(async () => { throw new Error("viewer permission denied"); }) });
+		await render({
+			onOpenFile: vi.fn(async () => {
+				throw new Error("viewer permission denied");
+			}),
+		});
 		await act(async () => button(text("open")).click());
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain(text("notFile"));
 		await act(async () => button(text("retry")).click());
@@ -97,7 +119,12 @@ describe("artifact actions", () => {
 			button(text("reveal")).click();
 			button(text("reveal")).click();
 		});
-		expect(request).toHaveBeenCalledExactlyOnceWith({ type: "open.external", action: "reveal", cwd: "D:/owl", target: props.path });
+		expect(request).toHaveBeenCalledExactlyOnceWith({
+			type: "open.external",
+			action: "reveal",
+			cwd: "D:/owl",
+			target: props.path,
+		});
 		expect(button(text("revealing")).disabled).toBe(true);
 		expect(container.querySelector('[role="status"]')).toBeNull();
 		await act(async () => pending.resolve({ ok: false, error: "EACCES: permission denied" }));
@@ -130,7 +157,13 @@ describe("artifact actions", () => {
 
 	it("does not propagate quick action clicks to a containing file row", async () => {
 		const onRowClick = vi.fn();
-		await act(async () => root.render(<div onClick={onRowClick}><ArtifactActions {...props} /></div>));
+		await act(async () =>
+			root.render(
+				<div onClick={onRowClick}>
+					<ArtifactActions {...props} />
+				</div>,
+			),
+		);
 		await act(async () => button(text("copy")).click());
 		expect(writeText).toHaveBeenCalledOnce();
 		expect(onRowClick).not.toHaveBeenCalled();
@@ -173,7 +206,10 @@ describe("artifact actions", () => {
 		request.mockReturnValueOnce(old.promise);
 		await render();
 		await act(async () => button(text("reveal")).click());
-		await render({ path: "new.md", client: { request: vi.fn(async () => ({ ok: true })) } as unknown as BridgeClient });
+		await render({
+			path: "new.md",
+			client: { request: vi.fn(async () => ({ ok: true })) } as unknown as BridgeClient,
+		});
 		await act(async () => old.reject(new Error("old bridge disconnected")));
 		expect(container.querySelector('[role="alert"]')).toBeNull();
 		expect(button(text("reveal")).disabled).toBe(false);

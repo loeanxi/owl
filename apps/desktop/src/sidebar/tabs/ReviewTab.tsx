@@ -7,17 +7,17 @@
  * 移植自 9087/dsh-diff-approval 的文件级审批子集。
  */
 import { useContext, useEffect, useRef, useState } from "react";
-import { useT } from "../../i18n/index.ts";
 import type { DiffApprovalFileSummary } from "../../bridge/protocol.ts";
-import type { TabComponentProps } from "../registry.ts";
+import { useT } from "../../i18n/index.ts";
 import { samePath } from "../api.ts";
-import { ExecutionContext } from "../execution-context.tsx";
-import { consumeReviewFocus, REVIEW_FOCUS_EVENT } from "../review-focus.ts";
 import { DiffView } from "../DiffView.tsx";
+import { ExecutionContext } from "../execution-context.tsx";
 import { IconLoader, IconPencil, IconRefresh, IconTrash, IconUndo, IconX } from "../icons.tsx";
+import type { TabComponentProps } from "../registry.ts";
+import { consumeReviewFocus, REVIEW_FOCUS_EVENT } from "../review-focus.ts";
 import { UndoReviewPanel } from "../UndoReviewPanel.tsx";
-import { useUndoReview } from "../use-undo-review.ts";
 import { useUndoCopy } from "../undo-copy.ts";
+import { useUndoReview } from "../use-undo-review.ts";
 
 function statLine(entry: DiffApprovalFileSummary): string {
 	if (entry.added === null && entry.removed === null) return "";
@@ -79,7 +79,9 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 				// 桥没连上：立刻给出未连接态（区别于无限转圈），重连后由 onStatus 自动重试
 				if (/bridge (not connected|disconnected)/i.test(message)) setConnected(false);
 			})
-			.finally(() => { if (context.current === identity && listSeq.current === sequence) setLoading(false); });
+			.finally(() => {
+				if (context.current === identity && listSeq.current === sequence) setLoading(false);
+			});
 	};
 	const undo = useUndoReview(api, cwd, cwd, refresh);
 	const busy = clearing || undo.busy;
@@ -143,7 +145,10 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 			if (context.current !== identity) return;
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
-			if (context.current === identity) { clearLock.current = false; setClearing(false); }
+			if (context.current === identity) {
+				clearLock.current = false;
+				setClearing(false);
+			}
 		}
 	};
 
@@ -220,7 +225,12 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 							disabled={busy}
 							title={t("review.keepAll")}
 							className="rounded px-1 hover:text-emerald-300"
-							onClick={() => void resolve(rows.map((row) => row.id), "keep")}
+							onClick={() =>
+								void resolve(
+									rows.map((row) => row.id),
+									"keep",
+								)
+							}
 						>
 							✓
 						</button>
@@ -229,7 +239,12 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 							title={copy.preview}
 							disabled={busy || rows.every((row) => row.scope === "legacy")}
 							className="rounded px-1 hover:text-red-300"
-							onClick={() => void resolve(rows.filter((row) => row.scope !== "legacy").map((row) => row.id), "revert")}
+							onClick={() =>
+								void resolve(
+									rows.filter((row) => row.scope !== "legacy").map((row) => row.id),
+									"revert",
+								)
+							}
 						>
 							<IconUndo size={12} />
 						</button>
@@ -247,20 +262,34 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 					>
 						<span
 							className={`w-3 shrink-0 text-center text-[10px] font-semibold ${
-								entry.status === "pending" ? "text-amber-300" : entry.status === "kept" ? "text-emerald-300/70" : "text-owl-faint"
+								entry.status === "pending"
+									? "text-amber-300"
+									: entry.status === "kept"
+										? "text-emerald-300/70"
+										: "text-owl-faint"
 							}`}
 						>
 							{entry.status === "pending" ? "•" : entry.status === "kept" ? "✓" : "↩"}
 						</span>
 						<span className="min-w-0 flex-1 truncate font-mono text-xs text-owl-text" title={entry.path}>
 							{entry.displayPath}
-							<span className="ml-1.5 font-sans text-[10px] text-owl-faint" title={entry.sessionId}>{new Date(entry.baselineAt).toLocaleString()} {entry.sessionId?.slice(0, 8)}</span>
-							{entry.scope === "legacy" && <span className="ml-1.5 font-sans text-[10px] text-owl-faint" title={copy.legacy}>{copy.legacy}</span>}
+							<span className="ml-1.5 font-sans text-[10px] text-owl-faint" title={entry.sessionId}>
+								{new Date(entry.baselineAt).toLocaleString()} {entry.sessionId?.slice(0, 8)}
+							</span>
+							{entry.scope === "legacy" && (
+								<span className="ml-1.5 font-sans text-[10px] text-owl-faint" title={copy.legacy}>
+									{copy.legacy}
+								</span>
+							)}
 							{!entry.originalExisted && entry.status === "pending" && (
-								<span className="ml-1.5 rounded bg-emerald-500/20 px-1 font-sans text-[10px] text-emerald-300">{t("review.created")}</span>
+								<span className="ml-1.5 rounded bg-emerald-500/20 px-1 font-sans text-[10px] text-emerald-300">
+									{t("review.created")}
+								</span>
 							)}
 							{!entry.currentExists && entry.status === "pending" && (
-								<span className="ml-1.5 rounded bg-red-500/20 px-1 font-sans text-[10px] text-red-300">{t("review.missing")}</span>
+								<span className="ml-1.5 rounded bg-red-500/20 px-1 font-sans text-[10px] text-red-300">
+									{t("review.missing")}
+								</span>
 							)}
 						</span>
 						{stats !== "" && (
@@ -306,7 +335,9 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 	return (
 		<div ref={rootRef} className="flex h-full flex-col overflow-hidden">
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
-				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint" title={copy.scope}>{copy.workspace} · {pending.length}</span>
+				<span className="min-w-0 flex-1 truncate text-[11px] text-owl-faint" title={copy.scope}>
+					{copy.workspace} · {pending.length}
+				</span>
 				{foreignCount > 0 && (
 					<button
 						type="button"
@@ -333,15 +364,22 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 						title={t("review.clearResolved")}
 						disabled={busy}
 						className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
-						onClick={() => void act(async () => {
-							await api.diffApprovalClear(cwd);
-							refresh();
-						})}
+						onClick={() =>
+							void act(async () => {
+								await api.diffApprovalClear(cwd);
+								refresh();
+							})
+						}
 					>
 						<IconTrash size={14} />
 					</button>
 				)}
-				<button type="button" title={t("common.refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={refresh}>
+				<button
+					type="button"
+					title={t("common.refresh")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+					onClick={refresh}
+				>
 					<IconRefresh size={14} />
 				</button>
 			</div>
@@ -363,7 +401,9 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 				{files === undefined && !loading && (
 					<div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
 						<IconPencil size={22} className={connected ? "text-owl-faint" : "text-red-300/70"} />
-						<div className="text-xs text-owl-muted">{connected ? t("review.loadFailed") : t("review.disconnected")}</div>
+						<div className="text-xs text-owl-muted">
+							{connected ? t("review.loadFailed") : t("review.disconnected")}
+						</div>
 						<button
 							type="button"
 							className="flex items-center gap-1 rounded-md border border-owl-border px-2 py-1 text-[11px] text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
@@ -399,7 +439,10 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 					</div>
 					<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1">
 						<IconPencil size={11} className="shrink-0 text-owl-faint" />
-						<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted" title={selectedEntry.path}>
+						<span
+							className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-muted"
+							title={selectedEntry.path}
+						>
 							{selectedEntry.displayPath}
 							{selectedEntry.status !== "pending" && (
 								<span className="ml-1.5 font-sans text-owl-faint">
@@ -458,7 +501,11 @@ export function ReviewTab({ api, cwd, client }: TabComponentProps): React.JSX.El
 						{diffError !== undefined && <div className="px-3 py-2 text-xs text-red-300">{diffError}</div>}
 						{!diffLoading && diffError === undefined && diff !== undefined && (
 							<>
-								{diffTruncated && <div className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-300">{t("review.diffTruncated")}</div>}
+								{diffTruncated && (
+									<div className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] text-amber-300">
+										{t("review.diffTruncated")}
+									</div>
+								)}
 								<DiffView text={diff} />
 							</>
 						)}

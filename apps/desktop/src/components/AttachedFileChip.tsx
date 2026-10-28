@@ -52,5 +52,9 @@ export function extractPlainText(root: HTMLElement): string {
 		if (isBlock) out.push("\n");
 	};
 	for (const child of Array.from(root.childNodes)) walk(child);
-	return out.join("").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+	return out
+		.join("")
+		.replace(/[ \t]+/g, " ")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
 }

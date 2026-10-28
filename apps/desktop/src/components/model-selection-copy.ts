@@ -38,7 +38,9 @@ const en: Record<keyof typeof zh, string> = {
 };
 
 export function modelSelectionText(key: keyof typeof zh, vars: Record<string, string | number> = {}): string {
-	return (getUiLanguage() === "en" ? en : zh)[key].replace(/\{(\w+)\}/g, (match, name: string) => String(vars[name] ?? match));
+	return (getUiLanguage() === "en" ? en : zh)[key].replace(/\{(\w+)\}/g, (match, name: string) =>
+		String(vars[name] ?? match),
+	);
 }
 
 export function useModelSelectionText(): typeof modelSelectionText {

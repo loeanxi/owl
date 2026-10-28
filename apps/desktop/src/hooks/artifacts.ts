@@ -59,7 +59,11 @@ function absolutePath(path: string): AbsolutePath | undefined {
  * checks real paths, so symlinks cannot make a preview escape the workspace.
  * Home-relative and drive-relative paths are omitted: the UI cannot resolve them.
  */
-export function workspaceArtifactPath(input: string, cwd: string, options: { encoded?: boolean } = {}): string | undefined {
+export function workspaceArtifactPath(
+	input: string,
+	cwd: string,
+	options: { encoded?: boolean } = {},
+): string | undefined {
 	let path = input.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ");
 	if (path.startsWith("@")) path = path.slice(1);
 	if (!path || /[\x00-\x1f\x7f]/.test(path) || /^~(?:[\\/]|$)/.test(path)) return undefined;
@@ -93,7 +97,7 @@ export function workspaceArtifactPath(input: string, cwd: string, options: { enc
 	let segments: string[] | undefined;
 	if (target) {
 		if (target.root !== base.root || target.windows !== base.windows) return undefined;
-		const comparable = (value: string): string => base.windows ? value.toLowerCase() : value;
+		const comparable = (value: string): string => (base.windows ? value.toLowerCase() : value);
 		if (!base.segments.every((segment, index) => comparable(segment) === comparable(target.segments[index] ?? ""))) {
 			return undefined;
 		}
@@ -108,14 +112,67 @@ export function workspaceArtifactPath(input: string, cwd: string, options: { enc
 	return segments.join("/");
 }
 
-const DOCUMENT_EXTENSIONS = new Set(["md", "markdown", "txt", "pdf", "doc", "docx", "odt", "rtf", "tex", "html", "htm"]);
+const DOCUMENT_EXTENSIONS = new Set([
+	"md",
+	"markdown",
+	"txt",
+	"pdf",
+	"doc",
+	"docx",
+	"odt",
+	"rtf",
+	"tex",
+	"html",
+	"htm",
+]);
 const SHEET_EXTENSIONS = new Set(["csv", "tsv", "xls", "xlsx", "ods"]);
 const PRESENTATION_EXTENSIONS = new Set(["ppt", "pptx", "odp"]);
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
 const CODE_EXTENSIONS = new Set([
-	"js", "jsx", "ts", "tsx", "mjs", "cjs", "mts", "cts", "json", "jsonc", "yaml", "yml", "toml", "xml",
-	"css", "scss", "sass", "less", "vue", "svelte", "py", "go", "rs", "java", "kt", "kts", "c", "cpp", "cc",
-	"h", "hpp", "cs", "swift", "rb", "php", "sql", "sh", "bash", "zsh", "bat", "cmd", "ps1", "ini", "conf",
+	"js",
+	"jsx",
+	"ts",
+	"tsx",
+	"mjs",
+	"cjs",
+	"mts",
+	"cts",
+	"json",
+	"jsonc",
+	"yaml",
+	"yml",
+	"toml",
+	"xml",
+	"css",
+	"scss",
+	"sass",
+	"less",
+	"vue",
+	"svelte",
+	"py",
+	"go",
+	"rs",
+	"java",
+	"kt",
+	"kts",
+	"c",
+	"cpp",
+	"cc",
+	"h",
+	"hpp",
+	"cs",
+	"swift",
+	"rb",
+	"php",
+	"sql",
+	"sh",
+	"bash",
+	"zsh",
+	"bat",
+	"cmd",
+	"ps1",
+	"ini",
+	"conf",
 ]);
 
 export function artifactKindForPath(path: string): ArtifactKind {
@@ -148,7 +205,8 @@ function artifactOf(tool: ToolCard, cwd: string): FileArtifact | undefined {
 		const opened = tool.output?.text.match(/^已在侧边栏打开 ([^（\r\n]+)(（[^）]*）)?。$/)?.[1];
 		const reportedPath = opened === undefined ? undefined : workspaceArtifactPath(opened, cwd);
 		const windows = absolutePath(cwd.replace(/\\/g, "/"))?.windows;
-		if (!reportedPath || (windows ? reportedPath.toLowerCase() !== path.toLowerCase() : reportedPath !== path)) return undefined;
+		if (!reportedPath || (windows ? reportedPath.toLowerCase() !== path.toLowerCase() : reportedPath !== path))
+			return undefined;
 	}
 	return {
 		path,
@@ -159,9 +217,45 @@ function artifactOf(tool: ToolCard, cwd: string): FileArtifact | undefined {
 	};
 }
 
+/**
+ * 一次工具调用产出的文件。
+ *
+ * 两条来源：`output.artifacts`（工具自己登记的产物，**任何**成功工具都算 ——
+ * 插件工具靠这条路把产物交给改动卡）与工具参数里的路径
+ * （write / edit / sidebar_open / sidebar_show）。
+ */
+export function artifactsOfTool(tool: ToolCard, cwd: string): FileArtifact[] {
+	if (tool.status !== "ok") return [];
+	const produced: FileArtifact[] = [];
+	for (const output of tool.output?.artifacts ?? []) {
+		const path = workspaceArtifactPath(output.path, cwd);
+		if (!path) continue;
+		produced.push({
+			path,
+			title: path.split("/").at(-1)!,
+			kind: artifactKindForPath(path),
+			action: output.action,
+			toolId: tool.id,
+		});
+	}
+	const ordinary = artifactOf(tool, cwd);
+	if (ordinary) produced.push(ordinary);
+	return produced;
+}
+
 /** Successful file tools are evidence; assistant prose and shell output are not. */
-export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, options: ArtifactOptions = {}): FileArtifact[] {
-	const start = options.scope === "session" ? 0 : Math.max(0, entries.findLastIndex((entry) => entry.kind === "user"));
+export function collectArtifacts(
+	entries: readonly ChatEntry[],
+	cwd: string,
+	options: ArtifactOptions = {},
+): FileArtifact[] {
+	const start =
+		options.scope === "session"
+			? 0
+			: Math.max(
+					0,
+					entries.findLastIndex((entry) => entry.kind === "user"),
+				);
 	const windows = absolutePath(cwd.replace(/\\/g, "/"))?.windows;
 	const artifacts = new Map<string, FileArtifact>();
 	const turnToolIds = new Map<string, string[]>();
@@ -170,14 +264,7 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 		if (entry.kind !== "assistant") continue;
 		for (const tool of entry.tools) {
 			if (tool.status !== "ok") continue;
-			const produced: FileArtifact[] = [];
-			for (const output of tool.output?.artifacts ?? []) {
-				const path = workspaceArtifactPath(output.path, cwd);
-				if (!path) continue;
-				produced.push({ path, title: path.split("/").at(-1)!, kind: artifactKindForPath(path), action: output.action, toolId: tool.id });
-			}
-			const ordinary = artifactOf(tool, cwd);
-			if (ordinary) produced.push(ordinary);
+			const produced = artifactsOfTool(tool, cwd);
 			for (const artifact of produced) {
 				if (!options.includeCode && artifact.kind === "code") continue;
 				const key = windows ? artifact.path.toLowerCase() : artifact.path;
@@ -194,7 +281,11 @@ export function collectArtifacts(entries: readonly ChatEntry[], cwd: string, opt
 }
 
 /** Completed turns stay immediately before the next user entry; the latest turn has its own footer. */
-export function collectHistoricalArtifacts(entries: readonly ChatEntry[], cwd: string, options: ArtifactOptions = {}): Map<number, FileArtifact[]> {
+export function collectHistoricalArtifacts(
+	entries: readonly ChatEntry[],
+	cwd: string,
+	options: ArtifactOptions = {},
+): Map<number, FileArtifact[]> {
 	const turns = new Map<number, FileArtifact[]>();
 	let start = 0;
 	entries.forEach((entry, index) => {

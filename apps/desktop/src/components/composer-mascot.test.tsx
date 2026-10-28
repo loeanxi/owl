@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { Composer } from "./Composer.tsx";
@@ -30,11 +30,29 @@ beforeEach(() => {
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
 	props = {
-		client: { request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }) } as unknown as BridgeClient, connected: true, disabled: false, running: false,
-		hideEnvironment: true, hideMascot: false, onSend: vi.fn(() => true), onAbort: vi.fn(),
-		providers: [], model: "fixture/model", onModel: vi.fn(), thinkingLevel: "high", onThinkingLevel: vi.fn(),
-		approvalMode: "confirm", onApprovalMode: vi.fn(), sessionInfo: undefined,
-		workspaceDir: "D:/owl", projects: [], onSwitchProject: vi.fn(), commands: [], searchFiles: async () => [],
+		client: {
+			request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }),
+		} as unknown as BridgeClient,
+		connected: true,
+		disabled: false,
+		running: false,
+		hideEnvironment: true,
+		hideMascot: false,
+		onSend: vi.fn(() => true),
+		onAbort: vi.fn(),
+		providers: [],
+		model: "fixture/model",
+		onModel: vi.fn(),
+		thinkingLevel: "high",
+		onThinkingLevel: vi.fn(),
+		approvalMode: "confirm",
+		onApprovalMode: vi.fn(),
+		sessionInfo: undefined,
+		workspaceDir: "D:/owl",
+		projects: [],
+		onSwitchProject: vi.fn(),
+		commands: [],
+		searchFiles: async () => [],
 	};
 });
 

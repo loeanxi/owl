@@ -11,28 +11,41 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
-import type { Product } from "../hooks/products.ts";
-import { FileIcon } from "../file-icons/FileIcon.tsx";
-import { useT } from "../i18n/index.ts";
 import { PanelErrorBoundary } from "../components/PanelErrorBoundary.tsx";
-import { createSidebarApi } from "./api.ts";
+import { FileIcon } from "../file-icons/FileIcon.tsx";
+import type { Product } from "../hooks/products.ts";
+import { useT } from "../i18n/index.ts";
+import { createSidebarApi, fileUrlOf } from "./api.ts";
 import { registerBuiltins } from "./builtins.tsx";
-import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconPlus, IconX } from "./icons.tsx";
-import { normProjectKey, type DropZone, type SidebarStore, type SidebarTab, type SplitNode, useSidebarState } from "./store.ts";
-import { SplitDivider } from "./SplitDivider.tsx";
-import { useTabRegistry, type TabComponentProps } from "./registry.ts";
 import { isTabKindEnabled, useSidebarConfig, viewerKindForPath } from "./config.ts";
-import { QUICK_ACTIONS, IconDrama, IconTerminal, openQuickAction } from "./quick.tsx";
-import { fileUrlOf } from "./api.ts";
-import { attachPluginViewers } from "./plugin-viewers.ts";
-import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
-import { startPointerDrag, type PointerDragHandlers } from "./pointer-drag.ts";
-import { CONVERSATION_MIN_HEIGHT, CONVERSATION_MIN_WIDTH, fitPaneSize, WORKBENCH_MIN_HEIGHT, WORKBENCH_MIN_WIDTH, workbenchDock } from "./pane-sizing.ts";
-import { usePaneContainer } from "./use-pane-container.ts";
-import { WorkbenchTools } from "./WorkbenchTools.tsx";
 import { EditorCloseDialog } from "./EditorCloseDialog.tsx";
 import { EditorDraftRecovery } from "./EditorDraftRecovery.tsx";
+import { IconFile, IconGitBranch, IconLoader, IconPanelRight, IconPlus, IconX } from "./icons.tsx";
 import { clearSidebarNotice, useSidebarNotice } from "./notice.ts";
+import {
+	CONVERSATION_MIN_HEIGHT,
+	CONVERSATION_MIN_WIDTH,
+	fitPaneSize,
+	WORKBENCH_MIN_HEIGHT,
+	WORKBENCH_MIN_WIDTH,
+	workbenchDock,
+} from "./pane-sizing.ts";
+import { attachPluginViewers } from "./plugin-viewers.ts";
+import { type PointerDragHandlers, startPointerDrag } from "./pointer-drag.ts";
+import { IconDrama, IconTerminal, openQuickAction, QUICK_ACTIONS } from "./quick.tsx";
+import { type TabComponentProps, useTabRegistry } from "./registry.ts";
+import { SplitDivider } from "./SplitDivider.tsx";
+import {
+	type DropZone,
+	normProjectKey,
+	type SidebarStore,
+	type SidebarTab,
+	type SplitNode,
+	useSidebarState,
+} from "./store.ts";
+import { PluginViewerTab } from "./tabs/PluginViewerTab.tsx";
+import { usePaneContainer } from "./use-pane-container.ts";
+import { WorkbenchTools } from "./WorkbenchTools.tsx";
 import "./workbench-design.css";
 import "./responsive-panes.css";
 
@@ -84,7 +97,18 @@ export interface WorkbenchProps {
 	products?: readonly Product[];
 }
 
-const DESIGNED_TAB_KINDS = new Set(["files", "changes", "review", "editor", "terminal", "browser", "tasks", "impression", "image", "document"]);
+const DESIGNED_TAB_KINDS = new Set([
+	"files",
+	"changes",
+	"review",
+	"editor",
+	"terminal",
+	"browser",
+	"tasks",
+	"impression",
+	"image",
+	"document",
+]);
 
 interface DragState {
 	id: string;
@@ -107,7 +131,22 @@ const ZONE_OVERLAY: Record<DropZone, string> = {
 	center: "inset-[25%] border-2 border-dashed border-owl-accent/80",
 };
 
-export function Workbench({ client, cwd, profile, connected = true, store, open, onSetOpen, dock, role = "tools", onOpenPanel, developerLayout = false, onToChat, onGitStatusChange, products }: WorkbenchProps): React.JSX.Element {
+export function Workbench({
+	client,
+	cwd,
+	profile,
+	connected = true,
+	store,
+	open,
+	onSetOpen,
+	dock,
+	role = "tools",
+	onOpenPanel,
+	developerLayout = false,
+	onToChat,
+	onGitStatusChange,
+	products,
+}: WorkbenchProps): React.JSX.Element {
 	const t = useT();
 	// 模型甩过来的说明（sidebar_show 的 note）：显示几秒后自动收掉。
 	const notice = useSidebarNotice();
@@ -134,7 +173,9 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 	);
 	const [gitSnapshot, setGitSnapshot] = useState<{ cwd: string; profile?: string; result: GitStatusResult }>();
 	const gitStatus = gitSnapshot?.cwd === cwd && gitSnapshot.profile === profile ? gitSnapshot.result : undefined;
-	useEffect(() => { if (!panelOnly) onGitStatusChange?.(cwd, profile, connected ? gitStatus : undefined); }, [cwd, profile, connected, gitStatus, panelOnly, onGitStatusChange]);
+	useEffect(() => {
+		if (!panelOnly) onGitStatusChange?.(cwd, profile, connected ? gitStatus : undefined);
+	}, [cwd, profile, connected, gitStatus, panelOnly, onGitStatusChange]);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(sizeKeys.width));
 		return Number.isFinite(saved) && saved >= WORKBENCH_MIN_WIDTH ? saved : 380;
@@ -154,12 +195,20 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 	const effectiveDock = containerSize === null ? dock : workbenchDock(dock, containerSize.workspaceWidth);
 	const compact = dock === "right" && effectiveDock === "bottom";
 	// Only an open terminal needs a second vertical reserve in a stacked workspace.
-	const heightReserve = CONVERSATION_MIN_HEIGHT + (compact && containerSize?.terminalVisible ? WORKBENCH_MIN_HEIGHT : 0);
-	const displayWidth = containerSize === null ? width : fitPaneSize(width, WORKBENCH_MIN_WIDTH, containerSize.width, CONVERSATION_MIN_WIDTH);
+	const heightReserve =
+		CONVERSATION_MIN_HEIGHT + (compact && containerSize?.terminalVisible ? WORKBENCH_MIN_HEIGHT : 0);
+	const displayWidth =
+		containerSize === null
+			? width
+			: fitPaneSize(width, WORKBENCH_MIN_WIDTH, containerSize.width, CONVERSATION_MIN_WIDTH);
 	// Short drama needs room for its 843:472 picture plus both tab bars, toolbar and status.
-	const defaultCompactHeight = activeTab?.kind === "mirror" && containerSize ? containerSize.width * 472 / 843 + 140 : 260;
-	const preferredHeight = compact ? compactHeight ?? defaultCompactHeight : height;
-	const displayHeight = containerSize === null ? preferredHeight : fitPaneSize(preferredHeight, WORKBENCH_MIN_HEIGHT, containerSize.height, heightReserve);
+	const defaultCompactHeight =
+		activeTab?.kind === "mirror" && containerSize ? (containerSize.width * 472) / 843 + 140 : 260;
+	const preferredHeight = compact ? (compactHeight ?? defaultCompactHeight) : height;
+	const displayHeight =
+		containerSize === null
+			? preferredHeight
+			: fitPaneSize(preferredHeight, WORKBENCH_MIN_HEIGHT, containerSize.height, heightReserve);
 	const gitTimer = useRef<number | undefined>(undefined);
 
 	registerBuiltins();
@@ -178,22 +227,28 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 	// 拖完的 click 抑制：mouseup 后 click 才派发，setTimeout(0) 复位来得及
 	const justDraggedRef = useRef(false);
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
-	const beginPointerDrag = useCallback((event: React.PointerEvent<HTMLElement>, handlers: PointerDragHandlers): void => {
-		if (event.button !== 0 || !event.isPrimary) return;
-		activeDrag.current?.();
-		event.preventDefault();
-		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
-			...handlers,
-			onFinish: (cancelled) => {
-				activeDrag.current = undefined;
-				handlers.onFinish(cancelled);
-			},
-		});
-	}, []);
-	useEffect(() => () => {
-		activeDrag.current?.();
-		activeDrag.current = undefined;
-	}, [cwd, store, open, effectiveDock]);
+	const beginPointerDrag = useCallback(
+		(event: React.PointerEvent<HTMLElement>, handlers: PointerDragHandlers): void => {
+			if (event.button !== 0 || !event.isPrimary) return;
+			activeDrag.current?.();
+			event.preventDefault();
+			activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
+				...handlers,
+				onFinish: (cancelled) => {
+					activeDrag.current = undefined;
+					handlers.onFinish(cancelled);
+				},
+			});
+		},
+		[],
+	);
+	useEffect(
+		() => () => {
+			activeDrag.current?.();
+			activeDrag.current = undefined;
+		},
+		[cwd, store, open, effectiveDock],
+	);
 
 	const hitTest = useCallback((x: number, y: number): void => {
 		let hit: DropTarget | null = null;
@@ -202,12 +257,16 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) continue;
 			const rx = (x - rect.left) / rect.width;
 			const ry = (y - rect.top) / rect.height;
-			const zone: DropZone = rx < 0.25 ? "left" : rx > 0.75 ? "right" : ry < 0.25 ? "up" : ry > 0.75 ? "down" : "center";
+			const zone: DropZone =
+				rx < 0.25 ? "left" : rx > 0.75 ? "right" : ry < 0.25 ? "up" : ry > 0.75 ? "down" : "center";
 			hit = { leafId, zone };
 			break;
 		}
 		const current = dropTargetRef.current;
-		if ((current?.leafId ?? null) !== (hit?.leafId ?? null) || (current !== null && hit !== null && current.zone !== hit.zone)) {
+		if (
+			(current?.leafId ?? null) !== (hit?.leafId ?? null) ||
+			(current !== null && hit !== null && current.zone !== hit.zone)
+		) {
 			dropTargetRef.current = hit;
 			setDropTarget(hit);
 		}
@@ -289,7 +348,11 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			if (connected) refreshGit();
 		});
 		refreshGit();
-		return () => { offStatus(); gitRun.current = undefined; window.clearTimeout(gitTimer.current); };
+		return () => {
+			offStatus();
+			gitRun.current = undefined;
+			window.clearTimeout(gitTimer.current);
+		};
 	}, [client, refreshGit]);
 
 	useEffect(() => {
@@ -369,19 +432,32 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 		const onMove =
 			effectiveDock === "right"
 				? (move: PointerEvent): void => {
-						const next = fitPaneSize(origin + startX - move.clientX, WORKBENCH_MIN_WIDTH, parent.clientWidth, CONVERSATION_MIN_WIDTH);
+						const next = fitPaneSize(
+							origin + startX - move.clientX,
+							WORKBENCH_MIN_WIDTH,
+							parent.clientWidth,
+							CONVERSATION_MIN_WIDTH,
+						);
 						currentSize = next;
 						setWidth(next);
 					}
 				: (move: PointerEvent): void => {
 						// 顶缘向上拖 = 变高（与 DSH 的 bottomResize 同方向语义）
-						const next = fitPaneSize(origin + startY - move.clientY, WORKBENCH_MIN_HEIGHT, parent.clientHeight, heightReserve);
+						const next = fitPaneSize(
+							origin + startY - move.clientY,
+							WORKBENCH_MIN_HEIGHT,
+							parent.clientHeight,
+							heightReserve,
+						);
 						currentSize = next;
 						if (compact) setCompactHeight(next);
 						else setHeight(next);
 					};
 		const onUp = (): void => {
-			localStorage.setItem(compact ? sizeKeys.compactHeight : dock === "right" ? sizeKeys.width : sizeKeys.height, String(currentSize));
+			localStorage.setItem(
+				compact ? sizeKeys.compactHeight : dock === "right" ? sizeKeys.width : sizeKeys.height,
+				String(currentSize),
+			);
 		};
 		beginPointerDrag(e, { cursor: effectiveDock === "right" ? "col-resize" : "row-resize", onMove, onFinish: onUp });
 	};
@@ -390,7 +466,11 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 	const renderNode = (node: SplitNode, style: React.CSSProperties): React.JSX.Element => {
 		if (node.kind === "split") {
 			return (
-				<div key={node.id} style={style} className={`flex min-h-0 min-w-0 ${node.dir === "row" ? "flex-row" : "flex-col"}`}>
+				<div
+					key={node.id}
+					style={style}
+					className={`flex min-h-0 min-w-0 ${node.dir === "row" ? "flex-row" : "flex-col"}`}
+				>
 					{renderNode(node.a, { flex: `${node.ratio * 100} 1 0%` })}
 					{/* 分隔条：7px 命中区 + 居中 1px 细线（DSH divider 同款） */}
 					<SplitDivider store={store} splitId={node.id} dir={node.dir} ratio={node.ratio} />
@@ -412,7 +492,10 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			>
 				{/* leaf 的 tab 条 */}
 				{leaf.tabs.length > 0 && (
-					<div className="owl-workbench-tabs flex shrink-0 select-none items-stretch overflow-x-auto" aria-label={t("wb.tabsAria")}>
+					<div
+						className="owl-workbench-tabs flex shrink-0 select-none items-stretch overflow-x-auto"
+						aria-label={t("wb.tabsAria")}
+					>
 						{leaf.tabs.map((tab) => {
 							const def = registry.byKind.get(tab.kind);
 							const isActive = tab.id === leaf.activeTab;
@@ -441,9 +524,22 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 									}}
 									className={`owl-workbench-tab group ${isActive ? "is-active" : ""}`}
 								>
-									{tab.path === undefined ? def?.icon(14) : <FileIcon name={tab.path.split(/[\\/]/).pop() ?? tab.path} size={14} minimal={def?.icon(14)} />}
+									{tab.path === undefined ? (
+										def?.icon(14)
+									) : (
+										<FileIcon
+											name={tab.path.split(/[\\/]/).pop() ?? tab.path}
+											size={14}
+											minimal={def?.icon(14)}
+										/>
+									)}
 									<span className="min-w-0 truncate">{tab.title}</span>
-									{state.dirty[tab.id] === true && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent" title={t("wb.unsaved")} />}
+									{state.dirty[tab.id] === true && (
+										<span
+											className="h-1.5 w-1.5 shrink-0 rounded-full bg-owl-accent"
+											title={t("wb.unsaved")}
+										/>
+									)}
 									<button
 										type="button"
 										className="owl-workbench-tab-close"
@@ -471,10 +567,30 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 						/* 空 leaf：DSH paneEmptyCards 同款卡片（放进当前 leaf） */
 						<div className="owl-workbench-empty grid h-full content-start gap-2.5 overflow-y-auto [grid-template-columns:repeat(auto-fill,minmax(190px,1fr))]">
 							<div className="owl-workbench-empty-heading">
-								<strong>{t(terminalOnly ? "wb.terminalEmptyTitle" : mirrorOnly ? "wb.mirrorEmptyTitle" : "wb.emptyTitle")}</strong>
-								<p>{t(terminalOnly ? "wb.terminalEmptyDesc" : mirrorOnly ? "wb.mirrorEmptyDesc" : "wb.emptyDesc")}</p>
+								<strong>
+									{t(
+										terminalOnly
+											? "wb.terminalEmptyTitle"
+											: mirrorOnly
+												? "wb.mirrorEmptyTitle"
+												: "wb.emptyTitle",
+									)}
+								</strong>
+								<p>
+									{t(
+										terminalOnly
+											? "wb.terminalEmptyDesc"
+											: mirrorOnly
+												? "wb.mirrorEmptyDesc"
+												: "wb.emptyDesc",
+									)}
+								</p>
 							</div>
-							{QUICK_ACTIONS.filter((action) => !action.disabled && (kindAllowed(action.kind) || (action.panel === true && onOpenPanel !== undefined))).map((action) => (
+							{QUICK_ACTIONS.filter(
+								(action) =>
+									!action.disabled &&
+									(kindAllowed(action.kind) || (action.panel === true && onOpenPanel !== undefined)),
+							).map((action) => (
 								<button
 									key={action.kind}
 									type="button"
@@ -493,7 +609,9 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 									</span>
 									<span className="min-w-0">
 										<span className="block truncate text-[13px] font-medium">{action.label}</span>
-										<span className="block truncate text-[11px]" style={{ color: "var(--workbench-muted)" }}>{action.desc}</span>
+										<span className="block truncate text-[11px]" style={{ color: "var(--workbench-muted)" }}>
+											{action.desc}
+										</span>
 									</span>
 								</button>
 							))}
@@ -542,7 +660,15 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			className={`owl-workbench-shell ${open ? "" : "hidden"} relative flex flex-col ${
 				effectiveDock === "right" ? "shrink-0 border-l" : "w-full shrink-0 border-t"
 			}`}
-			aria-label={terminalOnly ? t("start.terminal") : mirrorOnly ? t("wb.drama") : developerLayout ? t("app.developerTrigger") : t("wb.workbench")}
+			aria-label={
+				terminalOnly
+					? t("start.terminal")
+					: mirrorOnly
+						? t("wb.drama")
+						: developerLayout
+							? t("app.developerTrigger")
+							: t("wb.workbench")
+			}
 			data-layout={terminalOnly ? "terminal" : mirrorOnly ? "mirror" : developerLayout ? "developer" : "tools"}
 			data-dock={effectiveDock}
 			data-responsive-dock={compact ? "bottom" : undefined}
@@ -551,38 +677,99 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 			<EditorCloseDialog store={store} />
 			{/* 拖拽条：右停靠在左缘调宽，底停靠在顶缘调高 */}
 			{effectiveDock === "right" ? (
-				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="vertical" data-workbench-size-handle="right" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 left-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
+				<div
+					role="separator"
+					aria-label={t("wb.workbench")}
+					aria-orientation="vertical"
+					data-workbench-size-handle="right"
+					data-tauri-drag-region="false"
+					style={{ touchAction: "none" }}
+					className="absolute top-0 left-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-owl-accent/40"
+					onPointerDown={startResize}
+				/>
 			) : (
-				<div role="separator" aria-label={t("wb.workbench")} aria-orientation="horizontal" data-workbench-size-handle="bottom" data-tauri-drag-region="false" style={{ touchAction: "none" }} className="absolute top-0 right-0 left-0 z-20 h-2 cursor-row-resize transition-colors hover:bg-owl-accent/40" onPointerDown={startResize} />
+				<div
+					role="separator"
+					aria-label={t("wb.workbench")}
+					aria-orientation="horizontal"
+					data-workbench-size-handle="bottom"
+					data-tauri-drag-region="false"
+					style={{ touchAction: "none" }}
+					className="absolute top-0 right-0 left-0 z-20 h-2 cursor-row-resize transition-colors hover:bg-owl-accent/40"
+					onPointerDown={startResize}
+				/>
 			)}
 
 			{/* 工作台标题、工具入口与固定停靠操作 */}
 			<div className="owl-workbench-bar" data-tauri-drag-region="deep">
-				<div className="owl-workbench-heading" title={terminalOnly ? t("start.terminal") : mirrorOnly ? t("wb.drama") : t("wb.workbench")}>
-					{terminalOnly ? <IconTerminal size={14} /> : mirrorOnly ? <IconDrama size={14} /> : <IconPanelRight size={14} />}
+				<div
+					className="owl-workbench-heading"
+					title={terminalOnly ? t("start.terminal") : mirrorOnly ? t("wb.drama") : t("wb.workbench")}
+				>
+					{terminalOnly ? (
+						<IconTerminal size={14} />
+					) : mirrorOnly ? (
+						<IconDrama size={14} />
+					) : (
+						<IconPanelRight size={14} />
+					)}
 					<span>{terminalOnly ? t("start.terminal") : mirrorOnly ? t("wb.drama") : t("wb.workbench")}</span>
 				</div>
 				{role === "tools" && notice !== undefined && (
-					<span className="owl-workbench-notice" role="status" title={notice.text}>✦ {notice.text}</span>
+					<span className="owl-workbench-notice" role="status" title={notice.text}>
+						✦ {notice.text}
+					</span>
 				)}
 				{terminalOnly ? (
 					/* 终端底栏：唯一入口是「新建终端」（多实例，可拖拽分屏） */
 					<div className="owl-workbench-shortcuts" aria-label={t("wb.newTerminal")}>
-						<button type="button" title={t("wb.newTerminal")} aria-label={t("wb.newTerminal")} className="owl-workbench-icon-button" onClick={() => openQuickAction(store, "terminal")}>
+						<button
+							type="button"
+							title={t("wb.newTerminal")}
+							aria-label={t("wb.newTerminal")}
+							className="owl-workbench-icon-button"
+							onClick={() => openQuickAction(store, "terminal")}
+						>
 							<IconPlus size={15} />
 						</button>
 					</div>
 				) : mirrorOnly ? null : (
-					<WorkbenchTools store={store} activeKind={activeTab?.kind} width={effectiveDock === "right" ? displayWidth : containerSize?.width ?? width} kindAllowed={kindAllowed} onOpenPanel={onOpenPanel} />
+					<WorkbenchTools
+						store={store}
+						activeKind={activeTab?.kind}
+						width={effectiveDock === "right" ? displayWidth : (containerSize?.width ?? width)}
+						kindAllowed={kindAllowed}
+						onOpenPanel={onOpenPanel}
+					/>
 				)}
 				<div className="owl-workbench-dock-actions">
-					<button type="button" title={terminalOnly ? t("wb.closeTerminal") : mirrorOnly ? t("wb.closeMirror") : t("wb.closeWorkbench")} aria-label={terminalOnly ? t("wb.closeTerminal") : mirrorOnly ? t("wb.closeMirror") : t("wb.closeWorkbench")} className="owl-workbench-icon-button" onClick={() => onSetOpen(false)}>
+					<button
+						type="button"
+						title={
+							terminalOnly ? t("wb.closeTerminal") : mirrorOnly ? t("wb.closeMirror") : t("wb.closeWorkbench")
+						}
+						aria-label={
+							terminalOnly ? t("wb.closeTerminal") : mirrorOnly ? t("wb.closeMirror") : t("wb.closeWorkbench")
+						}
+						className="owl-workbench-icon-button"
+						onClick={() => onSetOpen(false)}
+					>
 						<IconX size={14} />
 					</button>
 				</div>
 			</div>
 
-			{!panelOnly && <EditorDraftRecovery client={client} cwd={cwd} profile={profile} connected={connected} store={store} enabled={kindAllowed("editor") && !cfg.disabledViewers.includes("editor")} onOpen={() => onSetOpen(true)} />}
+			{!panelOnly && (
+				<EditorDraftRecovery
+					client={client}
+					cwd={cwd}
+					profile={profile}
+					connected={connected}
+					store={store}
+					enabled={kindAllowed("editor") && !cfg.disabledViewers.includes("editor")}
+					onOpen={() => onSetOpen(true)}
+				/>
+			)}
 			{/* 内容：split tree（空 leaf 显示入口卡片） */}
 			<div className="flex min-h-0 flex-1 flex-col">{renderNode(state.tree, { flex: "1 1 0%" })}</div>
 
@@ -614,14 +801,16 @@ export function Workbench({ client, cwd, profile, connected = true, store, open,
 								className={`shrink-0 ${gitStatus.entries.length > 0 ? "font-medium" : ""}`}
 								style={gitStatus.entries.length > 0 ? { color: "var(--color-owl-accent)" } : undefined}
 							>
-								{gitStatus.entries.length > 0 ? t("wb.gitChanges", { n: gitStatus.entries.length }) : t("wb.noChanges")}
+								{gitStatus.entries.length > 0
+									? t("wb.gitChanges", { n: gitStatus.entries.length })
+									: t("wb.noChanges")}
 							</span>
 							{/* 分支/仓库只是上下文，排在后面，不跟变更数抢主位。 */}
 							<span className="shrink-0 opacity-50">·</span>
 							<span className="truncate opacity-70">
 								{gitStatus.repos !== undefined && gitStatus.repos.length > 1
 									? t("wb.gitRepos", { n: gitStatus.repos.length })
-									: gitStatus.branch ?? "HEAD"}
+									: (gitStatus.branch ?? "HEAD")}
 							</span>
 						</button>
 					) : (

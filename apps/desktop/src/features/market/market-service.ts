@@ -276,7 +276,10 @@ async function fetchPiPlugins(): Promise<{ plugins: MarketPlugin[]; total: numbe
 				cat: inferPiCat(keywords, name),
 				caps: [],
 				red: [],
-				url: text(links.repository) || text(links.homepage) || `https://www.npmjs.com/package/${encodeURIComponent(name).replace(/%2F/g, "/")}`,
+				url:
+					text(links.repository) ||
+					text(links.homepage) ||
+					`https://www.npmjs.com/package/${encodeURIComponent(name).replace(/%2F/g, "/")}`,
 				added: text(pkg.date) ? new Date(text(pkg.date)).toISOString().slice(0, 10) : undefined,
 			});
 		}
@@ -314,18 +317,20 @@ async function fetchPiPlugins(): Promise<{ plugins: MarketPlugin[]; total: numbe
 	{
 		let cursor = 0;
 		const concurrency = Math.min(6, scoped.length);
-		await Promise.all(Array.from({ length: concurrency }, async () => {
-			while (cursor < scoped.length) {
-				const name = scoped[cursor++];
-				try {
-					const raw = await fetchJson(`${NPM_DOWNLOADS_URL}/${encodeURIComponent(name)}`, 12_000);
-					const item = (raw ?? {}) as Record<string, unknown>;
-					if (typeof item.downloads === "number") downloads.set(name, item.downloads);
-				} catch {
-					// 单查失败留空。
+		await Promise.all(
+			Array.from({ length: concurrency }, async () => {
+				while (cursor < scoped.length) {
+					const name = scoped[cursor++];
+					try {
+						const raw = await fetchJson(`${NPM_DOWNLOADS_URL}/${encodeURIComponent(name)}`, 12_000);
+						const item = (raw ?? {}) as Record<string, unknown>;
+						if (typeof item.downloads === "number") downloads.set(name, item.downloads);
+					} catch {
+						// 单查失败留空。
+					}
 				}
-			}
-		}));
+			}),
+		);
 	}
 	for (const name of names) {
 		const dl = downloads.get(name);

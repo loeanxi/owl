@@ -14,7 +14,9 @@ export interface WorkAction {
 function argumentsOf(args: string): Record<string, unknown> | undefined {
 	try {
 		const parsed: unknown = JSON.parse(args);
-		return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+		return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: undefined;
 	} catch {
 		return undefined;
 	}
@@ -50,7 +52,11 @@ export function workActionTitle(card: ToolCard): string {
 	const args = argumentsOf(card.args);
 	const path = workActionPath(card);
 	if (path) {
-		const name = path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || path;
+		const name =
+			path
+				.replace(/[\\/]+$/, "")
+				.split(/[\\/]/)
+				.at(-1) || path;
 		const key = card.name === "read" ? "readFile" : card.name === "write" ? "writeFile" : "editFile";
 		return workProcessText(key, { name });
 	}
@@ -61,13 +67,24 @@ export function workActionTitle(card: ToolCard): string {
 		if (summary && summary !== card.name && summary !== "运行命令" && summary !== "Run command") return summary;
 		return command ? summarizeToolCall(card.name, args).summary : card.summary || workProcessText("runCommand");
 	}
-	if (["read", "write", "edit", "find", "grep", "ls"].includes(card.name) && args) return summarizeToolCall(card.name, args).summary;
+	if (["read", "write", "edit", "find", "grep", "ls"].includes(card.name) && args)
+		return summarizeToolCall(card.name, args).summary;
 	return card.summary || card.name;
 }
 
 /** These are execution outcomes, never an inferred verdict on the user's task. */
 export function workActionStatus(card: ToolCard): string {
-	return workProcessText(card.status === "ok" ? "succeeded" : card.status === "error" ? "failed" : card.status === "cancelled" ? "cancelled" : card.status === "pending" ? "pending" : "working");
+	return workProcessText(
+		card.status === "ok"
+			? "succeeded"
+			: card.status === "error"
+				? "failed"
+				: card.status === "cancelled"
+					? "cancelled"
+					: card.status === "pending"
+						? "pending"
+						: "working",
+	);
 }
 
 /** Facts are scoped to the supplied work segment; prose and unrelated successes never resolve failures. */
@@ -77,8 +94,9 @@ export function workActionFacts(actions: readonly WorkAction[]): {
 	issues: WorkAction[];
 	recovered: WorkAction[];
 } {
-	const current = actions.findLast(({ card }) => card.status === "running" && card.finishedAt === undefined)
-		?? actions.findLast(({ card }) => card.status === "pending" && card.finishedAt === undefined);
+	const current =
+		actions.findLast(({ card }) => card.status === "running" && card.finishedAt === undefined) ??
+		actions.findLast(({ card }) => card.status === "pending" && card.finishedAt === undefined);
 	const recent = actions.filter(({ card }) => ["ok", "error", "cancelled"].includes(card.status)).slice(-3);
 	const issues: WorkAction[] = [];
 	const recovered: WorkAction[] = [];

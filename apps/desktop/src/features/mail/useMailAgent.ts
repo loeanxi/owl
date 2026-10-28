@@ -8,8 +8,8 @@ import type {
 } from "../../../../../packages/coding-agent/src/core/mail/types.ts";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { SessionRunningResult } from "../../bridge/protocol.ts";
-import { applyEvent } from "../../hooks/transcript.ts";
 import type { ChatEntry } from "../../hooks/transcript.ts";
+import { applyEvent } from "../../hooks/transcript.ts";
 import { t } from "../../i18n/index.ts";
 import { mailReadSource, mailThreadKey, sameMailContext } from "./mail-model.ts";
 

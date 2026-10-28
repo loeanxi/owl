@@ -14,7 +14,9 @@ let frameId = 0;
 
 function Startup({ prepared = false }: { prepared?: boolean }) {
 	completeAppearance = useStartupWindow();
-	useEffect(() => { if (prepared) completeAppearance(); }, [prepared]);
+	useEffect(() => {
+		if (prepared) completeAppearance();
+	}, [prepared]);
 	return <main>Owl</main>;
 }
 
@@ -78,7 +80,13 @@ it("does not stay hidden when the bridge never connects or returns startup setti
 });
 
 it("survives StrictMode effect replay without duplicate reveal or a canceled permanent wait", async () => {
-	await act(async () => root.render(<StrictMode><Startup prepared /></StrictMode>));
+	await act(async () =>
+		root.render(
+			<StrictMode>
+				<Startup prepared />
+			</StrictMode>,
+		),
+	);
 	await nextFrame();
 	await nextFrame();
 	await vi.advanceTimersByTimeAsync(5000);

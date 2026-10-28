@@ -26,7 +26,19 @@ test("clear 丢弃待处理项；只把 text/thinking/toolcall delta 当作可�
 		event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "a" } },
 	} as ServerEventMessage;
 	assert.equal(isStreamingDeltaEvent(delta), true);
-	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", delta: "{" } } } as ServerEventMessage), true);
-	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "message_update", assistantMessageEvent: { type: "toolcall_end" } } } as ServerEventMessage), false);
+	assert.equal(
+		isStreamingDeltaEvent({
+			...delta,
+			event: { type: "message_update", assistantMessageEvent: { type: "toolcall_delta", delta: "{" } },
+		} as ServerEventMessage),
+		true,
+	);
+	assert.equal(
+		isStreamingDeltaEvent({
+			...delta,
+			event: { type: "message_update", assistantMessageEvent: { type: "toolcall_end" } },
+		} as ServerEventMessage),
+		false,
+	);
 	assert.equal(isStreamingDeltaEvent({ ...delta, event: { type: "agent_start" } } as ServerEventMessage), false);
 });

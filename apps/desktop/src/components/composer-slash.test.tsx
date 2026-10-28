@@ -1,13 +1,16 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage } from "../i18n/index.ts";
 import { Composer } from "./Composer.tsx";
 
-vi.mock("../bridge/native.ts", () => ({ listenForOsFileDrop: async () => () => {}, readLocalImage: async () => undefined }));
+vi.mock("../bridge/native.ts", () => ({
+	listenForOsFileDrop: async () => () => {},
+	readLocalImage: async () => undefined,
+}));
 vi.mock("./OwlMascot.tsx", () => ({ OwlMascot: () => null }));
 
 type Props = React.ComponentProps<typeof Composer>;
@@ -31,12 +34,28 @@ beforeEach(() => {
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
 	props = {
-		client: { request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }) } as unknown as BridgeClient,
-		connected: true, disabled: false, running: false, hideEnvironment: true, hideMascot: true,
-		onSend: vi.fn(() => true), onAbort: vi.fn(), providers: [], model: "fixture/model", onModel: vi.fn(),
-		thinkingLevel: "high", onThinkingLevel: vi.fn(), approvalMode: "confirm", onApprovalMode: vi.fn(),
+		client: {
+			request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }),
+		} as unknown as BridgeClient,
+		connected: true,
+		disabled: false,
+		running: false,
+		hideEnvironment: true,
+		hideMascot: true,
+		onSend: vi.fn(() => true),
+		onAbort: vi.fn(),
+		providers: [],
+		model: "fixture/model",
+		onModel: vi.fn(),
+		thinkingLevel: "high",
+		onThinkingLevel: vi.fn(),
+		approvalMode: "confirm",
+		onApprovalMode: vi.fn(),
 		sessionInfo: undefined,
-		workspaceDir: "D:/owl", projects: [], onSwitchProject: vi.fn(), searchFiles: async () => [],
+		workspaceDir: "D:/owl",
+		projects: [],
+		onSwitchProject: vi.fn(),
+		searchFiles: async () => [],
 		commands: [
 			{ name: "help", kind: "builtin", description: "Show help" },
 			{ name: "skill:commit", kind: "skill", description: "Commit scoped changes" },
@@ -44,7 +63,10 @@ beforeEach(() => {
 	};
 });
 
-afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
+afterEach(async () => {
+	await act(async () => root.unmount());
+	vi.unstubAllGlobals();
+});
 
 async function render(overrides: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...overrides };
@@ -52,10 +74,14 @@ async function render(overrides: Partial<Props> = {}): Promise<void> {
 }
 
 function command(name: string): HTMLButtonElement | undefined {
-	return [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes(`/${name}`));
+	return [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+		button.textContent?.includes(`/${name}`),
+	);
 }
 
-function editor(): HTMLElement { return container.querySelector<HTMLElement>('[role="textbox"]')!; }
+function editor(): HTMLElement {
+	return container.querySelector<HTMLElement>('[role="textbox"]')!;
+}
 
 async function key(name: string): Promise<Event> {
 	const event = new window.Event("keydown", { bubbles: true, cancelable: true });
@@ -78,18 +104,26 @@ describe("Composer slash command completion", () => {
 		expect(command("skill:commit")).toBeDefined();
 	});
 
-	it.each(["click", "Tab", "Enter"])("selects a trailing skill with %s, preserves the request and sends on the next Enter", async (action) => {
-		await render({ initialDraft: "直接帮我提交吧 /skill:c" });
-		expect(command("help")).toBeUndefined();
-		expect(command("skill:commit")).toBeDefined();
-		if (action === "click") await act(async () => command("skill:commit")!.click());
-		else expect((await key(action)).defaultPrevented).toBe(true);
-		expect(editor().textContent).toBe("/skill:commit 直接帮我提交吧 ");
-		expect(props.onSend).not.toHaveBeenCalled();
-		expect(command("skill:commit")).toBeUndefined();
-		await key("Enter");
-		expect(props.onSend).toHaveBeenCalledExactlyOnceWith("/skill:commit 直接帮我提交吧", undefined, undefined, undefined);
-	});
+	it.each(["click", "Tab", "Enter"])(
+		"selects a trailing skill with %s, preserves the request and sends on the next Enter",
+		async (action) => {
+			await render({ initialDraft: "直接帮我提交吧 /skill:c" });
+			expect(command("help")).toBeUndefined();
+			expect(command("skill:commit")).toBeDefined();
+			if (action === "click") await act(async () => command("skill:commit")!.click());
+			else expect((await key(action)).defaultPrevented).toBe(true);
+			expect(editor().textContent).toBe("/skill:commit 直接帮我提交吧 ");
+			expect(props.onSend).not.toHaveBeenCalled();
+			expect(command("skill:commit")).toBeUndefined();
+			await key("Enter");
+			expect(props.onSend).toHaveBeenCalledExactlyOnceWith(
+				"/skill:commit 直接帮我提交吧",
+				undefined,
+				undefined,
+				undefined,
+			);
+		},
+	);
 
 	it.each([
 		["直接帮我提交吧 ", "/skill:commit 直接帮我提交吧 "],
@@ -189,7 +223,10 @@ describe("Composer slash command completion", () => {
 		query.textContent = "/skill:c";
 		await act(async () => {
 			if (kind === "BR") editor().append(prefix, boundary, query);
-			else { boundary.appendChild(prefix); editor().append(boundary, query); }
+			else {
+				boundary.appendChild(prefix);
+				editor().append(boundary, query);
+			}
 			editor().dispatchEvent(new window.Event("input", { bubbles: true }));
 		});
 		expect(command("skill:commit")).toBeDefined();

@@ -4,6 +4,8 @@
 	min-height: 0;
 	min-width: 0;
 	flex-direction: column;
+	/* 悬浮会话头（ConversationHeader）的定位容器：头部绝对定位在顶部，不占布局行。 */
+	position: relative;
 }
 
 .owl-agent-conversation[hidden] {

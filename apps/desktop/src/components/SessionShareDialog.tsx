@@ -80,7 +80,10 @@ export function SessionShareDialog({
 	const allSelected = turns !== undefined && turns.length > 0 && selected.size === turns.length;
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={() => !exporting && onClose()}>
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+			onClick={() => !exporting && onClose()}
+		>
 			<div
 				className="flex max-h-[75vh] w-[600px] max-w-full flex-col rounded-xl border border-owl-border bg-owl-panel shadow-2xl shadow-black/40"
 				onClick={(event) => event.stopPropagation()}
@@ -91,11 +94,16 @@ export function SessionShareDialog({
 				</div>
 				<div className="flex-1 overflow-y-auto px-4 py-3">
 					{loadError && (
-						<p className="rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger" role="alert">
+						<p
+							className="rounded-lg border border-owl-danger/40 bg-owl-danger/10 px-2.5 py-1.5 text-xs text-owl-danger"
+							role="alert"
+						>
 							{loadError}
 						</p>
 					)}
-					{!loadError && turns === undefined && <p className="text-xs text-owl-muted">{t("shareTurns.loading")}</p>}
+					{!loadError && turns === undefined && (
+						<p className="text-xs text-owl-muted">{t("shareTurns.loading")}</p>
+					)}
 					{turns !== undefined && turns.length === 0 && (
 						<p className="rounded-lg border border-owl-border bg-owl-sidebar px-2.5 py-2 text-xs text-owl-muted">
 							{t("shareTurns.empty")}

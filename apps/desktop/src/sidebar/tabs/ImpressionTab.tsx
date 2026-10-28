@@ -5,8 +5,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
-import type { TabComponentProps } from "../registry.ts";
 import { IconLoader, IconPencil, IconSave } from "../icons.tsx";
+import type { TabComponentProps } from "../registry.ts";
 
 export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element {
 	const t = useT();
@@ -101,7 +101,11 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 				<span className="text-[11px] text-owl-faint">{t("imp.caption")}</span>
 				<div className="flex items-center gap-2">
 					{savedMsg && <span className="text-[11px] text-emerald-500">{savedMsg}</span>}
-					{error && <span className="max-w-[160px] truncate text-[11px] text-red-400" title={error}>{error}</span>}
+					{error && (
+						<span className="max-w-[160px] truncate text-[11px] text-red-400" title={error}>
+							{error}
+						</span>
+					)}
 					<button
 						type="button"
 						className="flex items-center gap-1 rounded-lg border border-owl-border px-2 py-0.5 text-[11px] text-owl-muted transition-colors hover:border-owl-faint hover:text-owl-text disabled:opacity-40"
@@ -127,9 +131,7 @@ export function ImpressionTab({ client }: TabComponentProps): React.JSX.Element 
 						className="h-full min-h-48 w-full resize-none rounded-lg border border-owl-border bg-owl-sidebar px-2.5 py-2 text-xs leading-relaxed text-owl-text outline-none transition-colors focus:border-owl-accent"
 						value={impression}
 						onChange={(event) => setImpression(event.target.value)}
-						placeholder={
-							t("imp.emptyPlaceholder")
-						}
+						placeholder={t("imp.emptyPlaceholder")}
 						spellCheck={false}
 					/>
 				)}

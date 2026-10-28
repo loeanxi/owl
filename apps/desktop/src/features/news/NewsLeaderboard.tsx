@@ -45,8 +45,7 @@ const copy = {
 	},
 	en: {
 		title: "Model leaderboards",
-		intro:
-			"View public evaluations with their source update dates. Each benchmark ranks independently; scores are not comparable across boards.",
+		intro: "View public evaluations with their source update dates. Each benchmark ranks independently; scores are not comparable across boards.",
 		references: "Historical and reference leaderboards",
 		referenceHint: "Retained for reference; these evaluations may not cover recently released models.",
 		reference: "Reference leaderboard",
@@ -155,8 +154,9 @@ export function NewsLeaderboard({
 	const syncFailed = Boolean(syncError || board?.stale || board?.error);
 	const normalized = query.trim().toLowerCase();
 	const entries =
-		board?.entries.filter((entry) => `${entry.model} ${entry.organization ?? ""}`.toLowerCase().includes(normalized)) ??
-		[];
+		board?.entries.filter((entry) =>
+			`${entry.model} ${entry.organization ?? ""}`.toLowerCase().includes(normalized),
+		) ?? [];
 	const visible = expanded || normalized ? entries : entries.slice(0, 20);
 	function formatDate(value: string | null, fallback: string, includeTime = true): string {
 		if (!value || !Number.isFinite(Date.parse(value))) return fallback;
@@ -355,7 +355,11 @@ export function NewsLeaderboard({
 								</div>
 							)}
 							{!normalized && entries.length > 20 && (
-								<button type="button" className="owl-leaderboard-more" onClick={() => setExpanded((value) => !value)}>
+								<button
+									type="button"
+									className="owl-leaderboard-more"
+									onClick={() => setExpanded((value) => !value)}
+								>
 									{expanded ? text.less : `${text.more} (${entries.length})`}
 								</button>
 							)}

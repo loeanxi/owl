@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { matchSettingsSections, SETTINGS_SEARCH_INDEX } from "./settings-search.ts";
 import type { WorkspaceSettingsSection } from "../../workspace-memory.ts";
+import { matchSettingsSections, SETTINGS_SEARCH_INDEX } from "./settings-search.ts";
 
 describe("settings section search", () => {
 	it("indexes every section with non-empty zh and en hints", () => {
-		const sections: WorkspaceSettingsSection[] = ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "animation", "notifications", "usage", "archived", "json", "diagnostics", "execution-anomalies", "changelog", "about"];
+		const sections: WorkspaceSettingsSection[] = [
+			"general",
+			"accounts",
+			"models",
+			"plugins",
+			"skills",
+			"presets",
+			"sidebar",
+			"prompts",
+			"memory",
+			"image",
+			"appearance",
+			"animation",
+			"notifications",
+			"usage",
+			"archived",
+			"json",
+			"diagnostics",
+			"execution-anomalies",
+			"changelog",
+			"about",
+		];
 		for (const section of sections) {
 			const index = SETTINGS_SEARCH_INDEX[section];
 			expect(index, section).toBeTruthy();

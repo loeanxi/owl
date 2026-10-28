@@ -20,6 +20,7 @@ import type {
 	DesktopClientRequest,
 	DiffApprovalClearResult,
 	DiffApprovalDiffResult,
+	DiffApprovalDiffsResult,
 	DiffApprovalListResult,
 	DiffApprovalPreviewResult,
 	DiffApprovalResolveResult,
@@ -82,6 +83,7 @@ export type DiffApprovalRequest = Extract<
 		type:
 			| "diffApproval.list"
 			| "diffApproval.diff"
+			| "diffApproval.diffs"
 			| "diffApproval.preview"
 			| "diffApproval.resolve"
 			| "diffApproval.clear";
@@ -112,6 +114,19 @@ export async function handleDiffApprovalRequest(
 				const store = getWorkspaceDiffApprovalStore(ctx.defaultAgentDir(), request.cwd);
 				const result: DiffApprovalDiffResult = store.diff(request.entryId);
 				ctx.reply(ws, request.id, { ok: true, result });
+			} catch (error) {
+				ctx.reply(ws, request.id, {
+					ok: false,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+			return;
+		}
+		case "diffApproval.diffs": {
+			try {
+				const store = getWorkspaceDiffApprovalStore(ctx.defaultAgentDir(), request.cwd);
+				const diffs = store.diffs(request.entryIds);
+				ctx.reply(ws, request.id, { ok: true, result: { diffs } satisfies DiffApprovalDiffsResult });
 			} catch (error) {
 				ctx.reply(ws, request.id, {
 					ok: false,

@@ -13,9 +13,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatEntry } from "../../hooks/transcript.ts";
 import { useT } from "../../i18n/index.ts";
 import { IconSearch } from "../../sidebar/icons.tsx";
-import type { TrajectoryCell, TrajectoryCellKind, TrajectoryGroupModel, TrajectorySnapshot, TrajectoryTurnModel, TrajectoryUsage } from "./trajectory-contract.ts";
+import type {
+	TrajectoryCell,
+	TrajectoryCellKind,
+	TrajectoryGroupModel,
+	TrajectorySnapshot,
+	TrajectoryTurnModel,
+	TrajectoryUsage,
+} from "./trajectory-contract.ts";
 import { deriveTrajectoryLayout, formatSpanSeconds } from "./trajectory-layout.ts";
-import { deriveTrajectoryTimeline, type TrajectoryTimelineMode, type TrajectoryTimelineModel } from "./trajectory-timeline.ts";
+import {
+	deriveTrajectoryTimeline,
+	type TrajectoryTimelineMode,
+	type TrajectoryTimelineModel,
+} from "./trajectory-timeline.ts";
 import "./trajectory.css";
 
 const KIND_COLORS: Record<TrajectoryCellKind, string> = {
@@ -44,14 +55,25 @@ function fmtTokens(n: number): string {
 /** 单元格在当前搜索词下是否命中（空词全命中）。 */
 function cellMatches(cell: TrajectoryCell, query: string): boolean {
 	if (query === "") return true;
-	return [cell.title, cell.summary, cell.preview, cell.resultPreview, cell.outputDetail, cell.thinkingDetail, cell.inputDetail]
+	return [
+		cell.title,
+		cell.summary,
+		cell.preview,
+		cell.resultPreview,
+		cell.outputDetail,
+		cell.thinkingDetail,
+		cell.inputDetail,
+	]
 		.filter((part) => typeof part === "string")
 		.join("\n")
 		.toLowerCase()
 		.includes(query);
 }
 
-export function TrajectoryView({ entries, active }: {
+export function TrajectoryView({
+	entries,
+	active,
+}: {
 	entries: readonly ChatEntry[];
 	/** 视图是否可见（隐藏时跳过滚动跟随）。 */
 	active: boolean;
@@ -119,9 +141,17 @@ export function TrajectoryView({ entries, active }: {
 					{t("trajectory.statsDuration")}
 					<b>{stats.durationMs !== null ? formatSpanSeconds(stats.durationMs / 1000) : "—"}</b>
 				</span>
-				<span className="owl-trajectory-stat">{t("trajectory.statsTurns")}<b>{stats.turns}</b></span>
-				<span className="owl-trajectory-stat">{t("trajectory.statsCalls")}<b>{stats.calls}</b></span>
-				{matchCount >= 0 && <span className="owl-trajectory-matchcount">{t("trajectory.matchCount", { count: matchCount })}</span>}
+				<span className="owl-trajectory-stat">
+					{t("trajectory.statsTurns")}
+					<b>{stats.turns}</b>
+				</span>
+				<span className="owl-trajectory-stat">
+					{t("trajectory.statsCalls")}
+					<b>{stats.calls}</b>
+				</span>
+				{matchCount >= 0 && (
+					<span className="owl-trajectory-matchcount">{t("trajectory.matchCount", { count: matchCount })}</span>
+				)}
 				<label className="owl-trajectory-search">
 					<IconSearch size={12} />
 					<input
@@ -182,7 +212,11 @@ function countMatches(snapshot: TrajectorySnapshot, query: string): number {
 }
 
 /** 三车道时间轴：输入 / 模型 / 工具。hover 出时钟与耗时，点击定位台账行；搜索命中外的 span 减淡。 */
-function TrajectoryTimelineChart({ timeline, query, onPick }: {
+function TrajectoryTimelineChart({
+	timeline,
+	query,
+	onPick,
+}: {
 	timeline: TrajectoryTimelineModel;
 	query: string;
 	onPick: (recordId: string) => void;
@@ -203,47 +237,40 @@ function TrajectoryTimelineChart({ timeline, query, onPick }: {
 		<div className="owl-trajectory-chart" role="img" aria-label={t("app.viewTrajectory")}>
 			<div className="owl-trajectory-lanes" aria-hidden="true">
 				{lanes.map((lane) => (
-					<span key={lane} className="owl-trajectory-lane-label">{t(LANE_KEYS[lane]!)}</span>
+					<span key={lane} className="owl-trajectory-lane-label">
+						{t(LANE_KEYS[lane]!)}
+					</span>
 				))}
 			</div>
-			<svg
-				className="owl-trajectory-chart-svg"
-				viewBox="0 0 100 46"
-				preserveAspectRatio="none"
-			>
+			<svg className="owl-trajectory-chart-svg" viewBox="0 0 100 46" preserveAspectRatio="none">
 				{boundaries.map((x, index) => (
-					<line
-						key={index}
-						x1={x}
-						x2={x}
-						y1={0}
-						y2={46}
-						className="owl-trajectory-boundary"
-					/>
+					<line key={index} x1={x} x2={x} y1={0} y2={46} className="owl-trajectory-boundary" />
 				))}
 				{lanes.map((lane) => (
 					<g key={lane}>
-						{timeline.spans.filter((s) => s.lane === lane).map((s) => {
-							const dimmed = matchSet !== null && !matchSet.has(s.index);
-							const x = ((s.start - timeline.start) / span) * 100;
-							const width = Math.max(((s.end - s.start) / span) * 100, 0.4);
-							return (
-								<rect
-									key={s.recordId}
-									className="owl-trajectory-span"
-									x={x}
-									y={2 + lane * 15}
-									width={width}
-									height={10}
-									rx={1.5}
-									fill={KIND_COLORS[s.kind]}
-									opacity={dimmed ? 0.14 : s.isActive ? 0.7 : 0.92}
-									onClick={() => onPick(s.recordId)}
-								>
-									<title>{spanTooltip(s)}</title>
-								</rect>
-							);
-						})}
+						{timeline.spans
+							.filter((s) => s.lane === lane)
+							.map((s) => {
+								const dimmed = matchSet !== null && !matchSet.has(s.index);
+								const x = ((s.start - timeline.start) / span) * 100;
+								const width = Math.max(((s.end - s.start) / span) * 100, 0.4);
+								return (
+									<rect
+										key={s.recordId}
+										className="owl-trajectory-span"
+										x={x}
+										y={2 + lane * 15}
+										width={width}
+										height={10}
+										rx={1.5}
+										fill={KIND_COLORS[s.kind]}
+										opacity={dimmed ? 0.14 : s.isActive ? 0.7 : 0.92}
+										onClick={() => onPick(s.recordId)}
+									>
+										<title>{spanTooltip(s)}</title>
+									</rect>
+								);
+							})}
 					</g>
 				))}
 			</svg>
@@ -262,7 +289,13 @@ function TrajectoryTimelineChart({ timeline, query, onPick }: {
 }
 
 /** 一轮：sticky 轮头 + 分组台账。 */
-function TrajectoryTurnSection({ turn, query, expanded, highlight, onToggle }: {
+function TrajectoryTurnSection({
+	turn,
+	query,
+	expanded,
+	highlight,
+	onToggle,
+}: {
 	turn: TrajectoryTurnModel;
 	query: string;
 	expanded: ReadonlySet<string>;
@@ -270,10 +303,12 @@ function TrajectoryTurnSection({ turn, query, expanded, highlight, onToggle }: {
 	onToggle: (recordId: string) => void;
 }): React.JSX.Element | null {
 	const t = useT();
-	const visibleGroups = turn.groups.map((group) => ({
-		group,
-		cells: group.cells.filter((cell) => cellMatches(cell, query)),
-	})).filter(({ cells }) => cells.length > 0);
+	const visibleGroups = turn.groups
+		.map((group) => ({
+			group,
+			cells: group.cells.filter((cell) => cellMatches(cell, query)),
+		}))
+		.filter(({ cells }) => cells.length > 0);
 	if (visibleGroups.length === 0) return null;
 	const times: string[] = [];
 	if (turn.startedAt !== null) times.push(fmtClock(turn.startedAt));
@@ -299,7 +334,13 @@ function TrajectoryTurnSection({ turn, query, expanded, highlight, onToggle }: {
 }
 
 /** 一组：组头（消息 / 步骤 N + 墙钟与工具直方图）+ 单元格行。 */
-function TrajectoryGroupSection({ group, cells, expanded, highlight, onToggle }: {
+function TrajectoryGroupSection({
+	group,
+	cells,
+	expanded,
+	highlight,
+	onToggle,
+}: {
 	group: TrajectoryGroupModel;
 	cells: readonly TrajectoryCell[];
 	expanded: ReadonlySet<string>;
@@ -328,19 +369,26 @@ function TrajectoryGroupSection({ group, cells, expanded, highlight, onToggle }:
 }
 
 /** 台账一行：kind 徽标 + 预览 + 耗时/状态；点行展开参数/输出/思考详情。 */
-function TrajectoryCellRow({ cell, expanded, highlighted, onToggle }: {
+function TrajectoryCellRow({
+	cell,
+	expanded,
+	highlighted,
+	onToggle,
+}: {
 	cell: TrajectoryCell;
 	expanded: boolean;
 	highlighted: boolean;
 	onToggle: (recordId: string) => void;
 }): React.JSX.Element {
 	const t = useT();
-	const hasDetail = cell.inputDetail !== undefined || cell.outputDetail !== undefined || cell.thinkingDetail !== undefined;
-	const kindLabel = cell.kind === "user"
-		? t("trajectory.cellUser")
-		: cell.kind === "message"
-			? t("trajectory.cellAssistant")
-			: t("trajectory.cellTool");
+	const hasDetail =
+		cell.inputDetail !== undefined || cell.outputDetail !== undefined || cell.thinkingDetail !== undefined;
+	const kindLabel =
+		cell.kind === "user"
+			? t("trajectory.cellUser")
+			: cell.kind === "message"
+				? t("trajectory.cellAssistant")
+				: t("trajectory.cellTool");
 	return (
 		<div
 			className={
@@ -354,12 +402,16 @@ function TrajectoryCellRow({ cell, expanded, highlighted, onToggle }: {
 			onClick={hasDetail ? () => onToggle(cell.recordId) : undefined}
 			role={hasDetail ? "button" : undefined}
 			tabIndex={hasDetail ? 0 : undefined}
-			onKeyDown={hasDetail ? (event) => {
-				if (event.key === "Enter" || event.key === " ") {
-					event.preventDefault();
-					onToggle(cell.recordId);
-				}
-			} : undefined}
+			onKeyDown={
+				hasDetail
+					? (event) => {
+							if (event.key === "Enter" || event.key === " ") {
+								event.preventDefault();
+								onToggle(cell.recordId);
+							}
+						}
+					: undefined
+			}
 		>
 			<span className="owl-trajectory-row-kind" style={{ color: KIND_COLORS[cell.kind] }}>
 				{cell.kind === "tool" || cell.kind === "subtool" ? cell.title : kindLabel}
@@ -368,17 +420,31 @@ function TrajectoryCellRow({ cell, expanded, highlighted, onToggle }: {
 				{cell.kind === "tool" || cell.kind === "subtool" ? (
 					<>
 						{cell.summary !== undefined && <span className="owl-trajectory-row-summary">{cell.summary}</span>}
-						{cell.preview !== undefined && <code className="owl-trajectory-row-args">{truncate(cell.preview, 160)}</code>}
-						{cell.resultPreview !== undefined && <span className="owl-trajectory-row-result">→ {truncate(cell.resultPreview, 120)}</span>}
+						{cell.preview !== undefined && (
+							<code className="owl-trajectory-row-args">{truncate(cell.preview, 160)}</code>
+						)}
+						{cell.resultPreview !== undefined && (
+							<span className="owl-trajectory-row-result">→ {truncate(cell.resultPreview, 120)}</span>
+						)}
 					</>
 				) : (
 					<span className="owl-trajectory-row-text">{truncate(cell.preview ?? "", 240)}</span>
 				)}
 				{expanded && (
 					<div className="owl-trajectory-detail" onClick={(event) => event.stopPropagation()}>
-						{cell.thinkingDetail !== undefined && <DetailBlock label={t("trajectory.detailThinking")} text={cell.thinkingDetail} className="is-thinking" />}
-						{cell.inputDetail !== undefined && <DetailBlock label={t("trajectory.detailArgs")} text={cell.inputDetail} />}
-						{cell.outputDetail !== undefined && <DetailBlock label={t("trajectory.detailOutput")} text={cell.outputDetail} />}
+						{cell.thinkingDetail !== undefined && (
+							<DetailBlock
+								label={t("trajectory.detailThinking")}
+								text={cell.thinkingDetail}
+								className="is-thinking"
+							/>
+						)}
+						{cell.inputDetail !== undefined && (
+							<DetailBlock label={t("trajectory.detailArgs")} text={cell.inputDetail} />
+						)}
+						{cell.outputDetail !== undefined && (
+							<DetailBlock label={t("trajectory.detailOutput")} text={cell.outputDetail} />
+						)}
 						{cell.usage !== undefined && <TrajectoryCellUsage usage={cell.usage} />}
 					</div>
 				)}
@@ -387,13 +453,19 @@ function TrajectoryCellRow({ cell, expanded, highlighted, onToggle }: {
 				{cell.isError === true && <em className="owl-trajectory-badge is-error">{t("trajectory.failed")}</em>}
 				{cell.cancelled === true && <em className="owl-trajectory-badge">{t("trajectory.cancelled")}</em>}
 				{cell.streaming === true && <em className="owl-trajectory-badge is-running">{t("trajectory.running")}</em>}
-				{cell.timeSeconds !== null && <span className="owl-trajectory-row-duration">{formatSpanSeconds(cell.timeSeconds)}</span>}
+				{cell.timeSeconds !== null && (
+					<span className="owl-trajectory-row-duration">{formatSpanSeconds(cell.timeSeconds)}</span>
+				)}
 			</span>
 		</div>
 	);
 }
 
-function DetailBlock({ label, text, className }: {
+function DetailBlock({
+	label,
+	text,
+	className,
+}: {
 	label: string;
 	text: string;
 	className?: string;

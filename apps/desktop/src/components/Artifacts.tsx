@@ -1,6 +1,6 @@
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ArtifactKind, FileArtifact } from "../hooks/artifacts.ts";
-import { useT, type TextKey } from "../i18n/index.ts";
+import { type TextKey, useT } from "../i18n/index.ts";
 import { ArtifactActions } from "./ArtifactActions.tsx";
 import { IconChevron } from "./icons.tsx";
 import "./artifacts.css";
@@ -42,23 +42,33 @@ export function Artifacts({ artifacts, onOpenFile, title, client, cwd }: Artifac
 			<ul className="owl-artifacts-list">
 				{artifacts.map((artifact) => (
 					<li key={artifact.path} className="owl-artifact-result">
-						<ArtifactActions path={artifact.path} title={artifact.title} client={client} cwd={cwd} onOpenFile={onOpenFile}>
-							{(open, disabled) => <button
-								type="button"
-								className="owl-artifact-file"
-								aria-label={t("artifacts.openAria", { name: artifact.title })}
-								title={artifact.path}
-								disabled={disabled}
-								onClick={open}
-							>
-								<span className="owl-artifact-kind" data-kind={artifact.kind}>{t(KIND_LABEL[artifact.kind])}</span>
-								<span className="owl-artifact-description">
-									<strong>{artifact.title}</strong>
-									<span>{artifact.path}</span>
-								</span>
-								<span className="owl-artifact-action">{t(ACTION_LABEL[artifact.action])}</span>
-								<IconChevron className="owl-artifact-chevron" />
-							</button>}
+						<ArtifactActions
+							path={artifact.path}
+							title={artifact.title}
+							client={client}
+							cwd={cwd}
+							onOpenFile={onOpenFile}
+						>
+							{(open, disabled) => (
+								<button
+									type="button"
+									className="owl-artifact-file"
+									aria-label={t("artifacts.openAria", { name: artifact.title })}
+									title={artifact.path}
+									disabled={disabled}
+									onClick={open}
+								>
+									<span className="owl-artifact-kind" data-kind={artifact.kind}>
+										{t(KIND_LABEL[artifact.kind])}
+									</span>
+									<span className="owl-artifact-description">
+										<strong>{artifact.title}</strong>
+										<span>{artifact.path}</span>
+									</span>
+									<span className="owl-artifact-action">{t(ACTION_LABEL[artifact.action])}</span>
+									<IconChevron className="owl-artifact-chevron" />
+								</button>
+							)}
 						</ArtifactActions>
 					</li>
 				))}

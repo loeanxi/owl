@@ -397,7 +397,12 @@ export function NewsSources({
 									<b>{found.title || new URL(found.feedUrl).hostname}</b>
 									<small>{t("news.feedFound", { url: found.feedUrl.replace(/^https?:\/\//, "") })}</small>
 								</div>
-								<button type="button" className="owl-news-primary" disabled={busy} onClick={() => addFound(found)}>
+								<button
+									type="button"
+									className="owl-news-primary"
+									disabled={busy}
+									onClick={() => addFound(found)}
+								>
 									{t("common.add")}
 								</button>
 							</div>
@@ -457,7 +462,11 @@ export function NewsSources({
 												>
 													<span
 														className="owl-news-dot"
-														style={group.tone === "pending" ? { background: "var(--owl-ui-border)" } : undefined}
+														style={
+															group.tone === "pending"
+																? { background: "var(--owl-ui-border)" }
+																: undefined
+														}
 													/>
 													<span>
 														<b>{source.name}</b>
@@ -639,7 +648,9 @@ export function NewsSources({
 								{t("news.participation")}
 								<select
 									value={draft.participation}
-									onChange={(event) => setDraft({ ...draft, participation: event.target.value as NewsParticipation })}
+									onChange={(event) =>
+										setDraft({ ...draft, participation: event.target.value as NewsParticipation })
+									}
 								>
 									<option value="editorial">{t("news.editorial")}</option>
 									<option value="hot_signal">{t("news.hotSignal")}</option>

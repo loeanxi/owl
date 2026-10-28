@@ -1,6 +1,61 @@
 import Anthropic, { type ClientOptions } from "@anthropic-ai/sdk";
 
 /**
+ * 把 Anthropic 的一条 citation 归一成 owl 的公共形状。
+ *
+ * Anthropic 有五种引用变体：
+ *   char_location / page_location / content_block_location —— 文档引用（标题是文档名）
+ *   web_search_result_location / search_result_location     —— 网页引用（标题 + 地址）
+ *
+ * SDK 的类型声明里这些 citation 是 beta 形状（`BetaRawCitation`），
+ * 但 API 实际会返回，所以从 unknown 起步逐层收窄。
+ */
+function normalizeCitation(raw: unknown): Citation | undefined {
+	if (raw === null || typeof raw !== "object") return undefined;
+	const item = raw as {
+		type?: unknown;
+		cited_text?: unknown;
+		title?: unknown;
+		url?: unknown;
+		document_title?: unknown;
+		start_char_index?: unknown;
+		end_char_index?: unknown;
+	};
+	const source = typeof item.type === "string" ? item.type : undefined;
+	const snippet = typeof item.cited_text === "string" ? item.cited_text : undefined;
+	const url = typeof item.url === "string" ? item.url : undefined;
+	const title =
+		typeof item.title === "string"
+			? item.title
+			: typeof item.document_title === "string"
+				? item.document_title
+				: undefined;
+	const startIndex = typeof item.start_char_index === "number" ? item.start_char_index : undefined;
+	const endIndex = typeof item.end_char_index === "number" ? item.end_char_index : undefined;
+	// 没有标题、没有地址、也没有片段的引用没有展示价值，直接丢掉。
+	if (title === undefined && url === undefined && snippet === undefined) return undefined;
+	return {
+		...(title !== undefined ? { title } : {}),
+		...(url !== undefined ? { url } : {}),
+		...(snippet !== undefined ? { snippet } : {}),
+		...(startIndex !== undefined ? { startIndex } : {}),
+		...(endIndex !== undefined ? { endIndex } : {}),
+		...(source !== undefined ? { source } : {}),
+	};
+}
+
+/** 归一 Anthropic 的引用数组。 */
+function normalizeCitations(raw: unknown): Citation[] {
+	if (!Array.isArray(raw)) return [];
+	const out: Citation[] = [];
+	for (const item of raw) {
+		const citation = normalizeCitation(item);
+		if (citation !== undefined) out.push(citation);
+	}
+	return out;
+}
+
+/**
  * 把 Anthropic thinking block 的 `summary` 数组压成纯文本列表。
  * 只取字符串项（Anthropic 用 {type:"summary",text}），其他形态一律忽略。
  *
@@ -46,6 +101,7 @@ import type {
 	Api,
 	AssistantMessage,
 	CacheRetention,
+	Citation,
 	ImageContent,
 	Message,
 	Model,
@@ -718,9 +774,12 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 						continue;
 					}
 					if (event.content_block.type === "text") {
+						// 引用可能随 block 一起到（也有 citations_delta 逐条来的）。
+						const citations = normalizeCitations((event.content_block as { citations?: unknown }).citations);
 						const block: Block = {
 							type: "text",
 							text: event.content_block.text ?? "",
+							...(citations.length > 0 ? { citations } : {}),
 							index: event.index,
 						};
 						output.content.push(block);
@@ -774,6 +833,20 @@ export const stream: StreamFunction<"anthropic-messages", AnthropicOptions> = (
 								type: "text_delta",
 								contentIndex: index,
 								delta: event.delta.text,
+								partial: output,
+							});
+						}
+					} else if (event.delta.type === "citations_delta") {
+						// 引用逐条到达（Claude Desktop 用它做行内角标 + 来源面板）。
+						const index = blocks.findIndex((b) => b.index === event.index);
+						const block = blocks[index];
+						const citation = normalizeCitation((event.delta as { citation?: unknown }).citation);
+						if (block && block.type === "text" && citation !== undefined) {
+							block.citations = [...(block.citations ?? []), citation];
+							stream.push({
+								type: "text_citation",
+								contentIndex: index,
+								citation,
 								partial: output,
 							});
 						}

@@ -31,7 +31,8 @@ test("weeklyBuckets sums same-week usage into one bucket", () => {
 	const monday = new Date(now);
 	monday.setHours(12, 0, 0, 0);
 	monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-	const key = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	const key = (date: Date): string =>
+		`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 	const buckets = weeklyBuckets([day(key(monday), 12), day(key(now), 34)] as never);
 	const last = buckets[buckets.length - 1]!;
 	expect(last.tokens).toBe(46);

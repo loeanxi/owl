@@ -152,7 +152,11 @@ export function NewsItemReader({
 				<time>{new Date(item.publishedAt).toLocaleString()}</time>
 				{categoryLabel && <span>{categoryLabel}</span>}
 				<span>
-					{sourceExcerpt ? (getUiLanguage() === "zh" ? "原文摘录" : "Source excerpt") : t(`news.status.${item.status}`)}
+					{sourceExcerpt
+						? getUiLanguage() === "zh"
+							? "原文摘录"
+							: "Source excerpt"
+						: t(`news.status.${item.status}`)}
 				</span>
 			</div>
 			<h1>{item.title || item.originalTitle}</h1>
@@ -275,7 +279,12 @@ export function NewsItemReader({
 							{bodyCopy.limit}
 						</p>
 						<div className="owl-news-actions">
-							<button type="submit" data-testid="news-body-save" className="owl-news-primary" disabled={!bodyCanWrite}>
+							<button
+								type="submit"
+								data-testid="news-body-save"
+								className="owl-news-primary"
+								disabled={!bodyCanWrite}
+							>
 								{busy ? bodyCopy.saving : bodyCopy.save}
 							</button>
 							<button
@@ -593,7 +602,12 @@ export function NewsStoryReader({ id, ...props }: ReadingProps & { id: string })
 				<>
 					<h2>{t("news.relatedEvents")}</h2>
 					{story.relatedStoryIds.map((related) => (
-						<button key={related} type="button" className="owl-news-history" onClick={() => props.onStory(related)}>
+						<button
+							key={related}
+							type="button"
+							className="owl-news-history"
+							onClick={() => props.onStory(related)}
+						>
 							{t("news.openRelatedEvent")} · {related.slice(0, 12)}
 						</button>
 					))}
@@ -718,7 +732,12 @@ export function NewsReportReader({
 						<section>
 							<h2>{t("news.briefs")}</h2>
 							{result.data.briefs.map((item) => (
-								<button type="button" className="owl-news-history" key={item.id} onClick={() => props.onItem(item.id)}>
+								<button
+									type="button"
+									className="owl-news-history"
+									key={item.id}
+									onClick={() => props.onItem(item.id)}
+								>
 									{item.title}
 								</button>
 							))}

@@ -1,18 +1,25 @@
+import { parseHTML } from "linkedom";
 import type * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage, t } from "../i18n/index.ts";
 import { Composer, type ComposerImage } from "./Composer.tsx";
-import { ComposerMaterials, type ComposerMaterialImage } from "./ComposerMaterials.tsx";
+import { type ComposerMaterialImage, ComposerMaterials } from "./ComposerMaterials.tsx";
 
-vi.mock("../bridge/native.ts", () => ({ listenForOsFileDrop: async () => () => {}, readLocalImage: async () => undefined }));
+vi.mock("../bridge/native.ts", () => ({
+	listenForOsFileDrop: async () => () => {},
+	readLocalImage: async () => undefined,
+}));
 vi.mock("./OwlMascot.tsx", () => ({ OwlMascot: () => null }));
 
 type Props = React.ComponentProps<typeof Composer>;
-const images: ComposerImage[] = Array.from({ length: 4 }, (_, index) => ({ type: "image", mimeType: "image/png", data: `sample-image-${index}` }));
+const images: ComposerImage[] = Array.from({ length: 4 }, (_, index) => ({
+	type: "image",
+	mimeType: "image/png",
+	data: `sample-image-${index}`,
+}));
 const files = ["D:/project/first.ts", "D:/project/second.ts", "D:/project/third.ts", "D:/project/last-reference.md"];
 let container: HTMLElement;
 let root: Root;
@@ -28,26 +35,62 @@ beforeEach(() => {
 	vi.stubGlobal("CSS", { escape: (value: string) => value.replaceAll("\\", "\\\\") });
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	// Linkedom models the dialog calls; browser fixtures cover the native top layer.
-	Object.defineProperty(dom.window.HTMLElement.prototype, "open", { configurable: true, get() { return this.hasAttribute("open"); } });
-	dom.window.HTMLElement.prototype.showModal = function (): void { this.setAttribute("open", ""); };
-	dom.window.HTMLElement.prototype.close = function (): void { this.removeAttribute("open"); };
+	Object.defineProperty(dom.window.HTMLElement.prototype, "open", {
+		configurable: true,
+		get() {
+			return this.hasAttribute("open");
+		},
+	});
+	dom.window.HTMLElement.prototype.showModal = function (): void {
+		this.setAttribute("open", "");
+	};
+	dom.window.HTMLElement.prototype.close = function (): void {
+		this.removeAttribute("open");
+	};
 	dom.window.getSelection = () => null;
 	setUiLanguage("zh");
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
 	props = {
-		client: { request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }) } as unknown as BridgeClient,
-		connected: true, disabled: false, running: false, hideEnvironment: true, hideMascot: true,
-		onSend: vi.fn(() => false), onAbort: vi.fn(), providers: [], model: "fixture/model", onModel: vi.fn(),
-		thinkingLevel: "high", onThinkingLevel: vi.fn(), approvalMode: "confirm", onApprovalMode: vi.fn(),
-		workspaceDir: "D:/project", projects: [], onSwitchProject: vi.fn(), commands: [], searchFiles: async () => [],
+		client: {
+			request: async () => ({ ok: true, result: { isFile: true, isDirectory: false } }),
+		} as unknown as BridgeClient,
+		connected: true,
+		disabled: false,
+		running: false,
+		hideEnvironment: true,
+		hideMascot: true,
+		onSend: vi.fn(() => false),
+		onAbort: vi.fn(),
+		providers: [],
+		model: "fixture/model",
+		onModel: vi.fn(),
+		thinkingLevel: "high",
+		onThinkingLevel: vi.fn(),
+		approvalMode: "confirm",
+		onApprovalMode: vi.fn(),
+		workspaceDir: "D:/project",
+		projects: [],
+		onSwitchProject: vi.fn(),
+		commands: [],
+		searchFiles: async () => [],
 		draftRequest: { id: 1, text: "核对全部材料", images, attachedPaths: files, replace: true },
 	};
 });
 
-afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => {
+	await act(async () => root.unmount());
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 async function render(patch: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...patch };
@@ -83,7 +126,11 @@ describe("Composer compact materials", () => {
 		for (const card of tray.querySelectorAll(".owl-composer-material")) {
 			if (card.getAttribute("data-kind") === "image") {
 				expect(card.querySelector(".owl-composer-material-preview img")).not.toBeNull();
-				expect(card.querySelector(".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path")).toBeNull();
+				expect(
+					card.querySelector(
+						".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path",
+					),
+				).toBeNull();
 			} else {
 				expect(card.querySelector(".owl-composer-material-copy .owl-composer-material-name")).not.toBeNull();
 				expect(card.querySelector(".owl-composer-material-path")).not.toBeNull();
@@ -105,7 +152,9 @@ describe("Composer compact materials", () => {
 		await render();
 		await act(async () => materialToggle().click());
 		expect(materialToggle().getAttribute("aria-expanded")).toBe("true");
-		const remove = [...container.querySelectorAll<HTMLButtonElement>(".owl-composer-materials button")].find((button) => button.getAttribute("aria-label")?.includes("last-reference.md"));
+		const remove = [...container.querySelectorAll<HTMLButtonElement>(".owl-composer-materials button")].find(
+			(button) => button.getAttribute("aria-label")?.includes("last-reference.md"),
+		);
 		expect(remove).toBeDefined();
 		expect(remove?.getAttribute("tabindex")).not.toBe("-1");
 		await act(async () => remove!.click());
@@ -128,7 +177,12 @@ describe("Composer compact materials", () => {
 	it("attaches a pasted file link by its local path", async () => {
 		await render({ draftRequest: undefined });
 		const paste = new window.Event("paste", { bubbles: true, cancelable: true });
-		Object.assign(paste, { clipboardData: { items: [], getData: (type: string) => (type === "text/uri-list" ? "file:///D:/project/notes.md" : "") } });
+		Object.assign(paste, {
+			clipboardData: {
+				items: [],
+				getData: (type: string) => (type === "text/uri-list" ? "file:///D:/project/notes.md" : ""),
+			},
+		});
 		await act(async () => editor().dispatchEvent(paste));
 		expect(paste.defaultPrevented).toBe(true);
 		expect(container.textContent).toContain("notes.md");
@@ -137,7 +191,13 @@ describe("Composer compact materials", () => {
 	it("keeps a pasted hyperlink as text when it carries no local path", async () => {
 		await render({ draftRequest: undefined });
 		const paste = new window.Event("paste", { bubbles: true, cancelable: true });
-		Object.assign(paste, { clipboardData: { items: [], getData: (type: string) => (type === "text/uri-list" ? "https://example.com/issue/123" : "https://example.com/issue/123") } });
+		Object.assign(paste, {
+			clipboardData: {
+				items: [],
+				getData: (type: string) =>
+					type === "text/uri-list" ? "https://example.com/issue/123" : "https://example.com/issue/123",
+			},
+		});
 		await act(async () => editor().dispatchEvent(paste));
 		// 拦下默认行为但什么都不产出 = 粘贴被吞：必须放行默认插入。
 		expect(paste.defaultPrevented).toBe(false);
@@ -149,18 +209,20 @@ describe("Composer compact materials", () => {
 		const pending = Promise.withResolvers<{ path: string; isDir: boolean }[]>();
 		await render({
 			draftRequest: undefined,
-			searchFiles: async (_cwd, query) => query === "old" ? [{ path: "D:/project/old.ts", isDir: false }] : pending.promise,
+			searchFiles: async (_cwd, query) =>
+				query === "old" ? [{ path: "D:/project/old.ts", isDir: false }] : pending.promise,
 		});
 		const box = editor();
 		const typeAt = async (text: string): Promise<void> => {
 			await act(async () => {
 				box.textContent = text;
 				const node = box.firstChild!;
-				window.getSelection = () => ({
-					rangeCount: 1,
-					isCollapsed: true,
-					getRangeAt: () => ({ endContainer: node, endOffset: node.textContent?.length ?? 0 }),
-				}) as unknown as Selection;
+				window.getSelection = () =>
+					({
+						rangeCount: 1,
+						isCollapsed: true,
+						getRangeAt: () => ({ endContainer: node, endOffset: node.textContent?.length ?? 0 }),
+					}) as unknown as Selection;
 				box.dispatchEvent(new window.Event("input", { bubbles: true }));
 			});
 		};
@@ -195,13 +257,33 @@ describe("Composer compact materials", () => {
 });
 
 describe("Composer material arrivals", () => {
-	const sample = (id: string, name?: string): ComposerMaterialImage => ({ id, name, mimeType: "image/png", data: `data-${id}` });
+	const sample = (id: string, name?: string): ComposerMaterialImage => ({
+		id,
+		name,
+		mimeType: "image/png",
+		data: `data-${id}`,
+	});
 	const file = (key: string) => ({ key, basename: `${key}.md`, path: `D:/project/${key}.md` });
 	const preview = vi.fn();
 	const removeImage = vi.fn();
 	const removeFile = vi.fn();
-	async function show(materialImages: ComposerMaterialImage[], materialFiles: ReturnType<typeof file>[], owner = "first"): Promise<void> {
-		await act(async () => root.render(<ComposerMaterials key={owner} images={materialImages} files={materialFiles} onPreview={preview} onRemoveImage={removeImage} onRemoveFile={removeFile} />));
+	async function show(
+		materialImages: ComposerMaterialImage[],
+		materialFiles: ReturnType<typeof file>[],
+		owner = "first",
+	): Promise<void> {
+		await act(async () =>
+			root.render(
+				<ComposerMaterials
+					key={owner}
+					images={materialImages}
+					files={materialFiles}
+					onPreview={preview}
+					onRemoveImage={removeImage}
+					onRemoveFile={removeFile}
+				/>,
+			),
+		);
 	}
 
 	it("shows images without visible names or format text and retains localized preview and removal actions", async () => {
@@ -210,22 +292,34 @@ describe("Composer material arrivals", () => {
 		await show([named, unnamed], [file("notes")]);
 		for (const card of container.querySelectorAll('[data-kind="image"]')) {
 			expect(card.querySelector(".owl-composer-material-preview img")).not.toBeNull();
-			expect(card.querySelector(".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path")).toBeNull();
+			expect(
+				card.querySelector(".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path"),
+			).toBeNull();
 			expect(card.querySelector(".owl-composer-material-remove")).not.toBeNull();
 		}
 		expect(container.textContent).not.toContain("草图.png");
 		expect(container.textContent).not.toContain("PNG");
-		expect([...container.querySelectorAll(".owl-composer-material-name")].map((name) => name.textContent)).toEqual(["notes.md"]);
-		expect(container.querySelector('[data-kind="file"] .owl-composer-material-path')?.textContent).toBe("D:/project/notes.md");
+		expect([...container.querySelectorAll(".owl-composer-material-name")].map((name) => name.textContent)).toEqual([
+			"notes.md",
+		]);
+		expect(container.querySelector('[data-kind="file"] .owl-composer-material-path')?.textContent).toBe(
+			"D:/project/notes.md",
+		);
 		await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="预览图片 1"]')!.click());
 		expect(preview).toHaveBeenCalledWith(named);
 		await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="移除图片 2"]')!.click());
 		expect(removeImage).toHaveBeenCalledWith("second");
-		await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="移除文件 D:/project/notes.md"]')!.click());
+		await act(async () =>
+			container.querySelector<HTMLButtonElement>('[aria-label="移除文件 D:/project/notes.md"]')!.click(),
+		);
 		expect(removeFile).toHaveBeenCalledWith("D:/project/notes.md");
 		await act(async () => setUiLanguage("en"));
 		await show([unnamed], []);
-		expect(container.querySelector(".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path")).toBeNull();
+		expect(
+			container.querySelector(
+				".owl-composer-material-copy, .owl-composer-material-name, .owl-composer-material-path",
+			),
+		).toBeNull();
 		expect(container.querySelector<HTMLButtonElement>('[aria-label="Preview image 1"]')?.title).toBeTruthy();
 		expect(container.querySelector<HTMLButtonElement>('[aria-label="Remove image 1"]')?.title).toBeTruthy();
 	});
@@ -276,7 +370,9 @@ describe("Composer material arrivals", () => {
 		vi.useFakeTimers();
 		await show([], []);
 		await show([sample("image")], [file("document")]);
-		expect([...container.querySelectorAll('[data-arriving="true"]')].map((card) => card.getAttribute("data-kind"))).toEqual(["image", "file"]);
+		expect(
+			[...container.querySelectorAll('[data-arriving="true"]')].map((card) => card.getAttribute("data-kind")),
+		).toEqual(["image", "file"]);
 		await act(async () => vi.advanceTimersByTime(500));
 		expect(container.querySelectorAll('[data-arriving="true"]')).toHaveLength(0);
 	});

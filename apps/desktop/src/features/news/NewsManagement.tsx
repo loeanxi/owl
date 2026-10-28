@@ -198,13 +198,21 @@ export function NewsManagement({
 						<NewsModelTest
 							api={api}
 							model={config.models.assistant}
-							modelName={snapshot.models.find((model) => model.provider === config.models.assistant?.provider && model.id === config.models.assistant?.id)?.name}
+							modelName={
+								snapshot.models.find(
+									(model) =>
+										model.provider === config.models.assistant?.provider &&
+										model.id === config.models.assistant?.id,
+								)?.name
+							}
 							disabled={busy}
 							draft
 							onBusyChange={setBusy}
 						/>
 						<div className="owl-news-actions">
-							<button type="button" disabled={busy} onClick={onOpenModelSettings}>{t("news.manageModelServices")}</button>
+							<button type="button" disabled={busy} onClick={onOpenModelSettings}>
+								{t("news.manageModelServices")}
+							</button>
 						</div>
 					</fieldset>
 					<fieldset disabled={busy}>

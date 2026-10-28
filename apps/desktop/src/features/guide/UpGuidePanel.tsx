@@ -1,19 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import MarkdownIt from "markdown-it";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n/index.ts";
 import {
-	UP_GUIDE_CHAPTERS,
-	UP_GUIDE_PARTS,
-	UP_GUIDE_LICENSE_URL,
-	UP_GUIDE_REPO_URL,
 	fetchUpGuideChapters,
 	loadCachedUpGuide,
 	resolveUpGuideAsset,
 	resolveUpGuideLink,
 	resolveUpGuideRepoPath,
 	saveCachedUpGuide,
-	upGuideChapterUrl,
+	UP_GUIDE_CHAPTERS,
+	UP_GUIDE_LICENSE_URL,
+	UP_GUIDE_PARTS,
+	UP_GUIDE_REPO_URL,
 	type UpGuideChapter,
+	upGuideChapterUrl,
 } from "./up-guide-content.ts";
 
 interface UpGuidePanelProps {
@@ -38,13 +38,20 @@ const md = new MarkdownIt({ html: false, linkify: true });
 
 /** 章内相对图片重写成 jsDelivr 绝对地址（上游正文用 ../../assets/ 相对引用）。 */
 function renderChapterHtml(chapter: UpGuideChapter, path: string): string {
-	return md.render(chapter.body).replace(/<img src="([^"]+)"/g, (raw, src: string) => raw.replace(src, resolveUpGuideAsset(path, src)));
+	return md
+		.render(chapter.body)
+		.replace(/<img src="([^"]+)"/g, (raw, src: string) => raw.replace(src, resolveUpGuideAsset(path, src)));
 }
 
 /** 「人生进阶指南」阅读面板：部-章目录 + 长文正文（markdown-it 渲染），章节缓存进 localStorage。 */
 export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JSX.Element {
 	const t = useT();
-	const [state, setState] = useState<LoadState>({ status: "idle", chapters: new Map(), done: 0, total: UP_GUIDE_CHAPTERS.length });
+	const [state, setState] = useState<LoadState>({
+		status: "idle",
+		chapters: new Map(),
+		done: 0,
+		total: UP_GUIDE_CHAPTERS.length,
+	});
 	const [currentNo, setCurrentNo] = useState<number>(() => {
 		const saved = Number(localStorage.getItem(UP_GUIDE_LAST_KEY));
 		return UP_GUIDE_CHAPTERS.some((chapter) => chapter.no === saved) ? saved : 1;
@@ -62,7 +69,13 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 				}
 				const savedAt = saveCachedUpGuide(result.chapters);
 				const chapters = new Map(result.chapters.map((chapter) => [chapter.no, chapter]));
-				setState({ status: "ready", chapters, savedAt, done: result.chapters.length, total: UP_GUIDE_CHAPTERS.length });
+				setState({
+					status: "ready",
+					chapters,
+					savedAt,
+					done: result.chapters.length,
+					total: UP_GUIDE_CHAPTERS.length,
+				});
 			})
 			.catch(() => setState((current) => ({ ...current, status: "error" })));
 	};
@@ -72,7 +85,13 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 		const cached = loadCachedUpGuide();
 		if (cached.chapters.length > 0) {
 			const chapters = new Map(cached.chapters.map((chapter) => [chapter.no, chapter]));
-			setState({ status: "ready", chapters, savedAt: cached.savedAt, done: cached.chapters.length, total: UP_GUIDE_CHAPTERS.length });
+			setState({
+				status: "ready",
+				chapters,
+				savedAt: cached.savedAt,
+				done: cached.chapters.length,
+				total: UP_GUIDE_CHAPTERS.length,
+			});
 			return;
 		}
 		sync();
@@ -91,7 +110,10 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 
 	const currentMeta = useMemo(() => UP_GUIDE_CHAPTERS.find((chapter) => chapter.no === currentNo)!, [currentNo]);
 	const current = state.chapters.get(currentNo);
-	const html = useMemo(() => (current ? renderChapterHtml(current, currentMeta.path) : ""), [current, currentMeta.path]);
+	const html = useMemo(
+		() => (current ? renderChapterHtml(current, currentMeta.path) : ""),
+		[current, currentMeta.path],
+	);
 
 	const needle = tocQuery.trim().toLowerCase();
 	const tocGroups = useMemo(() => {
@@ -131,14 +153,28 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 			<div className="owl-upguide-main">
 				<nav className="owl-upguide-toc" aria-label={t("upguide.toc")}>
 					<label className="owl-upguide-tocfilter">
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.8"
+							strokeLinecap="round"
+							aria-hidden="true"
+						>
+							<circle cx="11" cy="11" r="7" />
+							<path d="m20 20-3.5-3.5" />
+						</svg>
 						<input
 							value={tocQuery}
 							onChange={(event) => setTocQuery(event.target.value)}
 							placeholder={t("upguide.tocFilter")}
 							aria-label={t("upguide.tocFilter")}
 						/>
-						{tocQuery && <button type="button" aria-label="×" onClick={() => setTocQuery("")}>×</button>}
+						{tocQuery && (
+							<button type="button" aria-label="×" onClick={() => setTocQuery("")}>
+								×
+							</button>
+						)}
 					</label>
 					<div className="owl-upguide-toclist">
 						{tocGroups.map(({ part, items }) => (
@@ -149,7 +185,10 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 										key={chapter.no}
 										type="button"
 										className={`owl-upguide-ch${!needle && currentNo === chapter.no ? " on" : ""}`}
-										onClick={() => { setCurrentNo(chapter.no); setTocQuery(""); }}
+										onClick={() => {
+											setCurrentNo(chapter.no);
+											setTocQuery("");
+										}}
 									>
 										<span className="no">{String(chapter.no).padStart(2, "0")}</span>
 										<span>{chapter.title}</span>
@@ -161,13 +200,18 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 					</div>
 					<div className="owl-upguide-tocfoot" data-status={state.status}>
 						<span>
-							{state.status === "loading" ? t("upguide.loading", { done: state.done, total: state.total })
-								: state.status === "error" ? t("upguide.fetchFailed")
-								: state.savedAt ? t("upguide.cachedAt", { date: state.savedAt })
-								: ""}
+							{state.status === "loading"
+								? t("upguide.loading", { done: state.done, total: state.total })
+								: state.status === "error"
+									? t("upguide.fetchFailed")
+									: state.savedAt
+										? t("upguide.cachedAt", { date: state.savedAt })
+										: ""}
 						</span>
 						{(state.status === "ready" || state.status === "error") && (
-							<button type="button" onClick={sync}>{t("upguide.resync")}</button>
+							<button type="button" onClick={sync}>
+								{t("upguide.resync")}
+							</button>
 						)}
 					</div>
 				</nav>
@@ -175,19 +219,29 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 					{state.status === "loading" && (
 						<div className="owl-guide-state">
 							<p>{t("upguide.loading", { done: state.done, total: state.total })}</p>
-							<div className="bar"><i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} /></div>
+							<div className="bar">
+								<i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} />
+							</div>
 						</div>
 					)}
 					{state.status === "error" && (
 						<div className="owl-guide-state">
 							<p className="err">{t("upguide.fetchFailed")}</p>
-							<p><button type="button" className="owl-guide-linkbtn" onClick={sync}>{t("upguide.retry")}</button></p>
+							<p>
+								<button type="button" className="owl-guide-linkbtn" onClick={sync}>
+									{t("upguide.retry")}
+								</button>
+							</p>
 						</div>
 					)}
 					{state.status === "ready" && !current && (
 						<div className="owl-guide-state">
 							<p>{t("upguide.chapterMissing")}</p>
-							<p><button type="button" className="owl-guide-linkbtn" onClick={sync}>{t("upguide.retry")}</button></p>
+							<p>
+								<button type="button" className="owl-guide-linkbtn" onClick={sync}>
+									{t("upguide.retry")}
+								</button>
+							</p>
 						</div>
 					)}
 					{current && (
@@ -197,14 +251,34 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 								<h2>{current.title}</h2>
 								<div className="meta">
 									{current.updated && <span>{t("upguide.updated", { date: current.updated })}</span>}
-									<a href={upGuideChapterUrl(currentMeta.path)} onClick={(event) => { event.preventDefault(); onOpenUrl(upGuideChapterUrl(currentMeta.path)); }}>{t("upguide.viewChapter")} ↗</a>
+									<a
+										href={upGuideChapterUrl(currentMeta.path)}
+										onClick={(event) => {
+											event.preventDefault();
+											onOpenUrl(upGuideChapterUrl(currentMeta.path));
+										}}
+									>
+										{t("upguide.viewChapter")} ↗
+									</a>
 								</div>
 							</header>
 							{/* markdown-it html:false，正文只含上游生成的标签；点击代理见 onContentClick。 */}
-							<div className="owl-upguide-content" onClick={onContentClick} dangerouslySetInnerHTML={{ __html: html }} />
+							<div
+								className="owl-upguide-content"
+								onClick={onContentClick}
+								dangerouslySetInnerHTML={{ __html: html }}
+							/>
 							<footer className="owl-upguide-pager">
-								<button type="button" disabled={currentNo <= 1} onClick={() => openChapter(currentNo - 1)}>← {t("upguide.prev")}</button>
-								<button type="button" disabled={currentNo >= UP_GUIDE_CHAPTERS.length} onClick={() => openChapter(currentNo + 1)}>{t("upguide.next")} →</button>
+								<button type="button" disabled={currentNo <= 1} onClick={() => openChapter(currentNo - 1)}>
+									← {t("upguide.prev")}
+								</button>
+								<button
+									type="button"
+									disabled={currentNo >= UP_GUIDE_CHAPTERS.length}
+									onClick={() => openChapter(currentNo + 1)}
+								>
+									{t("upguide.next")} →
+								</button>
 							</footer>
 						</article>
 					)}
@@ -216,8 +290,24 @@ export function UpGuidePanel({ active, onOpenUrl }: UpGuidePanelProps): React.JS
 					{state.savedAt && ` · ${t("guide.mayLagUpstream", { date: state.savedAt })}`}
 				</span>
 				<span className="right">
-					<a href={UP_GUIDE_LICENSE_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(UP_GUIDE_LICENSE_URL); }}>{t("upguide.license")} ↗</a>
-					<a href={UP_GUIDE_REPO_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(UP_GUIDE_REPO_URL); }}>{t("upguide.openOnGithub")} ↗</a>
+					<a
+						href={UP_GUIDE_LICENSE_URL}
+						onClick={(event) => {
+							event.preventDefault();
+							onOpenUrl(UP_GUIDE_LICENSE_URL);
+						}}
+					>
+						{t("upguide.license")} ↗
+					</a>
+					<a
+						href={UP_GUIDE_REPO_URL}
+						onClick={(event) => {
+							event.preventDefault();
+							onOpenUrl(UP_GUIDE_REPO_URL);
+						}}
+					>
+						{t("upguide.openOnGithub")} ↗
+					</a>
 				</span>
 			</footer>
 		</div>

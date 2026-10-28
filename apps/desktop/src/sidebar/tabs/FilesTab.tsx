@@ -6,11 +6,9 @@
  * 被改的层）；Git 状态着色来自 Workbench 下发的 gitStatus 快照。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { t, useT } from "../../i18n/index.ts";
 import type { FsEntry, FsListing, FsSearchHit } from "../../bridge/protocol.ts";
 import { FileIcon } from "../../file-icons/FileIcon.tsx";
-import type { TabComponentProps } from "../registry.ts";
-import { useSidebarState } from "../store.ts";
+import { t, useT } from "../../i18n/index.ts";
 import {
 	IconChevronDown,
 	IconChevronRight,
@@ -31,6 +29,8 @@ import {
 	IconTrash,
 	IconX,
 } from "../icons.tsx";
+import type { TabComponentProps } from "../registry.ts";
+import { useSidebarState } from "../store.ts";
 
 interface TreeRow {
 	entry: FsEntry;
@@ -73,7 +73,8 @@ function fileColor(path: string): string {
 	if (["rs"].includes(ext)) return "text-orange-300 owl-file-icon-tint";
 	if (["py"].includes(ext)) return "text-emerald-300 owl-file-icon-tint";
 	if (["css", "scss", "html"].includes(ext)) return "text-fuchsia-300 owl-file-icon-tint";
-	if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"].includes(ext)) return "text-violet-300 owl-file-icon-tint";
+	if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"].includes(ext))
+		return "text-violet-300 owl-file-icon-tint";
 	if (["gitignore", "lock"].includes(ext) || name === ".gitignore" || name.endsWith(".lock")) return "text-owl-faint";
 	return "text-owl-muted";
 }
@@ -152,14 +153,22 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const [confirming, setConfirming] = useState<FsEntry | undefined>(undefined);
 	// 点开头的隐藏项默认不进树（搜索仍全量）；选择持久化，下次打开工作台保持一致。
 	const [showHidden, setShowHidden] = useState(() => {
-		try { return localStorage.getItem("owl.files.showHidden") === "true"; } catch { return false; }
+		try {
+			return localStorage.getItem("owl.files.showHidden") === "true";
+		} catch {
+			return false;
+		}
 	});
 	const searchSeq = useRef(0);
 
 	const toggleShowHidden = (): void => {
 		setShowHidden((current) => {
 			const next = !current;
-			try { localStorage.setItem("owl.files.showHidden", String(next)); } catch { /* 内存态兜底 */ }
+			try {
+				localStorage.setItem("owl.files.showHidden", String(next));
+			} catch {
+				/* 内存态兜底 */
+			}
 			return next;
 		});
 	};
@@ -331,7 +340,9 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 
 	const absoluteOf = (rel: string): string => `${cwd.replace(/\\/g, "/").replace(/\/+$/, "")}/${rel}`;
 
-	const menuItems = (entry: FsEntry): { label: string; icon: React.ReactNode; action: () => void; danger?: boolean }[] => {
+	const menuItems = (
+		entry: FsEntry,
+	): { label: string; icon: React.ReactNode; action: () => void; danger?: boolean }[] => {
 		const items: { label: string; icon: React.ReactNode; action: () => void; danger?: boolean }[] = [
 			{
 				label: entry.isDir ? t("files.ctxExpand") : t("api.opOpen"),
@@ -398,8 +409,14 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 	const rowIcon = (entry: FsEntry, isOpen: boolean): React.ReactNode => {
 		if (entry.isSymlink && entry.broken) return <IconFile size={14} className="text-status-deleted" />;
 		let minimal: React.ReactNode;
-		if (entry.isDir) minimal = isOpen ? <IconFolderOpen size={14} className="text-owl-accent" /> : <IconFolder size={14} className="text-owl-accent" />;
-		else if (/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|avif)$/i.test(entry.name)) minimal = <IconImage size={14} className={fileColor(entry.path)} />;
+		if (entry.isDir)
+			minimal = isOpen ? (
+				<IconFolderOpen size={14} className="text-owl-accent" />
+			) : (
+				<IconFolder size={14} className="text-owl-accent" />
+			);
+		else if (/\.(png|jpg|jpeg|gif|webp|svg|ico|bmp|avif)$/i.test(entry.name))
+			minimal = <IconImage size={14} className={fileColor(entry.path)} />;
 		else minimal = <IconFile size={14} className={fileColor(entry.path)} />;
 		return <FileIcon name={entry.name} folder={entry.isDir} open={isOpen} size={14} minimal={minimal} />;
 	};
@@ -409,7 +426,10 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 			{/* 工具条 */}
 			<div className="flex items-center gap-1 border-b border-owl-border/40 px-2 py-1.5">
 				<div className="relative flex-1">
-					<IconSearch size={13} className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-owl-faint" />
+					<IconSearch
+						size={13}
+						className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-owl-faint"
+					/>
 					<input
 						type="text"
 						value={query}
@@ -511,7 +531,13 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 									name={hit.path.split("/").pop() ?? hit.path}
 									folder={hit.isDir}
 									size={13}
-									minimal={hit.isDir ? <IconFolder size={13} className="text-owl-accent" /> : <IconFile size={13} className={fileColor(hit.path)} />}
+									minimal={
+										hit.isDir ? (
+											<IconFolder size={13} className="text-owl-accent" />
+										) : (
+											<IconFile size={13} className={fileColor(hit.path)} />
+										)
+									}
 								/>
 								<span className="truncate">{hit.path}</span>
 							</button>
@@ -559,7 +585,13 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 											className={`group flex cursor-pointer items-center gap-1 rounded-md py-[3px] pr-2 hover:bg-owl-hover ${entry.hidden || ignored ? "opacity-60" : ""}`}
 										>
 											<span className="flex w-4 shrink-0 justify-center text-owl-faint">
-												{entry.isDir ? (isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />) : null}
+												{entry.isDir ? (
+													isOpen ? (
+														<IconChevronDown size={12} />
+													) : (
+														<IconChevronRight size={12} />
+													)
+												) : null}
 											</span>
 											{rowIcon(entry, isOpen)}
 											<span
@@ -570,11 +602,19 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 											</span>
 											{decoration !== undefined &&
 												(entry.isDir ? (
-													<span className={`ml-auto size-1.5 shrink-0 rounded-full bg-current ${decoration.color}`} />
+													<span
+														className={`ml-auto size-1.5 shrink-0 rounded-full bg-current ${decoration.color}`}
+													/>
 												) : (
-													<span className={`ml-auto shrink-0 text-[10px] font-semibold ${decoration.color}`}>{decoration.letter}</span>
+													<span
+														className={`ml-auto shrink-0 text-[10px] font-semibold ${decoration.color}`}
+													>
+														{decoration.letter}
+													</span>
 												))}
-											{loading.has(entry.path) && <IconLoader size={11} className="ml-auto shrink-0 animate-spin text-owl-faint" />}
+											{loading.has(entry.path) && (
+												<IconLoader size={11} className="ml-auto shrink-0 animate-spin text-owl-faint" />
+											)}
 										</div>
 									)}
 									{creating?.parent === entry.path && (
@@ -590,7 +630,9 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 													if (e.key === "Escape") setCreating(undefined);
 												}}
 												onBlur={() => void doCreate()}
-												placeholder={creating.kind === "file" ? t("files.newFileName") : t("files.newFolderName")}
+												placeholder={
+													creating.kind === "file" ? t("files.newFileName") : t("files.newFolderName")
+												}
 												className="mx-2 my-0.5 w-[calc(100%-1rem)] rounded border border-owl-accent/60 bg-owl-panel px-1.5 py-0.5 text-xs text-owl-text focus:outline-none"
 											/>
 										</div>
@@ -626,10 +668,20 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 			{/* 右键菜单 */}
 			{menu !== undefined && (
 				<>
-					<div className="fixed inset-0 z-40" onClick={() => setMenu(undefined)} onContextMenu={(e) => { e.preventDefault(); setMenu(undefined); }} />
+					<div
+						className="fixed inset-0 z-40"
+						onClick={() => setMenu(undefined)}
+						onContextMenu={(e) => {
+							e.preventDefault();
+							setMenu(undefined);
+						}}
+					/>
 					<div
 						className="fixed z-50 min-w-44 overflow-hidden rounded-lg border border-owl-border bg-owl-panel py-1 shadow-xl"
-						style={{ left: Math.min(menu.x, window.innerWidth - 190), top: Math.min(menu.y, window.innerHeight - 320) }}
+						style={{
+							left: Math.min(menu.x, window.innerWidth - 190),
+							top: Math.min(menu.y, window.innerHeight - 320),
+						}}
 					>
 						{menuItems(menu.entry).map((item) => (
 							<button
@@ -653,17 +705,33 @@ export function FilesTab({ api, client, store, cwd, onOpenFile, gitStatus }: Tab
 
 			{/* 删除确认 */}
 			{confirming !== undefined && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirming(undefined)}>
-					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-						<div className="text-sm font-medium text-owl-text">{t("files.deleteConfirm", { name: confirming.name })}</div>
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+					onClick={() => setConfirming(undefined)}
+				>
+					<div
+						className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<div className="text-sm font-medium text-owl-text">
+							{t("files.deleteConfirm", { name: confirming.name })}
+						</div>
 						<div className="mt-1.5 text-xs text-owl-muted">
 							{confirming.isDir ? t("files.deleteDirWarn") : t("files.deleteFileWarn")}
 						</div>
 						<div className="mt-4 flex justify-end gap-2">
-							<button type="button" className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-text hover:bg-owl-hover" onClick={() => setConfirming(undefined)}>
+							<button
+								type="button"
+								className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-text hover:bg-owl-hover"
+								onClick={() => setConfirming(undefined)}
+							>
 								{t("common.cancel")}
 							</button>
-							<button type="button" className="rounded-lg bg-red-500/90 px-3 py-1.5 text-xs text-white hover:bg-red-500" onClick={() => void doDelete()}>
+							<button
+								type="button"
+								className="rounded-lg bg-red-500/90 px-3 py-1.5 text-xs text-white hover:bg-red-500"
+								onClick={() => void doDelete()}
+							>
 								{t("common.delete")}
 							</button>
 						</div>

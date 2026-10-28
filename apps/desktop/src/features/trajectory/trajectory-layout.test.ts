@@ -10,7 +10,9 @@ function userEntry(text: string, timestamp: number, queued = false): ChatEntry {
 	return { kind: "user", text, timestamp, ...(queued ? { queued: true } : {}) };
 }
 
-function assistantEntry(overrides: Partial<Extract<ChatEntry, { kind: "assistant" }>> & { timestamp: number }): ChatEntry {
+function assistantEntry(
+	overrides: Partial<Extract<ChatEntry, { kind: "assistant" }>> & { timestamp: number },
+): ChatEntry {
 	return {
 		kind: "assistant",
 		text: "",
@@ -47,8 +49,24 @@ test("fold: tool cards become cells with own duration and status", () => {
 			thinking: "想一想",
 			usage: { input: 100, output: 20, cacheRead: 30, cacheWrite: 0 },
 			tools: [
-				{ id: "t1", name: "grep", args: '{"pattern":"x"}', summary: "搜索 x", status: "ok", startedAt: BASE + 2000, finishedAt: BASE + 2500 },
-				{ id: "t2", name: "bash", args: '{"command":"exit 1"}', summary: "执行", status: "error", startedAt: BASE + 3000, finishedAt: BASE + 3200 },
+				{
+					id: "t1",
+					name: "grep",
+					args: '{"pattern":"x"}',
+					summary: "搜索 x",
+					status: "ok",
+					startedAt: BASE + 2000,
+					finishedAt: BASE + 2500,
+				},
+				{
+					id: "t2",
+					name: "bash",
+					args: '{"command":"exit 1"}',
+					summary: "执行",
+					status: "error",
+					startedAt: BASE + 3000,
+					finishedAt: BASE + 3200,
+				},
 			],
 		}),
 	]);
@@ -74,8 +92,25 @@ test("fold: codemode subtools follow their parent", () => {
 		assistantEntry({
 			timestamp: BASE,
 			tools: [
-				{ id: "p", name: "run_code", args: "{}", summary: "跑代码", status: "ok", startedAt: BASE + 100, finishedAt: BASE + 500 },
-				{ id: "c", name: "bash", args: "{}", summary: "子调用", status: "ok", startedAt: BASE + 200, finishedAt: BASE + 300, parentToolCallId: "p" },
+				{
+					id: "p",
+					name: "run_code",
+					args: "{}",
+					summary: "跑代码",
+					status: "ok",
+					startedAt: BASE + 100,
+					finishedAt: BASE + 500,
+				},
+				{
+					id: "c",
+					name: "bash",
+					args: "{}",
+					summary: "子调用",
+					status: "ok",
+					startedAt: BASE + 200,
+					finishedAt: BASE + 300,
+					parentToolCallId: "p",
+				},
 			],
 		}),
 	]);
@@ -87,7 +122,21 @@ test("fold: codemode subtools follow their parent", () => {
 test("timeline: sequence mode lays equal unit spans on three lanes with turn boundaries", () => {
 	const snapshot = deriveTrajectoryLayout([
 		userEntry("一", BASE),
-		assistantEntry({ timestamp: BASE + 1000, text: "答", tools: [{ id: "t", name: "grep", args: "", summary: "s", status: "ok", startedAt: BASE + 1200, finishedAt: BASE + 1400 }] }),
+		assistantEntry({
+			timestamp: BASE + 1000,
+			text: "答",
+			tools: [
+				{
+					id: "t",
+					name: "grep",
+					args: "",
+					summary: "s",
+					status: "ok",
+					startedAt: BASE + 1200,
+					finishedAt: BASE + 1400,
+				},
+			],
+		}),
 		userEntry("二", BASE + 9000),
 	]);
 	const model = deriveTrajectoryTimeline(snapshot.turns, "sequence");

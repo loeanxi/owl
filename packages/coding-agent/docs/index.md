@@ -36,6 +36,8 @@ Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize
 
 Use the reference pages to look up [CLI options](cli.md), [settings](settings.md), [providers](providers.md), [keybindings](keybindings.md), and [environment variables](environment-variables.md).
 
+[Claude Desktop parity](claude-desktop-parity.md) records which parts of Claude's answer flow owl reproduces, with the bundle symbols each rule was reverse-engineered from.
+
 For platform-specific help, see [Terminal Setup](terminal-setup.md), [Windows](windows.md), [tmux](tmux.md), [Termux on Android](termux.md), or [Containerization](containerization.md).
 
 ## Work safely

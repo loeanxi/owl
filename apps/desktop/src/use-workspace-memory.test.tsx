@@ -1,10 +1,16 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act, useLayoutEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceMemory } from "./use-workspace-memory.ts";
-import { defaultWorkspaceMemory, readWorkspaceMemory, workspaceScrollKey, writeWorkspaceMemory, type WorkspaceMemory } from "./workspace-memory.ts";
+import {
+	defaultWorkspaceMemory,
+	readWorkspaceMemory,
+	type WorkspaceMemory,
+	workspaceScrollKey,
+	writeWorkspaceMemory,
+} from "./workspace-memory.ts";
 
 type HookOptions = Parameters<typeof useWorkspaceMemory>[0];
 type Place = HookOptions["place"];
@@ -31,7 +37,13 @@ function place(session: string, workspace = `D:/project-${session}`, rail: "chat
 function Harness(props: HarnessOptions): React.JSX.Element {
 	useWorkspaceMemory(props);
 	const surface = useRef<HTMLElement>(null);
-	const token = JSON.stringify([props.profile, props.place.rail, props.place.chatSession, props.place.researchSession, props.place.workspace]);
+	const token = JSON.stringify([
+		props.profile,
+		props.place.rail,
+		props.place.chatSession,
+		props.place.researchSession,
+		props.place.workspace,
+	]);
 	useLayoutEffect(() => {
 		const element = surface.current!;
 		element.scrollTop = 0;
@@ -51,7 +63,13 @@ function Harness(props: HarnessOptions): React.JSX.Element {
 			scrollHeight: { configurable: true, value: props.height ?? 2400 },
 		});
 	}, [token, props.height]);
-	return <div className="owl-workspace-frame"><main key={token} ref={surface} className="owl-chat-scroll"><div>conversation content</div></main></div>;
+	return (
+		<div className="owl-workspace-frame">
+			<main key={token} ref={surface} className="owl-chat-scroll">
+				<div>conversation content</div>
+			</main>
+		</div>
+	);
 }
 
 beforeEach(() => {
@@ -65,22 +83,40 @@ beforeEach(() => {
 	vi.stubGlobal("MutationObserver", dom.window.MutationObserver);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	values = new Map();
-	vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
+	vi.stubGlobal("localStorage", {
+		getItem: (key: string) => values.get(key) ?? null,
+		setItem: (key: string, value: string) => values.set(key, value),
+	});
 	frames = new Map();
 	frameSequence = 0;
-	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { const id = ++frameSequence; frames.set(id, callback); return id; });
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		const id = ++frameSequence;
+		frames.set(id, callback);
+		return id;
+	});
 	vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
 	resizeCallbacks = [];
-	vi.stubGlobal("ResizeObserver", class {
-		constructor(callback: ResizeObserverCallback) { resizeCallbacks.push(callback); }
-		observe(): void {}
-		disconnect(): void {}
-	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			constructor(callback: ResizeObserverCallback) {
+				resizeCallbacks.push(callback);
+			}
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 	vi.setSystemTime(10_000);
 	container = document.getElementById("root")!;
 	root = createRoot(container);
-	options = { profile: profileOne, connected: true, place: place("a"), restore: vi.fn(async () => undefined), cancelRestore: vi.fn() };
+	options = {
+		profile: profileOne,
+		connected: true,
+		place: place("a"),
+		restore: vi.fn(async () => undefined),
+		cancelRestore: vi.fn(),
+	};
 });
 
 afterEach(async () => {
@@ -94,7 +130,9 @@ async function render(patch: Partial<HarnessOptions> = {}): Promise<void> {
 	await act(async () => root.render(<Harness {...options} />));
 }
 
-function surface(): HTMLElement { return container.querySelector<HTMLElement>(".owl-chat-scroll")!; }
+function surface(): HTMLElement {
+	return container.querySelector<HTMLElement>(".owl-chat-scroll")!;
+}
 
 async function drainFrames(): Promise<void> {
 	let count = 0;
@@ -115,7 +153,12 @@ async function userScroll(top: number): Promise<void> {
 }
 
 function seed(profile: string, target: Place, top: number, atBottom = false): void {
-	writeWorkspaceMemory(localStorage, profile, { ...target, version: 1, savedAt: 5000, scroll: { [workspaceScrollKey(target, "chat")]: { top, left: 0, atBottom } } });
+	writeWorkspaceMemory(localStorage, profile, {
+		...target,
+		version: 1,
+		savedAt: 5000,
+		scroll: { [workspaceScrollKey(target, "chat")]: { top, left: 0, atBottom } },
+	});
 }
 
 function savedPosition(profile: string, target: Place): number | undefined {
@@ -157,7 +200,9 @@ describe("workspace reading positions", () => {
 		expect(surface().scrollTop).toBe(0);
 		expect(surface().dataset.owlScrollRestoring).toBe("true");
 		await render({ height: 2400 });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		await drainFrames();
 		expect(surface().scrollTop).toBe(1200);
 		expect(surface().hasAttribute("data-owl-scroll-restoring")).toBe(false);
@@ -205,7 +250,9 @@ describe("workspace reading positions", () => {
 		await act(async () => surface().dispatchEvent(new Event("wheel", { bubbles: true })));
 		await userScroll(100);
 		await render({ height: 2400 });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		await drainFrames();
 		expect(surface().scrollTop).toBe(100);
 		expect(surface().hasAttribute("data-owl-scroll-restoring")).toBe(false);
@@ -217,7 +264,11 @@ describe("workspace reading positions", () => {
 		await drainFrames();
 		const sidebar = document.createElement("aside");
 		sidebar.className = "owl-sidebar-list";
-		Object.defineProperties(sidebar, { clientWidth: { value: 200 }, clientHeight: { value: 400 }, scrollHeight: { value: 1200 } });
+		Object.defineProperties(sidebar, {
+			clientWidth: { value: 200 },
+			clientHeight: { value: 400 },
+			scrollHeight: { value: 1200 },
+		});
 		await act(async () => {
 			container.querySelector(".owl-workspace-frame")?.append(sidebar);
 			sidebar.dispatchEvent(new Event("wheel", { bubbles: true }));
@@ -225,7 +276,9 @@ describe("workspace reading positions", () => {
 		await drainFrames();
 		expect(surface().dataset.owlScrollRestoring).toBe("true");
 		await render({ height: 2400 });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		await drainFrames();
 		expect(surface().scrollTop).toBe(1600);
 	});
@@ -247,7 +300,11 @@ describe("sidebar scroll memory", () => {
 		await drainFrames();
 		const sidebar = document.createElement("aside");
 		sidebar.className = "owl-sidebar-list";
-		Object.defineProperties(sidebar, { clientWidth: { value: 200 }, clientHeight: { value: 400 }, scrollHeight: { value: 1200 } });
+		Object.defineProperties(sidebar, {
+			clientWidth: { value: 200 },
+			clientHeight: { value: 400 },
+			scrollHeight: { value: 1200 },
+		});
 		await act(async () => {
 			container.querySelector(".owl-workspace-frame")?.append(sidebar);
 			sidebar.scrollTop = 500;
@@ -257,7 +314,9 @@ describe("sidebar scroll memory", () => {
 		await act(async () => vi.advanceTimersByTime(200));
 		await render({ place: place("b", place("a").workspace) });
 		await drainFrames();
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		await drainFrames();
 		expect(sidebar.scrollTop).toBe(500);
 	});
@@ -270,7 +329,9 @@ describe("search navigation priority", () => {
 		await drainFrames();
 		expect(surface().scrollTop).toBe(350);
 		expect(savedPosition(profileOne, place("a"))).toBe(350);
-		await act(async () => { surface().firstElementChild?.append(document.createElement("p")); });
+		await act(async () => {
+			surface().firstElementChild?.append(document.createElement("p"));
+		});
 		await drainFrames();
 		expect(surface().scrollTop).toBe(350);
 	});
@@ -286,7 +347,9 @@ describe("search navigation priority", () => {
 			surface().dispatchEvent(new Event("scroll", { bubbles: true }));
 		});
 		await render({ height: 2400 });
-		await act(async () => { surface().firstElementChild?.append(document.createElement("p")); });
+		await act(async () => {
+			surface().firstElementChild?.append(document.createElement("p"));
+		});
 		await drainFrames();
 		await act(async () => vi.advanceTimersByTime(3100));
 		await drainFrames();
@@ -320,7 +383,10 @@ describe("profile restoration boundaries", () => {
 		seed(profileTwo, place("b"), 900);
 		const one = Promise.withResolvers<void>();
 		const two = Promise.withResolvers<void>();
-		const restore = vi.fn().mockImplementationOnce(() => one.promise).mockImplementationOnce(() => two.promise);
+		const restore = vi
+			.fn()
+			.mockImplementationOnce(() => one.promise)
+			.mockImplementationOnce(() => two.promise);
 		await render({ restore });
 		await render({ profile: profileTwo, place: place("b") });
 		await act(async () => two.resolve());

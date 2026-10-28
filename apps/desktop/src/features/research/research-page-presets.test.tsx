@@ -27,15 +27,21 @@ vi.mock("react", async () => {
 	const actual = await vi.importActual<typeof React>("react");
 	return {
 		...actual,
-		useSyncExternalStore: <T,>(subscribe: (listener: () => void) => () => void, getSnapshot: () => T): T => actual.useSyncExternalStore(subscribe, getSnapshot, getSnapshot),
+		useSyncExternalStore: <T,>(subscribe: (listener: () => void) => () => void, getSnapshot: () => T): T =>
+			actual.useSyncExternalStore(subscribe, getSnapshot, getSnapshot),
 	};
 });
 vi.mock("../../components/Composer.tsx", () => ({
-	Composer: (props: PresetComposerProps) => { seam.composerProps = props; return null; },
+	Composer: (props: PresetComposerProps) => {
+		seam.composerProps = props;
+		return null;
+	},
 }));
 vi.mock("./research-session.ts", () => ({
 	ResearchSessionController: class {
-		constructor(_client: unknown, _storage: unknown, _cwd: string, defaults: unknown) { seam.controllerDefaults = defaults; }
+		constructor(_client: unknown, _storage: unknown, _cwd: string, defaults: unknown) {
+			seam.controllerDefaults = defaults;
+		}
 		subscribe = (): (() => void) => () => undefined;
 		getSnapshot = (): ResearchSessionState => seam.state;
 		getQueueOwnerRevision = (): number => 0;
@@ -49,7 +55,9 @@ vi.mock("../../components/ContextView.tsx", () => ({ ContextView: () => null }))
 vi.mock("../../components/RetryPin.tsx", () => ({ RetryPin: () => null }));
 vi.mock("../../components/TodoPin.tsx", () => ({ TodoPin: () => null }));
 vi.mock("../trajectory/TrajectoryView.tsx", () => ({ TrajectoryView: () => null }));
-vi.mock("../../components/Genui.tsx", () => ({ GenuiSessionProvider: ({ children }: { children: React.ReactNode }) => children }));
+vi.mock("../../components/Genui.tsx", () => ({
+	GenuiSessionProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 const presets: AgentPresetDefinition[] = [
 	{ id: "standard", name: "标准模式", description: "标准工具组合", builtin: true, order: 1 },
@@ -64,17 +72,39 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	seam.composerProps = undefined;
 	seam.controllerDefaults = undefined;
-	seam.state = { model: "fixture/model", thinkingLevel: "high", approvalMode: "confirm", entries: [], results: [], running: false, busy: false, ready: true, connected: true, retryStatus: null, agentPreset: "seagull" };
+	seam.state = {
+		model: "fixture/model",
+		thinkingLevel: "high",
+		approvalMode: "confirm",
+		entries: [],
+		results: [],
+		running: false,
+		busy: false,
+		ready: true,
+		connected: true,
+		retryStatus: null,
+		agentPreset: "seagull",
+	};
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined, removeItem: () => undefined });
 });
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
 
 function renderResearch(overrides: Partial<ResearchPageProps> = {}): PresetComposerProps {
 	const props: ResearchPageProps = {
-		client: {} as BridgeClient, active: true, connected: true, cwd: "D:/owl",
-		providers: [], defaultModel: "fixture/model", defaultThinkingLevel: "high", defaultApprovalMode: "confirm",
-		agentPresets: presets, defaultPresetId: "standard", defaultAgentPreset: "seagull",
+		client: {} as BridgeClient,
+		active: true,
+		connected: true,
+		cwd: "D:/owl",
+		providers: [],
+		defaultModel: "fixture/model",
+		defaultThinkingLevel: "high",
+		defaultApprovalMode: "confirm",
+		agentPresets: presets,
+		defaultPresetId: "standard",
+		defaultAgentPreset: "seagull",
 		...overrides,
 	};
 	renderToStaticMarkup(React.createElement(ResearchPage, props));
@@ -96,7 +126,12 @@ describe("ResearchPage Home preset controls", () => {
 	});
 
 	it("shows the restored session's actual preset and locks it after a message", () => {
-		seam.state = { ...seam.state, sessionId: "research-1", sessionPreset: "minimal", entries: [{ kind: "user", text: "继续研究" }] };
+		seam.state = {
+			...seam.state,
+			sessionId: "research-1",
+			sessionPreset: "minimal",
+			entries: [{ kind: "user", text: "继续研究" }],
+		};
 		const composer = renderResearch();
 		expect(composer.agentPreset).toBe("minimal");
 		expect(composer.agentPresetLocked).toBe(true);

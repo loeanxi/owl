@@ -155,7 +155,11 @@ export function languageIdOf(fileName: string): string | undefined {
 	return dot < 0 ? undefined : LANGUAGE_BY_EXTENSION[lower.slice(dot + 1)];
 }
 
-function lookup(layers: readonly IconAssociations[], pick: (layer: IconAssociations) => Record<string, string> | undefined, key: string): string | undefined {
+function lookup(
+	layers: readonly IconAssociations[],
+	pick: (layer: IconAssociations) => Record<string, string> | undefined,
+	key: string,
+): string | undefined {
 	for (const layer of layers) {
 		const id = pick(layer)?.[key];
 		if (id !== undefined) return id;
@@ -164,11 +168,19 @@ function lookup(layers: readonly IconAssociations[], pick: (layer: IconAssociati
 }
 
 /** 解析出图标 id；主题没有对应默认图标（如 Seti 不带文件夹图标）时返回 undefined。 */
-export function resolveIconId(theme: IconThemeManifest, name: string, kind: IconKind, light: boolean): string | undefined {
+export function resolveIconId(
+	theme: IconThemeManifest,
+	name: string,
+	kind: IconKind,
+	light: boolean,
+): string | undefined {
 	const layers: IconAssociations[] = light && theme.light !== undefined ? [theme.light, theme] : [theme];
 	const lower = name.toLowerCase();
 	if (kind !== "file") {
-		const names = kind === "folder" ? (layer: IconAssociations) => layer.folderNames : (layer: IconAssociations) => layer.folderNamesExpanded;
+		const names =
+			kind === "folder"
+				? (layer: IconAssociations) => layer.folderNames
+				: (layer: IconAssociations) => layer.folderNamesExpanded;
 		return lookup(layers, names, lower) ?? layers.map((layer) => layer[kind]).find((id) => id !== undefined);
 	}
 	const byName = lookup(layers, (layer) => layer.fileNames, lower);

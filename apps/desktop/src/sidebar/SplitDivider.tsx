@@ -4,10 +4,15 @@
  */
 import { useCallback, useRef, useState } from "react";
 import { useT } from "../i18n/index.ts";
-import { startPointerDrag, type PointerDragHandlers } from "./pointer-drag.ts";
-import { clampSplitRatio, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, type SidebarStore } from "./store.ts";
+import { type PointerDragHandlers, startPointerDrag } from "./pointer-drag.ts";
+import { clampSplitRatio, type SidebarStore, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN } from "./store.ts";
 
-export function SplitDivider({ store, splitId, dir, ratio }: {
+export function SplitDivider({
+	store,
+	splitId,
+	dir,
+	ratio,
+}: {
 	store: SidebarStore;
 	/** 目标分隔条 id（store.setRatio 用）。 */
 	splitId: string;
@@ -21,18 +26,21 @@ export function SplitDivider({ store, splitId, dir, ratio }: {
 	const [drag, setDrag] = useState<{ x: number; y: number; ratio: number } | undefined>(undefined);
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
 
-	const beginPointerDrag = useCallback((event: React.PointerEvent<HTMLElement>, handlers: PointerDragHandlers): void => {
-		if (event.button !== 0 || !event.isPrimary) return;
-		activeDrag.current?.();
-		event.preventDefault();
-		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
-			...handlers,
-			onFinish: (cancelled) => {
-				activeDrag.current = undefined;
-				handlers.onFinish(cancelled);
-			},
-		});
-	}, []);
+	const beginPointerDrag = useCallback(
+		(event: React.PointerEvent<HTMLElement>, handlers: PointerDragHandlers): void => {
+			if (event.button !== 0 || !event.isPrimary) return;
+			activeDrag.current?.();
+			event.preventDefault();
+			activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
+				...handlers,
+				onFinish: (cancelled) => {
+					activeDrag.current = undefined;
+					handlers.onFinish(cancelled);
+				},
+			});
+		},
+		[],
+	);
 
 	const onPointerDown = useCallback(
 		(event: React.PointerEvent<HTMLElement>): void => {
@@ -42,7 +50,8 @@ export function SplitDivider({ store, splitId, dir, ratio }: {
 			beginPointerDrag(event, {
 				cursor: dir === "row" ? "col-resize" : "row-resize",
 				onMove: (move) => {
-					const next = dir === "row" ? (move.clientX - rect.left) / rect.width : (move.clientY - rect.top) / rect.height;
+					const next =
+						dir === "row" ? (move.clientX - rect.left) / rect.width : (move.clientY - rect.top) / rect.height;
 					// 拖动中不落盘：松手再 persist，避免一次拖动写十几次 localStorage。
 					store.setRatio(splitId, next, { persist: false });
 					// 把分隔条位置报出来：只看那条 1px 细线，看不出拖到了哪。

@@ -48,7 +48,8 @@ export const baguZh = {
 	"bagu.retro.weakItem": "第 {no} 题（{score} 分）：{title}",
 	"bagu.retro.clean": "这场没有明显薄弱点，保持节奏。",
 	"bagu.close": "关闭",
-	"bagu.linkNote": "题库与学习记录在 bagu（localhost:8080）；「反问」与离线评分由 owl agent 驱动。复盘统计基于本场作答，仅存于内存。",
+	"bagu.linkNote":
+		"题库与学习记录在 bagu（localhost:8080）；「反问」与离线评分由 owl agent 驱动。复盘统计基于本场作答，仅存于内存。",
 	"bagu.hintEnterShift": "Enter 发送 · Shift+Enter 换行",
 	"bagu.hintEnter": "Enter 发送",
 };
@@ -75,7 +76,8 @@ export const baguEn: typeof baguZh = {
 	"bagu.queueEmpty": "No questions in this scope yet",
 	"bagu.interviewer": "AI interviewer · Lao Zhou",
 	"bagu.round": "Question {n}",
-	"bagu.intro": "Hi, I'm Lao Zhou, today's interviewer. We take turns: you answer, I score and move on. Switch to “Ask the interviewer” anytime to grill me back.",
+	"bagu.intro":
+		"Hi, I'm Lao Zhou, today's interviewer. We take turns: you answer, I score and move on. Switch to “Ask the interviewer” anytime to grill me back.",
 	"bagu.answerMode": "Answer",
 	"bagu.askMode": "Ask the interviewer",
 	"bagu.answerPlaceholder": "Answer like in a real interview — scoring checks keyword coverage…",
@@ -102,7 +104,8 @@ export const baguEn: typeof baguZh = {
 	"bagu.retro.weakItem": "Q{no} ({score}): {title}",
 	"bagu.retro.clean": "No weak spots this round. Keep it up.",
 	"bagu.close": "Close",
-	"bagu.linkNote": "Questions and study records live in bagu (localhost:8080); “Ask” and offline scoring run on the owl agent. Recap stats cover this session and stay in memory.",
+	"bagu.linkNote":
+		"Questions and study records live in bagu (localhost:8080); “Ask” and offline scoring run on the owl agent. Recap stats cover this session and stay in memory.",
 	"bagu.hintEnterShift": "Enter to send · Shift+Enter for a new line",
 	"bagu.hintEnter": "Enter to send",
 };

@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	appendMemoryEntries,
+	type ExpertGroup,
+	type ExpertPersona,
 	expertGroupPrimer,
 	expertPrimer,
 	memoryContext,
 	parseMemoryEntries,
 	stripMemoryLines,
-	type ExpertGroup,
-	type ExpertPersona,
 } from "./expert-data.ts";
 
 const TEMPLATED = `# 长期记忆（与用户合作累积）
@@ -36,7 +36,10 @@ test("parseMemoryEntries 识别「记忆+ 分类｜内容」，省略分类按�
 		"- 记忆+ 偏好｜列表形式也收",
 	].join("\n");
 	const entries = parseMemoryEntries(text);
-	assert.deepEqual(entries.map((entry) => entry.category), ["偏好", "进行中", "纠偏", "结论", "结论", "偏好"]);
+	assert.deepEqual(
+		entries.map((entry) => entry.category),
+		["偏好", "进行中", "纠偏", "结论", "结论", "偏好"],
+	);
 	assert.equal(entries[0]!.text, "用户偏好无边框窗口模式");
 	assert.equal(entries[4]!.text, "默认分类这条也收");
 	assert.equal(entries[5]!.text, "列表形式也收");
@@ -93,8 +96,18 @@ test("memoryContext 短文件全带，长文件带尾部并标注省略", () => 
 });
 
 const PERSONA: ExpertPersona = {
-	slug: "laok", name: "老K", title: "DevOps 稳定性顾问", division: "eng", color: ["#000", "#111"],
-	desc: "d", tags: [], mission: "m", rules: ["r"], deliv: ["dv"], flow: [["f", "fd"]], metrics: ["mt"],
+	slug: "laok",
+	name: "老K",
+	title: "DevOps 稳定性顾问",
+	division: "eng",
+	color: ["#000", "#111"],
+	desc: "d",
+	tags: [],
+	mission: "m",
+	rules: ["r"],
+	deliv: ["dv"],
+	flow: [["f", "fd"]],
+	metrics: ["mt"],
 };
 
 test("expertPrimer 携带记忆协议与既有记忆", async () => {

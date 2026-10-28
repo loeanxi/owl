@@ -13,8 +13,8 @@
  */
 
 import { useEffect, useState } from "react";
-import type { DiffApprovalFileSummary } from "../bridge/protocol.ts";
 import type { BridgeClient } from "../bridge/client.ts";
+import type { DiffApprovalFileSummary } from "../bridge/protocol.ts";
 
 /** 行内 code 芯片的三种染色语义。 */
 export type ChipTint = "added" | "removed" | "modified";
@@ -191,26 +191,31 @@ export function useTurnDiff(
 					const files = response.result.files;
 					const base = summarizeTurnDiff(files);
 					// 拉每个改动文件的 diff，解析出增删的行 —— 芯片的绿/红由此而来。
+					// 一次批量往返顶所有条目：每个条目一个请求会在一轮改动多时
+					// 把桥的单线程事件循环堵死，连带会话切换都被排在后面。
 					const removedLines = new Set<string>();
 					const addedLines = new Set<string>();
-					const pending = files
-						.filter((file) => file.status === "pending")
-						.map((file) =>
-							client
-								.request<{ diff: string; truncated: boolean }>({
-									type: "diffApproval.diff",
-									cwd,
-									entryId: file.id,
-								})
-								.then((diffResponse) => {
-									if (!diffResponse.ok || diffResponse.result === undefined) return;
-									const parsed = parseChangedLines(diffResponse.result.diff);
-									for (const line of parsed.removed) removedLines.add(line);
-									for (const line of parsed.added) addedLines.add(line);
-								})
-								.catch(() => undefined),
-						);
-					await Promise.all(pending);
+					const pendingIds = files.filter((file) => file.status === "pending").map((file) => file.id);
+					if (pendingIds.length > 0) {
+						const diffs = await client
+							.request<{
+								diffs: Array<{ id: string; diff: string; truncated: boolean; error?: string }>;
+							}>({
+								type: "diffApproval.diffs",
+								cwd,
+								entryIds: pendingIds,
+							})
+							// 取不到 diff 不影响摘要本身：芯片只是少几行染色。
+							.catch(() => undefined);
+						if (diffs?.ok && diffs.result !== undefined) {
+							for (const item of diffs.result.diffs) {
+								if (item.error) continue;
+								const parsed = parseChangedLines(item.diff);
+								for (const line of parsed.removed) removedLines.add(line);
+								for (const line of parsed.added) addedLines.add(line);
+							}
+						}
+					}
 					if (cancelled) return;
 					setSummary({ ...base, removedLines, addedLines });
 				})
@@ -219,9 +224,8 @@ export function useTurnDiff(
 		load();
 		// 没有 diff-approval 插件的桥不会推这个事件：没有它就不订阅，
 		// 回答流照常渲染，只是不带 diff 统计与染色。
-		const off = typeof client.onDiffApprovalChanged === "function"
-			? client.onDiffApprovalChanged(() => load())
-			: undefined;
+		const off =
+			typeof client.onDiffApprovalChanged === "function" ? client.onDiffApprovalChanged(() => load()) : undefined;
 		return () => {
 			cancelled = true;
 			off?.();

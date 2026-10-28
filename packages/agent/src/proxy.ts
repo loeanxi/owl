@@ -7,6 +7,7 @@
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
+	type Citation,
 	EventStream,
 	type Model,
 	parseStreamingJson,
@@ -37,6 +38,7 @@ export type ProxyAssistantMessageEvent =
 	| { type: "start" }
 	| { type: "text_start"; contentIndex: number }
 	| { type: "text_delta"; contentIndex: number; delta: string }
+	| { type: "text_citation"; contentIndex: number; citation: Citation }
 	| { type: "text_end"; contentIndex: number; contentSignature?: string }
 	| { type: "thinking_start"; contentIndex: number; summaries?: string[] }
 	| { type: "thinking_delta"; contentIndex: number; delta: string }
@@ -305,6 +307,20 @@ function processProxyEvent(
 				};
 			}
 			throw new Error("Received text_end for non-text content");
+		}
+
+		case "text_citation": {
+			const content = partial.content[proxyEvent.contentIndex];
+			if (content?.type === "text") {
+				content.citations = [...(content.citations ?? []), proxyEvent.citation];
+				return {
+					type: "text_citation",
+					contentIndex: proxyEvent.contentIndex,
+					citation: proxyEvent.citation,
+					partial,
+				};
+			}
+			throw new Error("Received text_citation for non-text content");
 		}
 
 		case "thinking_start":

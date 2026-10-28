@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { type RefObject, useLayoutEffect, useState } from "react";
 
 interface PaneContainerSize {
 	width: number;
@@ -24,15 +24,27 @@ export function usePaneContainer(ref: RefObject<HTMLElement | null>, sidebar = f
 		if (!element || !parent) return;
 		// 工作区框：侧栏与内容区的共同父级。侧栏塌陷时它不动。
 		const workspace = element.closest(".owl-workspace-frame") ?? parent;
-		const tools = sidebar ? parent.querySelector<HTMLElement>('.owl-shell-content > .owl-workbench-shell') : null;
-		const terminal = sidebar ? null : parent.querySelector<HTMLElement>('.owl-shell-content-main > .owl-workbench-shell[data-layout="terminal"]');
+		const tools = sidebar ? parent.querySelector<HTMLElement>(".owl-shell-content > .owl-workbench-shell") : null;
+		const terminal = sidebar
+			? null
+			: parent.querySelector<HTMLElement>('.owl-shell-content-main > .owl-workbench-shell[data-layout="terminal"]');
 		const measure = (): void => {
 			const next = {
-				width: parent.clientWidth, height: parent.clientHeight,
+				width: parent.clientWidth,
+				height: parent.clientHeight,
 				workspaceWidth: workspace.clientWidth,
-				toolsVisible: Boolean(tools?.getClientRects().length), terminalVisible: Boolean(terminal?.getClientRects().length),
+				toolsVisible: Boolean(tools?.getClientRects().length),
+				terminalVisible: Boolean(terminal?.getClientRects().length),
 			};
-			setSize((current) => current?.width === next.width && current.height === next.height && current.workspaceWidth === next.workspaceWidth && current.toolsVisible === next.toolsVisible && current.terminalVisible === next.terminalVisible ? current : next);
+			setSize((current) =>
+				current?.width === next.width &&
+				current.height === next.height &&
+				current.workspaceWidth === next.workspaceWidth &&
+				current.toolsVisible === next.toolsVisible &&
+				current.terminalVisible === next.terminalVisible
+					? current
+					: next,
+			);
 		};
 		measure();
 		const observer = new ResizeObserver(measure);

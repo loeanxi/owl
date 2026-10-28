@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	SPLASH_DURATION,
-	SPLASH_FADE_START,
 	createMeteors,
 	createStars,
 	eyeOpenness,
 	eyeRedness,
 	playStartupSplash,
+	SPLASH_DURATION,
+	SPLASH_FADE_START,
 	span,
 } from "./startup-splash.ts";
 

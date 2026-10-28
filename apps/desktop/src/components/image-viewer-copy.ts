@@ -19,9 +19,17 @@ const zh = {
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
-	title: "Image preview", close: "Close preview", previous: "Previous image", next: "Next image",
-	zoomIn: "Zoom in", zoomOut: "Zoom out", fit: "Fit to window", actual: "Original size",
-	loading: "Loading image…", failed: "Image could not be loaded", retry: "Retry",
+	title: "Image preview",
+	close: "Close preview",
+	previous: "Previous image",
+	next: "Next image",
+	zoomIn: "Zoom in",
+	zoomOut: "Zoom out",
+	fit: "Fit to window",
+	actual: "Original size",
+	loading: "Loading image…",
+	failed: "Image could not be loaded",
+	retry: "Retry",
 	help: "Scroll to zoom · Drag to pan · Double-click for original size · Esc to close",
 	compactHelp: "Scroll to zoom · Drag to pan · Esc to close",
 	galleryHelp: "← → Browse images",

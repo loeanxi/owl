@@ -20,7 +20,11 @@ export function StackedBar({
 	const free = capacity !== undefined ? Math.max(0, capacity - used) : 0;
 	const dim = hoverKey !== undefined && hoverKey !== null && parts.some((part) => part.key === hoverKey);
 	return (
-		<div className={`ctx-stacked${dim ? " ctx-stacked-dim" : ""}`} style={{ height }} onMouseLeave={() => onHoverKey?.(null)}>
+		<div
+			className={`ctx-stacked${dim ? " ctx-stacked-dim" : ""}`}
+			style={{ height }}
+			onMouseLeave={() => onHoverKey?.(null)}
+		>
 			{parts.map((part) =>
 				part.value > 0 ? (
 					<div
@@ -32,7 +36,13 @@ export function StackedBar({
 					/>
 				) : null,
 			)}
-			{free > 0 && <div className="ctx-stacked-free" style={{ width: `${(free / scale) * 100}%` }} title={`剩余窗口 ${fmtTokens(free)}`} />}
+			{free > 0 && (
+				<div
+					className="ctx-stacked-free"
+					style={{ width: `${(free / scale) * 100}%` }}
+					title={`剩余窗口 ${fmtTokens(free)}`}
+				/>
+			)}
 		</div>
 	);
 }

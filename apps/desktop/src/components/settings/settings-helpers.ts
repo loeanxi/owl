@@ -19,7 +19,13 @@ export type ArchiveEntry = { sessionId: string; archivedAt: string };
 
 export type ArchiveConfigResult = { sessions: ArchiveEntry[] };
 
-export type SessionListRow = { id?: string; name?: string; firstMessage?: string; cwd?: string; parentSessionPath?: string };
+export type SessionListRow = {
+	id?: string;
+	name?: string;
+	firstMessage?: string;
+	cwd?: string;
+	parentSessionPath?: string;
+};
 
 /** 会话显示名（与侧边栏同规则）：自定义名 > 首条用户消息 > id 前缀。无名分支会话
  * 追加「· 分支」（fork 时已持久化「forkN · 来自「…」」名字的不重复加）。 */
@@ -37,7 +43,12 @@ export function sessionDisplayName(row: SessionListRow): string {
 export function formatDateTime(iso: string): string {
 	const t = new Date(iso);
 	return Number.isFinite(t.getTime())
-		? t.toLocaleString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+		? t.toLocaleString(getUiLanguage() === "en" ? "en-US" : "zh-CN", {
+				month: "2-digit",
+				day: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+			})
 		: iso;
 }
 
@@ -62,7 +73,12 @@ export function formatCost(n: number): string {
 export function formatClock(iso: string): string {
 	const d = new Date(iso);
 	return Number.isFinite(d.getTime())
-		? d.toLocaleTimeString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+		? d.toLocaleTimeString(getUiLanguage() === "en" ? "en-US" : "zh-CN", {
+				hour12: false,
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+			})
 		: iso;
 }
 

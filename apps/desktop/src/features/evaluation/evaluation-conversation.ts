@@ -1,5 +1,9 @@
 import MarkdownIt from "markdown-it";
-import type { EvaluationRating, EvaluationResultView, EvaluationRunView } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
+import type {
+	EvaluationRating,
+	EvaluationResultView,
+	EvaluationRunView,
+} from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
 // Model answers are text. Remote images must never make a network request in the app.
@@ -22,7 +26,10 @@ export function evaluationConversations(results: EvaluationResultView[]): Evalua
 		let root = result;
 		const seen = new Set([result.id]);
 		while (root.retryOf && byId.has(root.retryOf)) {
-			if (seen.has(root.retryOf)) { root = result; break; }
+			if (seen.has(root.retryOf)) {
+				root = result;
+				break;
+			}
 			seen.add(root.retryOf);
 			root = byId.get(root.retryOf)!;
 		}
@@ -30,12 +37,17 @@ export function evaluationConversations(results: EvaluationResultView[]): Evalua
 		group.attempts.push(result);
 		groups.set(root.id, group);
 	}
-	return [...groups.values()].sort((a, b) => results.indexOf(a.root) - results.indexOf(b.root)).map((group) => ({ ...group, attempts: group.attempts.sort((a, b) => a.attempt - b.attempt) }));
+	return [...groups.values()]
+		.sort((a, b) => results.indexOf(a.root) - results.indexOf(b.root))
+		.map((group) => ({ ...group, attempts: group.attempts.sort((a, b) => a.attempt - b.attempt) }));
 }
 
 export function evaluationHasLiveWork(run: EvaluationRunView): boolean {
 	const live = (status: string) => status === "queued" || status === "running";
-	return run.status === "running" || run.results.some((result) => live(result.status) || result.followups?.some((item) => live(item.status)));
+	return (
+		run.status === "running" ||
+		run.results.some((result) => live(result.status) || result.followups?.some((item) => live(item.status)))
+	);
 }
 
 export interface EvaluationConversationState {
@@ -58,17 +70,28 @@ const DRAFT_PREFIX = "owl.evaluation.ratingDrafts.";
 export function loadRatingDrafts(runId: string): Record<string, EvaluationRating> {
 	try {
 		const value: unknown = JSON.parse(localStorage.getItem(DRAFT_PREFIX + runId) ?? "{}");
-		return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, EvaluationRating> : {};
-	} catch { return {}; }
+		return value && typeof value === "object" && !Array.isArray(value)
+			? (value as Record<string, EvaluationRating>)
+			: {};
+	} catch {
+		return {};
+	}
 }
 
 export function saveRatingDrafts(runId: string, ratings: Record<string, EvaluationRating>): void {
 	try {
 		if (Object.keys(ratings).length) localStorage.setItem(DRAFT_PREFIX + runId, JSON.stringify(ratings));
 		else localStorage.removeItem(DRAFT_PREFIX + runId);
-	} catch { /* Storage may be unavailable or full; drafts then remain in memory for this session. */ }
+	} catch {
+		/* Storage may be unavailable or full; drafts then remain in memory for this session. */
+	}
 }
 
 export function createEvaluationRunUiState(runId?: string): EvaluationRunUiState {
-	return { conversations: new Map(), ratings: runId ? loadRatingDrafts(runId) : {}, selectedAttempts: {}, attemptCounts: new Map() };
+	return {
+		conversations: new Map(),
+		ratings: runId ? loadRatingDrafts(runId) : {},
+		selectedAttempts: {},
+		attemptCounts: new Map(),
+	};
 }

@@ -30,7 +30,15 @@ export interface FinishedMark {
 export type IslandFace =
 	| { kind: "idle" }
 	| { kind: "done"; id: string; title: string; count: number; outcome: IslandOutcome }
-	| { kind: "live"; id: string; title: string; waiting: boolean; waitKind: IslandSession["waitKind"]; count: number; disconnected: boolean };
+	| {
+			kind: "live";
+			id: string;
+			title: string;
+			waiting: boolean;
+			waitKind: IslandSession["waitKind"];
+			count: number;
+			disconnected: boolean;
+	  };
 
 function attentionRank(session: IslandSession): number {
 	if (session.disconnected) return 0;
@@ -105,7 +113,16 @@ export function visibleFinished(running: readonly { id: string }[], finished: re
 /** 有会话在跑时胶囊写最近还在产出的那段。没有在跑时，停在最近一条还没打勾的已完成上。 */
 export function islandFace(running: readonly IslandSession[], finished: readonly FinishedMark[]): IslandFace {
 	const latest = orderedRunning(running)[0];
-	if (latest) return { kind: "live", id: latest.id, title: latest.title, waiting: latest.waiting || latest.waitKind !== "", waitKind: latest.waitKind, count: running.length, disconnected: Boolean(latest.disconnected) };
+	if (latest)
+		return {
+			kind: "live",
+			id: latest.id,
+			title: latest.title,
+			waiting: latest.waiting || latest.waitKind !== "",
+			waitKind: latest.waitKind,
+			count: running.length,
+			disconnected: Boolean(latest.disconnected),
+		};
 	const done = visibleFinished(running, finished);
 	const top = done[0];
 	if (!top) return { kind: "idle" };
@@ -147,7 +164,10 @@ export function islandBatchAckVisible(count: number): boolean {
 }
 
 /** 批量打勾：一次去掉这批已完成。一批为空则原样返回。 */
-export function dismissFinishedAll<T extends { id: string }>(items: readonly T[], removing: readonly { id: string }[]): readonly T[] {
+export function dismissFinishedAll<T extends { id: string }>(
+	items: readonly T[],
+	removing: readonly { id: string }[],
+): readonly T[] {
 	if (removing.length === 0) return items;
 	const ids = new Set(removing.map((item) => item.id));
 	return items.filter((item) => !ids.has(item.id));

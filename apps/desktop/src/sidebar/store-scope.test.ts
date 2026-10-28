@@ -35,4 +35,27 @@ describe("面板作用域", () => {
 		const other = new SidebarStore("D:/proj-b", "owl.mirror.state");
 		expect(other.getState().tabs).toHaveLength(0);
 	});
+
+	it("产物页：同一件产物只有一个页签，再点只是切过去", () => {
+		const store = new SidebarStore("D:/proj-a");
+		store.openArtifactTab("visual:v1", "月度趋势");
+		const tabs = store.getState().tabs;
+		expect(tabs).toHaveLength(1);
+		expect(tabs[0]?.kind).toBe("artifact");
+		expect(tabs[0]?.productId).toBe("visual:v1");
+		expect(tabs[0]?.title).toBe("月度趋势");
+		// 再点一次不并排开两份。
+		store.openArtifactTab("visual:v1", "月度趋势");
+		expect(store.getState().tabs).toHaveLength(1);
+		// 另一件产物是另一个页签。
+		store.openArtifactTab("file:docs/report.md", "report.md");
+		expect(store.getState().tabs).toHaveLength(2);
+	});
+
+	it("产物页：布局持久化后仍然指回同一件产物", () => {
+		const store = new SidebarStore("D:/proj-a");
+		store.openArtifactTab("visual:v1", "月度趋势");
+		const reopened = new SidebarStore("D:/proj-a");
+		expect(reopened.getState().tabs[0]?.productId).toBe("visual:v1");
+	});
 });

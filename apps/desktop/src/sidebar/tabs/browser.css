@@ -105,6 +105,15 @@
 	background: var(--workbench-chrome, var(--owl-ui-sidebar, var(--color-owl-sidebar)));
 }
 
+/* 舞台填充层：填满交给浏览器算（100% 恰好贴合，没有亚像素溢出），内容更大时
+   由 min-* 撑出滚动区。JS 量整数宽高定尺寸会差出零点几像素，overflow-auto 的
+   滚动条随布局反复出现消失，拖窗口边框时整个画面都在抖。 */
+.owl-browser-fit {
+	position: relative;
+	width: 100%;
+	height: 100%;
+}
+
 /* This colors only the empty canvas; captured website pixels remain untouched. */
 .owl-browser-stage canvas { background: var(--workbench-canvas, var(--owl-ui-canvas, var(--color-owl-bg))); }
 

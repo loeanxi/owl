@@ -80,7 +80,11 @@ export function ArtifactActions({
 			} else {
 				if (!onOpenFile) throw new Error(text("missingOpen"));
 				if (client && cwd && resolved) {
-					const response = await client.request<{ isFile: boolean }>({ type: "fs.stat", cwd, path: resolved.relative });
+					const response = await client.request<{ isFile: boolean }>({
+						type: "fs.stat",
+						cwd,
+						path: resolved.relative,
+					});
 					if (!response.ok) throw new Error(response.error ?? text("failed"));
 					if (!response.result?.isFile) throw new Error(text("notFile"));
 				}

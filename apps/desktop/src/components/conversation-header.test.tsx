@@ -1,10 +1,10 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ConversationHeader, type ConversationView } from "./ConversationHeader.tsx";
 import { setUiLanguage } from "../i18n/index.ts";
+import { ConversationHeader, type ConversationView } from "./ConversationHeader.tsx";
 
 let root: Root;
 let container: HTMLElement;
@@ -12,8 +12,11 @@ let onViewChange: ReturnType<typeof vi.fn<(view: ConversationView) => void>>;
 
 beforeEach(() => {
 	const dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
-	vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.document);
-	vi.stubGlobal("HTMLElement", dom.window.HTMLElement); vi.stubGlobal("Element", dom.window.Element); vi.stubGlobal("Node", dom.window.Node);
+	vi.stubGlobal("window", dom.window);
+	vi.stubGlobal("document", dom.document);
+	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
+	vi.stubGlobal("Element", dom.window.Element);
+	vi.stubGlobal("Node", dom.window.Node);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 	setUiLanguage("zh");
@@ -22,22 +25,27 @@ beforeEach(() => {
 	onViewChange = vi.fn<(view: ConversationView) => void>();
 });
 
-afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
+afterEach(async () => {
+	await act(async () => root.unmount());
+	vi.unstubAllGlobals();
+});
 
 async function renderHeader(view: ConversationView = "chat"): Promise<void> {
-	await act(async () => root.render(
-		<ConversationHeader
-			title="你好"
-			view={view}
-			onViewChange={onViewChange}
-			terminalOpen={false}
-			sidebarOpen={false}
-			onToggleTerminal={vi.fn()}
-			onToggleSidebar={vi.fn()}
-			onExport={vi.fn()}
-			onExportTurns={vi.fn()}
-		/>,
-	));
+	await act(async () =>
+		root.render(
+			<ConversationHeader
+				title="你好"
+				view={view}
+				onViewChange={onViewChange}
+				terminalOpen={false}
+				sidebarOpen={false}
+				onToggleTerminal={vi.fn()}
+				onToggleSidebar={vi.fn()}
+				onExport={vi.fn()}
+				onExportTurns={vi.fn()}
+			/>,
+		),
+	);
 }
 
 describe("ConversationHeader view switcher", () => {
@@ -66,7 +74,9 @@ describe("ConversationHeader view switcher", () => {
 		await renderHeader("chat");
 		const trigger = container.querySelector(".owl-view-tabs-trigger")!;
 		await act(async () => trigger.click());
-		const target = [...container.querySelectorAll<HTMLButtonElement>(".owl-view-tabs-popover button")].find((item) => item.textContent?.includes("轨迹"));
+		const target = [...container.querySelectorAll<HTMLButtonElement>(".owl-view-tabs-popover button")].find((item) =>
+			item.textContent?.includes("轨迹"),
+		);
 		expect(target).toBeTruthy();
 		await act(async () => target!.click());
 		expect(onViewChange).toHaveBeenCalledWith("trajectory");

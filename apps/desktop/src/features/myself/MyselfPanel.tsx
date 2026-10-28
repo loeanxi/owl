@@ -12,12 +12,12 @@ import type {
 } from "../../bridge/protocol.ts";
 import { AgentConversation } from "../../components/AgentConversation.tsx";
 import { type ChatActivity, ChatStream } from "../../components/ChatStream.tsx";
-import { RegenerateConfirmDialog } from "../../components/RegenerateConfirmDialog.tsx";
 import { Composer, type ComposerImage } from "../../components/Composer.tsx";
 import { ContextView } from "../../components/ContextView.tsx";
 import { ConversationHeader, type ConversationView } from "../../components/ConversationHeader.tsx";
 import { GenuiSessionProvider } from "../../components/Genui.tsx";
 import { useSessionOwlPose } from "../../components/OwlMascot.tsx";
+import { RegenerateConfirmDialog } from "../../components/RegenerateConfirmDialog.tsx";
 import { RetryPin } from "../../components/RetryPin.tsx";
 import type { SettingsInitialTab } from "../../components/SettingsPage.tsx";
 import { TodoPin } from "../../components/TodoPin.tsx";
@@ -757,7 +757,10 @@ export function MyselfPanel({
 		if (!dayOpen || !active) return;
 		const onKey = (event: KeyboardEvent): void => {
 			if (event.key !== "Escape" || event.defaultPrevented) return;
-			if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']"))
+			if (
+				event.target instanceof Element &&
+				event.target.closest("input, textarea, select, [contenteditable='true']")
+			)
 				return;
 			setDayOpen(false);
 		};
@@ -773,7 +776,8 @@ export function MyselfPanel({
 		todos.filter((todo) => todo.status === status),
 	);
 	const nextTodo = schedule[0];
-	const cardOrder = (index: number): React.CSSProperties => ({ "--owl-myself-card-index": index }) as React.CSSProperties;
+	const cardOrder = (index: number): React.CSSProperties =>
+		({ "--owl-myself-card-index": index }) as React.CSSProperties;
 	const dayDock = (
 		<div ref={dayDockRef} className={`owl-myself-daydock${dayOpen ? " is-open" : ""}`}>
 			{dayOpen && (
@@ -865,11 +869,17 @@ export function MyselfPanel({
 								{openTodos.length ? (
 									<ul>{openTodos.map(taskRow)}</ul>
 								) : (
-									<p className="owl-myself-card-empty">{todos.length ? t("myself.allDone") : t("myself.noTodos")}</p>
+									<p className="owl-myself-card-empty">
+										{todos.length ? t("myself.allDone") : t("myself.noTodos")}
+									</p>
 								)}
 								{doneTodos.length > 0 && (
 									<div className="owl-myself-completed">
-										<button type="button" aria-expanded={completedOpen} onClick={() => setCompletedOpen(!completedOpen)}>
+										<button
+											type="button"
+											aria-expanded={completedOpen}
+											onClick={() => setCompletedOpen(!completedOpen)}
+										>
 											{t("myself.completedCount", { n: doneTodos.length })}
 										</button>
 										{completedOpen && <ul>{doneTodos.map(taskRow)}</ul>}
@@ -964,7 +974,12 @@ export function MyselfPanel({
 										disabled={!connected || chat.running || chat.busy}
 										onClick={() => {
 											setIntent("plan");
-											void sendChat(t("myself.summaryPrompt", { date: selected }), undefined, undefined, "plan");
+											void sendChat(
+												t("myself.summaryPrompt", { date: selected }),
+												undefined,
+												undefined,
+												"plan",
+											);
 										}}
 									>
 										{t(day.summary ? "myself.updateSummary" : "myself.generateSummary")}
@@ -975,9 +990,11 @@ export function MyselfPanel({
 										className="owl-myself-summary-edit"
 										onSubmit={(event) => {
 											event.preventDefault();
-											void mutateDay(selected, (raw) => updateSummaryInRaw(raw, summaryDraft)).then((saved) => {
-												if (saved) setEditingSummary(false);
-											});
+											void mutateDay(selected, (raw) => updateSummaryInRaw(raw, summaryDraft)).then(
+												(saved) => {
+													if (saved) setEditingSummary(false);
+												},
+											);
 										}}
 									>
 										<textarea
@@ -1029,7 +1046,11 @@ export function MyselfPanel({
 				</section>
 			)}
 			{notice && (
-				<div className="owl-myself-notice" data-tone={notice.tone} role={notice.tone === "error" ? "alert" : "status"}>
+				<div
+					className="owl-myself-notice"
+					data-tone={notice.tone}
+					role={notice.tone === "error" ? "alert" : "status"}
+				>
 					<span>{notice.text}</span>
 					{undo && (
 						<button
@@ -1038,7 +1059,9 @@ export function MyselfPanel({
 							onClick={() => {
 								const previous = undo;
 								setUndo(undefined);
-								void mutateDay(previous.date, (raw) => updateTodoStatusInRaw(raw, previous.text, previous.status));
+								void mutateDay(previous.date, (raw) =>
+									updateTodoStatusInRaw(raw, previous.text, previous.status),
+								);
 							}}
 						>
 							{t("myself.undo")}
@@ -1058,7 +1081,9 @@ export function MyselfPanel({
 				) : (
 					<>
 						<b>{isToday ? t("myself.groupToday") : fmtDay(selected)}</b>
-						<span>{openTodos.length ? t("myself.todayLeft", { n: openTodos.length }) : t("myself.todayAllDone")}</span>
+						<span>
+							{openTodos.length ? t("myself.todayLeft", { n: openTodos.length }) : t("myself.todayAllDone")}
+						</span>
 						{nextTodo && (
 							<span className="owl-myself-day-next">
 								{t("myself.todayNext", { time: nextTodo.time ?? "", task: nextTodo.text })}
@@ -1079,7 +1104,6 @@ export function MyselfPanel({
 			header={
 				<ConversationHeader
 					title="Owl Si"
-					workspaceDir={dir ?? ""}
 					view={chatView}
 					onViewChange={setChatView}
 					terminalOpen={false}
@@ -1111,11 +1135,7 @@ export function MyselfPanel({
 							activity={chatActivity}
 							client={client}
 							cwd={dir ?? ""}
-							onRegenerate={
-								chatController && !chat.busy && !saving
-									? () => setRegenConfirm(true)
-									: undefined
-							}
+							onRegenerate={chatController && !chat.busy && !saving ? () => setRegenConfirm(true) : undefined}
 							onEditMessage={
 								chatController && !chat.busy && !saving
 									? (entryId, text, images) =>
@@ -1275,8 +1295,14 @@ export function MyselfPanel({
 		<div ref={rootRef} className={`owl-myself${active ? " is-active" : ""}${dayOpen ? " has-day-sheet" : ""}`}>
 			{regenConfirm && chatController && (
 				<RegenerateConfirmDialog
-					preview={(() => { const last = chat.entries.findLast((candidate) => candidate.kind === "user" && !candidate.queued); return last?.kind === "user" ? last.text : ""; })()}
-					onConfirm={() => { setRegenConfirm(false); void replayChat(() => chatController!.regenerate()); }}
+					preview={(() => {
+						const last = chat.entries.findLast((candidate) => candidate.kind === "user" && !candidate.queued);
+						return last?.kind === "user" ? last.text : "";
+					})()}
+					onConfirm={() => {
+						setRegenConfirm(false);
+						void replayChat(() => chatController!.regenerate());
+					}}
 					onClose={() => setRegenConfirm(false)}
 				/>
 			)}

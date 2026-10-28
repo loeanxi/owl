@@ -1,11 +1,11 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setUiLanguage, t } from "../i18n/index.ts";
-import { SidebarStore, type SplitNode } from "./store.ts";
 import { SplitDivider } from "./SplitDivider.tsx";
+import { SidebarStore, type SplitNode } from "./store.ts";
 
 let container: HTMLElement;
 let root: Root;
@@ -17,7 +17,11 @@ beforeEach(() => {
 	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	const storage = new Map<string, string>();
-	vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) });
+	vi.stubGlobal("localStorage", {
+		getItem: (key: string) => storage.get(key) ?? null,
+		setItem: (key: string, value: string) => storage.set(key, value),
+		removeItem: (key: string) => storage.delete(key),
+	});
 	setUiLanguage("zh");
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);

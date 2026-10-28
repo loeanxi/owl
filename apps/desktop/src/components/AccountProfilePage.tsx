@@ -111,7 +111,9 @@ export function AccountProfilePage({ client }: { client: BridgeClient }): React.
 	const pickAvatar = async (): Promise<void> => {
 		setAvatarError("");
 		try {
-			const path = await pickFile(t("profile.avatarPick"), [{ name: "image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }]);
+			const path = await pickFile(t("profile.avatarPick"), [
+				{ name: "image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] },
+			]);
 			if (!path) return;
 			const file = await readLocalImage(path);
 			if (!file) {
@@ -163,10 +165,18 @@ export function AccountProfilePage({ client }: { client: BridgeClient }): React.
 	return (
 		<section className="owl-profile" aria-label={t("profile.aria")}>
 			<header className="owl-profile-topbar">
-				<button type="button" disabled title={t("profile.placeholder")}>✎ {t("profile.edit")}</button>
-				<button type="button" disabled title={t("profile.placeholder")}>➤ {t("profile.invite")}</button>
-				<button type="button" disabled title={t("profile.placeholder")}>🔒 {t("profile.private")}</button>
-				<button type="button" disabled title={t("profile.placeholder")}>↗ {t("profile.share")}</button>
+				<button type="button" disabled title={t("profile.placeholder")}>
+					✎ {t("profile.edit")}
+				</button>
+				<button type="button" disabled title={t("profile.placeholder")}>
+					➤ {t("profile.invite")}
+				</button>
+				<button type="button" disabled title={t("profile.placeholder")}>
+					🔒 {t("profile.private")}
+				</button>
+				<button type="button" disabled title={t("profile.placeholder")}>
+					↗ {t("profile.share")}
+				</button>
 			</header>
 			<div className="owl-profile-scroll">
 				<div className="owl-profile-head">
@@ -209,7 +219,11 @@ export function AccountProfilePage({ client }: { client: BridgeClient }): React.
 								className={activityRange === key ? "is-active" : undefined}
 								onClick={() => setActivityRange(key)}
 							>
-								{key === "daily" ? t("profile.rangeDaily") : key === "weekly" ? t("profile.rangeWeekly") : t("profile.rangeTotal")}
+								{key === "daily"
+									? t("profile.rangeDaily")
+									: key === "weekly"
+										? t("profile.rangeWeekly")
+										: t("profile.rangeTotal")}
 							</button>
 						))}
 					</div>
@@ -246,8 +260,22 @@ export function AccountProfilePage({ client }: { client: BridgeClient }): React.
 			</div>
 
 			{avatarOpen && (
-				<div className="owl-avatar-modal-shade" onClick={() => { if (!avatarBusy) { setAvatarOpen(false); setAvatarDraft(null); } }}>
-					<div className="owl-avatar-modal" role="dialog" aria-modal="true" aria-label={t("profile.avatarChange")} onClick={(event) => event.stopPropagation()}>
+				<div
+					className="owl-avatar-modal-shade"
+					onClick={() => {
+						if (!avatarBusy) {
+							setAvatarOpen(false);
+							setAvatarDraft(null);
+						}
+					}}
+				>
+					<div
+						className="owl-avatar-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-label={t("profile.avatarChange")}
+						onClick={(event) => event.stopPropagation()}
+					>
 						<h3>{t("profile.avatarChange")}</h3>
 						<div className="owl-avatar-modal-preview">
 							<AccountAvatar name={account?.name} src={avatarDraft ?? savedAvatar} size={96} />
@@ -255,11 +283,33 @@ export function AccountProfilePage({ client }: { client: BridgeClient }): React.
 						<p className="owl-avatar-modal-hint">{t("profile.avatarHint")}</p>
 						{avatarError && <p className="owl-avatar-modal-error">{avatarError}</p>}
 						<div className="owl-avatar-modal-actions">
-							<button type="button" onClick={() => void pickAvatar()}>{t("profile.avatarPick")}</button>
-							{savedAvatar && <button type="button" onClick={() => void removeAvatar()} disabled={avatarBusy}>{t("profile.avatarRemove")}</button>}
+							<button type="button" onClick={() => void pickAvatar()}>
+								{t("profile.avatarPick")}
+							</button>
+							{savedAvatar && (
+								<button type="button" onClick={() => void removeAvatar()} disabled={avatarBusy}>
+									{t("profile.avatarRemove")}
+								</button>
+							)}
 							<div className="owl-avatar-modal-spacer" />
-							<button type="button" onClick={() => { setAvatarOpen(false); setAvatarDraft(null); }} disabled={avatarBusy}>{t("common.cancel")}</button>
-							<button type="button" className="is-primary" onClick={() => void saveAvatar()} disabled={!avatarDraft || avatarBusy}>{t("common.save")}</button>
+							<button
+								type="button"
+								onClick={() => {
+									setAvatarOpen(false);
+									setAvatarDraft(null);
+								}}
+								disabled={avatarBusy}
+							>
+								{t("common.cancel")}
+							</button>
+							<button
+								type="button"
+								className="is-primary"
+								onClick={() => void saveAvatar()}
+								disabled={!avatarDraft || avatarBusy}
+							>
+								{t("common.save")}
+							</button>
 						</div>
 					</div>
 				</div>

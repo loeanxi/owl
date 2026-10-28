@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { recordPlace, samePlace, stepBack, stepForward, type AppHistory, type AppPlace } from "./app-history.ts";
+import { type AppHistory, type AppPlace, recordPlace, samePlace, stepBack, stepForward } from "./app-history.ts";
 
 /** 记住主区走过的位置，供顶栏左右按钮和 Ctrl+[ / Ctrl+] 回退。 */
 export function useAppHistory(place: AppPlace): {
@@ -18,7 +18,15 @@ export function useAppHistory(place: AppPlace): {
 	const { rail, settings, settingsTab, chatSession, researchSession, workspace, researchWorkspace } = place;
 
 	useEffect(() => {
-		const next: AppPlace = { rail, settings, settingsTab, chatSession, researchSession, workspace, researchWorkspace };
+		const next: AppPlace = {
+			rail,
+			settings,
+			settingsTab,
+			chatSession,
+			researchSession,
+			workspace,
+			researchWorkspace,
+		};
 		if (applying.current) {
 			if (!samePlace(next, applying.current)) return;
 			applying.current = null;

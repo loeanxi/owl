@@ -42,7 +42,13 @@ test("trend keeps every token of the range and folds agents beyond top 5 into ot
 });
 
 test("trend aggregates by Monday-start weeks once the range exceeds 120 days", () => {
-	const agents = [agent("a", [["2025-01-01", 5], ["2026-10-12", 3], ["2026-10-14", 4]])];
+	const agents = [
+		agent("a", [
+			["2025-01-01", 5],
+			["2026-10-12", 3],
+			["2026-10-14", 4],
+		]),
+	];
 	const trend = buildTrend(agents, "", "all", TODAY);
 	assert.equal(trend.weekly, true);
 	assert.equal(trend.total, 12);
@@ -60,7 +66,17 @@ test("trend respects the agent filter", () => {
 });
 
 test("year heat spans 53 Monday-start weeks and marks future days", () => {
-	const board = buildBoard([agent("a", [["2026-09-20", 100], ["2026-10-02", 50], ["2026-10-14", 10]])], "", TODAY);
+	const board = buildBoard(
+		[
+			agent("a", [
+				["2026-09-20", 100],
+				["2026-10-02", 50],
+				["2026-10-14", 10],
+			]),
+		],
+		"",
+		TODAY,
+	);
 	const heat = buildYearHeat(board.byDay, TODAY);
 	assert.equal(heat.weeks.length, YEAR_HEAT_WEEKS);
 	assert.equal(heat.weeks[0]![0]!.date.length, 10);
@@ -73,12 +89,22 @@ test("year heat spans 53 Monday-start weeks and marks future days", () => {
 	assert.equal(heat.monthToDate, 60);
 	assert.equal(heat.lastMonthToDate, 0);
 	assert.deepEqual(heat.bestMonth, { month: "2026-09", tokens: 100 });
-	assert.equal(heat.weekday.reduce((sum, value) => sum + value, 0), 160);
+	assert.equal(
+		heat.weekday.reduce((sum, value) => sum + value, 0),
+		160,
+	);
 });
 
 test("board records the end date of the longest streak and the 10B milestone", () => {
 	const board = buildBoard(
-		[agent("a", [["2026-01-01", 1], ["2026-01-02", 1], ["2026-01-03", 1], ["2026-02-01", 10_000_000_000]])],
+		[
+			agent("a", [
+				["2026-01-01", 1],
+				["2026-01-02", 1],
+				["2026-01-03", 1],
+				["2026-02-01", 10_000_000_000],
+			]),
+		],
 		"",
 		TODAY,
 	);

@@ -1,5 +1,5 @@
-import { getUiLanguage, useT } from "../../i18n/index.ts";
 import { DEFAULT_CHAT_APPEARANCE } from "../../chat-appearance.ts";
+import { getUiLanguage, useT } from "../../i18n/index.ts";
 
 const zh = {
 	navigation: "外观设置分组",
@@ -16,7 +16,8 @@ const en: Record<keyof typeof zh, string> = {
 	reading: "Reading",
 	theme: "Theme",
 	wallpaper: "Wallpaper",
-	readingDescription: "Adjust chat text, line spacing and column width, then save to apply. Model answers are unchanged.",
+	readingDescription:
+		"Adjust chat text, line spacing and column width, then save to apply. Model answers are unchanged.",
 };
 
 export const appearanceNavigationText = (key: keyof typeof zh): string => (getUiLanguage() === "en" ? en : zh)[key];
@@ -35,7 +36,8 @@ const readingDescriptions = {
 	},
 	en: {
 		fontSize: "Size of answer text and chat messages; input and sidebar text are unchanged. Default: {value} px.",
-		codeFontSize: "Size of code blocks, commands and tool output; ordinary chat text is unchanged. Default: {value} px.",
+		codeFontSize:
+			"Size of code blocks, commands and tool output; ordinary chat text is unchanged. Default: {value} px.",
 		lineHeight: "Distance between answer lines. Higher values add space without enlarging text. Default: {value}×.",
 		width: "Maximum width of chat text and the input column. Both fit narrower windows automatically. Default: {value} px.",
 	},

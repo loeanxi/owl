@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fitPaneSize, sidebarWidthLimit, workbenchDock, WORKBENCH_DOCK_MIN_WIDTH } from "./pane-sizing.ts";
+import { fitPaneSize, sidebarWidthLimit, WORKBENCH_DOCK_MIN_WIDTH, workbenchDock } from "./pane-sizing.ts";
 
 test("restored wide panes preserve a 320px conversation in a 1280px desktop", () => {
 	// 52px rail + 8px frame margin + 2px frame border leave 1218px for all panes.

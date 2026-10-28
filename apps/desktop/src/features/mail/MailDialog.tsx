@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useT } from "../../i18n/index.ts";
 
 /** Local modal with focus containment and restoration for keyboard users. */

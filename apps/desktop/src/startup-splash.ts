@@ -1,9 +1,29 @@
 import { getOwlAnimation, STARTUP_FAST_FACTOR, systemPrefersReducedMotion } from "./animation-settings.ts";
-import { createStars, drawSplashFrame, easeInOutCubic, SPLASH_BACKGROUND, SPLASH_DURATION, SPLASH_FADE_START } from "./startup-splash-scene.ts";
 import type { SplashWorkerEvent, SplashWorkerRequest } from "./startup-splash.worker.ts";
+import {
+	createStars,
+	drawSplashFrame,
+	easeInOutCubic,
+	SPLASH_BACKGROUND,
+	SPLASH_DURATION,
+	SPLASH_FADE_START,
+} from "./startup-splash-scene.ts";
 
-export { clamp01, createMeteors, createStars, drawSplashFrame, easeInOutCubic, easeOutBack, easeOutCubic, eyeOpenness, eyeRedness, span, SPLASH_DURATION, SPLASH_FADE_START } from "./startup-splash-scene.ts";
 export type { Meteor, SplashStars } from "./startup-splash-scene.ts";
+export {
+	clamp01,
+	createMeteors,
+	createStars,
+	drawSplashFrame,
+	easeInOutCubic,
+	easeOutBack,
+	easeOutCubic,
+	eyeOpenness,
+	eyeRedness,
+	SPLASH_DURATION,
+	SPLASH_FADE_START,
+	span,
+} from "./startup-splash-scene.ts";
 
 export interface StartupSplashHandle {
 	dismiss: () => void;
@@ -22,7 +42,8 @@ export function playStartupSplash(options: StartupSplashOptions = {}): StartupSp
 	const doc = options.doc ?? (typeof document === "undefined" ? undefined : document);
 	if (!doc || typeof requestAnimationFrame !== "function") return noop;
 	const settings = getOwlAnimation();
-	if (!options.force && (!settings.startupEnabled || (settings.respectReducedMotion && systemPrefersReducedMotion()))) return noop;
+	if (!options.force && (!settings.startupEnabled || (settings.respectReducedMotion && systemPrefersReducedMotion())))
+		return noop;
 	if (doc.querySelector("[data-owl-startup-splash]")) return noop;
 	let canvas = doc.createElement("canvas");
 	if (typeof canvas.getContext !== "function") return noop;
@@ -97,8 +118,15 @@ export function playStartupSplash(options: StartupSplashOptions = {}): StartupSp
 			canvas = replacement;
 			transferred = false;
 		}
-		try { ctx = canvas.getContext("2d", { alpha: false }); } catch { ctx = null; }
-		if (!ctx) { finish(); return; }
+		try {
+			ctx = canvas.getContext("2d", { alpha: false });
+		} catch {
+			ctx = null;
+		}
+		if (!ctx) {
+			finish();
+			return;
+		}
 		canvas.width = Math.max(1, Math.round(width * dpr));
 		canvas.height = Math.max(1, Math.round(height * dpr));
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -114,34 +142,51 @@ export function playStartupSplash(options: StartupSplashOptions = {}): StartupSp
 		if (fadeAnimation) fadeAnimation.currentTime = (SPLASH_FADE_START / speed) * 1000;
 	};
 
-	observer = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
-		const rect = entries[0]?.contentRect;
-		if (!rect || rect.width < 1 || rect.height < 1) return;
-		const nextDpr = Math.min(window.devicePixelRatio || 1, 1.5);
-		if (Math.abs(rect.width - width) < 1 && Math.abs(rect.height - height) < 1 && nextDpr === dpr) return;
-		width = rect.width;
-		height = rect.height;
-		dpr = nextDpr;
-		if (worker) worker.postMessage({ type: "resize", width, height, dpr } satisfies SplashWorkerRequest);
-		else if (ctx) {
-			canvas.width = Math.max(1, Math.round(width * dpr));
-			canvas.height = Math.max(1, Math.round(height * dpr));
-			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-		}
-	}) : undefined;
+	observer =
+		typeof ResizeObserver === "function"
+			? new ResizeObserver((entries) => {
+					const rect = entries[0]?.contentRect;
+					if (!rect || rect.width < 1 || rect.height < 1) return;
+					const nextDpr = Math.min(window.devicePixelRatio || 1, 1.5);
+					if (Math.abs(rect.width - width) < 1 && Math.abs(rect.height - height) < 1 && nextDpr === dpr) return;
+					width = rect.width;
+					height = rect.height;
+					dpr = nextDpr;
+					if (worker) worker.postMessage({ type: "resize", width, height, dpr } satisfies SplashWorkerRequest);
+					else if (ctx) {
+						canvas.width = Math.max(1, Math.round(width * dpr));
+						canvas.height = Math.max(1, Math.round(height * dpr));
+						ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+					}
+				})
+			: undefined;
 	observer?.observe(host);
 	safety = setTimeout(finish, 15000);
 	addEventListener("keydown", onSkip, true);
 	host.addEventListener("pointerdown", onSkip);
 
 	// 只有完整支持独立画布及合成器淡出时才走 Worker，旧 WebView 保留主线程回退。
-	if (typeof Worker === "function" && typeof OffscreenCanvas === "function" && typeof canvas.transferControlToOffscreen === "function" && typeof host.animate === "function") {
+	if (
+		typeof Worker === "function" &&
+		typeof OffscreenCanvas === "function" &&
+		typeof canvas.transferControlToOffscreen === "function" &&
+		typeof host.animate === "function"
+	) {
 		try {
-			worker = new Worker(new URL("./startup-splash.worker.ts", import.meta.url), { type: "module", name: "owl-startup" });
+			worker = new Worker(new URL("./startup-splash.worker.ts", import.meta.url), {
+				type: "module",
+				name: "owl-startup",
+			});
 			worker.onmessage = (event: MessageEvent<SplashWorkerEvent>) => {
 				if (done || !worker) return;
-				if (event.data.type === "error") { fallback(); return; }
-				if (event.data.type === "finished") { finish(); return; }
+				if (event.data.type === "error") {
+					fallback();
+					return;
+				}
+				if (event.data.type === "finished") {
+					finish();
+					return;
+				}
 				if (event.data.type !== "ready" || waitingToStart || startedAt !== undefined) return;
 				waitingToStart = true;
 				clearTimeout(workerTimeout);
@@ -151,22 +196,46 @@ export function playStartupSplash(options: StartupSplashOptions = {}): StartupSp
 					try {
 						startedAt = now;
 						// opacity 在合成器执行；主线程忙时，末尾淡出也不会逐帧停顿。
-						fadeAnimation = host.animate(Array.from({ length: 33 }, (_, index) => ({ offset: index / 32, opacity: 1 - easeInOutCubic(index / 32) })), {
-							delay: (SPLASH_FADE_START / speed) * 1000,
-							duration: ((SPLASH_DURATION - SPLASH_FADE_START) / speed) * 1000,
-							fill: "forwards",
-						});
+						fadeAnimation = host.animate(
+							Array.from({ length: 33 }, (_, index) => ({
+								offset: index / 32,
+								opacity: 1 - easeInOutCubic(index / 32),
+							})),
+							{
+								delay: (SPLASH_FADE_START / speed) * 1000,
+								duration: ((SPLASH_DURATION - SPLASH_FADE_START) / speed) * 1000,
+								fill: "forwards",
+							},
+						);
 						worker.postMessage({ type: "start" } satisfies SplashWorkerRequest);
-					} catch { fallback(); }
+					} catch {
+						fallback();
+					}
 				});
 			};
-			worker.onerror = (event) => { event.preventDefault(); fallback(); };
+			worker.onerror = (event) => {
+				event.preventDefault();
+				fallback();
+			};
 			worker.onmessageerror = fallback;
 			const offscreen = canvas.transferControlToOffscreen();
 			transferred = true;
-			worker.postMessage({ type: "init", canvas: offscreen, width, height, dpr, speed, meteors: settings.startupMeteors } satisfies SplashWorkerRequest, [offscreen]);
+			worker.postMessage(
+				{
+					type: "init",
+					canvas: offscreen,
+					width,
+					height,
+					dpr,
+					speed,
+					meteors: settings.startupMeteors,
+				} satisfies SplashWorkerRequest,
+				[offscreen],
+			);
 			workerTimeout = setTimeout(fallback, 1000);
-		} catch { fallback(); }
+		} catch {
+			fallback();
+		}
 	} else fallback();
 	return { dismiss: finish };
 }

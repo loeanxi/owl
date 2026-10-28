@@ -1,42 +1,100 @@
 import type { ResearchResult } from "../../bridge/protocol.ts";
 import type { ChatEntry } from "../../hooks/transcript.ts";
 
-const RESULT_TOOLS = new Set(["research_publish", "research_executable", "research_decompile", "research_model_lab", "research_rea"]);
+const RESULT_TOOLS = new Set([
+	"research_publish",
+	"research_executable",
+	"research_decompile",
+	"research_model_lab",
+	"research_rea",
+]);
 
 function objectOf(value: unknown): Record<string, unknown> | undefined {
-	return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
 }
 
 /** Read the publish tool's evidence payload, never infer results from assistant prose. */
 export function researchResultOf(value: unknown): ResearchResult | undefined {
 	const result = objectOf(value);
-	if (!result || typeof result.id !== "string" || !result.id.trim() || typeof result.createdAt !== "string" ||
-		typeof result.title !== "string" || !result.title.trim() || typeof result.summary !== "string" || !result.summary.trim() ||
+	if (
+		!result ||
+		typeof result.id !== "string" ||
+		!result.id.trim() ||
+		typeof result.createdAt !== "string" ||
+		typeof result.title !== "string" ||
+		!result.title.trim() ||
+		typeof result.summary !== "string" ||
+		!result.summary.trim() ||
 		!["crawl", "web", "binary", "model", "osint"].includes(String(result.mode)) ||
 		!["sample", "partial", "complete"].includes(String(result.status)) ||
-		!Array.isArray(result.columns) || !Array.isArray(result.rows) || !Array.isArray(result.sources) || !Array.isArray(result.findings)) return undefined;
+		!Array.isArray(result.columns) ||
+		!Array.isArray(result.rows) ||
+		!Array.isArray(result.sources) ||
+		!Array.isArray(result.findings)
+	)
+		return undefined;
 	const keys = new Set<string>();
 	for (const item of result.columns) {
 		const column = objectOf(item);
-		if (!column || typeof column.key !== "string" || !column.key || ["__proto__", "constructor", "prototype"].includes(column.key) || typeof column.label !== "string" || !column.label.trim() || keys.has(column.key)) return undefined;
+		if (
+			!column ||
+			typeof column.key !== "string" ||
+			!column.key ||
+			["__proto__", "constructor", "prototype"].includes(column.key) ||
+			typeof column.label !== "string" ||
+			!column.label.trim() ||
+			keys.has(column.key)
+		)
+			return undefined;
 		keys.add(column.key);
 	}
 	for (const item of result.rows) {
 		const row = objectOf(item);
-		if (!row || Object.keys(row).length !== keys.size || [...keys].some((key) => !Object.hasOwn(row, key)) || Object.values(row).some((cell) => cell !== null && typeof cell !== "string" && typeof cell !== "boolean" && (typeof cell !== "number" || !Number.isFinite(cell)))) return undefined;
+		if (
+			!row ||
+			Object.keys(row).length !== keys.size ||
+			[...keys].some((key) => !Object.hasOwn(row, key)) ||
+			Object.values(row).some(
+				(cell) =>
+					cell !== null &&
+					typeof cell !== "string" &&
+					typeof cell !== "boolean" &&
+					(typeof cell !== "number" || !Number.isFinite(cell)),
+			)
+		)
+			return undefined;
 	}
 	const sources = new Set<string>();
 	for (const item of result.sources) {
 		const source = objectOf(item);
-		if (!source || typeof source.id !== "string" || !source.id || sources.has(source.id) || typeof source.title !== "string" || !source.title.trim() ||
-			(source.url !== undefined && typeof source.url !== "string") || (source.note !== undefined && typeof source.note !== "string")) return undefined;
+		if (
+			!source ||
+			typeof source.id !== "string" ||
+			!source.id ||
+			sources.has(source.id) ||
+			typeof source.title !== "string" ||
+			!source.title.trim() ||
+			(source.url !== undefined && typeof source.url !== "string") ||
+			(source.note !== undefined && typeof source.note !== "string")
+		)
+			return undefined;
 		if (typeof source.url === "string" && source.url && !safeSourceUrl(source.url)) return undefined;
 		sources.add(source.id);
 	}
 	for (const item of result.findings) {
 		const finding = objectOf(item);
-		if (!finding || !["fact", "inference", "unverified"].includes(String(finding.kind)) || typeof finding.text !== "string" || !finding.text.trim() ||
-			!Array.isArray(finding.sourceIds) || (finding.kind === "fact" && finding.sourceIds.length === 0) || finding.sourceIds.some((id) => typeof id !== "string" || !sources.has(id))) return undefined;
+		if (
+			!finding ||
+			!["fact", "inference", "unverified"].includes(String(finding.kind)) ||
+			typeof finding.text !== "string" ||
+			!finding.text.trim() ||
+			!Array.isArray(finding.sourceIds) ||
+			(finding.kind === "fact" && finding.sourceIds.length === 0) ||
+			finding.sourceIds.some((id) => typeof id !== "string" || !sources.has(id))
+		)
+			return undefined;
 	}
 	return result as unknown as ResearchResult;
 }
@@ -45,7 +103,8 @@ export function publishedResults(messages: unknown[]): ResearchResult[] {
 	const results: ResearchResult[] = [];
 	for (const item of messages) {
 		const message = objectOf(item);
-		if (message?.role !== "toolResult" || !RESULT_TOOLS.has(String(message.toolName)) || message.isError === true) continue;
+		if (message?.role !== "toolResult" || !RESULT_TOOLS.has(String(message.toolName)) || message.isError === true)
+			continue;
 		const result = researchResultOf(objectOf(message.details)?.researchResult);
 		if (result) results.push(result);
 	}
@@ -57,7 +116,8 @@ export function researchResultsFromEvent(payload: unknown): ResearchResult[] {
 	if (!event) return [];
 	if (event.type === "agent_end" && Array.isArray(event.messages)) return publishedResults(event.messages);
 	if (event.type === "message_end") return publishedResults([event.message]);
-	if (event.type !== "tool_execution_end" || !RESULT_TOOLS.has(String(event.toolName)) || event.isError === true) return [];
+	if (event.type !== "tool_execution_end" || !RESULT_TOOLS.has(String(event.toolName)) || event.isError === true)
+		return [];
 	const result = researchResultOf(objectOf(objectOf(event.result)?.details)?.researchResult);
 	return result ? [result] : [];
 }
@@ -73,10 +133,12 @@ export function mergeResearchResults(current: ResearchResult[], next: ResearchRe
 export function researchResultsForTurn(entries: ChatEntry[]): ResearchResult[] {
 	const results: ResearchResult[] = [];
 	for (const entry of entries) {
-		if (entry.kind === "toolResult" && entry.ok && RESULT_TOOLS.has(entry.toolName) && entry.researchResult) results.push(entry.researchResult);
+		if (entry.kind === "toolResult" && entry.ok && RESULT_TOOLS.has(entry.toolName) && entry.researchResult)
+			results.push(entry.researchResult);
 		if (entry.kind !== "assistant") continue;
 		for (const tool of entry.tools) {
-			if (tool.status === "ok" && RESULT_TOOLS.has(tool.name) && tool.output?.researchResult) results.push(tool.output.researchResult);
+			if (tool.status === "ok" && RESULT_TOOLS.has(tool.name) && tool.output?.researchResult)
+				results.push(tool.output.researchResult);
 		}
 	}
 	return mergeResearchResults([], results);
@@ -99,5 +161,11 @@ export function researchCsv(result: ResearchResult): string {
 		if (typeof cell === "string" && /^[\s]*[=+@-]/.test(text)) text = `'${text}`;
 		return `"${text.replace(/"/g, '""')}"`;
 	};
-	return "\uFEFF" + [result.columns.map((column) => escape(column.label)).join(","), ...result.rows.map((row) => result.columns.map((column) => escape(row[column.key])).join(","))].join("\r\n");
+	return (
+		"\uFEFF" +
+		[
+			result.columns.map((column) => escape(column.label)).join(","),
+			...result.rows.map((row) => result.columns.map((column) => escape(row[column.key])).join(",")),
+		].join("\r\n")
+	);
 }

@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage, t } from "../i18n/index.ts";
@@ -9,7 +9,10 @@ import { StartPage } from "./StartPage.tsx";
 
 const { usageMounted } = vi.hoisted(() => ({ usageMounted: vi.fn() }));
 vi.mock("./UsageOverview.tsx", () => ({
-	UsageOverview: () => { usageMounted(); return <div className="test-usage-overview" />; },
+	UsageOverview: () => {
+		usageMounted();
+		return <div className="test-usage-overview" />;
+	},
 }));
 
 type Props = React.ComponentProps<typeof StartPage>;
@@ -47,7 +50,9 @@ describe("StartPage", () => {
 		expect(container.querySelector(".owl-start-description")).toBeNull();
 		expect(container.querySelector(".test-usage-overview")).not.toBeNull();
 		expect(usageMounted).toHaveBeenCalledOnce();
-		expect(container.querySelector(".owl-start-project, .owl-start-recent, .owl-start-examples, .owl-start-tools")).toBeNull();
+		expect(
+			container.querySelector(".owl-start-project, .owl-start-recent, .owl-start-examples, .owl-start-tools"),
+		).toBeNull();
 	});
 
 	it("offers prompt examples that land verbatim in the composer when a handler exists", async () => {

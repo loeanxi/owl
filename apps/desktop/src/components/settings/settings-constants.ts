@@ -10,10 +10,42 @@ export const API_OPTIONS = [
 ] as const;
 
 export const CHAT_READING_FIELDS = [
-	{ key: "fontSize", titleKey: "settings.general.fieldFontSize", descKey: "settings.general.fieldFontSizeDesc", min: 14, max: 22, step: 1, unit: "px" },
-	{ key: "codeFontSize", titleKey: "settings.general.fieldCodeFontSize", descKey: "settings.general.fieldCodeFontSizeDesc", min: 11, max: 18, step: 1, unit: "px" },
-	{ key: "lineHeight", titleKey: "settings.general.fieldLineHeight", descKey: "settings.general.fieldLineHeightDesc", min: 1.5, max: 2, step: 0.05, unitKey: "settings.general.unitLines" },
-	{ key: "width", titleKey: "settings.general.fieldWidth", descKey: "settings.general.fieldWidthDesc", min: 640, max: 960, step: 1, unit: "px" },
+	{
+		key: "fontSize",
+		titleKey: "settings.general.fieldFontSize",
+		descKey: "settings.general.fieldFontSizeDesc",
+		min: 14,
+		max: 22,
+		step: 1,
+		unit: "px",
+	},
+	{
+		key: "codeFontSize",
+		titleKey: "settings.general.fieldCodeFontSize",
+		descKey: "settings.general.fieldCodeFontSizeDesc",
+		min: 11,
+		max: 18,
+		step: 1,
+		unit: "px",
+	},
+	{
+		key: "lineHeight",
+		titleKey: "settings.general.fieldLineHeight",
+		descKey: "settings.general.fieldLineHeightDesc",
+		min: 1.5,
+		max: 2,
+		step: 0.05,
+		unitKey: "settings.general.unitLines",
+	},
+	{
+		key: "width",
+		titleKey: "settings.general.fieldWidth",
+		descKey: "settings.general.fieldWidthDesc",
+		min: 640,
+		max: 960,
+		step: 1,
+		unit: "px",
+	},
 ] as const;
 
 /** 工作过程动效逐条开关：id 与 work-process-effects.ts 的清单一致，顺序即展示顺序。 */
@@ -48,11 +80,31 @@ export const WALLPAPER_TYPE_LABEL = {
 } as const;
 
 /** 主题预设（整套深色配色）。preview 是预览小卡用的示意色，与 index.css 各预设令牌保持一致。 */
-export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: { bg: string; rail: string; line: string; panel: string } }[] = [
-	{ id: "", labelKey: "settings.appearance.presetGraphite", preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" } },
-	{ id: "owl-green", labelKey: "settings.appearance.presetOwlGreen", preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" } },
-	{ id: "codex", labelKey: "settings.appearance.presetCodex", preview: { bg: "#f7f6f3", rail: "#e7e6e3", line: "#d9d7d2", panel: "#ffffff" } },
-	{ id: "claude", labelKey: "settings.appearance.presetClaude", preview: { bg: "#f5f4f1", rail: "#eceae4", line: "#d8d5cd", panel: "#ffffff" } },
+export const OWL_THEME_PRESETS: {
+	id: OwlPresetId;
+	labelKey: TextKey;
+	preview: { bg: string; rail: string; line: string; panel: string };
+}[] = [
+	{
+		id: "",
+		labelKey: "settings.appearance.presetGraphite",
+		preview: { bg: "#1e1e1e", rail: "#151515", line: "#3d3d3d", panel: "#262626" },
+	},
+	{
+		id: "owl-green",
+		labelKey: "settings.appearance.presetOwlGreen",
+		preview: { bg: "#262624", rail: "#1a1918", line: "#45443e", panel: "#2f2e2b" },
+	},
+	{
+		id: "codex",
+		labelKey: "settings.appearance.presetCodex",
+		preview: { bg: "#f7f6f3", rail: "#e7e6e3", line: "#d9d7d2", panel: "#ffffff" },
+	},
+	{
+		id: "claude",
+		labelKey: "settings.appearance.presetClaude",
+		preview: { bg: "#f5f4f1", rail: "#eceae4", line: "#d8d5cd", panel: "#ffffff" },
+	},
 	{
 		id: "liquid-glass",
 		labelKey: "settings.appearance.presetLiquidGlass",
@@ -73,20 +125,76 @@ export const OWL_THEME_PRESETS: { id: OwlPresetId; labelKey: TextKey; preview: {
 			panel: "rgb(40 42 58 / 55%)",
 		},
 	},
-	{ id: "ink", labelKey: "settings.appearance.presetInk", preview: { bg: "#181818", rail: "#101010", line: "#2c2c2c", panel: "#1f1f1f" } },
-	{ id: "polar-night", labelKey: "settings.appearance.presetPolarNight", preview: { bg: "#1e2127", rail: "#15171c", line: "#323743", panel: "#272c36" } },
-	{ id: "ink-hc", labelKey: "settings.appearance.presetInkHc", preview: { bg: "#0a0a0a", rail: "#000000", line: "#3a3a3a", panel: "#141414" } },
-	{ id: "vscode-modern", labelKey: "settings.appearance.presetVscodeModern", preview: { bg: "#1f1f1f", rail: "#141414", line: "#333333", panel: "#282828" } },
-	{ id: "vscode-classic", labelKey: "settings.appearance.presetVscodeClassic", preview: { bg: "#1e1e1e", rail: "#333333", line: "#3c3c3c", panel: "#252526" } },
-	{ id: "monokai", labelKey: "settings.appearance.presetMonokai", preview: { bg: "#272822", rail: "#191a17", line: "#414339", panel: "#34352f" } },
-	{ id: "monokai-dimmed", labelKey: "settings.appearance.presetMonokaiDimmed", preview: { bg: "#1e1e1e", rail: "#353535", line: "#404040", panel: "#272727" } },
-	{ id: "solarized", labelKey: "settings.appearance.presetSolarized", preview: { bg: "#002b36", rail: "#001b23", line: "#0f4a58", panel: "#073642" } },
-	{ id: "abyss", labelKey: "settings.appearance.presetAbyss", preview: { bg: "#0e1726", rail: "#060b15", line: "#293b55", panel: "#182538" } },
-	{ id: "tomorrow-night-blue", labelKey: "settings.appearance.presetTomorrowNightBlue", preview: { bg: "#002451", rail: "#001733", line: "#2a4373", panel: "#003064" } },
-	{ id: "kimbie-dark", labelKey: "settings.appearance.presetKimbieDark", preview: { bg: "#221a0f", rail: "#17110a", line: "#51412c", panel: "#362712" } },
-	{ id: "red", labelKey: "settings.appearance.presetRed", preview: { bg: "#390000", rail: "#2a0000", line: "#6b1a1a", panel: "#480000" } },
-	{ id: "quiet-light", labelKey: "settings.appearance.presetQuietLight", preview: { bg: "#f5f5f5", rail: "#ededf5", line: "#d6d6d6", panel: "#ffffff" } },
-	{ id: "high-contrast", labelKey: "settings.appearance.presetHighContrast", preview: { bg: "#000000", rail: "#000000", line: "#6fc3df", panel: "#0b0b0b" } },
+	{
+		id: "ink",
+		labelKey: "settings.appearance.presetInk",
+		preview: { bg: "#181818", rail: "#101010", line: "#2c2c2c", panel: "#1f1f1f" },
+	},
+	{
+		id: "polar-night",
+		labelKey: "settings.appearance.presetPolarNight",
+		preview: { bg: "#1e2127", rail: "#15171c", line: "#323743", panel: "#272c36" },
+	},
+	{
+		id: "ink-hc",
+		labelKey: "settings.appearance.presetInkHc",
+		preview: { bg: "#0a0a0a", rail: "#000000", line: "#3a3a3a", panel: "#141414" },
+	},
+	{
+		id: "vscode-modern",
+		labelKey: "settings.appearance.presetVscodeModern",
+		preview: { bg: "#1f1f1f", rail: "#141414", line: "#333333", panel: "#282828" },
+	},
+	{
+		id: "vscode-classic",
+		labelKey: "settings.appearance.presetVscodeClassic",
+		preview: { bg: "#1e1e1e", rail: "#333333", line: "#3c3c3c", panel: "#252526" },
+	},
+	{
+		id: "monokai",
+		labelKey: "settings.appearance.presetMonokai",
+		preview: { bg: "#272822", rail: "#191a17", line: "#414339", panel: "#34352f" },
+	},
+	{
+		id: "monokai-dimmed",
+		labelKey: "settings.appearance.presetMonokaiDimmed",
+		preview: { bg: "#1e1e1e", rail: "#353535", line: "#404040", panel: "#272727" },
+	},
+	{
+		id: "solarized",
+		labelKey: "settings.appearance.presetSolarized",
+		preview: { bg: "#002b36", rail: "#001b23", line: "#0f4a58", panel: "#073642" },
+	},
+	{
+		id: "abyss",
+		labelKey: "settings.appearance.presetAbyss",
+		preview: { bg: "#0e1726", rail: "#060b15", line: "#293b55", panel: "#182538" },
+	},
+	{
+		id: "tomorrow-night-blue",
+		labelKey: "settings.appearance.presetTomorrowNightBlue",
+		preview: { bg: "#002451", rail: "#001733", line: "#2a4373", panel: "#003064" },
+	},
+	{
+		id: "kimbie-dark",
+		labelKey: "settings.appearance.presetKimbieDark",
+		preview: { bg: "#221a0f", rail: "#17110a", line: "#51412c", panel: "#362712" },
+	},
+	{
+		id: "red",
+		labelKey: "settings.appearance.presetRed",
+		preview: { bg: "#390000", rail: "#2a0000", line: "#6b1a1a", panel: "#480000" },
+	},
+	{
+		id: "quiet-light",
+		labelKey: "settings.appearance.presetQuietLight",
+		preview: { bg: "#f5f5f5", rail: "#ededf5", line: "#d6d6d6", panel: "#ffffff" },
+	},
+	{
+		id: "high-contrast",
+		labelKey: "settings.appearance.presetHighContrast",
+		preview: { bg: "#000000", rail: "#000000", line: "#6fc3df", panel: "#0b0b0b" },
+	},
 ];
 
 export const GLASS_MODE_LABEL_KEYS: Record<OwlGlassMode, TextKey> = {
@@ -121,7 +229,15 @@ export const OWL_IMAGE_PROVIDERS: readonly OwlImageProvider[] = [
 ];
 
 /** owl-image 的 BYOK provider（有 API key 输入行的子集）。 */
-export const OWL_IMAGE_BYOK: readonly Exclude<OwlImageProvider, "comfyui" | "google-sub">[] = ["google", "openai", "openai-compat", "seedream", "dashscope", "xai", "zhipu"];
+export const OWL_IMAGE_BYOK: readonly Exclude<OwlImageProvider, "comfyui" | "google-sub">[] = [
+	"google",
+	"openai",
+	"openai-compat",
+	"seedream",
+	"dashscope",
+	"xai",
+	"zhipu",
+];
 
 export const OWL_IMAGE_PROVIDER_LABEL_KEYS: Record<OwlImageProvider, TextKey> = {
 	google: "settings.image.p.google",

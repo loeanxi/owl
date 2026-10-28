@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ResearchResult } from "../bridge/protocol.ts";
-import { applyEvent, rebuild, type ChatEntry } from "./transcript.ts";
+import { applyEvent, type ChatEntry, rebuild } from "./transcript.ts";
 
 const published: ResearchResult = {
 	id: "research-result-1",
@@ -98,7 +98,16 @@ test("live orphan errors, cancellation, invalid evidence and ordinary tool outpu
 		[{ ...resultMessage(), details: { researchResult: { ...published, rows: [{ unexpected: true }] } } }, false],
 		[{ ...resultMessage(), details: undefined, content: [{ type: "text", text: JSON.stringify(published) }] }, false],
 	] as const) {
-		assert.equal(event(initial, { type: "tool_execution_end", toolCallId: "missing-call", toolName: "research_publish", result, isError }), initial);
+		assert.equal(
+			event(initial, {
+				type: "tool_execution_end",
+				toolCallId: "missing-call",
+				toolName: "research_publish",
+				result,
+				isError,
+			}),
+			initial,
+		);
 	}
 	assert.equal(event(initial, { type: "message_end", message: { ...resultMessage(), toolName: "read" } }), initial);
 });
@@ -106,7 +115,10 @@ test("live orphan errors, cancellation, invalid evidence and ordinary tool outpu
 test("late results belonging to a prior tool call cannot attach to a new user turn", () => {
 	const initial = rebuild([
 		{ role: "user", content: "旧任务" },
-		{ role: "assistant", content: [{ type: "toolCall", id: "missing-call", name: "research_publish", arguments: {} }] },
+		{
+			role: "assistant",
+			content: [{ type: "toolCall", id: "missing-call", name: "research_publish", arguments: {} }],
+		},
 		{ role: "user", content: "新任务" },
 	]);
 	assert.equal(event(initial, { type: "message_end", message: resultMessage() }), initial);
@@ -114,7 +126,10 @@ test("late results belonging to a prior tool call cannot attach to a new user tu
 });
 
 test("queued follow-ups do not prevent orphan publication events from merging in the current turn", () => {
-	let entries: ChatEntry[] = [{ kind: "user", text: "分析" }, { kind: "user", text: "稍后看另一文件", queued: true }];
+	let entries: ChatEntry[] = [
+		{ kind: "user", text: "分析" },
+		{ kind: "user", text: "稍后看另一文件", queued: true },
+	];
 	entries = event(entries, { type: "message_end", message: resultMessage() });
 	entries = event(entries, { type: "message_end", message: resultMessage() });
 	assert.equal(orphans(entries).length, 1);
@@ -126,11 +141,17 @@ test("an orphan republished in another user turn keeps each turn's own revision"
 	entries = [...entries, { kind: "user", text: "补充分析" }];
 	const revised = { ...published, summary: "补充分析结果" };
 	entries = event(entries, { type: "message_end", message: resultMessage(revised) });
-	assert.deepEqual(orphans(entries).map((entry) => entry.researchResult), [published, revised]);
+	assert.deepEqual(
+		orphans(entries).map((entry) => entry.researchResult),
+		[published, revised],
+	);
 });
 
 test("agent_end restores an orphan publication without duplicating a live artifact or losing history", () => {
-	const history: ChatEntry[] = [{ kind: "user", text: "旧问题" }, { kind: "assistant", text: "旧回答", thinking: "", tools: [] }];
+	const history: ChatEntry[] = [
+		{ kind: "user", text: "旧问题" },
+		{ kind: "assistant", text: "旧回答", thinking: "", tools: [] },
+	];
 	let entries = event([...history, { kind: "user", text: "分析" }], { type: "agent_start" });
 	entries = event(entries, { type: "message_end", message: resultMessage() });
 	const messages = [{ role: "user", content: "分析" }, resultMessage()];

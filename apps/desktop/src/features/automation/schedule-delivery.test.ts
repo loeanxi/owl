@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { parseScheduleDelivery } from "./schedule-delivery.ts";
 
 test("新格式：带任务标记的到点投递", () => {
-	const text = "〔owl-schedule:t-123〕（自动化任务「邮箱晨报」到点执行 · 每天 09:00 · 现在 2026-10-07 09:00）\n\n检查未读邮件，挑出 3 封最要紧的。";
+	const text =
+		"〔owl-schedule:t-123〕（自动化任务「邮箱晨报」到点执行 · 每天 09:00 · 现在 2026-10-07 09:00）\n\n检查未读邮件，挑出 3 封最要紧的。";
 	const info = parseScheduleDelivery(text);
 	assert.ok(info);
 	assert.equal(info.taskId, "t-123");
@@ -14,7 +15,8 @@ test("新格式：带任务标记的到点投递", () => {
 });
 
 test("一次性任务：节奏里带 · 不干扰解析", () => {
-	const text = "〔owl-schedule:t-9〕（自动化任务「提醒我打包」到点执行 · 一次性 · 2026-10-09 09:00 · 现在 2026-10-09 09:00）\n\n打包 v0.0.4";
+	const text =
+		"〔owl-schedule:t-9〕（自动化任务「提醒我打包」到点执行 · 一次性 · 2026-10-09 09:00 · 现在 2026-10-09 09:00）\n\n打包 v0.0.4";
 	const info = parseScheduleDelivery(text);
 	assert.ok(info);
 	assert.equal(info.taskId, "t-9");

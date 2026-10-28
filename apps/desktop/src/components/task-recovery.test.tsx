@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { t } from "../i18n/index.ts";
 import { TaskRecoveryNotice, type TaskRecoveryNoticeProps } from "./TaskRecoveryNotice.tsx";
@@ -18,7 +18,10 @@ beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
-	props = { recovery: { id: "failure-one", reason: "network offline", completedTools: 2, uncertainTools: 1 }, onContinue: vi.fn(async () => true) };
+	props = {
+		recovery: { id: "failure-one", reason: "network offline", completedTools: 2, uncertainTools: 1 },
+		onContinue: vi.fn(async () => true),
+	};
 });
 
 afterEach(async () => {
@@ -32,7 +35,9 @@ async function render(overrides: Partial<TaskRecoveryNoticeProps> = {}): Promise
 }
 
 function button(label: string): HTMLButtonElement {
-	const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label);
+	const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+		(item) => item.textContent === label,
+	);
 	if (!found) throw new Error(`Missing button: ${label}`);
 	return found;
 }
@@ -52,7 +57,9 @@ describe("TaskRecoveryNotice", () => {
 		const onRetry = vi.fn(async () => true);
 		await render();
 		// 未提供 onRetry 时不渲染重试按钮，恢复路径保持原样。
-		expect([...container.querySelectorAll("button")].some((item) => item.textContent === t("recovery.retry"))).toBe(false);
+		expect([...container.querySelectorAll("button")].some((item) => item.textContent === t("recovery.retry"))).toBe(
+			false,
+		);
 		await render({ onRetry });
 		await act(async () => button(t("recovery.retry")).click());
 		expect(onRetry).toHaveBeenCalledOnce();
@@ -93,7 +100,20 @@ describe("TaskRecoveryNotice", () => {
 
 	it("offers alternative models and passes only the explicitly selected choice", async () => {
 		const onContinue = vi.fn(async () => true);
-		await render({ onContinue, model: "provider/current", providers: [{ id: "provider", name: "Provider", models: [{ id: "current", name: "Current" }, { id: "alternative", name: "Alternative" }] }] });
+		await render({
+			onContinue,
+			model: "provider/current",
+			providers: [
+				{
+					id: "provider",
+					name: "Provider",
+					models: [
+						{ id: "current", name: "Current" },
+						{ id: "alternative", name: "Alternative" },
+					],
+				},
+			],
+		});
 		await act(async () => button(t("recovery.chooseModel")).click());
 		const select = container.querySelector<HTMLSelectElement>("select")!;
 		expect(select.querySelector('option[value="provider/current"]')).toBeNull();
@@ -109,7 +129,11 @@ describe("TaskRecoveryNotice", () => {
 	});
 
 	it("clears a previous recovery error when a different failure replaces the card", async () => {
-		await render({ onContinue: async () => { throw new Error("bridge offline"); } });
+		await render({
+			onContinue: async () => {
+				throw new Error("bridge offline");
+			},
+		});
 		await act(async () => button(t("recovery.continue")).click());
 		expect(container.querySelector('[role="alert"]')?.textContent).toBe("bridge offline");
 		await render({ recovery: { id: "failure-two", reason: "new failure", completedTools: 0, uncertainTools: 0 } });

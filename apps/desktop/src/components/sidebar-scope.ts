@@ -11,18 +11,33 @@ export function matchesSessionScope(row: ScopeRow, scope: SessionScope): boolean
 }
 
 export function sidebarStorageKeys(scope: SessionScope): {
-	pinned: string; pinnedProjects: string; projects: string; collapsed: string; pinnedSort: string; recentSort: string; sessionOrder: string;
+	pinned: string;
+	pinnedProjects: string;
+	projects: string;
+	collapsed: string;
+	pinnedSort: string;
+	recentSort: string;
+	sessionOrder: string;
 } {
-	return scope === "research" ? {
-		pinned: "owl.research.sidebar.pinnedSessions", pinnedProjects: "owl.research.sidebar.pinnedProjects",
-		projects: "owl.research.sidebar.projects", collapsed: "owl.research.sidebar.collapsed",
-		pinnedSort: "owl.research.sidebar.pinnedSort", recentSort: "owl.research.sidebar.recentSort",
-		sessionOrder: "owl.research.sidebar.sessionOrder",
-	} : {
-		pinned: "owl.pinnedSessions", pinnedProjects: "owl.pinnedProjects", projects: "owl.projects",
-		collapsed: "owl.sidebar.collapsed", pinnedSort: "owl.sidebar.pinnedSort", recentSort: "owl.sidebar.recentSort",
-		sessionOrder: "owl.sidebar.sessionOrder",
-	};
+	return scope === "research"
+		? {
+				pinned: "owl.research.sidebar.pinnedSessions",
+				pinnedProjects: "owl.research.sidebar.pinnedProjects",
+				projects: "owl.research.sidebar.projects",
+				collapsed: "owl.research.sidebar.collapsed",
+				pinnedSort: "owl.research.sidebar.pinnedSort",
+				recentSort: "owl.research.sidebar.recentSort",
+				sessionOrder: "owl.research.sidebar.sessionOrder",
+			}
+		: {
+				pinned: "owl.pinnedSessions",
+				pinnedProjects: "owl.pinnedProjects",
+				projects: "owl.projects",
+				collapsed: "owl.sidebar.collapsed",
+				pinnedSort: "owl.sidebar.pinnedSort",
+				recentSort: "owl.sidebar.recentSort",
+				sessionOrder: "owl.sidebar.sessionOrder",
+			};
 }
 
 export function loadSidebarStrings(storage: Pick<Storage, "getItem">, key: string): string[] {
@@ -51,16 +66,31 @@ export function initializeResearchSidebar(storage: SidebarStorage, rows: readonl
 	const projects = new Set(research.map((row) => normPath(row.cwd)).filter(Boolean));
 	try {
 		if (storage.getItem(keys.pinned) === null) {
-			storage.setItem(keys.pinned, JSON.stringify(loadSidebarStrings(storage, ordinaryKeys.pinned).filter((id) => ids.has(id))));
+			storage.setItem(
+				keys.pinned,
+				JSON.stringify(loadSidebarStrings(storage, ordinaryKeys.pinned).filter((id) => ids.has(id))),
+			);
 		}
 		if (storage.getItem(keys.pinnedProjects) === null) {
-			storage.setItem(keys.pinnedProjects, JSON.stringify(loadSidebarStrings(storage, ordinaryKeys.pinnedProjects).filter((path) => projects.has(normPath(path)))));
+			storage.setItem(
+				keys.pinnedProjects,
+				JSON.stringify(
+					loadSidebarStrings(storage, ordinaryKeys.pinnedProjects).filter((path) => projects.has(normPath(path))),
+				),
+			);
 		}
 		if (storage.getItem(RESEARCH_PROJECTS_ISOLATED_KEY) === null) {
 			if (storage.getItem(keys.projects) !== null) {
-				storage.setItem(keys.projects, JSON.stringify(loadSidebarStrings(storage, keys.projects).filter((path) => projects.has(normPath(path)))));
+				storage.setItem(
+					keys.projects,
+					JSON.stringify(
+						loadSidebarStrings(storage, keys.projects).filter((path) => projects.has(normPath(path))),
+					),
+				);
 			}
 			storage.setItem(RESEARCH_PROJECTS_ISOLATED_KEY, "1");
 		}
-	} catch { /* The current history still renders when preference storage is unavailable. */ }
+	} catch {
+		/* The current history still renders when preference storage is unavailable. */
+	}
 }

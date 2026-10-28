@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { useEffect, useMemo, useState } from "react";
 import { UI_BUILD } from "../bridge/build-info.ts";
 import type { BridgeClient } from "../bridge/client.ts";
 import { hasTauri } from "../bridge/native.ts";
@@ -35,7 +35,13 @@ function readDismissed(): string {
  * "改完没重建/没重启"、"有状态文件曾损坏"和桥进程崩溃重启直接摆到用户眼前，
  * 而不是让它们表现成"点了没反应"。收起按问题集签名记住，问题变了才重新出现。
  */
-export function BuildConsistencyBanner({ client, connected }: { client: BridgeClient; connected: boolean }): React.JSX.Element | null {
+export function BuildConsistencyBanner({
+	client,
+	connected,
+}: {
+	client: BridgeClient;
+	connected: boolean;
+}): React.JSX.Element | null {
 	const t = useT();
 	const [buildIssues, setBuildIssues] = useState<BannerIssue[]>([]);
 	const [watchdog, setWatchdog] = useState<BannerIssue | null>(null);
@@ -65,7 +71,11 @@ export function BuildConsistencyBanner({ client, connected }: { client: BridgeCl
 			const payload = event.payload;
 			if (payload?.state === "down") setWatchdog({ kind: "bridge-down" });
 			else if (payload?.state === "exited" || payload?.state === "restarted") {
-				setWatchdog({ kind: "bridge-exited", code: payload.code ?? null, restarted: payload.state === "restarted" });
+				setWatchdog({
+					kind: "bridge-exited",
+					code: payload.code ?? null,
+					restarted: payload.state === "restarted",
+				});
 			}
 		}).then((off) => {
 			if (disposed) off();
@@ -88,7 +98,10 @@ export function BuildConsistencyBanner({ client, connected }: { client: BridgeCl
 			? t("build.titleBridge")
 			: t("build.title");
 	const describe = (issue: BannerIssue): string => {
-		const fileVars = (changed: { files: string[]; count: number }) => ({ files: changed.files.join("、"), count: changed.count });
+		const fileVars = (changed: { files: string[]; count: number }) => ({
+			files: changed.files.join("、"),
+			count: changed.count,
+		});
 		switch (issue.kind) {
 			case "protocol-mismatch":
 				return t("build.protocolMismatch", { ui: issue.uiProtocol, bridge: issue.bridgeProtocol });

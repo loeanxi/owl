@@ -1,0 +1,472 @@
+/**
+ * Claude Desktop 的排版尺度。
+ *
+ * 逆向来源：Claude Desktop 打包产物
+ *   `ion-dist/assets/v1/c6a992d55-sXiDGMFQ.css` 的 `--cds-*` token。
+ *
+ * 这套尺度是 Claude 观感的底座，抄的是它的**具体数值**，不是"差不多的值"：
+ *
+ *   字号   body 13 / heading 14 / prose 14 / caption 11 / footnote 12 / code 12 / title 20
+ *   行高   body 20 / heading 18 / prose 20 / caption 17 / footnote 15 / title 25
+ *   间距   gap-xs 6 / gap-sm 8 / gap-md 12 / gap-lg 20
+ *          pad-xs 4 / pad-sm 8 / pad-md 6 / pad-lg 14 / pad-xl 22
+ *   圆角   radius-sm 5 / radius-lg 7 / radius 24
+ *
+ * 文字层级是四档（Claude 的 utility 类名）：
+ *   text-primary            主文
+ *   text-secondary          次文（工具行、组头）
+ *   text-muted              弱化（思考摘要）
+ *   text-muted-as-secondary 极弱（时长、计数、箭头）
+ *
+ * 颜色不写死：Claude 的灰阶（gray-900 #0b0b0b / 600 #52514e / 400 #898781）
+ * 在 owl 里对应现成的 `--owl-reading-*`，这样浅色/深色/壁纸主题都跟着走。
+ */
+
+/* Claude 的极弱文字档 = 主色 35% 不透明（bundle 的 --cds-alpha-4）。 */
+.owl-chat-surface {
+	--owl-reading-faint: color-mix(in srgb, var(--owl-reading-text) 35%, transparent);
+}
+
+.owl-chat-surface {
+	/* ---- 字号 ---- */
+	--owl-claude-font-size-body: 13px;
+	--owl-claude-font-size-body-lg: 14px;
+	--owl-claude-font-size-body-sm: 12px;
+	--owl-claude-font-size-body-textlg: 15px;
+	--owl-claude-font-size-caption: 11px;
+	--owl-claude-font-size-caption-sm: 10px;
+	--owl-claude-font-size-code: 12px;
+	--owl-claude-font-size-footnote: 12px;
+	--owl-claude-font-size-heading: 14px;
+	--owl-claude-font-size-heading-textlg: 15px;
+	--owl-claude-font-size-prose: 14px;
+	--owl-claude-font-size-prose-lg: 15px;
+	--owl-claude-font-size-prose-sm: 13px;
+	--owl-claude-font-size-title: 20px;
+
+	/* ---- 行高 ---- */
+	--owl-claude-leading-body: 20px;
+	--owl-claude-leading-body-sm: 17px;
+	--owl-claude-leading-body-textlg: 22px;
+	--owl-claude-leading-caption: 17px;
+	--owl-claude-leading-code: 17px;
+	--owl-claude-leading-footnote: 15px;
+	--owl-claude-leading-heading: 18px;
+	--owl-claude-leading-heading-textlg: 22px;
+	--owl-claude-leading-prose: 20px;
+	--owl-claude-leading-prose-lg: 22px;
+	--owl-claude-leading-title: 25px;
+
+	/* ---- 间距 ---- */
+	--owl-claude-gap-xs: 6px;
+	--owl-claude-gap-sm: 8px;
+	--owl-claude-gap-md: 12px;
+	--owl-claude-gap-lg: 20px;
+	--owl-claude-pad-xs: 4px;
+	--owl-claude-pad-sm: 8px;
+	--owl-claude-pad-md: 6px;
+	--owl-claude-pad-lg: 14px;
+	--owl-claude-pad-xl: 22px;
+
+	/* ---- 圆角 ---- */
+	--owl-claude-radius-sm: 5px;
+	--owl-claude-radius-lg: 7px;
+	--owl-claude-radius: 24px;
+	/* 消息块圆角：bundle 里的 var(--msg-block-radius, 0.75rem)。 */
+	--owl-claude-radius-block: 12px;
+}
+
+/* Claude 模式下的四档文字层级。
+   组头 = TurnStatus 折叠头：body 字号、muted，悬停/展开转主文（chat-work-process.css）。 */
+html[data-owl-claude-flow="on"] .owl-claude-group-title {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+}
+
+/* 跑动中的组头：live 标签走 Claude 的 shimmer（cds-shimmer-text-shine，
+   背景位移动画 83%→17%，3s；渐变裁字）。 */
+html[data-owl-claude-flow="on"] .owl-claude-group-title[data-live] {
+	color: transparent;
+	background-image: linear-gradient(100deg, var(--owl-reading-muted) 42%, var(--owl-reading-text) 50%, var(--owl-reading-muted) 58%);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	animation: owl-claude-shine 3s linear infinite;
+}
+
+@keyframes owl-claude-shine {
+	0%, 15% { background-position: 83% 0; animation-timing-function: cubic-bezier(0.714, 0.121, 0.211, 0.888); }
+	85%, 100% { background-position: 17% 0; }
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-row-label {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	color: var(--owl-reading-muted);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-row-head:hover .owl-claude-group-row-label {
+	color: var(--owl-reading-text);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-chevron,
+html[data-owl-claude-flow="on"] .owl-claude-group-row-chevron,
+html[data-owl-claude-flow="on"] .owl-claude-summary-chevron {
+	color: var(--owl-reading-faint);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-thinking-summary {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	color: var(--owl-reading-muted);
+}
+
+/* 思考折叠行 = 与工具行同构的 Step 行：body 字号、muted、悬停转主文。 */
+html[data-owl-claude-flow="on"] .owl-claude-thinking-head {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	gap: var(--owl-claude-gap-sm);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-thinking-chevron {
+	color: var(--owl-reading-faint);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-thinking-duration {
+	font-size: var(--owl-claude-font-size-caption);
+	line-height: var(--owl-claude-leading-caption);
+	color: var(--owl-reading-faint);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-summary-head {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	gap: var(--owl-claude-gap-sm);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-summary-tail {
+	font-size: var(--owl-claude-font-size-caption);
+	line-height: var(--owl-claude-leading-caption);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-failed-count {
+	font-size: var(--owl-claude-font-size-caption);
+	line-height: var(--owl-claude-leading-caption);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-box {
+	border-radius: var(--owl-claude-radius-block);
+	gap: 0;
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-row-head {
+	gap: var(--owl-claude-gap-sm);
+	min-height: var(--owl-claude-leading-body);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-group-output {
+	font-size: var(--owl-claude-font-size-code);
+	line-height: var(--owl-claude-leading-code);
+	padding: var(--owl-claude-pad-md) var(--owl-claude-pad-lg);
+}
+
+/* Claude 的说明行：中间叙述收成一行。与工具行同构 —— body 字号、muted、
+   不斜体（bundle 里没有斜体说明行；Step 行的 label 就是 text-muted）。
+   悬停转主文，点开展开完整内容。 */
+html[data-owl-claude-flow="on"] .owl-claude-note { min-width: 0; }
+
+html[data-owl-claude-flow="on"] .owl-claude-note-head {
+	display: block;
+	width: 100%;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--owl-reading-muted);
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	text-align: left;
+	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-note-head:hover {
+	color: var(--owl-reading-text);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-note-head:focus-visible {
+	outline: 2px solid var(--owl-reading-link, var(--color-owl-accent));
+	outline-offset: 2px;
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-note-label {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* 单行说明没有可展开的内容：照样显示那一行（不再整行隐藏），
+   悬停完整文案由 title 提供，点击没有动作就不给手型。 */
+html[data-owl-claude-flow="on"] .owl-claude-note[data-single-line] .owl-claude-note-label {
+	margin: 0;
+	color: var(--owl-reading-muted);
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	cursor: default;
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-note-body {
+	margin-top: var(--owl-claude-gap-xs);
+	color: var(--owl-reading-text);
+	font-size: var(--owl-claude-font-size-prose);
+	line-height: var(--owl-claude-leading-prose);
+}
+
+/* 只有一行的说明在 Claude 里整行不渲染（cellSuppressed），不存在独立样式；
+   保留 .owl-claude-note-open 的兜底排版以防旧调用方。 */
+html[data-owl-claude-flow="on"] .owl-claude-note-open {
+	color: var(--owl-reading-muted);
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+}
+
+html[data-owl-claude-flow="on"] .owl-claude-note-open .owl-claude-note-label {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ── Composer 框体（Claude 的 rounded-composer/shadow-composer）────────
+   圆角 14px（--cds-radius-composer 0.875rem）；静止 = 4px/20px 黑 3.5% 投影
+   + 1px 中性描边；聚焦 = 黑 7.5% + 描边加强。注意 Claude 聚焦不变 accent。 */
+html[data-owl-claude-flow="on"] .owl-composer-input {
+	border-radius: 14px;
+	border-color: color-mix(in srgb, var(--owl-reading-text) 15%, transparent);
+	box-shadow: 0 4px 20px color-mix(in srgb, #000 3.5%, transparent);
+}
+
+html[data-owl-claude-flow="on"] .owl-composer-input:focus-within {
+	border-color: color-mix(in srgb, var(--owl-reading-text) 20%, transparent);
+	box-shadow: 0 4px 20px color-mix(in srgb, #000 7.5%, transparent);
+}
+
+/* ── 工具批准模态（Claude 设计语言作用域覆盖）────────────────────
+   机制不动（owl 的队列/焦点陷阱/diff 预览），只对齐视觉：
+   12px 圆角卡、标题 14px 主文（Claude 的卡片标题档，非 18px 大标题）、
+   正文次级色、允许钮 accent、拒绝钮安静。 */
+html[data-owl-claude-flow="on"] .owl-permission-dialog.owl-permission-review {
+	border-radius: var(--owl-claude-radius-block);
+	border-color: color-mix(in srgb, var(--owl-reading-text) 15%, transparent);
+	box-shadow: 0 8px 32px color-mix(in srgb, #000 12%, transparent);
+}
+html[data-owl-claude-flow="on"] .owl-permission-review .owl-permission-title {
+	font-size: var(--owl-claude-font-size-body-textlg);
+	line-height: var(--owl-claude-leading-body-textlg);
+}
+html[data-owl-claude-flow="on"] .owl-permission-review .owl-permission-body,
+html[data-owl-claude-flow="on"] .owl-permission-review .owl-permission-scope {
+	color: var(--owl-reading-muted);
+}
+html[data-owl-claude-flow="on"] .owl-permission-review .owl-permission-workspace-name {
+	color: var(--owl-reading-text);
+}
+
+/* ── 改动审查卡（Claude 行语言的收口）────────────────────────────
+   行文案与总结行同档：body 13px 次级色；diff 数字已是同款 mono。
+   头部高度收到 Claude 的行节奏（min-height 40px → 行高节奏）。 */
+html[data-owl-claude-flow="on"] .owl-changes-head { min-height: 0; padding: 3px 8px; }
+html[data-owl-claude-flow="on"] .owl-changes-toggle { padding: 3px 0; gap: 8px; }
+html[data-owl-claude-flow="on"] .owl-changes-head-text {
+	font-size: var(--owl-claude-font-size-body);
+	line-height: var(--owl-claude-leading-body);
+	color: var(--owl-reading-muted);
+}
+html[data-owl-claude-flow="on"] .owl-changes-head-text :is(strong, b) { color: var(--owl-reading-text); font-weight: 500; }
+
+/* ── 深色主题色相（Claude 暖灰系）──────────────────────────────
+   Claude 深色的精确值：页面底 gray-900 #0b0b0b、主文 gray-50 #f0efec、
+   次文 gray-200 #c3c2b7、弱文 gray-400 #898781 —— 全是暖灰（黄调），
+   alpha 混合在深色下翻成白色基（neutral-900 → gray-0）。
+   owl 默认深色是中性灰（#e8e8e8/#a3a3a3），色相不同。回答区作用域内
+   把阅读令牌对齐到 Claude 的暖色相；浅色令牌不动（owl 浅色自带）。 */
+@media screen {
+	html[data-owl-claude-flow="on"]:not([data-owl-theme="light"]) .owl-chat-surface {
+		--owl-reading-text: #f0efec;
+		--owl-reading-muted: #898781;
+		--owl-reading-faint: #6d6b67;
+	}
+}
+
+/* Claude 的 meta/摘要面板用 text-secondary（深色 gray-200），比 muted 亮一档。 */
+html[data-owl-claude-flow="on"]:not([data-owl-theme="light"]) .owl-claude-group-row-meta,
+html[data-owl-claude-flow="on"]:not([data-owl-theme="light"]) .owl-claude-thinking-summary,
+html[data-owl-claude-flow="on"]:not([data-owl-theme="light"]) .owl-claude-group-output {
+	color: #c3c2b7;
+}
+
+/* ── 动效时序（--cds-dur-fast/snap + ease-snap）───────────────────
+   颜色过渡 60ms；箭头/形态翻转 120ms ease-snap 曲线。 */
+html[data-owl-claude-flow="on"] .owl-claude-group-head,
+html[data-owl-claude-flow="on"] .owl-claude-group-row-head,
+html[data-owl-claude-flow="on"] .owl-claude-thinking-head,
+html[data-owl-claude-flow="on"] .owl-claude-note-head,
+html[data-owl-claude-flow="on"] .owl-claude-summary-head {
+	transition-duration: 60ms;
+}
+html[data-owl-claude-flow="on"] .owl-claude-group-chevron,
+html[data-owl-claude-flow="on"] .owl-claude-group-row-chevron,
+html[data-owl-claude-flow="on"] .owl-claude-thinking-chevron,
+html[data-owl-claude-flow="on"] .owl-claude-summary-chevron {
+	transition: transform 120ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ── 浅色主题色相（Claude 暖纸系）──────────────────────────────
+   Claude 浅色：页面底 gray-20 #f9f9f7（暖纸白）、主文近黑 warm、
+   次文/弱文 = 墨色 35% 透明（alpha-4）。owl 的 muted 角色更宽，
+   在忠实值上略加深保可读性。 */
+html[data-owl-claude-flow="on"][data-owl-theme="light"] .owl-chat-surface {
+	--owl-reading-text: #191917;
+	--owl-reading-muted: rgba(11, 11, 11, 0.6);
+	--owl-reading-faint: rgba(11, 11, 11, 0.38);
+}
+
+/* ── 页面底色 ───────────────────────────────────────────────────
+   Claude 深色页面底 = #0b0b0b（gray-900），浅色 = #f9f9f7（gray-20）。
+   壁纸开启时不抢（壁纸预设自带底）。 */
+html[data-owl-claude-flow="on"]:not([data-owl-wallpaper="on"]):not([data-owl-theme="light"]) {
+	--owl-conversation-bg: #0b0b0b;
+}
+html[data-owl-claude-flow="on"][data-owl-theme="light"]:not([data-owl-wallpaper="on"]) {
+	--owl-conversation-bg: #f9f9f7;
+}
+
+/* ── 语法高亮（Claude 的 hljs 色板 = One Dark，逐字）──────────────
+   bundle 单一色板深浅通用；这里同样不分主题。 */
+html[data-owl-claude-flow="on"] .hljs-comment,
+html[data-owl-claude-flow="on"] .hljs-quote {
+	color: #5c6370;
+	font-style: italic;
+}
+html[data-owl-claude-flow="on"] .hljs-doctag,
+html[data-owl-claude-flow="on"] .hljs-formula,
+html[data-owl-claude-flow="on"] .hljs-keyword {
+	color: #c678dd;
+}
+html[data-owl-claude-flow="on"] .hljs-deletion,
+html[data-owl-claude-flow="on"] .hljs-name,
+html[data-owl-claude-flow="on"] .hljs-section,
+html[data-owl-claude-flow="on"] .hljs-selector-tag,
+html[data-owl-claude-flow="on"] .hljs-subst {
+	color: #e06c75;
+}
+html[data-owl-claude-flow="on"] .hljs-literal {
+	color: #56b6c2;
+}
+html[data-owl-claude-flow="on"] .hljs-addition,
+html[data-owl-claude-flow="on"] .hljs-attribute,
+html[data-owl-claude-flow="on"] .hljs-meta .hljs-string,
+html[data-owl-claude-flow="on"] .hljs-regexp,
+html[data-owl-claude-flow="on"] .hljs-string {
+	color: #98c379;
+}
+html[data-owl-claude-flow="on"] .hljs-attr,
+html[data-owl-claude-flow="on"] .hljs-number,
+html[data-owl-claude-flow="on"] .hljs-selector-attr,
+html[data-owl-claude-flow="on"] .hljs-selector-class,
+html[data-owl-claude-flow="on"] .hljs-selector-pseudo,
+html[data-owl-claude-flow="on"] .hljs-template-variable,
+html[data-owl-claude-flow="on"] .hljs-type,
+html[data-owl-claude-flow="on"] .hljs-variable {
+	color: #d19a66;
+}
+html[data-owl-claude-flow="on"] .hljs-bullet,
+html[data-owl-claude-flow="on"] .hljs-link,
+html[data-owl-claude-flow="on"] .hljs-meta,
+html[data-owl-claude-flow="on"] .hljs-selector-id,
+html[data-owl-claude-flow="on"] .hljs-symbol,
+html[data-owl-claude-flow="on"] .hljs-title {
+	color: #61aeee;
+}
+html[data-owl-claude-flow="on"] .hljs-built_in,
+html[data-owl-claude-flow="on"] .hljs-class .hljs-title,
+html[data-owl-claude-flow="on"] .hljs-title.class_ {
+	color: #e6c07b;
+}
+html[data-owl-claude-flow="on"] .hljs-strong {
+	font-weight: 700;
+}
+
+/* ── 选中色 / 焦点环 / 滚动条 ─────────────────────────────────── */
+html[data-owl-claude-flow="on"] .owl-chat-surface ::selection {
+	background: color-mix(in srgb, var(--color-owl-accent) 24%, transparent);
+}
+/* Claude 的 focus-shadow：1px 页底间隙 + 1px accent 环 + 6px 辉光。 */
+html[data-owl-claude-flow="on"] .owl-claude-group-head:focus-visible,
+html[data-owl-claude-flow="on"] .owl-claude-group-row-head:focus-visible,
+html[data-owl-claude-flow="on"] .owl-claude-thinking-head:focus-visible,
+html[data-owl-claude-flow="on"] .owl-claude-note-head:focus-visible {
+	outline: none;
+	box-shadow:
+		inset 0 0 0 1px var(--owl-conversation-bg, #0b0b0b),
+		0 0 0 1px var(--color-owl-accent),
+		0 0 6px 1px color-mix(in srgb, var(--color-owl-accent) 45%, transparent);
+}
+html[data-owl-claude-flow="on"] .owl-chat-surface * {
+	scrollbar-color: color-mix(in srgb, var(--owl-reading-text) 20%, transparent) transparent;
+}
+
+/* ── 入场动画（cds-reveal-in + 题目滑动）─────────────────────────
+   新行出现 = 4px 上浮 + 淡入，120ms ease-out（bundle 的
+   .animate-[cds-reveal-in_var(--cds-dur-snap)_var(--cds-ease-out)]）。
+   题目滑动（slide-in-from-right/left ±20px 0.3s ease-in-out）是
+   Claude 分页式提问的换页动画 —— owl 的提问卡是堆叠布局，暂无换页，
+   关键帧先落地备用。 */
+@keyframes owl-claude-reveal-in {
+	0% {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+html[data-owl-claude-flow="on"] .owl-claude-flow-item {
+	animation: owl-claude-reveal-in 120ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+@keyframes owl-claude-slide-in-right {
+	0% {
+		opacity: 0;
+		transform: translate(20px);
+	}
+}
+@keyframes owl-claude-slide-in-left {
+	0% {
+		opacity: 0;
+		transform: translate(-20px);
+	}
+}
+
+/* 减弱动态（系统设置）时关闭入场动画与 shimmer —— Claude 的
+   motion-reduce:transition-none 同款可访问性守护。 */
+@media (prefers-reduced-motion: reduce) {
+	html[data-owl-claude-flow="on"] .owl-claude-flow-item {
+		animation: none;
+	}
+	html[data-owl-claude-flow="on"] .owl-claude-group-title[data-live] {
+		animation: none;
+	}
+	html[data-owl-claude-flow="on"] .owl-claude-group-chevron,
+	html[data-owl-claude-flow="on"] .owl-claude-group-row-chevron,
+	html[data-owl-claude-flow="on"] .owl-claude-thinking-chevron {
+		transition: none;
+	}
+}
+
+/* ── 玻璃预设协调 ───────────────────────────────────────────────
+   液态玻璃/霜预设自带阅读色（desktop-shell 的 --owl-lg-read-*），
+   走 Claude 流时同样对齐到 Claude 暖灰，避免玻璃框 + 冷灰字的混搭。 */
+html[data-owl-claude-flow="on"]:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-owl-theme="light"]):not([data-owl-wallpaper="on"]) .owl-chat-surface {
+	--owl-reading-text: #f0efec;
+	--owl-reading-muted: #898781;
+	--owl-reading-faint: #6d6b67;
+}

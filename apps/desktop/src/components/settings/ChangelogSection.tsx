@@ -1,7 +1,7 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import changelogMarkdown from "../../../../../CHANGELOG.md?raw";
 import { getUiLanguage, subscribeUiLanguage } from "../../i18n/index.ts";
-import { CHANGELOG_KINDS, filterChangelog, parseChangelog, type ChangelogKind } from "./changelog.ts";
+import { CHANGELOG_KINDS, type ChangelogKind, filterChangelog, parseChangelog } from "./changelog.ts";
 import { SectionHeader } from "./settings-widgets.tsx";
 
 const DAY_PAGE = 14;
@@ -32,11 +32,15 @@ const COPY = {
 	en: {
 		nav: "Changelog",
 		title: "Changelog",
-		description: "Changes introduced by each Owl commit, read from CHANGELOG.md at the repository root and bundled with the desktop build.",
+		description:
+			"Changes introduced by each Owl commit, read from CHANGELOG.md at the repository root and bundled with the desktop build.",
 		searchLabel: "Search changelog",
 		searchPlaceholder: "Search by description or module, e.g. desktop",
 		all: "All",
-		kinds: { 新增: "Added", 改进: "Improved", 修复: "Fixed", 移除: "Removed", 维护: "Maintenance" } as Record<ChangelogKind, string>,
+		kinds: { 新增: "Added", 改进: "Improved", 修复: "Fixed", 移除: "Removed", 维护: "Maintenance" } as Record<
+			ChangelogKind,
+			string
+		>,
 		filterLabel: "Filter by category",
 		count: (n: number) => (n === 1 ? "1 entry" : `${n} entries`),
 		empty: "No matching entries.",
@@ -51,11 +55,7 @@ export function useChangelogCopy(): (typeof COPY)["zh"] {
 
 /** 说明里的 `code` 片段渲染成等宽小块，其余按原文输出。 */
 function EntryText({ text }: { text: string }): React.JSX.Element {
-	return (
-		<>
-			{text.split("`").map((part, index) => (index % 2 === 1 ? <code key={index}>{part}</code> : part))}
-		</>
-	);
+	return <>{text.split("`").map((part, index) => (index % 2 === 1 ? <code key={index}>{part}</code> : part))}</>;
 }
 
 export function ChangelogSection(): React.JSX.Element {
@@ -69,7 +69,8 @@ export function ChangelogSection(): React.JSX.Element {
 	const visible = useMemo(() => filterChangelog(searched, { kind }), [searched, kind]);
 	const kindCounts = useMemo(() => {
 		const counts = new Map<ChangelogKind, number>();
-		for (const day of searched) for (const entry of day.entries) counts.set(entry.kind, (counts.get(entry.kind) ?? 0) + 1);
+		for (const day of searched)
+			for (const entry of day.entries) counts.set(entry.kind, (counts.get(entry.kind) ?? 0) + 1);
 		return counts;
 	}, [searched]);
 	const totalCount = [...kindCounts.values()].reduce((sum, n) => sum + n, 0);
@@ -130,12 +131,16 @@ export function ChangelogSection(): React.JSX.Element {
 							if (entries.length === 0) return null;
 							return (
 								<div key={item} className="owl-changelog-group">
-									<span className="owl-changelog-kind" data-kind={KIND_SLUG[item]}>{copy.kinds[item]}</span>
+									<span className="owl-changelog-kind" data-kind={KIND_SLUG[item]}>
+										{copy.kinds[item]}
+									</span>
 									<ul>
 										{entries.map((entry, index) => (
 											<li key={index}>
 												{entry.scope && <span className="owl-changelog-scope">{entry.scope}</span>}
-												<span><EntryText text={entry.text} /></span>
+												<span>
+													<EntryText text={entry.text} />
+												</span>
 											</li>
 										))}
 									</ul>

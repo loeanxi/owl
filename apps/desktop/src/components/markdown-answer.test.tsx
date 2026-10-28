@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setUiLanguage } from "../i18n/index.ts";
 import { renderAnswerMarkdown } from "./answer-markdown-renderer.ts";
@@ -24,24 +24,55 @@ beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
 	resized = [];
-	vi.stubGlobal("ResizeObserver", class {
-		constructor(callback: () => void) { resized.push(callback); }
-		observe(): void {}
-		disconnect(): void {}
-	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			constructor(callback: () => void) {
+				resized.push(callback);
+			}
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
 	vi.stubGlobal("navigator", { clipboard: { writeText } });
 	tableWidth = 240;
 	codeWidth = 240;
 	Object.defineProperties(dom.window.HTMLElement.prototype, {
 		scrollLeft: { configurable: true, writable: true, value: 0 },
-		scrollHeight: { configurable: true, get() {
-			if (this.tagName === "PRE") return (this.textContent?.split("\n").length ?? 0) * 22 + 28;
-			return this.hasAttribute("data-answer-table-scroll") ? this.querySelectorAll("tr").length * 31 + 28 : 0;
-		} },
-		clientWidth: { configurable: true, get() { return 240; } },
-		clientHeight: { configurable: true, get() { return this.tagName === "PRE" ? this.closest("[data-answer-code]")?.dataset.answerExpanded === "true" ? this.scrollHeight : Math.min(360, this.scrollHeight) : 440; } },
-		scrollWidth: { configurable: true, get() { return this.tagName === "PRE" ? codeWidth : this.hasAttribute("data-answer-table-scroll") ? tableWidth : 240; } },
+		scrollHeight: {
+			configurable: true,
+			get() {
+				if (this.tagName === "PRE") return (this.textContent?.split("\n").length ?? 0) * 22 + 28;
+				return this.hasAttribute("data-answer-table-scroll") ? this.querySelectorAll("tr").length * 31 + 28 : 0;
+			},
+		},
+		clientWidth: {
+			configurable: true,
+			get() {
+				return 240;
+			},
+		},
+		clientHeight: {
+			configurable: true,
+			get() {
+				return this.tagName === "PRE"
+					? this.closest("[data-answer-code]")?.dataset.answerExpanded === "true"
+						? this.scrollHeight
+						: Math.min(360, this.scrollHeight)
+					: 440;
+			},
+		},
+		scrollWidth: {
+			configurable: true,
+			get() {
+				return this.tagName === "PRE"
+					? codeWidth
+					: this.hasAttribute("data-answer-table-scroll")
+						? tableWidth
+						: 240;
+			},
+		},
 	});
 	host = document.getElementById("root")!;
 	root = createRoot(host);
@@ -63,10 +94,17 @@ describe("answer outline", () => {
 		expect(toc.querySelector("summary")?.textContent).toContain("4");
 		const items = [...toc.querySelectorAll<HTMLAnchorElement>("li a")];
 		expect(items.map((item) => item.textContent)).toEqual(["一", "二", "三", "四"]);
-		expect(items.map((item) => item.getAttribute("href"))).toEqual(["#answer-heading-0", "#answer-heading-1", "#answer-heading-2", "#answer-heading-3"]);
+		expect(items.map((item) => item.getAttribute("href"))).toEqual([
+			"#answer-heading-0",
+			"#answer-heading-1",
+			"#answer-heading-2",
+			"#answer-heading-3",
+		]);
 		// 点击滚动到目标并给闪烁反馈（linkedom 无 scrollIntoView，桩在原型上记录）。
 		const scrolled: HTMLElement[] = [];
-		HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) { scrolled.push(this); };
+		HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+			scrolled.push(this);
+		};
 		try {
 			await act(async () => items[2]!.click());
 			expect(scrolled).toHaveLength(1);
@@ -85,7 +123,13 @@ describe("answer outline", () => {
 });
 
 async function render(markdown: string, onBodyClick = vi.fn()): Promise<void> {
-	await act(async () => root.render(<div onClick={onBodyClick}><MarkdownAnswer html={renderAnswerMarkdown(markdown)} /></div>));
+	await act(async () =>
+		root.render(
+			<div onClick={onBodyClick}>
+				<MarkdownAnswer html={renderAnswerMarkdown(markdown)} />
+			</div>,
+		),
+	);
 }
 
 function codeBlock(index = 0): HTMLElement {
@@ -213,16 +257,41 @@ describe("Markdown image preview entry points", () => {
 	beforeEach(() => {
 		active = null;
 		Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
-		window.HTMLElement.prototype.focus = function (): void { active = this; };
-		Object.defineProperty(window.HTMLElement.prototype, "open", { configurable: true, get() { return this.hasAttribute("open"); } });
-		openModal = vi.fn(function (this: HTMLElement) { this.setAttribute("open", ""); });
+		window.HTMLElement.prototype.focus = function (): void {
+			active = this;
+		};
+		Object.defineProperty(window.HTMLElement.prototype, "open", {
+			configurable: true,
+			get() {
+				return this.hasAttribute("open");
+			},
+		});
+		openModal = vi.fn(function (this: HTMLElement) {
+			this.setAttribute("open", "");
+		});
 		window.HTMLElement.prototype.showModal = openModal;
-		window.HTMLElement.prototype.close = function (): void { this.removeAttribute("open"); };
-		window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 500, top: 0, left: 0, right: 800, bottom: 500, toJSON: () => ({}) });
+		window.HTMLElement.prototype.close = function (): void {
+			this.removeAttribute("open");
+		};
+		window.HTMLElement.prototype.getBoundingClientRect = () => ({
+			x: 0,
+			y: 0,
+			width: 800,
+			height: 500,
+			top: 0,
+			left: 0,
+			right: 800,
+			bottom: 500,
+			toJSON: () => ({}),
+		});
 	});
 
-	function image(): HTMLImageElement { return document.querySelector<HTMLImageElement>(".owl-image-viewer-image")!; }
-	function close(): HTMLButtonElement { return document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="关闭预览"]')!; }
+	function image(): HTMLImageElement {
+		return document.querySelector<HTMLImageElement>(".owl-image-viewer-image")!;
+	}
+	function close(): HTMLButtonElement {
+		return document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="关闭预览"]')!;
+	}
 	async function imageClick(target: HTMLImageElement): Promise<Event> {
 		const event = new window.Event("click", { bubbles: true, cancelable: true });
 		await act(async () => target.dispatchEvent(event));
@@ -231,7 +300,10 @@ describe("Markdown image preview entry points", () => {
 
 	it("opens the clicked image from a shared group without following its enclosing link", async () => {
 		const parentClick = vi.fn();
-		await render("![第一张](https://example.test/first.png)\n\n[![链接里的第二张](https://example.test/second.png)](https://example.test/article)", parentClick);
+		await render(
+			"![第一张](https://example.test/first.png)\n\n[![链接里的第二张](https://example.test/second.png)](https://example.test/article)",
+			parentClick,
+		);
 		const pictures = [...host.querySelectorAll<HTMLImageElement>(".owl-answer-reading img")];
 		expect(pictures[1].getAttribute("tabindex")).toBe("0");
 		expect(pictures[1].getAttribute("role")).toBe("button");
@@ -241,7 +313,9 @@ describe("Markdown image preview entry points", () => {
 		expect(parentClick).not.toHaveBeenCalled();
 		expect(image().getAttribute("src")).toBe("https://example.test/second.png");
 		expect(document.querySelector(".owl-image-viewer-count")?.textContent).toBe("2 / 2");
-		await act(async () => document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="上一张"]')!.click());
+		await act(async () =>
+			document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="上一张"]')!.click(),
+		);
 		expect(image().getAttribute("src")).toBe("https://example.test/first.png");
 		expect(openModal).toHaveBeenCalledOnce();
 		await act(async () => close().click());
@@ -251,7 +325,10 @@ describe("Markdown image preview entry points", () => {
 	it.each(["Enter", " "])("opens an inline image with %j and keeps code controls independent", async (key) => {
 		await render("![键盘截图](/fixture/keyboard.png)\n\n```js\nconst preserved = '<image>';\n```");
 		const picture = host.querySelector<HTMLImageElement>(".owl-answer-reading img")!;
-		const event = Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), { key, isComposing: false });
+		const event = Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), {
+			key,
+			isComposing: false,
+		});
 		await act(async () => picture.dispatchEvent(event));
 		expect(event.defaultPrevented).toBe(true);
 		expect(image().getAttribute("src")).toBe("/fixture/keyboard.png");
@@ -267,10 +344,15 @@ describe("Markdown image preview entry points", () => {
 		await imageClick(host.querySelector<HTMLImageElement>(".owl-answer-reading img")!);
 		const viewer = document.querySelector(".owl-image-viewer")!;
 		const picture = image();
-		Object.defineProperties(picture, { naturalWidth: { configurable: true, value: 1600 }, naturalHeight: { configurable: true, value: 1000 } });
+		Object.defineProperties(picture, {
+			naturalWidth: { configurable: true, value: 1600 },
+			naturalHeight: { configurable: true, value: 1000 },
+		});
 		await act(async () => picture.dispatchEvent(new window.Event("load")));
 		const originalZoom = document.querySelector(".owl-image-viewer-scale")!.textContent;
-		await act(async () => document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="放大"]')!.click());
+		await act(async () =>
+			document.querySelector<HTMLButtonElement>('.owl-image-viewer button[aria-label="放大"]')!.click(),
+		);
 		const zoom = document.querySelector(".owl-image-viewer-scale")!.textContent;
 		expect(zoom).not.toBe(originalZoom);
 		await render(original.replace("original.png", "changed.png") + "\n\n新增正文\n\n![第三张](/fixture/third.png)");

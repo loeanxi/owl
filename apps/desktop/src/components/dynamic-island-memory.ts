@@ -24,7 +24,9 @@ export function islandMemoryKey(profile: string, scope: IslandMemoryScope = "all
 }
 
 function object(value: unknown): Record<string, unknown> | null {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
 }
 
 function timestamp(value: unknown): value is number {
@@ -41,11 +43,20 @@ function text(value: unknown): string {
 
 export function parseIslandMemory(value: unknown): IslandMemorySnapshot | null {
 	const source = object(value);
-	if (!source || source.version !== 1 || !Array.isArray(source.running) || !Array.isArray(source.finished)) return null;
+	if (!source || source.version !== 1 || !Array.isArray(source.running) || !Array.isArray(source.finished))
+		return null;
 	const running = new Map<string, IslandSession>();
 	for (const value of source.running) {
 		const row = object(value);
-		if (!row || typeof row.id !== "string" || !row.id.trim() || row.id.length > 512 || !timestamp(row.startedAt) || !timestamp(row.lastActivityAt)) continue;
+		if (
+			!row ||
+			typeof row.id !== "string" ||
+			!row.id.trim() ||
+			row.id.length > 512 ||
+			!timestamp(row.startedAt) ||
+			!timestamp(row.lastActivityAt)
+		)
+			continue;
 		const waitKind = row.waitKind === "permission" || row.waitKind === "question" ? row.waitKind : "";
 		running.set(row.id, {
 			id: row.id,
@@ -61,10 +72,24 @@ export function parseIslandMemory(value: unknown): IslandMemorySnapshot | null {
 	const finished = new Map<string, FinishedMark>();
 	for (const value of source.finished) {
 		const row = object(value);
-		if (!row || typeof row.id !== "string" || !row.id.trim() || row.id.length > 512 || !timestamp(row.finishedAt) || !outcome(row.outcome)) continue;
-		finished.set(row.id, { id: row.id, title: text(row.title) || row.id, finishedAt: row.finishedAt, outcome: row.outcome });
+		if (
+			!row ||
+			typeof row.id !== "string" ||
+			!row.id.trim() ||
+			row.id.length > 512 ||
+			!timestamp(row.finishedAt) ||
+			!outcome(row.outcome)
+		)
+			continue;
+		finished.set(row.id, {
+			id: row.id,
+			title: text(row.title) || row.id,
+			finishedAt: row.finishedAt,
+			outcome: row.outcome,
+		});
 	}
-	const replyFor = typeof source.replyFor === "string" && finished.get(source.replyFor)?.outcome === "done" ? source.replyFor : null;
+	const replyFor =
+		typeof source.replyFor === "string" && finished.get(source.replyFor)?.outcome === "done" ? source.replyFor : null;
 	return {
 		version: 1,
 		running: [...running.values()],
@@ -75,7 +100,11 @@ export function parseIslandMemory(value: unknown): IslandMemorySnapshot | null {
 	};
 }
 
-export function loadIslandMemory(storage: Pick<Storage, "getItem">, profile: string, scope: IslandMemoryScope = "all"): IslandMemorySnapshot | null {
+export function loadIslandMemory(
+	storage: Pick<Storage, "getItem">,
+	profile: string,
+	scope: IslandMemoryScope = "all",
+): IslandMemorySnapshot | null {
 	if (!profile.trim()) return null;
 	try {
 		const saved = storage.getItem(islandMemoryKey(profile, scope));
@@ -85,7 +114,12 @@ export function loadIslandMemory(storage: Pick<Storage, "getItem">, profile: str
 	}
 }
 
-export function saveIslandMemory(storage: Pick<Storage, "setItem">, profile: string, memory: IslandMemorySnapshot, scope: IslandMemoryScope = "all"): boolean {
+export function saveIslandMemory(
+	storage: Pick<Storage, "setItem">,
+	profile: string,
+	memory: IslandMemorySnapshot,
+	scope: IslandMemoryScope = "all",
+): boolean {
 	if (!profile.trim()) return false;
 	try {
 		storage.setItem(islandMemoryKey(profile, scope), JSON.stringify(memory));
@@ -100,7 +134,10 @@ export function mergeIslandMemory(saved: IslandMemorySnapshot, pending: IslandMe
 	const running = new Map(saved.running.map((session) => [session.id, session]));
 	for (const session of pending.running) {
 		const previous = running.get(session.id);
-		running.set(session.id, session.startedAt > 0 || !previous ? session : { ...session, startedAt: previous.startedAt });
+		running.set(
+			session.id,
+			session.startedAt > 0 || !previous ? session : { ...session, startedAt: previous.startedAt },
+		);
 	}
 	const finished = new Map(saved.finished.map((session) => [session.id, session]));
 	for (const session of pending.finished) {
@@ -120,7 +157,13 @@ export function mergeIslandMemory(saved: IslandMemorySnapshot, pending: IslandMe
 }
 
 /** 短断线先保留缓存，只有后端完成恢复并确认运行清单后才能撤下旧任务。 */
-export function reconcileIslandMemory(memory: IslandMemorySnapshot, live: readonly IslandSession[], runningReady: boolean, now: number, titles?: ReadonlyMap<string, string>): IslandMemorySnapshot {
+export function reconcileIslandMemory(
+	memory: IslandMemorySnapshot,
+	live: readonly IslandSession[],
+	runningReady: boolean,
+	now: number,
+	titles?: ReadonlyMap<string, string>,
+): IslandMemorySnapshot {
 	const previous = new Map(memory.running.map((session) => [session.id, session]));
 	const running = live.map((session) => {
 		const saved = previous.get(session.id);
@@ -135,15 +178,22 @@ export function reconcileIslandMemory(memory: IslandMemorySnapshot, live: readon
 		};
 	});
 	const liveIds = new Set(live.map((session) => session.id));
-	let finished = memory.finished.filter((session) => !liveIds.has(session.id)).map((session) => ({ ...session, title: titles?.get(session.id) || session.title }));
+	let finished = memory.finished
+		.filter((session) => !liveIds.has(session.id))
+		.map((session) => ({ ...session, title: titles?.get(session.id) || session.title }));
 	for (const saved of previous.values()) {
 		if (liveIds.has(saved.id)) continue;
 		if (!runningReady) running.push(saved);
 		else if (!finished.some((session) => session.id === saved.id)) {
-			finished = [...finished, { id: saved.id, title: titles?.get(saved.id) || saved.title, finishedAt: now, outcome: "aborted" }];
+			finished = [
+				...finished,
+				{ id: saved.id, title: titles?.get(saved.id) || saved.title, finishedAt: now, outcome: "aborted" },
+			];
 		}
 	}
-	const replyFor = finished.some((session) => session.id === memory.replyFor && session.outcome === "done") ? memory.replyFor : null;
+	const replyFor = finished.some((session) => session.id === memory.replyFor && session.outcome === "done")
+		? memory.replyFor
+		: null;
 	const next: IslandMemorySnapshot = {
 		...memory,
 		running,
@@ -155,10 +205,19 @@ export function reconcileIslandMemory(memory: IslandMemorySnapshot, live: readon
 	return JSON.stringify(next) === JSON.stringify(memory) ? memory : next;
 }
 
-export function rememberIslandCompletion(memory: IslandMemorySnapshot, id: string, title: string, at: number, result: IslandOutcome): IslandMemorySnapshot {
+export function rememberIslandCompletion(
+	memory: IslandMemorySnapshot,
+	id: string,
+	title: string,
+	at: number,
+	result: IslandOutcome,
+): IslandMemorySnapshot {
 	return {
 		...memory,
 		running: memory.running.filter((session) => session.id !== id),
-		finished: [...memory.finished.filter((session) => session.id !== id), { id, title, finishedAt: at, outcome: result }],
+		finished: [
+			...memory.finished.filter((session) => session.id !== id),
+			{ id, title, finishedAt: at, outcome: result },
+		],
 	};
 }

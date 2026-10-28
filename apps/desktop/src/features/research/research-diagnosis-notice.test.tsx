@@ -8,15 +8,33 @@ import { ResearchDiagnosisNotice } from "./ResearchDiagnosisNotice.tsx";
 // The desktop language store is client-only; supply its snapshot for this isolated static render.
 vi.mock("react", async () => {
 	const actual = await vi.importActual<typeof React>("react");
-	return { ...actual, useSyncExternalStore: <T,>(subscribe: (listener: () => void) => () => void, getSnapshot: () => T): T => actual.useSyncExternalStore(subscribe, getSnapshot, getSnapshot) };
+	return {
+		...actual,
+		useSyncExternalStore: <T,>(subscribe: (listener: () => void) => () => void, getSnapshot: () => T): T =>
+			actual.useSyncExternalStore(subscribe, getSnapshot, getSnapshot),
+	};
 });
 
-const diagnosis: ResearchDiagnosis = { id: "11111111-1111-4111-8111-111111111111", version: 1, createdAt: "2026-10-12T00:00:00.000Z", ownerSessionId: "research-1", status: "textual_refusal_candidate", summary: "上游没有明确拒绝标记，需要核对文本。", evidence: [{ source: "agent", text: "我无法协助提供分析。" }] };
-afterEach(() => { setUiLanguage("zh"); });
+const diagnosis: ResearchDiagnosis = {
+	id: "11111111-1111-4111-8111-111111111111",
+	version: 1,
+	createdAt: "2026-10-12T00:00:00.000Z",
+	ownerSessionId: "research-1",
+	status: "textual_refusal_candidate",
+	summary: "上游没有明确拒绝标记，需要核对文本。",
+	evidence: [{ source: "agent", text: "我无法协助提供分析。" }],
+};
+afterEach(() => {
+	setUiLanguage("zh");
+});
 
 describe("research diagnosis notice", () => {
 	it("does not warn on absent, ordinary unverified or still-running responses", () => {
-		for (const props of [{ diagnosis: undefined, running: false }, { diagnosis: { ...diagnosis, status: "unverified" as const }, running: false }, { diagnosis, running: true }]) {
+		for (const props of [
+			{ diagnosis: undefined, running: false },
+			{ diagnosis: { ...diagnosis, status: "unverified" as const }, running: false },
+			{ diagnosis, running: true },
+		]) {
 			expect(renderToStaticMarkup(React.createElement(ResearchDiagnosisNotice, props))).toBe("");
 		}
 	});
@@ -31,14 +49,32 @@ describe("research diagnosis notice", () => {
 	});
 	it("shows an explicit provider refusal with the actual provider evidence", () => {
 		setUiLanguage("zh");
-		const html = renderToStaticMarkup(React.createElement(ResearchDiagnosisNotice, { diagnosis: { ...diagnosis, status: "upstream_refusal", evidence: [{ source: "provider", text: "Provider refusal" }] }, running: false }));
+		const html = renderToStaticMarkup(
+			React.createElement(ResearchDiagnosisNotice, {
+				diagnosis: {
+					...diagnosis,
+					status: "upstream_refusal",
+					evidence: [{ source: "provider", text: "Provider refusal" }],
+				},
+				running: false,
+			}),
+		);
 		expect(html).toContain("上游响应出现明确拒绝标记");
 		expect(html).toContain("模型响应");
 		expect(html).toContain("Provider refusal");
 	});
 	it("keeps missing dependencies separate from approvals and escapes tool excerpts", () => {
 		setUiLanguage("zh");
-		const html = renderToStaticMarkup(React.createElement(ResearchDiagnosisNotice, { diagnosis: { ...diagnosis, status: "missing_dependency", evidence: [{ source: "tool", text: "<script>fake()</script>", toolName: "research_rea" }] }, running: false }));
+		const html = renderToStaticMarkup(
+			React.createElement(ResearchDiagnosisNotice, {
+				diagnosis: {
+					...diagnosis,
+					status: "missing_dependency",
+					evidence: [{ source: "tool", text: "<script>fake()</script>", toolName: "research_rea" }],
+				},
+				running: false,
+			}),
+		);
 		expect(html).toContain("缺少运行分析所需的依赖");
 		expect(html).toContain("research_rea");
 		expect(html).not.toContain("本地操作未获批准");
@@ -53,7 +89,16 @@ describe("research diagnosis notice", () => {
 	});
 	it("shows an unknown tool failure without calling it provider review", () => {
 		setUiLanguage("zh");
-		const html = renderToStaticMarkup(React.createElement(ResearchDiagnosisNotice, { diagnosis: { ...diagnosis, status: "tool_error", evidence: [{ source: "tool", text: "Unexpected parser error", toolName: "research_rea" }] }, running: false }));
+		const html = renderToStaticMarkup(
+			React.createElement(ResearchDiagnosisNotice, {
+				diagnosis: {
+					...diagnosis,
+					status: "tool_error",
+					evidence: [{ source: "tool", text: "Unexpected parser error", toolName: "research_rea" }],
+				},
+				running: false,
+			}),
+		);
 		expect(html).toContain("工具执行出现错误");
 		expect(html).not.toContain("上游响应出现明确拒绝标记");
 	});

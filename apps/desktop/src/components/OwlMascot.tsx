@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import type { ChatActivity } from "./ChatStream.tsx";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { useT } from "../i18n/index.ts";
+import type { ChatActivity } from "./ChatStream.tsx";
 
 /** 栖在输入框上沿的流羽猫头鹰。姿势只跟现有会话状态走，不另开模型。 */
 export type OwlPose = "idle" | "think" | "read" | "search" | "write" | "run" | "wait" | "off" | "party";
@@ -16,7 +16,8 @@ function poseForTool(name: string): OwlPose {
 	if (READ_TOOLS.has(tool)) return "read";
 	if (SEARCH_TOOLS.has(tool) || tool.includes("search") || tool.includes("grep")) return "search";
 	if (WRITE_TOOLS.has(tool)) return "write";
-	if (RUN_TOOLS.has(tool) || tool.startsWith("computer_") || tool.includes("bash") || tool.includes("shell")) return "run";
+	if (RUN_TOOLS.has(tool) || tool.startsWith("computer_") || tool.includes("bash") || tool.includes("shell"))
+		return "run";
 	if (tool.includes("read")) return "read";
 	return "run";
 }
@@ -109,7 +110,12 @@ export function OwlMascot({
 	return (
 		<div
 			ref={slotRef}
-			className={"owl-mascot-slot" + (inline ? " is-inline" : "") + (concealed ? " is-hidden" : "") + (panelOpen ? " is-open" : "")}
+			className={
+				"owl-mascot-slot" +
+				(inline ? " is-inline" : "") +
+				(concealed ? " is-hidden" : "") +
+				(panelOpen ? " is-open" : "")
+			}
 			aria-hidden={concealed ? true : undefined}
 		>
 			{panelOpen && panel && (
@@ -136,9 +142,21 @@ export function OwlMascot({
 					if (event.animationName === "owl-hop" && poked) setPoked(false);
 				}}
 			>
-				<span className="owl-mascot-fx owl-mascot-bubbles" aria-hidden="true"><i>{"{}"}</i><i>{"</>"}</i><i>;</i></span>
-				<span className="owl-mascot-fx owl-mascot-thoughts" aria-hidden="true"><i /><i /><i /></span>
-				<span className="owl-mascot-fx owl-mascot-sparks" aria-hidden="true"><i>✦</i><i>✦</i><i>✦</i></span>
+				<span className="owl-mascot-fx owl-mascot-bubbles" aria-hidden="true">
+					<i>{"{}"}</i>
+					<i>{"</>"}</i>
+					<i>;</i>
+				</span>
+				<span className="owl-mascot-fx owl-mascot-thoughts" aria-hidden="true">
+					<i />
+					<i />
+					<i />
+				</span>
+				<span className="owl-mascot-fx owl-mascot-sparks" aria-hidden="true">
+					<i>✦</i>
+					<i>✦</i>
+					<i>✦</i>
+				</span>
 				{alert && <span className="owl-mascot-alert" aria-hidden="true" />}
 				<svg viewBox="0 0 256 300" aria-hidden="true">
 					<defs>
@@ -175,14 +193,31 @@ export function OwlMascot({
 						<g className="owl-mascot-paper owl-mascot-prop">
 							<rect x="168" y="168" width="46" height="58" rx="4" fill="#efe6d2" />
 							<path d="M178 188 h28 M178 200 h24 M178 212 h18" stroke="#8a8172" strokeWidth="2.4" />
-							<rect className="owl-mascot-scanline" x="176" y="184" width="30" height="4" rx="1" fill="#2f9e5a" />
+							<rect
+								className="owl-mascot-scanline"
+								x="176"
+								y="184"
+								width="30"
+								height="4"
+								rx="1"
+								fill="#2f9e5a"
+							/>
 						</g>
 						<g className="owl-mascot-glass owl-mascot-prop">
 							<circle cx="196" cy="168" r="18" fill="none" stroke="#9df0c1" strokeWidth="5" />
 							<path d="M210 182 l16 16" stroke="#9df0c1" strokeWidth="5" strokeLinecap="round" />
 						</g>
 						<g className="owl-mascot-laptop owl-mascot-prop">
-							<rect x="156" y="214" width="72" height="46" rx="5" fill="#0e1c16" stroke="#50a992" strokeWidth="3" />
+							<rect
+								x="156"
+								y="214"
+								width="72"
+								height="46"
+								rx="5"
+								fill="#0e1c16"
+								stroke="#50a992"
+								strokeWidth="3"
+							/>
 							<path d="M168 240 h22 M168 228 h14" stroke="#5ecf82" strokeWidth="2.4" />
 							<path d="M148 264 h88" stroke="#3d3d3d" strokeWidth="4" strokeLinecap="round" />
 						</g>

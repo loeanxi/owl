@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { setUiLanguage, t } from "../../i18n/index.ts";
@@ -75,12 +75,17 @@ async function renderHistory(entries: ReturnType<typeof entry>[]): Promise<void>
 
 describe("变更历史列表", () => {
 	it("提交行直接显示作者名，不只留一个字母圆点", async () => {
-		await renderHistory([entry("a1b2c3d4e5f6a1b2", "feat: 加个分组与说明", "张伟", 10), entry("b2c3d4e5f6a1b2c3", "fix: 修一下", "李娜", 40)]);
+		await renderHistory([
+			entry("a1b2c3d4e5f6a1b2", "feat: 加个分组与说明", "张伟", 10),
+			entry("b2c3d4e5f6a1b2c3", "fix: 修一下", "李娜", 40),
+		]);
 		const text = container.textContent ?? "";
 		expect(text).toContain("张伟");
 		expect(text).toContain("李娜");
 		// 作者名带完整姓名的悬停提示（邮箱也在里面）。
-		const named = [...container.querySelectorAll<HTMLElement>("[title]")].filter((el) => el.getAttribute("title") === "张伟");
+		const named = [...container.querySelectorAll<HTMLElement>("[title]")].filter(
+			(el) => el.getAttribute("title") === "张伟",
+		);
 		expect(named.length).toBeGreaterThan(0);
 	});
 

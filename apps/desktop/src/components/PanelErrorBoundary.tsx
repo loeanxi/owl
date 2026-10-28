@@ -29,13 +29,15 @@ export class PanelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBound
 		if (this.state.error !== null) {
 			return (
 				<div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 8 }}>
-					<p style={{ color: "var(--owl-ui-danger, var(--color-owl-danger))", fontWeight: 600 }}>{this.props.label} 渲染失败</p>
-					<p style={{ fontSize: 12, color: "var(--owl-ui-muted, var(--color-owl-muted))", wordBreak: "break-all" }}>{this.state.error.message}</p>
-					<button
-						type="button"
-						style={{ alignSelf: "flex-start" }}
-						onClick={() => this.setState({ error: null })}
+					<p style={{ color: "var(--owl-ui-danger, var(--color-owl-danger))", fontWeight: 600 }}>
+						{this.props.label} 渲染失败
+					</p>
+					<p
+						style={{ fontSize: 12, color: "var(--owl-ui-muted, var(--color-owl-muted))", wordBreak: "break-all" }}
 					>
+						{this.state.error.message}
+					</p>
+					<button type="button" style={{ alignSelf: "flex-start" }} onClick={() => this.setState({ error: null })}>
 						重试
 					</button>
 				</div>

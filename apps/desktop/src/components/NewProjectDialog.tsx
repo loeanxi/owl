@@ -118,7 +118,13 @@ export function NewProjectDialog({
 			const selected = await pickFolder(t("newproject.pickFolderTitle"));
 			if (selected) {
 				setPath(selected);
-				if (!name.trim()) setName(selected.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "");
+				if (!name.trim())
+					setName(
+						selected
+							.replace(/[\\/]+$/, "")
+							.split(/[\\/]/)
+							.pop() ?? "",
+					);
 			}
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
@@ -185,7 +191,12 @@ export function NewProjectDialog({
 							<div className="owl-project-selected-folder">
 								<IconFolder className="owl-project-folder-icon" />
 								<div className="owl-project-folder-detail">
-									<strong>{path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path}</strong>
+									<strong>
+										{path
+											.replace(/[\\/]+$/, "")
+											.split(/[\\/]/)
+											.pop() || path}
+									</strong>
 									<span title={path}>{path}</span>
 								</div>
 								{!editing && (
@@ -208,7 +219,13 @@ export function NewProjectDialog({
 												setError("");
 											}}
 										>
-											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+											<svg
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="1.8"
+												aria-hidden="true"
+											>
 												<path d="m6 6 12 12M18 6 6 18" />
 											</svg>
 										</button>
@@ -242,7 +259,14 @@ export function NewProjectDialog({
 										setError("");
 									}}
 									onBlur={() => {
-										if (!name.trim()) setName(path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "");
+										if (!name.trim())
+											setName(
+												path
+													.trim()
+													.replace(/[\\/]+$/, "")
+													.split(/[\\/]/)
+													.pop() ?? "",
+											);
 									}}
 								/>
 							</label>

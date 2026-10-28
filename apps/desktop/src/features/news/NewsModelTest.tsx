@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-	NewsModelRef,
-	NewsModelTestResult,
-} from "../../../../../packages/coding-agent/src/core/news/types.ts";
+import type { NewsModelRef, NewsModelTestResult } from "../../../../../packages/coding-agent/src/core/news/types.ts";
 import { useT } from "../../i18n/index.ts";
 import { errorText, type NewsClient } from "./news-client.ts";
 
@@ -76,8 +73,16 @@ export function NewsModelTest({
 				<div className="owl-news-notice" role="status" data-testid="news-model-test-result">
 					<strong>{t("news.modelTestPassed")}</strong>
 					<p>{result.answer}</p>
-					<p>{t("news.modelTestDetails", { provider: result.model.provider, model: result.model.id, ms: Math.round(result.durationMs) })}</p>
-					{result.usage && <p>{t("news.modelTestUsage", { input: result.usage.input, output: result.usage.output })}</p>}
+					<p>
+						{t("news.modelTestDetails", {
+							provider: result.model.provider,
+							model: result.model.id,
+							ms: Math.round(result.durationMs),
+						})}
+					</p>
+					{result.usage && (
+						<p>{t("news.modelTestUsage", { input: result.usage.input, output: result.usage.output })}</p>
+					)}
 				</div>
 			)}
 			{error && (

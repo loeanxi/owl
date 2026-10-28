@@ -90,7 +90,10 @@ export function formatThinkingDuration(ms: number): ThinkingDuration | undefined
 }
 
 /** 把时长对渲染成界面文案（Claude 的 "Thought for 12s" / "1m 30s" / "1h 30m"）。 */
-export function thinkingDurationText(duration: ThinkingDuration, format: (value: number, unit: "s" | "m" | "h") => string): string {
+export function thinkingDurationText(
+	duration: ThinkingDuration,
+	format: (value: number, unit: "s" | "m" | "h") => string,
+): string {
 	const seconds = duration.seconds;
 	if (duration.unit === "s") return format(seconds, "s");
 	if (duration.unit === "m") {
@@ -106,6 +109,54 @@ export function thinkingDurationText(duration: ThinkingDuration, format: (value:
 /** 工具分组标签：Claude 用 "Ran N commands"（one/other 复数）。 */
 export function toolGroupLabel(count: number): string {
 	return count === 1 ? "Ran 1 command" : `Ran ${count} commands`;
+}
+
+/** 合并前的一个思考块（最小信息）。 */
+export type ThinkingBlock = {
+	/** 思考正文。 */
+	text: string;
+	/** 实测时长（毫秒）。 */
+	ms?: number;
+	/** provider 给的推理摘要（Claude Desktop 用的那种）。 */
+	summaries?: readonly string[];
+};
+
+/** 合并后的整轮思考。 */
+export type MergedThinking = {
+	/** 合并后的正文（各块之间空一行）。 */
+	text: string;
+	/** 合并后的摘要；没有摘要时是 undefined —— 这个区别决定标题用时长还是用摘要。 */
+	summaries?: string[];
+	/** 各块实测时长之和；有一段缺时间就整体不给（不给假时长）。 */
+	ms?: number;
+	/** 合并了几块。 */
+	count: number;
+};
+
+/**
+ * 把一轮里的多个思考块合并成一段。
+ *
+ * Claude 一个 turn 只有一行思考（"Thought for 12s"），点开才是全部原文。
+ * owl 之前是**每个思考块一行**：一次工具往返就多一行，一轮下来十几行碎行，
+ * 读起来像碎片而不是过程。合并后整轮只占一行，信息一条不少。
+ *
+ * 规则：
+ *  - 正文按出现顺序拼接（块之间空一行）；
+ *  - provider 摘要合并到一处（Claude 的 `Zg()` 取最后一条当标题，渲染层决定）；
+ *  - 时长是各块实测之和，缺一段就整体不给（不给假时长）。
+ */
+export function mergeThinkingBlocks(blocks: readonly ThinkingBlock[]): MergedThinking | undefined {
+	if (blocks.length === 0) return undefined;
+	const parts = blocks.map((block) => block.text.trim()).filter((text) => text !== "");
+	const summaries = blocks.flatMap((block) => [...(block.summaries ?? [])]);
+	if (parts.length === 0 && summaries.length === 0) return undefined;
+	const timed = blocks.every((block) => block.ms !== undefined);
+	return {
+		text: parts.join("\n\n"),
+		...(summaries.length > 0 ? { summaries } : {}),
+		...(timed ? { ms: blocks.reduce((sum, block) => sum + (block.ms ?? 0), 0) } : {}),
+		count: blocks.length,
+	};
 }
 
 /**
@@ -125,7 +176,8 @@ export function buildAnswerGroups(
 	options: {
 		/** 思考块的已格式化时长标签（如 "Thought for 12s"）。 */
 		thinkingDuration?: (index: number) => string | undefined;
-	} = {},): AnswerGroup[] {
+	} = {},
+): AnswerGroup[] {
 	const groups: AnswerGroup[] = [];
 	let pendingTools: ToolCard[] = [];
 	let pendingKey = "";
@@ -159,11 +211,7 @@ export function buildAnswerGroups(
 			if (text === "") return;
 			const summary = firstContentLine(text);
 			const duration = options.thinkingDuration?.(index);
-			const label = duration
-				? duration
-				: summary
-					? truncateLabel(summary)
-					: "Thinking";
+			const label = duration ? duration : summary ? truncateLabel(summary) : "Thinking";
 			groups.push({
 				kind: "thinking",
 				key: `thinking-${index}`,

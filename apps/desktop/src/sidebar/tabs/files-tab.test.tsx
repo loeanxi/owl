@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../../bridge/client.ts";
 import { setUiLanguage } from "../../i18n/index.ts";
@@ -57,11 +57,16 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	// FileIcon 的图标包探测用 MutationObserver 观察挂载点，linkedom 没有，给空实现。
-	vi.stubGlobal("MutationObserver", class {
-		observe() {}
-		disconnect() {}
-		takeRecords() { return []; }
-	});
+	vi.stubGlobal(
+		"MutationObserver",
+		class {
+			observe() {}
+			disconnect() {}
+			takeRecords() {
+				return [];
+			}
+		},
+	);
 	storage = new Map();
 	vi.stubGlobal("localStorage", {
 		getItem: (key: string) => storage.get(key) ?? null,
@@ -104,7 +109,9 @@ describe("FilesTab hidden entries filter", () => {
 		storage.set("owl.files.showHidden", "true");
 		await render();
 		expect(container.textContent).toContain(".pi");
-		expect(container.querySelector<HTMLButtonElement>("button[aria-pressed]")?.getAttribute("aria-pressed")).toBe("true");
+		expect(container.querySelector<HTMLButtonElement>("button[aria-pressed]")?.getAttribute("aria-pressed")).toBe(
+			"true",
+		);
 	});
 });
 
@@ -157,7 +164,9 @@ describe("FilesTab 新建文件", () => {
 			await Promise.resolve();
 		});
 
-		const row = [...container.querySelectorAll<HTMLElement>("[title]")].find((el) => el.getAttribute("title") === "owl-re-v1");
+		const row = [...container.querySelectorAll<HTMLElement>("[title]")].find(
+			(el) => el.getAttribute("title") === "owl-re-v1",
+		);
 		expect(row).toBeTruthy();
 		await act(async () => {
 			const event = new window.Event("contextmenu", { bubbles: true, cancelable: true });
@@ -165,7 +174,9 @@ describe("FilesTab 新建文件", () => {
 			row!.dispatchEvent(event);
 		});
 
-		const menuItem = [...container.querySelectorAll<HTMLButtonElement>("button")].find((el) => el.textContent === "新建文件");
+		const menuItem = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+			(el) => el.textContent === "新建文件",
+		);
 		expect(menuItem).toBeTruthy();
 		await act(async () => menuItem!.click());
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/index.ts";
 import { useProjectSidebarRevision } from "../project-sidebar-model.ts";
 import { IconDownload, IconGitBranch, IconPanelBottom, IconPanelRight, IconPencil } from "../sidebar/icons.tsx";
@@ -22,7 +22,25 @@ const VIEW_ICONS: Record<ConversationView, (props: { size?: number }) => ReactNo
 };
 
 /** Shared conversation chrome for ordinary and research sessions. */
-export function ConversationHeader({ title, presetName, view, onViewChange, terminalOpen, sidebarOpen, onToggleTerminal, onToggleSidebar, mirrorOpen, onToggleMirror, sessionId, onRenameSession, renameDisabled, exporting, onExport, onExportTurns, actions }: {
+export function ConversationHeader({
+	title,
+	presetName,
+	view,
+	onViewChange,
+	terminalOpen,
+	sidebarOpen,
+	onToggleTerminal,
+	onToggleSidebar,
+	mirrorOpen,
+	onToggleMirror,
+	sessionId,
+	onRenameSession,
+	renameDisabled,
+	exporting,
+	onExport,
+	onExportTurns,
+	actions,
+}: {
 	title: string;
 	/** 当前会话的 Agent 预设名：顶栏标签，resume 一眼可辨本会话用的组合。 */
 	presetName?: string;
@@ -95,152 +113,226 @@ export function ConversationHeader({ title, presetName, view, onViewChange, term
 		setRenaming(false);
 		if (next && next !== title) onRenameSession?.(next);
 	};
-	return <header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
-		<div className="owl-shell-header-info">
-			{renaming ? (
-				<form
-					className="owl-shell-rename flex items-center gap-1.5"
-					onSubmit={(event) => { event.preventDefault(); commitRename(); }}
+	return (
+		<header className="owl-chat-header flex shrink-0 select-none items-center" data-tauri-drag-region="deep">
+			<div className="owl-shell-header-info">
+				{renaming ? (
+					<form
+						className="owl-shell-rename flex items-center gap-1.5"
+						onSubmit={(event) => {
+							event.preventDefault();
+							commitRename();
+						}}
+					>
+						<input
+							ref={renameInputRef}
+							value={renameDraft}
+							disabled={renameDisabled}
+							aria-label={t("sidebar.renameAria")}
+							className="owl-shell-rename-input h-6 w-56 rounded-md border border-owl-accent bg-owl-panel px-2 text-sm text-owl-text outline-none"
+							onChange={(event) => setRenameDraft(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Escape") {
+									event.stopPropagation();
+									setRenaming(false);
+								}
+							}}
+							onBlur={() => commitRename()}
+						/>
+						<button
+							type="submit"
+							className="rounded-md px-1.5 py-0.5 text-xs text-owl-accent transition-colors hover:bg-owl-hover"
+							disabled={renameDisabled}
+						>
+							{t("common.save")}
+						</button>
+					</form>
+				) : (
+					<h1
+						className="owl-shell-session-title group/title relative flex items-center gap-1 text-sm font-semibold text-owl-text"
+						title={title}
+					>
+						<span className="min-w-0 max-w-[340px] truncate">{title}</span>
+						{onRenameSession && sessionId && (
+							<button
+								type="button"
+								className="owl-shell-rename-trigger shrink-0 rounded p-0.5 text-owl-faint opacity-0 transition-opacity group-hover/title:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
+								title={t("sidebar.rename")}
+								aria-label={t("sidebar.rename")}
+								disabled={renameDisabled}
+								onClick={startRename}
+							>
+								<IconPencil size={12} />
+							</button>
+						)}
+					</h1>
+				)}
+				{presetName && (
+					<span className="owl-shell-preset-tag" title={presetName}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+							<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
+						</svg>
+						{presetName}
+					</span>
+				)}
+			</div>
+			<div
+				className="owl-view-tabs"
+				aria-label={t("app.viewTabsAria")}
+				data-tauri-drag-region="false"
+				ref={viewMenuRootRef}
+			>
+				<button
+					type="button"
+					className={`owl-view-tabs-trigger${viewMenuOpen ? " is-open" : ""}`}
+					title={viewLabels[view]}
+					aria-label={viewLabels[view]}
+					aria-haspopup="menu"
+					aria-expanded={viewMenuOpen}
+					onClick={() => setViewMenuOpen((value) => !value)}
 				>
-					<input
-						ref={renameInputRef}
-						value={renameDraft}
-						disabled={renameDisabled}
-						aria-label={t("sidebar.renameAria")}
-						className="owl-shell-rename-input h-6 w-56 rounded-md border border-owl-accent bg-owl-panel px-2 text-sm text-owl-text outline-none"
-						onChange={(event) => setRenameDraft(event.target.value)}
-						onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setRenaming(false); } }}
-						onBlur={() => commitRename()}
-					/>
-					<button type="submit" className="rounded-md px-1.5 py-0.5 text-xs text-owl-accent transition-colors hover:bg-owl-hover" disabled={renameDisabled}>{t("common.save")}</button>
-				</form>
-			) : (
-				<h1 className="owl-shell-session-title group/title relative flex items-center gap-1 text-sm font-semibold text-owl-text" title={title}>
-					<span className="min-w-0 max-w-[340px] truncate">{title}</span>
-					{onRenameSession && sessionId && (
+					<ViewIcon size={16} />
+				</button>
+				{viewMenuOpen && (
+					<div className="owl-view-tabs-popover" role="menu">
+						{VIEW_OPTIONS.map((candidate) => {
+							const OptionIcon = VIEW_ICONS[candidate];
+							return (
+								<button
+									key={candidate}
+									type="button"
+									role="menuitemradio"
+									aria-checked={candidate === view}
+									className={candidate === view ? "is-current" : undefined}
+									onClick={() => {
+										setViewMenuOpen(false);
+										onViewChange(candidate);
+									}}
+								>
+									<span className="owl-view-tabs-item">
+										<OptionIcon size={14} />
+										<span className="owl-view-tabs-label">{viewLabels[candidate]}</span>
+									</span>
+									{candidate === view && (
+										<svg
+											className="owl-view-tabs-check"
+											viewBox="0 0 16 16"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											aria-hidden
+										>
+											<path d="M3 8.5l3.5 3.5L13 5" />
+										</svg>
+									)}
+								</button>
+							);
+						})}
+					</div>
+				)}
+			</div>
+			<div className="owl-shell-header-actions" data-tauri-drag-region="false">
+				{actions !== undefined ? (
+					actions
+				) : (
+					<>
+						{sessionId && (
+							<Menu
+								direction="down"
+								// 按钮贴窗口右缘，面板必须右对齐向左展开，否则小窗下会被窗口右边界裁掉
+								panelClassName="right-0"
+								triggerTitle={exporting ? t("app.exportingSession") : t("app.downloadSessionLog")}
+								triggerClassName="owl-chrome-button"
+								trigger={
+									<span aria-busy={exporting}>
+										<IconDownload size={16} />
+									</span>
+								}
+							>
+								{(close) => (
+									<div className="w-64">
+										<button
+											type="button"
+											className={exportItemClass}
+											disabled={exporting}
+											title={t("app.exportSessionJsonl")}
+											onClick={() => {
+												close();
+												onExport("jsonl");
+											}}
+										>
+											<span>{t("app.exportSessionJsonl")}</span>
+											<span className="text-[10px] text-owl-faint">{t("app.exportSessionJsonlHint")}</span>
+										</button>
+										<button
+											type="button"
+											className={exportItemClass}
+											disabled={exporting}
+											title={t("app.exportSessionMarkdown")}
+											onClick={() => {
+												close();
+												onExport("markdown");
+											}}
+										>
+											<span>{t("app.exportSessionMarkdown")}</span>
+											<span className="text-[10px] text-owl-faint">
+												{t("app.exportSessionMarkdownHint")}
+											</span>
+										</button>
+										<button
+											type="button"
+											className={exportItemClass}
+											disabled={exporting}
+											title={t("app.exportSessionTurns")}
+											onClick={() => {
+												close();
+												onExportTurns();
+											}}
+										>
+											<span>{t("app.exportSessionTurns")}</span>
+											<span className="text-[10px] text-owl-faint">{t("app.exportSessionTurnsHint")}</span>
+										</button>
+									</div>
+								)}
+							</Menu>
+						)}
 						<button
 							type="button"
-							className="owl-shell-rename-trigger shrink-0 rounded p-0.5 text-owl-faint opacity-0 transition-opacity group-hover/title:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
-							title={t("sidebar.rename")}
-							aria-label={t("sidebar.rename")}
-							disabled={renameDisabled}
-							onClick={startRename}
+							title={t("app.dockBottomTitle")}
+							aria-label={t("app.dockBottomTitle")}
+							aria-pressed={terminalOpen}
+							className={`owl-chrome-button${terminalOpen ? " is-active" : ""}`}
+							onClick={onToggleTerminal}
 						>
-							<IconPencil size={12} />
+							<IconPanelBottom size={16} />
 						</button>
-					)}
-				</h1>
-			)}
-			{presetName && (
-				<span className="owl-shell-preset-tag" title={presetName}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" /></svg>
-					{presetName}
-				</span>
-			)}
-		</div>
-		<div className="owl-view-tabs" aria-label={t("app.viewTabsAria")} data-tauri-drag-region="false" ref={viewMenuRootRef}>
-			<button
-				type="button"
-				className={`owl-view-tabs-trigger${viewMenuOpen ? " is-open" : ""}`}
-				title={viewLabels[view]}
-				aria-label={viewLabels[view]}
-				aria-haspopup="menu"
-				aria-expanded={viewMenuOpen}
-				onClick={() => setViewMenuOpen((value) => !value)}
-			>
-				<ViewIcon size={16} />
-			</button>
-			{viewMenuOpen && (
-				<div className="owl-view-tabs-popover" role="menu">
-					{VIEW_OPTIONS.map((candidate) => {
-						const OptionIcon = VIEW_ICONS[candidate];
-						return (
-							<button
-								key={candidate}
-								type="button"
-								role="menuitemradio"
-								aria-checked={candidate === view}
-								className={candidate === view ? "is-current" : undefined}
-								onClick={() => {
-									setViewMenuOpen(false);
-									onViewChange(candidate);
-								}}
-							>
-								<span className="owl-view-tabs-item">
-									<OptionIcon size={14} />
-									<span className="owl-view-tabs-label">{viewLabels[candidate]}</span>
-								</span>
-								{candidate === view && (
-									<svg className="owl-view-tabs-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 8.5l3.5 3.5L13 5" /></svg>
-								)}
-							</button>
-						);
-					})}
-				</div>
-			)}
-		</div>
-		<div className="owl-shell-header-actions" data-tauri-drag-region="false">
-			{actions !== undefined ? actions : <>
-			{sessionId && (
-				<Menu
-					direction="down"
-					// 按钮贴窗口右缘，面板必须右对齐向左展开，否则小窗下会被窗口右边界裁掉
-					panelClassName="right-0"
-					triggerTitle={exporting ? t("app.exportingSession") : t("app.downloadSessionLog")}
-					triggerClassName="owl-chrome-button"
-					trigger={<span aria-busy={exporting}><IconDownload size={16} /></span>}
-				>
-					{(close) => (
-						<div className="w-64">
+						{onToggleMirror !== undefined && (
 							<button
 								type="button"
-								className={exportItemClass}
-								disabled={exporting}
-								title={t("app.exportSessionJsonl")}
-								onClick={() => {
-									close();
-									onExport("jsonl");
-								}}
+								title={t("wb.drama")}
+								aria-label={t("wb.drama")}
+								aria-pressed={mirrorOpen === true}
+								className={`owl-chrome-button${mirrorOpen ? " is-active" : ""}`}
+								onClick={onToggleMirror}
 							>
-								<span>{t("app.exportSessionJsonl")}</span>
-								<span className="text-[10px] text-owl-faint">{t("app.exportSessionJsonlHint")}</span>
+								<IconDrama size={16} />
 							</button>
-							<button
-								type="button"
-								className={exportItemClass}
-								disabled={exporting}
-								title={t("app.exportSessionMarkdown")}
-								onClick={() => {
-									close();
-									onExport("markdown");
-								}}
-							>
-								<span>{t("app.exportSessionMarkdown")}</span>
-								<span className="text-[10px] text-owl-faint">{t("app.exportSessionMarkdownHint")}</span>
-							</button>
-							<button
-								type="button"
-								className={exportItemClass}
-								disabled={exporting}
-								title={t("app.exportSessionTurns")}
-								onClick={() => {
-									close();
-									onExportTurns();
-								}}
-							>
-								<span>{t("app.exportSessionTurns")}</span>
-								<span className="text-[10px] text-owl-faint">{t("app.exportSessionTurnsHint")}</span>
-							</button>
-						</div>
-					)}
-				</Menu>
-			)}
-			<button type="button" title={t("app.dockBottomTitle")} aria-label={t("app.dockBottomTitle")} aria-pressed={terminalOpen} className={`owl-chrome-button${terminalOpen ? " is-active" : ""}`} onClick={onToggleTerminal}><IconPanelBottom size={16} /></button>
-			{onToggleMirror !== undefined && (
-				<button type="button" title={t("wb.drama")} aria-label={t("wb.drama")} aria-pressed={mirrorOpen === true} className={`owl-chrome-button${mirrorOpen ? " is-active" : ""}`} onClick={onToggleMirror}><IconDrama size={16} /></button>
-			)}
-			<button type="button" title={t("app.dockRightTitle")} aria-label={t("app.dockRightTitle")} aria-pressed={sidebarOpen} className={`owl-chrome-button${sidebarOpen ? " is-active" : ""}`} onClick={onToggleSidebar}><IconPanelRight size={16} /></button>
-			</>}
-		</div>
-	</header>;
+						)}
+						<button
+							type="button"
+							title={t("app.dockRightTitle")}
+							aria-label={t("app.dockRightTitle")}
+							aria-pressed={sidebarOpen}
+							className={`owl-chrome-button${sidebarOpen ? " is-active" : ""}`}
+							onClick={onToggleSidebar}
+						>
+							<IconPanelRight size={16} />
+						</button>
+					</>
+				)}
+			</div>
+		</header>
+	);
 }

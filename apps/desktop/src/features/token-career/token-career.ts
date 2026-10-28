@@ -279,7 +279,8 @@ export function buildTrend(
 	);
 	let firstDate: string | undefined;
 	for (const agent of scope) {
-		for (const day of agent.byDay) if (day.totalTokens > 0 && (!firstDate || day.date < firstDate)) firstDate = day.date;
+		for (const day of agent.byDay)
+			if (day.totalTokens > 0 && (!firstDate || day.date < firstDate)) firstDate = day.date;
 	}
 	const start =
 		range === "30"

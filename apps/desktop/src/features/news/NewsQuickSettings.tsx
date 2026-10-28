@@ -79,7 +79,9 @@ export function NewsQuickSettings({
 	const unifiedModel = model === "mixed" ? undefined : config.models[capabilities[0]!];
 	const level = LEVELS.find(
 		(entry) =>
-			config.thresholds.T1 === entry.T1 && config.thresholds.T1_5 === entry.T1_5 && config.thresholds.T2 === entry.T2,
+			config.thresholds.T1 === entry.T1 &&
+			config.thresholds.T1_5 === entry.T1_5 &&
+			config.thresholds.T2 === entry.T2,
 	);
 	const list = sources.data ?? [];
 	const intervals = new Set(list.map((source) => source.intervalMinutes));
@@ -136,11 +138,9 @@ export function NewsQuickSettings({
 							</option>
 						)}
 						<option value="">{t("news.defaultModel")}</option>
-						{model &&
-							model !== "mixed" &&
-							!snapshot.models.some((entry) => modelKey(entry) === model) && (
-								<option value={model}>{model}</option>
-							)}
+						{model && model !== "mixed" && !snapshot.models.some((entry) => modelKey(entry) === model) && (
+							<option value={model}>{model}</option>
+						)}
 						{snapshot.models.map((entry) => (
 							<option key={modelKey(entry)} value={modelKey(entry)}>
 								{entry.name} · {entry.provider}

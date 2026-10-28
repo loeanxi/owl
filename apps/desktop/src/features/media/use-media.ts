@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { mediaApi, subscribeMediaStatus, type MediaHubSnapshot } from "./hub.ts";
+import { type MediaHubSnapshot, mediaApi, subscribeMediaStatus } from "./hub.ts";
 
 /** 订阅共享状态流。 */
 export function useMediaHubSnapshot(): MediaHubSnapshot {

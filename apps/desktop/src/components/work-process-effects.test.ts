@@ -24,9 +24,31 @@ test("every effect has an independent default and survives a malformed value", (
 
 test("the dataset token lists exactly the enabled effects in the canonical order", () => {
 	assert.equal(workEffectsToken(DEFAULT_WORK_EFFECTS), "rail enter morph count spine breathe nudge");
-	assert.equal(workEffectsToken({ ...DEFAULT_WORK_EFFECTS, rail: false, nudge: false }), "enter morph count spine breathe");
-	assert.equal(workEffectsToken({ ...DEFAULT_WORK_EFFECTS, rail: false, enter: false, morph: false, count: false, spine: false, breathe: false, nudge: false }), "");
-	assert.deepEqual(enabledWorkEffectIds({ ...DEFAULT_WORK_EFFECTS, spine: false }), ["rail", "enter", "morph", "count", "breathe", "nudge"]);
+	assert.equal(
+		workEffectsToken({ ...DEFAULT_WORK_EFFECTS, rail: false, nudge: false }),
+		"enter morph count spine breathe",
+	);
+	assert.equal(
+		workEffectsToken({
+			...DEFAULT_WORK_EFFECTS,
+			rail: false,
+			enter: false,
+			morph: false,
+			count: false,
+			spine: false,
+			breathe: false,
+			nudge: false,
+		}),
+		"",
+	);
+	assert.deepEqual(enabledWorkEffectIds({ ...DEFAULT_WORK_EFFECTS, spine: false }), [
+		"rail",
+		"enter",
+		"morph",
+		"count",
+		"breathe",
+		"nudge",
+	]);
 });
 
 test("applying effects writes the dataset and notifies subscribers only when the value changes", (context) => {
@@ -51,7 +73,16 @@ test("applying effects writes the dataset and notifies subscribers only when the
 	assert.deepEqual(seen, ["rail enter morph count breathe nudge"]);
 
 	// 全关时是空串：CSS 的 [data-fx~="..."] 一个都匹配不上，动效全部消失。
-	applyWorkEffects({ ...DEFAULT_WORK_EFFECTS, rail: false, enter: false, morph: false, count: false, spine: false, breathe: false, nudge: false });
+	applyWorkEffects({
+		...DEFAULT_WORK_EFFECTS,
+		rail: false,
+		enter: false,
+		morph: false,
+		count: false,
+		spine: false,
+		breathe: false,
+		nudge: false,
+	});
 	assert.equal(dataset.owlWorkEffects, "");
 	assert.equal(seen.length, 2);
 

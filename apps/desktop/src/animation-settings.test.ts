@@ -3,19 +3,32 @@ import test from "node:test";
 import { ambientGain, createAmbientStars } from "./ambient-background.ts";
 import {
 	ANIMATION_MIRROR_KEY,
-	DEFAULT_OWL_ANIMATION,
 	applyOwlAnimation,
+	DEFAULT_OWL_ANIMATION,
 	getOwlAnimation,
+	isGlassPreset,
 	parseOwlAnimation,
 	readAnimationMirror,
-	isGlassPreset,
 	subscribeOwlAnimation,
 } from "./animation-settings.ts";
 
 test("isGlassPreset: 背景动画只支持毛玻璃系预设，其余主题一律不显示", () => {
 	assert.equal(isGlassPreset("liquid-glass"), true);
 	assert.equal(isGlassPreset("frost"), true);
-	for (const id of ["", undefined, "owl-green", "codex", "claude", "ink", "ink-hc", "high-contrast", "polar-night", "abyss", "quiet-light", "some-unknown-theme"]) {
+	for (const id of [
+		"",
+		undefined,
+		"owl-green",
+		"codex",
+		"claude",
+		"ink",
+		"ink-hc",
+		"high-contrast",
+		"polar-night",
+		"abyss",
+		"quiet-light",
+		"some-unknown-theme",
+	]) {
 		assert.equal(isGlassPreset(id), false, String(id));
 	}
 });
@@ -26,7 +39,9 @@ test("parseOwlAnimation: 旧版本存下的 ambientStyle 等多余字段被忽�
 	assert.equal("ambientStyle" in parsed, false);
 });
 
-const storageOf = (items: Record<string, string>): Pick<Storage, "getItem"> => ({ getItem: (key) => items[key] ?? null });
+const storageOf = (items: Record<string, string>): Pick<Storage, "getItem"> => ({
+	getItem: (key) => items[key] ?? null,
+});
 
 test("parseOwlAnimation: 缺省/垃圾输入回退到默认值", () => {
 	assert.deepEqual(parseOwlAnimation(undefined), { ...DEFAULT_OWL_ANIMATION });
@@ -35,7 +50,13 @@ test("parseOwlAnimation: 缺省/垃圾输入回退到默认值", () => {
 });
 
 test("parseOwlAnimation: 逐字段回退，不因一个坏字段丢掉其它设置", () => {
-	const parsed = parseOwlAnimation({ startupEnabled: false, ambientIntensity: "abc", fps: 99, startupSpeed: "turbo", ambientMeteors: "yes" });
+	const parsed = parseOwlAnimation({
+		startupEnabled: false,
+		ambientIntensity: "abc",
+		fps: 99,
+		startupSpeed: "turbo",
+		ambientMeteors: "yes",
+	});
 	assert.equal(parsed.startupEnabled, false);
 	assert.equal(parsed.ambientIntensity, DEFAULT_OWL_ANIMATION.ambientIntensity);
 	assert.equal(parsed.fps, DEFAULT_OWL_ANIMATION.fps);
@@ -53,17 +74,28 @@ test("parseOwlAnimation: 强度夹到 10–100 并取整，fps 只接受 15/20/3
 });
 
 test("readAnimationMirror: 读镜像、兼容旧开关、损坏 JSON 回退默认", () => {
-	assert.equal(readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: JSON.stringify({ ambientEnabled: false }) })).ambientEnabled, false);
+	assert.equal(
+		readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: JSON.stringify({ ambientEnabled: false }) }))
+			.ambientEnabled,
+		false,
+	);
 	assert.equal(readAnimationMirror(storageOf({ "owl.startupSplash": "off" })).startupEnabled, false);
 	// 有镜像时旧开关不再起作用
-	assert.equal(readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: "{}", "owl.startupSplash": "off" })).startupEnabled, true);
-	assert.deepEqual(readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: "{broken" })), { ...DEFAULT_OWL_ANIMATION });
+	assert.equal(
+		readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: "{}", "owl.startupSplash": "off" })).startupEnabled,
+		true,
+	);
+	assert.deepEqual(readAnimationMirror(storageOf({ [ANIMATION_MIRROR_KEY]: "{broken" })), {
+		...DEFAULT_OWL_ANIMATION,
+	});
 });
 
 test("applyOwlAnimation: 通知订阅者；相同值幂等不重复通知；退订后不再通知", () => {
 	applyOwlAnimation(DEFAULT_OWL_ANIMATION);
 	let calls = 0;
-	const unsubscribe = subscribeOwlAnimation(() => { calls += 1; });
+	const unsubscribe = subscribeOwlAnimation(() => {
+		calls += 1;
+	});
 	const before = getOwlAnimation();
 
 	applyOwlAnimation({ ...before, ambientIntensity: 80 });

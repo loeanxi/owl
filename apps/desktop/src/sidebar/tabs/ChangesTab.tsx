@@ -8,13 +8,13 @@
  * 头部「变动 / 历史」切换到提交历史视图（HistoryView）。
  */
 import { useContext, useEffect, useRef, useState } from "react";
-import { t, useT } from "../../i18n/index.ts";
 import type { GitStatusEntry } from "../../bridge/protocol.ts";
-import type { TabComponentProps } from "../registry.ts";
-import { DiffReview } from "../DiffReview.tsx";
+import { t, useT } from "../../i18n/index.ts";
 import { CHANGES_FOCUS_EVENT, consumeChangesFocus, peekChangesFocus } from "../changes-focus.ts";
+import { DiffReview } from "../DiffReview.tsx";
 import { ExecutionContext } from "../execution-context.tsx";
 import { IconGitBranch, IconLoader, IconRefresh, IconTrash, IconUndo } from "../icons.tsx";
+import type { TabComponentProps } from "../registry.ts";
 import { HistoryView, repoDisplayName } from "./HistoryView.tsx";
 
 const MODE_KEY = "owl.changes.mode";
@@ -45,10 +45,20 @@ function statusLetter(entry: GitStatusEntry): string {
 	return letter === " " ? "M" : letter;
 }
 
-export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToChat, onOpenFile }: TabComponentProps): React.JSX.Element {
+export function ChangesTab({
+	api,
+	cwd,
+	profile,
+	gitStatus,
+	onGitRefresh,
+	onToChat,
+	onOpenFile,
+}: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const execution = useContext(ExecutionContext);
-	const [mode, setMode] = useState<ChangesMode>(() => (localStorage.getItem(MODE_KEY) === "history" ? "history" : "changes"));
+	const [mode, setMode] = useState<ChangesMode>(() =>
+		localStorage.getItem(MODE_KEY) === "history" ? "history" : "changes",
+	);
 	const [selected, setSelected] = useState<{ path: string; staged: boolean } | undefined>(undefined);
 	// 模型点名要看的差异行（sidebar_show action=diff 带行号）：差异载入后落到那一行。
 	const [focusLine, setFocusLine] = useState<number | undefined>(undefined);
@@ -211,7 +221,9 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 					}}
 				>
 					{value === "changes" ? t("changes.modeChanges") : t("changes.modeHistory")}
-					{value === "changes" && changeCount > 0 && <span className="rounded bg-owl-hover px-1 text-[10.5px] text-owl-muted">{changeCount}</span>}
+					{value === "changes" && changeCount > 0 && (
+						<span className="rounded bg-owl-hover px-1 text-[10.5px] text-owl-muted">{changeCount}</span>
+					)}
 				</button>
 			))}
 		</div>
@@ -238,19 +250,41 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 				<span>
 					{title} <span className="ml-1 rounded bg-owl-panel px-1">{rows.length}</span>
 				</span>
-				{stagedView ? (
-					rows.length > 0 && (
-						<button type="button" className="hover:text-owl-text" title={t("changes.unstageAll")} onClick={() => void act(() => api.gitUnstage(cwd, rows.map((row) => row.path)))}>
-							<IconUndo size={12} />
-						</button>
-					)
-				) : (
-					rows.length > 0 && (
-						<button type="button" className="hover:text-owl-text" title={t("changes.stageAll")} onClick={() => void act(() => api.gitStage(cwd, rows.map((row) => row.path)))}>
-							+
-						</button>
-					)
-				)}
+				{stagedView
+					? rows.length > 0 && (
+							<button
+								type="button"
+								className="hover:text-owl-text"
+								title={t("changes.unstageAll")}
+								onClick={() =>
+									void act(() =>
+										api.gitUnstage(
+											cwd,
+											rows.map((row) => row.path),
+										),
+									)
+								}
+							>
+								<IconUndo size={12} />
+							</button>
+						)
+					: rows.length > 0 && (
+							<button
+								type="button"
+								className="hover:text-owl-text"
+								title={t("changes.stageAll")}
+								onClick={() =>
+									void act(() =>
+										api.gitStage(
+											cwd,
+											rows.map((row) => row.path),
+										),
+									)
+								}
+							>
+								+
+							</button>
+						)}
 			</div>
 			{rows.map((entry) => {
 				const isSelected = selected?.path === entry.path && selected.staged === stagedView;
@@ -260,8 +294,13 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 						className={`group flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-[3px] hover:bg-owl-hover ${isSelected ? "bg-owl-hover" : ""}`}
 						onClick={() => openDiff(entry.path, stagedView)}
 					>
-						<span className={`shrink-0 text-[10px] font-semibold ${statusColor(entry)}`}>{statusLetter(entry)}</span>
-						<span className="min-w-0 flex-1 truncate text-xs text-owl-text" title={entry.origPath !== undefined ? `${entry.origPath} → ${entry.path}` : entry.path}>
+						<span className={`shrink-0 text-[10px] font-semibold ${statusColor(entry)}`}>
+							{statusLetter(entry)}
+						</span>
+						<span
+							className="min-w-0 flex-1 truncate text-xs text-owl-text"
+							title={entry.origPath !== undefined ? `${entry.origPath} → ${entry.path}` : entry.path}
+						>
 							{entry.origPath !== undefined && <span className="text-owl-faint">{entry.origPath} → </span>}
 							{entry.path}
 						</span>
@@ -340,7 +379,12 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 						</>
 					)}
 				</span>
-				<button type="button" title={t("common.refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={onGitRefresh}>
+				<button
+					type="button"
+					title={t("common.refresh")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+					onClick={onGitRefresh}
+				>
 					<IconRefresh size={14} />
 				</button>
 			</div>
@@ -366,7 +410,27 @@ export function ChangesTab({ api, cwd, profile, gitStatus, onGitRefresh, onToCha
 				)}
 			</div>
 
-			<DiffReview key={JSON.stringify([cwd, profile, execution.sessionId])} api={api} cwd={cwd} selected={selected} diff={diff} loading={diffLoading} error={diffError} expanded={expandedDiff} focusLine={focusLine} onFocusLineHandled={() => setFocusLine(undefined)} onExpand={() => setExpandedDiff((value) => !value)} onClose={() => { diffSeq.current += 1; setSelected(undefined); setDiff(undefined); setDiffLoading(false); }} onOpenFile={onOpenFile} onSelectFile={openDiff} />
+			<DiffReview
+				key={JSON.stringify([cwd, profile, execution.sessionId])}
+				api={api}
+				cwd={cwd}
+				selected={selected}
+				diff={diff}
+				loading={diffLoading}
+				error={diffError}
+				expanded={expandedDiff}
+				focusLine={focusLine}
+				onFocusLineHandled={() => setFocusLine(undefined)}
+				onExpand={() => setExpandedDiff((value) => !value)}
+				onClose={() => {
+					diffSeq.current += 1;
+					setSelected(undefined);
+					setDiff(undefined);
+					setDiffLoading(false);
+				}}
+				onOpenFile={onOpenFile}
+				onSelectFile={openDiff}
+			/>
 
 			{/* 吸底提交条 */}
 			{(staged.length > 0 || message !== "") && (

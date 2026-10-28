@@ -15,8 +15,16 @@
 const LANG_ORDER = ["zh-chs", "zh-cht", "en-us"];
 
 const KNOWN_TYPES = new Set([
-	"color", "bool", "slider", "combo", "text", "textinput",
-	"file", "directory", "group", "other",
+	"color",
+	"bool",
+	"slider",
+	"combo",
+	"text",
+	"textinput",
+	"file",
+	"directory",
+	"group",
+	"other",
 ]);
 
 const FILE_EXT: Record<string, string[]> = {
@@ -67,7 +75,7 @@ interface RawPropDef {
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? value as Record<string, unknown>
+		? (value as Record<string, unknown>)
 		: {};
 }
 
@@ -206,7 +214,7 @@ export function parseUserPropDefs(
 		const ft = strField(rawDef, "fileType");
 		if (ft) entry.fileType = ft;
 		if ((kind === "file" || kind === "directory") && Array.isArray(opts.listFiles)) {
-			const exts = ft ? FILE_EXT[ft] ?? null : null;
+			const exts = ft ? (FILE_EXT[ft] ?? null) : null;
 			const files = (opts.listFiles as string[]).filter((f) => {
 				if (exts === null) return true;
 				const lower = f.toLowerCase();
@@ -240,7 +248,10 @@ function weCondTokenize(src: string): WeCondToken[] {
 	let i = 0;
 	while (i < src.length) {
 		const c = src[i];
-		if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
+		if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+			i++;
+			continue;
+		}
 		if (c === "'" || c === '"') {
 			const end = src.indexOf(c, i + 1);
 			if (end < 0) throw new Error("unterminated string");
@@ -341,16 +352,38 @@ function weCondParse(tokens: WeCondToken[]): WeCondNode {
 	}
 	function unary(): WeCondNode {
 		const t = peek();
-		if (t && t.k === "op" && t.v === "!") { pos++; const inner = unary(); return (v) => !inner(v); }
-		if (t && t.k === "op" && t.v === "-") { pos++; const inner = unary(); return (v) => -Number(inner(v)); }
+		if (t && t.k === "op" && t.v === "!") {
+			pos++;
+			const inner = unary();
+			return (v) => !inner(v);
+		}
+		if (t && t.k === "op" && t.v === "-") {
+			pos++;
+			const inner = unary();
+			return (v) => -Number(inner(v));
+		}
 		return primary();
 	}
 	function primary(): WeCondNode {
 		const t = peek();
 		if (!t) throw new Error("unexpected end");
-		if (t.k === "op" && t.v === "(") { pos++; const inner = or(); eat(")"); return inner; }
-		if (t.k === "num") { pos++; const n = Number(t.v); if (Number.isNaN(n)) throw new Error("bad num"); return () => n; }
-		if (t.k === "str") { pos++; const s = t.v; return () => s; }
+		if (t.k === "op" && t.v === "(") {
+			pos++;
+			const inner = or();
+			eat(")");
+			return inner;
+		}
+		if (t.k === "num") {
+			pos++;
+			const n = Number(t.v);
+			if (Number.isNaN(n)) throw new Error("bad num");
+			return () => n;
+		}
+		if (t.k === "str") {
+			pos++;
+			const s = t.v;
+			return () => s;
+		}
 		if (t.k === "id") {
 			pos++;
 			if (t.v === "true") return () => true;
@@ -402,8 +435,13 @@ export function weColorToHex(v: unknown): string {
 	if (typeof v !== "string") return "#000000";
 	const parts = v.trim().split(/\s+/).map(Number);
 	if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return "#000000";
-	const hex = parts.slice(0, 3)
-		.map((n) => Math.max(0, Math.min(255, Math.round(n * 255))).toString(16).padStart(2, "0"))
+	const hex = parts
+		.slice(0, 3)
+		.map((n) =>
+			Math.max(0, Math.min(255, Math.round(n * 255)))
+				.toString(16)
+				.padStart(2, "0"),
+		)
 		.join("");
 	return `#${hex}`;
 }

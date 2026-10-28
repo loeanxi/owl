@@ -2,12 +2,7 @@
 // 上游是 geekan/HowToLiveLonger 的 README，固定最小样本防解析规则漂移。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-	githubSlug,
-	injectHeadingIds,
-	parseLongevityDoc,
-	resolveLongevityUrl,
-} from "./longevity-guide-content.ts";
+import { githubSlug, injectHeadingIds, parseLongevityDoc, resolveLongevityUrl } from "./longevity-guide-content.ts";
 
 const SAMPLE = [
 	"# 程序员延寿指南",
@@ -47,9 +42,18 @@ test("parseLongevityDoc 无 H1 时回退默认标题", () => {
 test("injectHeadingIds 注入顺序 id 并产出同序目录", () => {
 	const html = "<p>intro</p><h3>1. 术语</h3><p>x</p><h4>6.1. 输入</h4><h5>6.1.1. 固体</h5><h3>2. 目标</h3>";
 	const { html: withIds, toc } = injectHeadingIds(html);
-	assert.deepEqual(toc.map((entry) => entry.id), ["lon-h-0", "lon-h-1", "lon-h-2", "lon-h-3"]);
-	assert.deepEqual(toc.map((entry) => entry.level), [3, 4, 5, 3]);
-	assert.deepEqual(toc.map((entry) => entry.title), ["1. 术语", "6.1. 输入", "6.1.1. 固体", "2. 目标"]);
+	assert.deepEqual(
+		toc.map((entry) => entry.id),
+		["lon-h-0", "lon-h-1", "lon-h-2", "lon-h-3"],
+	);
+	assert.deepEqual(
+		toc.map((entry) => entry.level),
+		[3, 4, 5, 3],
+	);
+	assert.deepEqual(
+		toc.map((entry) => entry.title),
+		["1. 术语", "6.1. 输入", "6.1.1. 固体", "2. 目标"],
+	);
 	assert.match(withIds, /<h3 id="lon-h-0">1\. 术语<\/h3>/);
 	assert.match(withIds, /<h5 id="lon-h-2">6\.1\.1\. 固体<\/h5>/);
 	assert.equal(withIds.match(/<h\d>/), null);
@@ -75,7 +79,10 @@ test("githubSlug 近似 GitHub：小写、去标点、空格转连字符", () =>
 
 test("resolveLongevityUrl 相对路径落到仓库 main 分支，绝对协议原样返回", () => {
 	assert.equal(resolveLongevityUrl("LICENSE"), "https://github.com/geekan/HowToLiveLonger/blob/main/LICENSE");
-	assert.equal(resolveLongevityUrl("README_en.md"), "https://github.com/geekan/HowToLiveLonger/blob/main/README_en.md");
+	assert.equal(
+		resolveLongevityUrl("README_en.md"),
+		"https://github.com/geekan/HowToLiveLonger/blob/main/README_en.md",
+	);
 	assert.equal(resolveLongevityUrl("https://example.com/a"), "https://example.com/a");
 	assert.equal(resolveLongevityUrl("mailto:a@b.c"), "mailto:a@b.c");
 });

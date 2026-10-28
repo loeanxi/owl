@@ -21,6 +21,8 @@ export interface SidebarTab {
 	title: string;
 	/** 文件类 tab 的 workspace 相对路径。 */
 	path?: string;
+	/** 产物页指向哪一件产物（`hooks/products.ts` 的 Product.id）。 */
+	productId?: string;
 }
 
 /** tab 拖放落点：leaf 四边 25% 区域（切开）或中心（合并进该 leaf）。 */
@@ -104,8 +106,7 @@ function removeTab(node: SplitNode, tabId: string): SplitNode {
 		replaceLeaf(node, leaf.id, (l) => ({
 			...l,
 			tabs: l.tabs.filter((tab) => tab.id !== tabId),
-			activeTab:
-				l.activeTab === tabId ? (l.tabs.find((tab) => tab.id !== tabId)?.id ?? null) : l.activeTab,
+			activeTab: l.activeTab === tabId ? (l.tabs.find((tab) => tab.id !== tabId)?.id ?? null) : l.activeTab,
 		})),
 	);
 	return next ?? makeLeaf();
@@ -163,6 +164,7 @@ function sanitizeNode(raw: unknown, seen: Set<string>, depth: number): SplitNode
 				kind: entry.kind,
 				title: typeof entry.title === "string" ? entry.title : entry.kind,
 				...(typeof entry.path === "string" ? { path: entry.path } : {}),
+				...(typeof entry.productId === "string" ? { productId: entry.productId } : {}),
 			});
 		}
 		const active =
@@ -226,16 +228,25 @@ export class SidebarStore {
 	constructor(cwd: string, keyPrefix = "owl.workbench.state", options: SidebarStoreOptions = {}) {
 		this.key = options.scope === "global" ? keyPrefix : `${keyPrefix}.${projectKeyOf(cwd)}`;
 		this.state = this.load();
-		this.editorClose = new EditorCloseCoordinator(() => this.state.tabs, (id) => Boolean(this.state.dirty[id]));
+		this.editorClose = new EditorCloseCoordinator(
+			() => this.state.tabs,
+			(id) => Boolean(this.state.dirty[id]),
+		);
 	}
 
-	registerEditor(id: string, guard: EditorGuard): () => void { return this.editorClose.register(id, guard); }
-	hasUnprotectedEdits(): boolean { return this.editorClose.hasUnprotectedEdits(); }
+	registerEditor(id: string, guard: EditorGuard): () => void {
+		return this.editorClose.register(id, guard);
+	}
+	hasUnprotectedEdits(): boolean {
+		return this.editorClose.hasUnprotectedEdits();
+	}
 	prepareToLeave(): Promise<boolean> {
 		if (this.leaving) return this.leaving;
 		const pending = this.editorClose.protect(() => this.state.tabs.map((tab) => tab.id), "leave", true);
 		this.leaving = pending;
-		void pending.finally(() => { if (this.leaving === pending) this.leaving = undefined; });
+		void pending.finally(() => {
+			if (this.leaving === pending) this.leaving = undefined;
+		});
 		return pending;
 	}
 
@@ -254,8 +265,7 @@ export class SidebarStore {
 				activePane = typeof parsed.activePane === "string" ? parsed.activePane : undefined;
 			} else if (parsed && Array.isArray(parsed.tabs)) {
 				// 旧版平面格式（v1）：整体迁成一个 leaf
-				tree =
-					sanitizeNode({ kind: "leaf", tabs: parsed.tabs, activeTab: parsed.activeId }, seen, 0) ?? makeLeaf();
+				tree = sanitizeNode({ kind: "leaf", tabs: parsed.tabs, activeTab: parsed.activeId }, seen, 0) ?? makeLeaf();
 			} else {
 				return emptyState();
 			}
@@ -352,7 +362,12 @@ export class SidebarStore {
 	openNew(kind: string, title: string, path?: string): void {
 		const count = this.state.tabs.filter((tab) => tab.kind === kind).length;
 		const id = `${kind}:${freshId("t")}`;
-		this.insertTab({ id, kind, title: count > 0 ? `${title} ${count + 1}` : title, ...(path !== undefined ? { path } : {}) });
+		this.insertTab({
+			id,
+			kind,
+			title: count > 0 ? `${title} ${count + 1}` : title,
+			...(path !== undefined ? { path } : {}),
+		});
 	}
 
 	/** 更新 tab 的附加数据（浏览器 tab 的 URL），随布局持久化。 */
@@ -386,8 +401,26 @@ export class SidebarStore {
 		this.insertTab({ id, kind, title, path });
 	}
 
+	/**
+	 * 打开产物页页签，按产物去重。
+	 *
+	 * 同一件产物永远只有一个页签：再次点它就把那个页签切到前面，
+	 * 而不是并排开两份同一张产物。
+	 */
+	openArtifactTab(productId: string, title: string): void {
+		const id = `artifact:${productId}`;
+		const existing = this.state.tabs.find((tab) => tab.id === id);
+		if (existing !== undefined) {
+			this.activate(id);
+			return;
+		}
+		this.insertTab({ id, kind: "artifact", title, productId });
+	}
+
 	private insertTab(tab: SidebarTab): void {
-		const pane = findLeaf(this.state.tree, this.state.activePane) ? this.state.activePane : firstLeaf(this.state.tree).id;
+		const pane = findLeaf(this.state.tree, this.state.activePane)
+			? this.state.activePane
+			: firstLeaf(this.state.tree).id;
 		const tree = replaceLeaf(this.state.tree, pane, (leaf) => ({
 			...leaf,
 			tabs: [...leaf.tabs, tab],
@@ -410,10 +443,20 @@ export class SidebarStore {
 	closeTab(id: string): Promise<boolean> {
 		const existing = this.closing.get(id);
 		if (existing) return existing;
-		if (!this.editorClose.isDirty(id)) { this.closeTabNow(id); return Promise.resolve(true); }
-		const pending = this.editorClose.protect(() => [id], "close").then((allowed) => { if (allowed) this.closeTabNow(id); return allowed; });
+		if (!this.editorClose.isDirty(id)) {
+			this.closeTabNow(id);
+			return Promise.resolve(true);
+		}
+		const pending = this.editorClose
+			.protect(() => [id], "close")
+			.then((allowed) => {
+				if (allowed) this.closeTabNow(id);
+				return allowed;
+			});
 		this.closing.set(id, pending);
-		void pending.finally(() => { if (this.closing.get(id) === pending) this.closing.delete(id); });
+		void pending.finally(() => {
+			if (this.closing.get(id) === pending) this.closing.delete(id);
+		});
 		return pending;
 	}
 
@@ -440,16 +483,22 @@ export class SidebarStore {
 		const leaf = findLeafWithTab(this.state.tree, id);
 		if (!leaf) return true;
 		const ids = leaf.tabs.filter((tab) => tab.id !== id).map((tab) => tab.id);
-		if (!ids.some((target) => this.editorClose.isDirty(target))) { for (const target of ids) this.closeTabNow(target); return true; }
-		if (!await this.editorClose.protect(() => ids, "close")) return false;
+		if (!ids.some((target) => this.editorClose.isDirty(target))) {
+			for (const target of ids) this.closeTabNow(target);
+			return true;
+		}
+		if (!(await this.editorClose.protect(() => ids, "close"))) return false;
 		for (const target of ids) this.closeTabNow(target);
 		return true;
 	}
 
 	async closeAll(): Promise<boolean> {
 		const ids = this.state.tabs.map((tab) => tab.id);
-		if (!ids.some((id) => this.editorClose.isDirty(id))) { for (const id of ids) this.closeTabNow(id); return true; }
-		if (!await this.editorClose.protect(() => ids, "close")) return false;
+		if (!ids.some((id) => this.editorClose.isDirty(id))) {
+			for (const id of ids) this.closeTabNow(id);
+			return true;
+		}
+		if (!(await this.editorClose.protect(() => ids, "close"))) return false;
 		for (const id of ids) this.closeTabNow(id);
 		return true;
 	}
@@ -461,7 +510,11 @@ export class SidebarStore {
 	 * 50/50，tab 落在新 leaf。来源 leaf 因此变空时自动折叠。
 	 */
 	moveTab(tabId: string, targetLeafId: string, zone: DropZone): void {
-		this.protectMutation(`move:${tabId}`, () => [tabId], () => this.moveTabNow(tabId, targetLeafId, zone));
+		this.protectMutation(
+			`move:${tabId}`,
+			() => [tabId],
+			() => this.moveTabNow(tabId, targetLeafId, zone),
+		);
 	}
 
 	private moveTabNow(tabId: string, targetLeafId: string, zone: DropZone): void {
@@ -528,7 +581,14 @@ export class SidebarStore {
 
 	/** 路径重命名后同步已开的文件 tab（id/title/path）与展开目录。 */
 	remapPath(oldPath: string, newPath: string): void {
-		this.protectMutation(`rename:${oldPath}`, () => this.state.tabs.filter((tab) => tab.path === oldPath || tab.path?.startsWith(`${oldPath}/`)).map((tab) => tab.id), () => this.remapPathNow(oldPath, newPath));
+		this.protectMutation(
+			`rename:${oldPath}`,
+			() =>
+				this.state.tabs
+					.filter((tab) => tab.path === oldPath || tab.path?.startsWith(`${oldPath}/`))
+					.map((tab) => tab.id),
+			() => this.remapPathNow(oldPath, newPath),
+		);
 	}
 
 	private remapPathNow(oldPath: string, newPath: string): void {
@@ -542,7 +602,12 @@ export class SidebarStore {
 						if (tab.path === undefined) return tab;
 						const mapped = mapOne(tab.path);
 						if (mapped === tab.path) return tab;
-						return { ...tab, id: `${tab.kind}:${mapped}`, path: mapped, title: mapped.split("/").pop() ?? mapped };
+						return {
+							...tab,
+							id: `${tab.kind}:${mapped}`,
+							path: mapped,
+							title: mapped.split("/").pop() ?? mapped,
+						};
 					}),
 				};
 			}
@@ -555,7 +620,12 @@ export class SidebarStore {
 
 	/** 移除已删路径的文件 tab 与展开目录（空 leaf 折叠）。 */
 	dropPath(path: string): void {
-		this.protectMutation(`drop:${path}`, () => this.state.tabs.filter((tab) => tab.path === path || tab.path?.startsWith(`${path}/`)).map((tab) => tab.id), () => this.dropPathNow(path));
+		this.protectMutation(
+			`drop:${path}`,
+			() =>
+				this.state.tabs.filter((tab) => tab.path === path || tab.path?.startsWith(`${path}/`)).map((tab) => tab.id),
+			() => this.dropPathNow(path),
+		);
 	}
 
 	private dropPathNow(path: string): void {
@@ -579,10 +649,18 @@ export class SidebarStore {
 
 	private protectMutation(key: string, ids: () => string[], mutate: () => void): void {
 		if (this.closing.has(key)) return;
-		if (!ids().some((id) => this.editorClose.isDirty(id))) { mutate(); return; }
-		const pending = this.editorClose.protect(ids, "close", true).then((allowed) => { if (allowed) mutate(); return allowed; });
+		if (!ids().some((id) => this.editorClose.isDirty(id))) {
+			mutate();
+			return;
+		}
+		const pending = this.editorClose.protect(ids, "close", true).then((allowed) => {
+			if (allowed) mutate();
+			return allowed;
+		});
 		this.closing.set(key, pending);
-		void pending.finally(() => { if (this.closing.get(key) === pending) this.closing.delete(key); });
+		void pending.finally(() => {
+			if (this.closing.get(key) === pending) this.closing.delete(key);
+		});
 	}
 
 	// -- fs_changed 总线 -----------------------------------------------------

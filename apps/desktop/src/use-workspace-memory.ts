@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { normPath } from "./utils/paths.ts";
-import { readWorkspaceMemory, workspaceScrollKey, WorkspaceRestoreGate, writeWorkspaceMemory, type WorkspaceMemory, type WorkspaceScrollPosition } from "./workspace-memory.ts";
+import {
+	readWorkspaceMemory,
+	type WorkspaceMemory,
+	WorkspaceRestoreGate,
+	type WorkspaceScrollPosition,
+	workspaceScrollKey,
+	writeWorkspaceMemory,
+} from "./workspace-memory.ts";
 
 type WorkspacePlace = Omit<WorkspaceMemory, "version" | "savedAt" | "scroll">;
 
@@ -13,7 +20,13 @@ const SCROLL_SURFACES = [
 ] as const;
 
 /** Save actual navigation as it happens; shutdown handlers are only a final flush. */
-export function useWorkspaceMemory({ profile, connected, place, restore, cancelRestore }: {
+export function useWorkspaceMemory({
+	profile,
+	connected,
+	place,
+	restore,
+	cancelRestore,
+}: {
 	profile?: string;
 	connected: boolean;
 	place: WorkspacePlace;
@@ -63,15 +76,19 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 		const saved = readWorkspaceMemory(localStorage, normalizedProfile);
 		// Navigation may cancel hydration. Keep all saved reading positions in that case.
 		scroll.current = saved?.scroll ?? {};
-		const canApply = (): boolean => !disposed && activeProfile.current === normalizedProfile && restoreGate.canApply(token);
-		void callbacks.current.restore(saved, canApply).then(() => {
-			if (!canApply()) return;
-			restoreGate.finish(token);
-			setReadyProfile(normalizedProfile);
-		}).catch(() => {
-			// Preserve the saved location while offline; reconnect retries the same restore.
-			restoreGate.retry(token);
-		});
+		const canApply = (): boolean =>
+			!disposed && activeProfile.current === normalizedProfile && restoreGate.canApply(token);
+		void callbacks.current
+			.restore(saved, canApply)
+			.then(() => {
+				if (!canApply()) return;
+				restoreGate.finish(token);
+				setReadyProfile(normalizedProfile);
+			})
+			.catch(() => {
+				// Preserve the saved location while offline; reconnect retries the same restore.
+				restoreGate.retry(token);
+			});
 		return () => {
 			disposed = true;
 			restoreGate.retry(token);
@@ -80,7 +97,12 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 
 	useEffect(() => {
 		if (!normalizedProfile || readyProfile !== normalizedProfile || !gate.current.canSave()) return;
-		writeWorkspaceMemory(localStorage, normalizedProfile, { ...current.current, version: 1, savedAt: Date.now(), scroll: scroll.current });
+		writeWorkspaceMemory(localStorage, normalizedProfile, {
+			...current.current,
+			version: 1,
+			savedAt: Date.now(),
+			scroll: scroll.current,
+		});
 	}, [normalizedProfile, readyProfile, placeSignature]);
 
 	useEffect(() => {
@@ -95,13 +117,19 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 			if (timer) clearTimeout(timer);
 			timer = undefined;
 			// Cleanup belongs to this place/profile even after the next render has begun.
-			writeWorkspaceMemory(localStorage, normalizedProfile, { ...place, version: 1, savedAt: Date.now(), scroll: scroll.current });
+			writeWorkspaceMemory(localStorage, normalizedProfile, {
+				...place,
+				version: 1,
+				savedAt: Date.now(),
+				scroll: scroll.current,
+			});
 		};
-		const visibleSurfaces = (): Array<{ element: HTMLElement; key: string; surface: string }> => SCROLL_SURFACES.flatMap(([surface, selector]) =>
-			[...document.querySelectorAll<HTMLElement>(selector)]
-				.filter((element) => element.clientWidth > 0 && element.clientHeight > 0)
-				.map((element) => ({ element, key: workspaceScrollKey(place, surface), surface })),
-		);
+		const visibleSurfaces = (): Array<{ element: HTMLElement; key: string; surface: string }> =>
+			SCROLL_SURFACES.flatMap(([surface, selector]) =>
+				[...document.querySelectorAll<HTMLElement>(selector)]
+					.filter((element) => element.clientWidth > 0 && element.clientHeight > 0)
+					.map((element) => ({ element, key: workspaceScrollKey(place, surface), surface })),
+			);
 		const restoreScroll = (): void => {
 			frame = 0;
 			if (disposed) return;
@@ -120,12 +148,16 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 				}
 				if (surface === "chat" && element.hasAttribute("data-owl-search-navigation")) {
 					applied.set(element, key);
-					scroll.current = { ...scroll.current, [key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false } };
+					scroll.current = {
+						...scroll.current,
+						[key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false },
+					};
 					element.removeAttribute("data-owl-scroll-restoring");
 					save();
 					continue;
 				}
-				if (surface === "chat" && element.getAttribute("data-owl-scroll-restoring") !== "true") element.setAttribute("data-owl-scroll-restoring", "true");
+				if (surface === "chat" && element.getAttribute("data-owl-scroll-restoring") !== "true")
+					element.setAttribute("data-owl-scroll-restoring", "true");
 				const saved = scroll.current[key];
 				if (saved) {
 					const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -145,7 +177,14 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 		const onScroll = (event: Event): void => {
 			for (const { element, key } of visibleSurfaces()) {
 				if (event.target !== element || applied.get(element) !== key) continue;
-				scroll.current = { ...scroll.current, [key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: element.scrollHeight - element.scrollTop - element.clientHeight < 24 } };
+				scroll.current = {
+					...scroll.current,
+					[key]: {
+						top: element.scrollTop,
+						left: element.scrollLeft,
+						atBottom: element.scrollHeight - element.scrollTop - element.clientHeight < 24,
+					},
+				};
 				if (timer) clearTimeout(timer);
 				timer = setTimeout(save, 160);
 			}
@@ -163,14 +202,23 @@ export function useWorkspaceMemory({ profile, connected, place, restore, cancelR
 				if (event.target !== element) continue;
 				applied.set(element, key);
 				element.removeAttribute("data-owl-scroll-restoring");
-				scroll.current = { ...scroll.current, [key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false } };
+				scroll.current = {
+					...scroll.current,
+					[key]: { top: element.scrollTop, left: element.scrollLeft, atBottom: false },
+				};
 				save();
 			}
 		};
 		const resizes = new ResizeObserver(scheduleScrollRestore);
 		const mutations = new MutationObserver(scheduleScrollRestore);
 		const root = document.querySelector(".owl-workspace-frame");
-		if (root) mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "hidden", "data-owl-scroll-restoring", "data-owl-search-navigation"] });
+		if (root)
+			mutations.observe(root, {
+				childList: true,
+				subtree: true,
+				attributes: true,
+				attributeFilter: ["style", "hidden", "data-owl-scroll-restoring", "data-owl-search-navigation"],
+			});
 		document.addEventListener("scroll", onScroll, true);
 		document.addEventListener("wheel", keepUserScroll, { passive: true });
 		document.addEventListener("owl-chat-search-navigation", onSearchNavigation);

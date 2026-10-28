@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useT } from "../../i18n/index.ts";
-import { mediaApi, type MediaConfigView } from "./hub.ts";
+import { type MediaConfigView, mediaApi } from "./hub.ts";
 
 export function MediaSettingsTab(): React.JSX.Element {
 	const t = useT();

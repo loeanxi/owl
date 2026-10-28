@@ -1,0 +1,41 @@
+/**
+ * Claude 的「下一步建议」芯片。
+ *
+ * 一排安静的药丸：默认只有边框与次级色，悬停才显出可点。
+ * 文字层级走 body 档（13px），不用 caption —— 芯片是可以点的，得像能点的。
+ */
+
+.owl-claude-nextsteps {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 8px 0 2px;
+}
+
+.owl-claude-nextstep {
+	max-width: 100%;
+	padding: 3px 10px;
+	border: 1px solid color-mix(in srgb, var(--owl-reading-text) 14%, transparent);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--owl-reading-muted);
+	font-size: var(--owl-claude-font-size-body, 13px);
+	line-height: var(--owl-claude-leading-body, 20px);
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.owl-claude-nextstep:hover {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 45%, transparent);
+	background: color-mix(in srgb, var(--color-owl-accent) 8%, transparent);
+	color: var(--owl-reading-text);
+}
+
+.owl-claude-nextstep:focus-visible {
+	outline: 2px solid var(--owl-reading-link, var(--color-owl-accent));
+	outline-offset: 2px;
+}

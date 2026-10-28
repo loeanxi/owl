@@ -27,18 +27,24 @@ async function baguFetch<T>(path: string, init?: RequestInit): Promise<T> {
 		signal: AbortSignal.timeout(20_000),
 	});
 	if (!response.ok) throw new Error(`bagu HTTP ${response.status}`);
-	return await response.json() as T;
+	return (await response.json()) as T;
 }
 
 export async function fetchBaguCategories(): Promise<BaguCategory[]> {
 	const raw = await baguFetch<{ id?: number; name?: string }[]>("/api/categories");
 	return (raw ?? [])
 		.filter((category) => typeof category?.id === "number")
-		.map((category) => ({ key: `bagu:${category.id}`, name: category.name || `#${category.id}`, baguId: category.id }));
+		.map((category) => ({
+			key: `bagu:${category.id}`,
+			name: category.name || `#${category.id}`,
+			baguId: category.id,
+		}));
 }
 
 export async function fetchBaguQuestions(categoryId: number): Promise<BaguQuestion[]> {
-	const raw = await baguFetch<{ id?: number; title?: string; content?: string; difficulty?: number }[]>(`/api/questions?categoryId=${categoryId}`);
+	const raw = await baguFetch<{ id?: number; title?: string; content?: string; difficulty?: number }[]>(
+		`/api/questions?categoryId=${categoryId}`,
+	);
 	return (raw ?? [])
 		.filter((question) => typeof question?.title === "string" && question.title.trim())
 		.map((question) => ({
@@ -50,11 +56,17 @@ export async function fetchBaguQuestions(categoryId: number): Promise<BaguQuesti
 		}));
 }
 
-export async function evaluateBagu(questionId: number, userAnswer: string): Promise<{ score?: number; feedback: string; standardAnswer?: string }> {
-	const raw = await baguFetch<{ score?: number | null; feedback?: string; standardAnswer?: string }>("/api/quiz/evaluate", {
-		method: "POST",
-		body: JSON.stringify({ questionId, userAnswer }),
-	});
+export async function evaluateBagu(
+	questionId: number,
+	userAnswer: string,
+): Promise<{ score?: number; feedback: string; standardAnswer?: string }> {
+	const raw = await baguFetch<{ score?: number | null; feedback?: string; standardAnswer?: string }>(
+		"/api/quiz/evaluate",
+		{
+			method: "POST",
+			body: JSON.stringify({ questionId, userAnswer }),
+		},
+	);
 	return {
 		score: typeof raw?.score === "number" ? raw.score : undefined,
 		feedback: raw?.feedback ?? "",
@@ -77,45 +89,75 @@ export function extractScore(text: string): number | undefined {
 
 /** 去掉评分文案里的「分数：N」行（分数已单独成徽章，不重复上屏）。 */
 export function stripScoreLine(text: string): string {
-	return text.replace(/^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?(?:分数|得分|score)(?:\*\*)?\s*[:：]?\s*\d{1,3}\s*分?\s*(?:\*\*)?[ \t]*$/im, "").trim();
+	return text
+		.replace(
+			/^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?(?:分数|得分|score)(?:\*\*)?\s*[:：]?\s*\d{1,3}\s*分?\s*(?:\*\*)?[ \t]*$/im,
+			"",
+		)
+		.trim();
 }
 
 const SEEDS: BaguQuestion[] = [
 	{
-		categoryKey: "Java基础", category: "Java基础", title: "HashMap 的底层原理是什么？", difficulty: 3,
-		answer: "JDK8 采用数组+链表+红黑树：默认容量 16、负载因子 0.75；链表长度 ≥8 且数组容量 ≥64 时转红黑树，≤6 退化链表；扩容为 2 倍并重新散列。",
+		categoryKey: "Java基础",
+		category: "Java基础",
+		title: "HashMap 的底层原理是什么？",
+		difficulty: 3,
+		answer:
+			"JDK8 采用数组+链表+红黑树：默认容量 16、负载因子 0.75；链表长度 ≥8 且数组容量 ≥64 时转红黑树，≤6 退化链表；扩容为 2 倍并重新散列。",
 		hint: "从「数组 + 链表/红黑树、hash 定位、扩容」三条线说，别漏树化的容量前置条件。",
 	},
 	{
-		categoryKey: "MySQL", category: "MySQL", title: "MySQL 为什么用 B+ 树做索引？", difficulty: 3,
+		categoryKey: "MySQL",
+		category: "MySQL",
+		title: "MySQL 为什么用 B+ 树做索引？",
+		difficulty: 3,
 		answer: "非叶子节点不存数据、扇出大、树高更低（3 层可存千万级），减少磁盘 IO；叶子节点成有序链表，范围查询友好。",
 		hint: "对比 B 树 / 红黑树：扇出、树高、磁盘 IO、范围查询四个角度。",
 	},
 	{
-		categoryKey: "Redis", category: "Redis", title: "Redis 有哪些持久化方式？各有什么优劣？", difficulty: 2,
-		answer: "RDB：定时快照，文件小恢复快，可能丢数据；AOF：追加写命令，丢失少，文件大恢复慢；4.x 起混合持久化兼顾两者。",
+		categoryKey: "Redis",
+		category: "Redis",
+		title: "Redis 有哪些持久化方式？各有什么优劣？",
+		difficulty: 2,
+		answer:
+			"RDB：定时快照，文件小恢复快，可能丢数据；AOF：追加写命令，丢失少，文件大恢复慢；4.x 起混合持久化兼顾两者。",
 		hint: "RDB vs AOF：触发方式、数据安全、恢复速度，最后带一句 4.x 混合持久化。",
 	},
 	{
-		categoryKey: "Spring", category: "Spring", title: "Spring Bean 的生命周期是怎样的？", difficulty: 4,
-		answer: "实例化 → 属性填充 → Aware 回调 → BeanPostProcessor 前置 → 初始化（@PostConstruct / InitializingBean）→ 后置处理（AOP 代理在这）→ 使用 → 销毁回调。",
+		categoryKey: "Spring",
+		category: "Spring",
+		title: "Spring Bean 的生命周期是怎样的？",
+		difficulty: 4,
+		answer:
+			"实例化 → 属性填充 → Aware 回调 → BeanPostProcessor 前置 → 初始化（@PostConstruct / InitializingBean）→ 后置处理（AOP 代理在这）→ 使用 → 销毁回调。",
 		hint: "记主线「实例化 → 属性 → 初始化 → 销毁」，再把 Aware、BeanPostProcessor、AOP 挂上去。",
 	},
 	{
-		categoryKey: "JVM", category: "JVM", title: "JVM 有哪些垃圾回收算法？分别解决什么问题？", difficulty: 3,
-		answer: "标记-清除（简单但有碎片）、标记-复制（新生代，空间换时间）、标记-整理（老年代，无碎片）；分代收集按对象生命周期组合使用。",
+		categoryKey: "JVM",
+		category: "JVM",
+		title: "JVM 有哪些垃圾回收算法？分别解决什么问题？",
+		difficulty: 3,
+		answer:
+			"标记-清除（简单但有碎片）、标记-复制（新生代，空间换时间）、标记-整理（老年代，无碎片）；分代收集按对象生命周期组合使用。",
 		hint: "三种基础算法各自的问题，再讲分代为什么有效。",
 	},
 	{
-		categoryKey: "Java基础", category: "Java基础", title: "== 和 equals 的区别？为什么重写 equals 必须重写 hashCode？", difficulty: 2,
-		answer: "== 比较引用（基本类型比值）；equals 默认同 ==，重写后比内容；不重写 hashCode 会导致等值对象散列到不同桶，HashMap 中查不到。",
+		categoryKey: "Java基础",
+		category: "Java基础",
+		title: "== 和 equals 的区别？为什么重写 equals 必须重写 hashCode？",
+		difficulty: 2,
+		answer:
+			"== 比较引用（基本类型比值）；equals 默认同 ==，重写后比内容；不重写 hashCode 会导致等值对象散列到不同桶，HashMap 中查不到。",
 		hint: "先分场景，再讲 hashCode 的约定与 HashMap 的行为。",
 	},
 ];
 
 export function seedCategories(): BaguCategory[] {
 	const seen = new Map<string, BaguCategory>();
-	for (const question of SEEDS) if (!seen.has(question.categoryKey)) seen.set(question.categoryKey, { key: question.categoryKey, name: question.category ?? question.categoryKey });
+	for (const question of SEEDS)
+		if (!seen.has(question.categoryKey))
+			seen.set(question.categoryKey, { key: question.categoryKey, name: question.category ?? question.categoryKey });
 	return [...seen.values()];
 }
 

@@ -18,18 +18,19 @@ import type {
 	RewindExecuteResult,
 	RewindImpactResult,
 	ServerEventMessage,
-	SessionRunningResult,
 	SessionQueueItem,
+	SessionRunningResult,
 	SessionSnapshotPayload,
 	SessionStatsResult,
 } from "../../bridge/protocol.ts";
-import { applyEvent, applyRetryEvent, type ChatEntry, type RetryBannerState, rebuild } from "../../hooks/transcript.ts";
 import { SessionWatch } from "../../bridge/session-watch.ts";
+import { applyEvent, applyRetryEvent, type ChatEntry, type RetryBannerState, rebuild } from "../../hooks/transcript.ts";
 import { normProjectKey } from "../../sidebar/store.ts";
 import { samePath } from "../../utils/paths.ts";
 
 type MyselfImage = { type: "image"; data: string; mimeType: string };
-type MyselfBridge = Pick<BridgeClient, "request" | "onSessionEvent"> & Partial<Pick<BridgeClient, "watchSessionEvents">>;
+type MyselfBridge = Pick<BridgeClient, "request" | "onSessionEvent"> &
+	Partial<Pick<BridgeClient, "watchSessionEvents">>;
 type MyselfStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type MyselfChatIntent = "record" | "plan" | "process";

@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys } from "./sidebar-scope.ts";
+import {
+	initializeResearchSidebar,
+	loadSidebarStrings,
+	matchesSessionScope,
+	sidebarStorageKeys,
+} from "./sidebar-scope.ts";
 
 class MemoryStorage {
 	values = new Map<string, string>();
-	getItem(key: string): string | null { return this.values.get(key) ?? null; }
-	setItem(key: string, value: string): void { this.values.set(key, value); }
+	getItem(key: string): string | null {
+		return this.values.get(key) ?? null;
+	}
+	setItem(key: string, value: string): void {
+		this.values.set(key, value);
+	}
 }
 
 test("ordinary and research histories stay separate even inside the same project", () => {
@@ -15,8 +24,14 @@ test("ordinary and research histories stay separate even inside the same project
 		{ id: "legacy", cwd: "D:/shared" },
 		{ id: "invalid", cwd: "D:/shared", scope: "other" },
 	];
-	assert.deepEqual(rows.filter((row) => matchesSessionScope(row, "research")).map((row) => row.id), ["research"]);
-	assert.deepEqual(rows.filter((row) => matchesSessionScope(row, "chat")).map((row) => row.id), ["chat", "legacy"]);
+	assert.deepEqual(
+		rows.filter((row) => matchesSessionScope(row, "research")).map((row) => row.id),
+		["research"],
+	);
+	assert.deepEqual(
+		rows.filter((row) => matchesSessionScope(row, "chat")).map((row) => row.id),
+		["chat", "legacy"],
+	);
 });
 
 test("sidebar preferences have independent namespaces while ordinary project history stays intact", () => {
@@ -26,7 +41,8 @@ test("sidebar preferences have independent namespaces while ordinary project his
 	storage.setItem(ordinary.projects, JSON.stringify(["D:/ordinary-project"]));
 	storage.setItem(research.projects, JSON.stringify(["D:/research-project"]));
 	assert.equal(ordinary.projects, "owl.projects");
-	for (const key of Object.keys(ordinary) as Array<keyof typeof ordinary>) assert.notEqual(ordinary[key], research[key]);
+	for (const key of Object.keys(ordinary) as Array<keyof typeof ordinary>)
+		assert.notEqual(ordinary[key], research[key]);
 	assert.deepEqual(loadSidebarStrings(storage, ordinary.projects), ["D:/ordinary-project"]);
 	assert.deepEqual(loadSidebarStrings(storage, research.projects), ["D:/research-project"]);
 });
@@ -41,7 +57,10 @@ test("existing mixed pins are copied by persisted session type without deleting 
 	const before = new Map(storage.values);
 	initializeResearchSidebar(storage, [{ id: "research", cwd: "D:/research" }]);
 	assert.equal(storage.getItem(research.pinned), null);
-	initializeResearchSidebar(storage, [{ id: "ordinary", cwd: "D:/development", scope: "chat" }, { id: "research", cwd: "d:/research/", scope: "research" }]);
+	initializeResearchSidebar(storage, [
+		{ id: "ordinary", cwd: "D:/development", scope: "chat" },
+		{ id: "research", cwd: "d:/research/", scope: "research" },
+	]);
 	assert.deepEqual(loadSidebarStrings(storage, research.pinned), ["research"]);
 	assert.deepEqual(loadSidebarStrings(storage, research.pinnedProjects), ["D:\\RESEARCH"]);
 	assert.equal(storage.getItem(research.projects), null);
@@ -59,7 +78,10 @@ test("ordinary projects leaked into the research project list are pruned once", 
 	const research = sidebarStorageKeys("research");
 	storage.setItem(ordinary.projects, JSON.stringify(["D:/hmdp", "D:/owl"]));
 	storage.setItem(research.projects, JSON.stringify(["D:/hmdp", "D:/owl", "D:\\Smoke"]));
-	initializeResearchSidebar(storage, [{ id: "chat", cwd: "D:/hmdp", scope: "chat" }, { id: "research", cwd: "d:/smoke/", scope: "research" }]);
+	initializeResearchSidebar(storage, [
+		{ id: "chat", cwd: "D:/hmdp", scope: "chat" },
+		{ id: "research", cwd: "d:/smoke/", scope: "research" },
+	]);
 	assert.deepEqual(loadSidebarStrings(storage, research.projects), ["D:\\Smoke"]);
 	assert.deepEqual(loadSidebarStrings(storage, ordinary.projects), ["D:/hmdp", "D:/owl"]);
 	storage.setItem(research.projects, JSON.stringify(["D:\\Smoke", "D:/empty-research"]));
@@ -73,7 +95,14 @@ test("unavailable or malformed preference storage falls back safely", () => {
 	storage.setItem("mixed", JSON.stringify([1, "project", null]));
 	assert.deepEqual(loadSidebarStrings(storage, "bad"), []);
 	assert.deepEqual(loadSidebarStrings(storage, "mixed"), ["project"]);
-	const unavailable = { getItem(): never { throw new Error("storage unavailable"); }, setItem(): never { throw new Error("storage unavailable"); } };
+	const unavailable = {
+		getItem(): never {
+			throw new Error("storage unavailable");
+		},
+		setItem(): never {
+			throw new Error("storage unavailable");
+		},
+	};
 	assert.deepEqual(loadSidebarStrings(unavailable, "anything"), []);
 	assert.doesNotThrow(() => initializeResearchSidebar(unavailable, []));
 });

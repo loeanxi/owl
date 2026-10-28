@@ -9,7 +9,10 @@ export interface WorkbenchPalette {
 }
 
 /** Read the scoped desktop palette, including preset and custom overrides. */
-export function readWorkbenchPalette(style: Pick<CSSStyleDeclaration, "getPropertyValue">, theme: "dark" | "light"): WorkbenchPalette {
+export function readWorkbenchPalette(
+	style: Pick<CSSStyleDeclaration, "getPropertyValue">,
+	theme: "dark" | "light",
+): WorkbenchPalette {
 	const light = theme === "light";
 	const color = (names: readonly string[], fallback: string): string => {
 		for (const name of names) {
@@ -42,7 +45,10 @@ export function observeWorkbenchTheme(surface: HTMLElement, onChange: () => void
 		});
 	};
 	const observer = new MutationObserver(sync);
-	observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme", "style"] });
+	observer.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme", "style"],
+	});
 	const shell = surface.closest(".owl-desktop-shell");
 	if (shell) observer.observe(shell, { attributes: true, attributeFilter: ["class", "style"] });
 	window.addEventListener("owl-theme-change", sync);
@@ -55,4 +61,3 @@ export function observeWorkbenchTheme(surface: HTMLElement, onChange: () => void
 	};
 }
 export { resolveSurfaceTheme } from "../owl-appearance.ts";
-

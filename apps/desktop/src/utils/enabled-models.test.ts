@@ -41,13 +41,7 @@ test("取消一项后写入剩余 allowlist；再勾回全部则清除为 null",
 	const afterUncheck = nextEnabledModelsAfterToggle(groups, null, "deepseek", "deepseek-v4-flash", false);
 	assert.deepEqual(afterUncheck, ["deepseek/deepseek-v4-pro", "github-copilot/claude-fable-5"]);
 
-	const afterRecheck = nextEnabledModelsAfterToggle(
-		groups,
-		afterUncheck,
-		"deepseek",
-		"deepseek-v4-flash",
-		true,
-	);
+	const afterRecheck = nextEnabledModelsAfterToggle(groups, afterUncheck, "deepseek", "deepseek-v4-flash", true);
 	assert.equal(afterRecheck, null);
 });
 

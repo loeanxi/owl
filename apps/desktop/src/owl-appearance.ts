@@ -83,7 +83,10 @@ export interface OwlAppearanceColors {
 }
 
 /** 各预设深浅档的默认底色/文字色（与 index.css 令牌保持同步，仅供 UI 展示与拾色器兜底）。 */
-export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: string; foreground: string }; light: { background: string; foreground: string } }> = {
+export const PRESET_DEFAULT_COLORS: Record<
+	OwlPresetId,
+	{ dark: { background: string; foreground: string }; light: { background: string; foreground: string } }
+> = {
 	"": {
 		dark: { background: "#1e1e1e", foreground: "#e8e8e8" },
 		light: { background: "#faf9f5", foreground: "#3d3a32" },
@@ -164,14 +167,19 @@ export const PRESET_DEFAULT_COLORS: Record<OwlPresetId, { dark: { background: st
 		dark: { background: "#000000", foreground: "#ffffff" },
 		light: { background: "#ffffff", foreground: "#292929" },
 	},
-	...Object.fromEntries(CODEX_THEME_IDS.map((id) => {
-		const { dark, light } = CODEX_THEMES[id];
-		const pick = (variant: typeof dark) => {
-			const colors = variant ?? dark ?? light!;
-			return { background: colors.background, foreground: colors.foreground };
-		};
-		return [id, { dark: pick(dark), light: pick(light) }];
-	})) as Record<(typeof CODEX_THEME_IDS)[number], { dark: { background: string; foreground: string }; light: { background: string; foreground: string } }>,
+	...(Object.fromEntries(
+		CODEX_THEME_IDS.map((id) => {
+			const { dark, light } = CODEX_THEMES[id];
+			const pick = (variant: typeof dark) => {
+				const colors = variant ?? dark ?? light!;
+				return { background: colors.background, foreground: colors.foreground };
+			};
+			return [id, { dark: pick(dark), light: pick(light) }];
+		}),
+	) as Record<
+		(typeof CODEX_THEME_IDS)[number],
+		{ dark: { background: string; foreground: string }; light: { background: string; foreground: string } }
+	>),
 };
 
 export const DEFAULT_ACCENTS = { dark: "#50a992", light: "#268574" } as const;
@@ -211,12 +219,18 @@ export function accentTextColor(value: string, shade = 1): "#111111" | "#ffffff"
 
 /** Wallpaper palettes can be lighter or darker than the saved theme preference. */
 export function resolveSurfaceTheme(dataset: Record<string, string | undefined>): "dark" | "light" {
-	if (dataset.owlWallpaper === "on" && (dataset.owlGlassTheme === "dark" || dataset.owlGlassTheme === "light")) return dataset.owlGlassTheme;
+	if (dataset.owlWallpaper === "on" && (dataset.owlGlassTheme === "dark" || dataset.owlGlassTheme === "light"))
+		return dataset.owlGlassTheme;
 	return dataset.owlTheme === "light" ? "light" : "dark";
 }
 
 function syncAccentText(): void {
-	if (typeof document === "undefined" || typeof window === "undefined" || typeof window.getComputedStyle !== "function") return;
+	if (
+		typeof document === "undefined" ||
+		typeof window === "undefined" ||
+		typeof window.getComputedStyle !== "function"
+	)
+		return;
 	const root = document.documentElement;
 	const style = window.getComputedStyle(root);
 	const foreground = (color: string): string => {
@@ -230,7 +244,12 @@ function syncAccentText(): void {
 				context.fillStyle = color;
 				context.fillRect(0, 0, 1, 1);
 				const rgb = context.getImageData(0, 0, 1, 1).data;
-				return accentTextColor(`#${Array.from(rgb).slice(0, 3).map((value) => value.toString(16).padStart(2, "0")).join("")}`);
+				return accentTextColor(
+					`#${Array.from(rgb)
+						.slice(0, 3)
+						.map((value) => value.toString(16).padStart(2, "0"))
+						.join("")}`,
+				);
 			}
 		}
 		return current.accent ? accentTextColor(current.accent, 0.84) : "#ffffff";
@@ -246,16 +265,16 @@ function syncAccentText(): void {
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? value as Record<string, unknown>
+		? (value as Record<string, unknown>)
 		: {};
 }
 
 function parsePreset(value: unknown): OwlPresetId {
-	return (OWL_PRESET_IDS as readonly string[]).includes(value as string) ? value as OwlPresetId : "";
+	return (OWL_PRESET_IDS as readonly string[]).includes(value as string) ? (value as OwlPresetId) : "";
 }
 
 function parseGlassMode(value: unknown): OwlGlassMode {
-	return (OWL_GLASS_MODES as readonly string[]).includes(value as string) ? value as OwlGlassMode : "clear";
+	return (OWL_GLASS_MODES as readonly string[]).includes(value as string) ? (value as OwlGlassMode) : "clear";
 }
 
 /** 逐字段回退：坏值只影响自己那一项，不拖垮其它已保存的颜色。 */
@@ -327,12 +346,17 @@ function applyToDocument(colors: OwlAppearanceColors): void {
 	}
 	// 启动镜像：index.html 的内联脚本在首帧前读取，主题与预设经 bridge 异步到达前不再闪旧色。
 	try {
-		localStorage.setItem("owl.bootAppearance", JSON.stringify({
-			theme: mode,
-			preset: colors.preset,
-			background: perMode.background || PRESET_DEFAULT_COLORS[colors.preset][mode].background,
-		}));
-	} catch { /* 存储不可用（首次启动/隐私模式）：启动回落默认底色。 */ }
+		localStorage.setItem(
+			"owl.bootAppearance",
+			JSON.stringify({
+				theme: mode,
+				preset: colors.preset,
+				background: perMode.background || PRESET_DEFAULT_COLORS[colors.preset][mode].background,
+			}),
+		);
+	} catch {
+		/* 存储不可用（首次启动/隐私模式）：启动回落默认底色。 */
+	}
 }
 
 /** 应用一整套外观设置：先存模块级副本（供主题切档时重放），再立即落变量与预设属性。 */
@@ -346,6 +370,9 @@ if (typeof window !== "undefined") {
 	window.addEventListener("owl-appearance-change", syncAccentText);
 	if (typeof MutationObserver !== "undefined" && typeof document !== "undefined") {
 		const observer = new MutationObserver(syncAccentText);
-		observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme"] });
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["style", "data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme"],
+		});
 	}
 }

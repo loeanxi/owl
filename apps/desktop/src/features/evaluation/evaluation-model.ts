@@ -1,6 +1,13 @@
-import { evaluationSvgAspect, evaluationSvgFitSize } from "../../../../../packages/coding-agent/src/core/evaluation/preview-fit.ts";
+import {
+	evaluationSvgAspect,
+	evaluationSvgFitSize,
+} from "../../../../../packages/coding-agent/src/core/evaluation/preview-fit.ts";
 import type {
-	EvaluationCategory, EvaluationProfileInput, EvaluationResultView, EvaluationRunView, EvaluationThinkingLevel,
+	EvaluationCategory,
+	EvaluationProfileInput,
+	EvaluationResultView,
+	EvaluationRunView,
+	EvaluationThinkingLevel,
 } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
 
 export const QUICK_TASKS = ["G01", "G06", "W01", "W03", "C02", "C07"];
@@ -11,7 +18,11 @@ export function profileKey(provider: string, modelId: string, thinkingLevel: Eva
 	return JSON.stringify([provider, modelId, thinkingLevel]);
 }
 
-export function selectProfile(profiles: EvaluationProfileInput[], profile: EvaluationProfileInput, selected: boolean): EvaluationProfileInput[] {
+export function selectProfile(
+	profiles: EvaluationProfileInput[],
+	profile: EvaluationProfileInput,
+	selected: boolean,
+): EvaluationProfileInput[] {
 	const filtered = profiles.filter((item) => item.id !== profile.id);
 	return selected ? [...filtered, profile] : filtered;
 }
@@ -28,12 +39,18 @@ export function groupResults(run: EvaluationRunView, taskId: string, sample: num
 
 /** Only the newest attempt in an unrevealed group can be retried; the server rejects anything else. */
 export function canRetryResult(run: EvaluationRunView, result: EvaluationResultView): boolean {
-	return !result.revealed && FINISHED_STATUSES.has(result.status) && !run.results.some((entry) => entry.retryOf === result.id);
+	return (
+		!result.revealed &&
+		FINISHED_STATUSES.has(result.status) &&
+		!run.results.some((entry) => entry.retryOf === result.id)
+	);
 }
 
 /** Interrupted or cancelled newest attempts in unrevealed groups, which "continue" requeues. */
 export function resumableCount(run: EvaluationRunView): number {
-	return run.results.filter((result) => (result.status === "interrupted" || result.status === "cancelled") && canRetryResult(run, result)).length;
+	return run.results.filter(
+		(result) => (result.status === "interrupted" || result.status === "cancelled") && canRetryResult(run, result),
+	).length;
 }
 
 export function firstSummaryCategory(run: EvaluationRunView): EvaluationCategory {
@@ -75,13 +92,30 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 	const tasks = new Map(run.tasks.filter((task) => task.category === category).map((task) => [task.id, task]));
 	const groups = new Map<string, EvaluationStatistics>();
 	for (const result of run.results) {
-		if (!result.revealed || !result.profile || !tasks.has(result.taskId) || !FINISHED_STATUSES.has(result.status)) continue;
+		if (!result.revealed || !result.profile || !tasks.has(result.taskId) || !FINISHED_STATUSES.has(result.status))
+			continue;
 		const task = tasks.get(result.taskId);
 		if (!task) continue;
 		const profile = result.profile;
 		let stats = groups.get(profile.id);
 		if (!stats) {
-			stats = { key: profile.id, name: profile.model.name, thinkingLevel: profile.thinkingLevel, count: 0, completed: 0, passed: 0, checked: 0, unchecked: 0, failed: 0, scored: 0, criterionStats: [], durationTotal: 0, durationCount: 0, costTotal: 0, costCount: 0 };
+			stats = {
+				key: profile.id,
+				name: profile.model.name,
+				thinkingLevel: profile.thinkingLevel,
+				count: 0,
+				completed: 0,
+				passed: 0,
+				checked: 0,
+				unchecked: 0,
+				failed: 0,
+				scored: 0,
+				criterionStats: [],
+				durationTotal: 0,
+				durationCount: 0,
+				costTotal: 0,
+				costCount: 0,
+			};
 			groups.set(profile.id, stats);
 		}
 		stats.count++;
@@ -94,14 +128,26 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 		}
 		if (result.status === "completed") {
 			stats.completed++;
-			if (typeof result.durationMs === "number") { stats.durationTotal += result.durationMs; stats.durationCount++; }
+			if (typeof result.durationMs === "number") {
+				stats.durationTotal += result.durationMs;
+				stats.durationCount++;
+			}
 			let scored = false;
 			for (const item of task.rubric) {
 				// A familiar label can hide a different scoring rule; never combine those standards.
 				const key = JSON.stringify([item.id, item.label, item.description]);
 				let criterion = stats.criterionStats.find((entry) => entry.key === key);
 				if (!criterion) {
-					criterion = { key, id: item.id, label: item.label, description: item.description, taskIds: [], total: 0, count: 0, sampleCount: 0 };
+					criterion = {
+						key,
+						id: item.id,
+						label: item.label,
+						description: item.description,
+						taskIds: [],
+						total: 0,
+						count: 0,
+						sampleCount: 0,
+					};
 					stats.criterionStats.push(criterion);
 				}
 				if (!criterion.taskIds.includes(task.id)) criterion.taskIds.push(task.id);
@@ -115,18 +161,27 @@ export function evaluationStatistics(run: EvaluationRunView, category: Evaluatio
 			}
 			if (scored) stats.scored++;
 		}
-		if (typeof result.costUsd === "number") { stats.costTotal += result.costUsd; stats.costCount++; }
+		if (typeof result.costUsd === "number") {
+			stats.costTotal += result.costUsd;
+			stats.costCount++;
+		}
 	}
 	return [...groups.values()];
 }
 
-const PREVIEW_POLICY = "default-src 'none'; base-uri 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; navigate-to 'none'; img-src data:; media-src 'none'; font-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'";
+const PREVIEW_POLICY =
+	"default-src 'none'; base-uri 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; navigate-to 'none'; img-src data:; media-src 'none'; font-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'";
 
 /** Generated markup is only returned as an isolated iframe document, never injected in the app DOM. */
 export function isolatedPreview(content: string, type: "svg" | "html"): string {
-	const policy = type === "svg" ? PREVIEW_POLICY.replace("script-src 'unsafe-inline'", "script-src 'none'") : PREVIEW_POLICY;
-	const document = new DOMParser().parseFromString(type === "svg" ? `<!doctype html><html><body>${content}</body></html>` : content, "text/html");
-	for (const element of document.querySelectorAll("base,meta[http-equiv],iframe,frame,object,embed,link")) element.remove();
+	const policy =
+		type === "svg" ? PREVIEW_POLICY.replace("script-src 'unsafe-inline'", "script-src 'none'") : PREVIEW_POLICY;
+	const document = new DOMParser().parseFromString(
+		type === "svg" ? `<!doctype html><html><body>${content}</body></html>` : content,
+		"text/html",
+	);
+	for (const element of document.querySelectorAll("base,meta[http-equiv],iframe,frame,object,embed,link"))
+		element.remove();
 	for (const element of document.querySelectorAll("[href],[xlink\\:href],[target],[action],[formaction]")) {
 		for (const attribute of ["target", "action", "formaction"]) element.removeAttribute(attribute);
 		for (const attribute of ["href", "xlink:href"]) {
@@ -138,8 +193,13 @@ export function isolatedPreview(content: string, type: "svg" | "html"): string {
 		const svg = document.querySelector<SVGElement>("svg");
 		if (svg) {
 			// Fit the preview viewport, keeping the original stored artifact and its viewBox intact.
-			const aspect = evaluationSvgAspect(svg.getAttribute("viewBox"), svg.getAttribute("width"), svg.getAttribute("height"));
-			if (!svg.hasAttribute("viewBox") && aspect) svg.setAttribute("viewBox", `0 0 ${aspect.width} ${aspect.height}`);
+			const aspect = evaluationSvgAspect(
+				svg.getAttribute("viewBox"),
+				svg.getAttribute("width"),
+				svg.getAttribute("height"),
+			);
+			if (!svg.hasAttribute("viewBox") && aspect)
+				svg.setAttribute("viewBox", `0 0 ${aspect.width} ${aspect.height}`);
 			svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 			const size = aspect ? evaluationSvgFitSize(aspect) : { width: "100%", height: "100%" };
 			svg.style.setProperty("width", size.width, "important");
@@ -148,7 +208,10 @@ export function isolatedPreview(content: string, type: "svg" | "html"): string {
 			for (const property of ["min-width", "min-height"]) svg.style.setProperty(property, "0", "important");
 		}
 	}
-	const markup = type === "svg" ? `<style>html,body{margin:0;padding:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}body{display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:none;min-width:0;min-height:0;max-width:100%;max-height:100%}</style>${document.body.innerHTML}` : document.documentElement.outerHTML;
+	const markup =
+		type === "svg"
+			? `<style>html,body{margin:0;padding:0;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}body{display:flex;align-items:center;justify-content:center}body>svg{display:block;flex:none;min-width:0;min-height:0;max-width:100%;max-height:100%}</style>${document.body.innerHTML}`
+			: document.documentElement.outerHTML;
 	return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">${markup}`;
 }
 
@@ -157,7 +220,14 @@ export function exportEvaluationRun(run: EvaluationRunView): void {
 }
 
 export function downloadEvaluationArtifact(content: string, filename: string, type: string): void {
-	const mime = type === "svg" ? "image/svg+xml" : type === "html" ? "text/html" : type === "json" ? "application/json" : "text/plain";
+	const mime =
+		type === "svg"
+			? "image/svg+xml"
+			: type === "html"
+				? "text/html"
+				: type === "json"
+					? "application/json"
+					: "text/plain";
 	const url = URL.createObjectURL(new Blob([content], { type: `${mime};charset=utf-8` }));
 	const anchor = document.createElement("a");
 	anchor.href = url;

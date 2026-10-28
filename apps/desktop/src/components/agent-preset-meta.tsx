@@ -12,13 +12,25 @@ export const PRESET_COLORS: Record<string, string> = {
 	cordis: "#c2477e",
 };
 
-export const PRESET_BADGES: Record<string, string> = { standard: "标", ptc: "PT", minimal: "极", pi: "PI", cordis: "创" };
+export const PRESET_BADGES: Record<string, string> = {
+	standard: "标",
+	ptc: "PT",
+	minimal: "极",
+	pi: "PI",
+	cordis: "创",
+};
 
 export function presetColor(id: string): string {
 	return PRESET_COLORS[id] ?? "#8f948c";
 }
 
-export function PresetAvatar({ preset, sizeClass = "h-5 w-5 text-[9px]" }: { preset: AgentPresetDefinition; sizeClass?: string }): React.JSX.Element {
+export function PresetAvatar({
+	preset,
+	sizeClass = "h-5 w-5 text-[9px]",
+}: {
+	preset: AgentPresetDefinition;
+	sizeClass?: string;
+}): React.JSX.Element {
 	return (
 		<span
 			className={`${sizeClass} grid shrink-0 place-items-center rounded font-semibold text-white`}

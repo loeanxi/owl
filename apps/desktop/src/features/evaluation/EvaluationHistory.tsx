@@ -1,24 +1,168 @@
 import { useState } from "react";
 import type { EvaluationRunSummary } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
-import type { EvaluationText } from "./evaluation-copy.ts";
 import { IconClock, IconPlus, IconSearch } from "./EvaluationIcons.tsx";
+import type { EvaluationText } from "./evaluation-copy.ts";
 import "./evaluation-history.css";
 
-export function EvaluationHistory({ runs, busy, t, onOpen, onNew, onDelete }: { runs: EvaluationRunSummary[]; busy: boolean; t: EvaluationText; onOpen: (id: string) => void; onNew: () => void; onDelete: (id: string) => void }): React.JSX.Element {
+export function EvaluationHistory({
+	runs,
+	busy,
+	t,
+	onOpen,
+	onNew,
+	onDelete,
+}: {
+	runs: EvaluationRunSummary[];
+	busy: boolean;
+	t: EvaluationText;
+	onOpen: (id: string) => void;
+	onNew: () => void;
+	onDelete: (id: string) => void;
+}): React.JSX.Element {
 	const [query, setQuery] = useState("");
 	const [confirming, setConfirming] = useState<string>();
 	const filtered = runs.filter((run) => run.name.toLowerCase().includes(query.toLowerCase()));
-	return <div className="eval-page"><div className="eval-toolbar"><div><div className="eval-crumb">{t("title")} / {t("history")}</div><h2 className="eval-page-title">{t("history")}</h2><p className="eval-page-description">{t("historyDesc")}</p></div><span className="eval-spacer" /><button className="eval-button primary" onClick={onNew}><IconPlus />{t("newRun")}</button></div><div className="eval-filters"><span className="eval-muted">{t("historyCount", { n: runs.length })}</span><div className="eval-search"><IconSearch /><input aria-label={t("searchRuns")} placeholder={t("searchRuns")} value={query} onChange={(event) => setQuery(event.target.value)} /></div></div>
-		{filtered.length > 0 ? <div className="eval-table-wrap"><table className="eval-table"><colgroup><col /><col /><col /><col /><col /><col className="eval-history-actions-col" /></colgroup><thead><tr><th>{t("runName")}</th><th>{t("createdAt")}</th><th>{t("runStatus")}</th><th>{t("calls")}</th><th>{t("manual")}</th><th><span className="sr-only">{t("libraryActions")}</span></th></tr></thead><tbody>{filtered.map((run) => <tr key={run.id} className={confirming === run.id ? "is-confirming" : undefined}><td><strong>{run.name}</strong><small>{t("scope", { tasks: run.taskCount, profiles: run.profileCount, samples: run.samples })}</small></td><td>{new Date(run.createdAt).toLocaleString()}</td><td><span className={`eval-pill ${run.status === "completed" ? "success" : ""}`}>{t(run.status)}</span>{run.failed > 0 && <small>{t("failed")}: {run.failed}</small>}</td><td>{run.completed} / {run.total}<small>{t("completed")}</small></td><td>{run.rated} / {run.total}<small>{t("scoredCount")}</small></td><td>
-			{confirming === run.id
-				? <div className="eval-row-actions" role="group" aria-label={t("confirmDelete")} onKeyDown={(event) => { if (event.key === "Escape") setConfirming(undefined); }} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setConfirming(undefined); }}>
-					<button className="eval-row-action" onClick={() => setConfirming(undefined)}>{t("cancelEdit")}</button>
-					<button className="eval-row-action confirm" autoFocus disabled={busy} onClick={() => { setConfirming(undefined); onDelete(run.id); }}>{t("confirmDelete")}</button>
+	return (
+		<div className="eval-page">
+			<div className="eval-toolbar">
+				<div>
+					<div className="eval-crumb">
+						{t("title")} / {t("history")}
+					</div>
+					<h2 className="eval-page-title">{t("history")}</h2>
+					<p className="eval-page-description">{t("historyDesc")}</p>
 				</div>
-				: <div className="eval-row-actions">
-					<button className="eval-row-action open" onClick={() => onOpen(run.id)}>{t("open")}</button>
-					<button className="eval-row-action quiet" disabled={busy || run.pending > 0} title={run.pending > 0 ? t("deleteRunning") : t("delete")} aria-label={`${t("delete")} ${run.name}`} onClick={() => setConfirming(run.id)}>{t("delete")}</button>
-				</div>}
-		</td></tr>)}</tbody></table></div> : <div className="eval-empty"><IconClock /><h2>{t("emptyHistory")}</h2><p>{t("historyDesc")}</p></div>}
-	</div>;
+				<span className="eval-spacer" />
+				<button className="eval-button primary" onClick={onNew}>
+					<IconPlus />
+					{t("newRun")}
+				</button>
+			</div>
+			<div className="eval-filters">
+				<span className="eval-muted">{t("historyCount", { n: runs.length })}</span>
+				<div className="eval-search">
+					<IconSearch />
+					<input
+						aria-label={t("searchRuns")}
+						placeholder={t("searchRuns")}
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
+				</div>
+			</div>
+			{filtered.length > 0 ? (
+				<div className="eval-table-wrap">
+					<table className="eval-table">
+						<colgroup>
+							<col />
+							<col />
+							<col />
+							<col />
+							<col />
+							<col className="eval-history-actions-col" />
+						</colgroup>
+						<thead>
+							<tr>
+								<th>{t("runName")}</th>
+								<th>{t("createdAt")}</th>
+								<th>{t("runStatus")}</th>
+								<th>{t("calls")}</th>
+								<th>{t("manual")}</th>
+								<th>
+									<span className="sr-only">{t("libraryActions")}</span>
+								</th>
+							</tr>
+						</thead>
+						<tbody>
+							{filtered.map((run) => (
+								<tr key={run.id} className={confirming === run.id ? "is-confirming" : undefined}>
+									<td>
+										<strong>{run.name}</strong>
+										<small>
+											{t("scope", {
+												tasks: run.taskCount,
+												profiles: run.profileCount,
+												samples: run.samples,
+											})}
+										</small>
+									</td>
+									<td>{new Date(run.createdAt).toLocaleString()}</td>
+									<td>
+										<span className={`eval-pill ${run.status === "completed" ? "success" : ""}`}>
+											{t(run.status)}
+										</span>
+										{run.failed > 0 && (
+											<small>
+												{t("failed")}: {run.failed}
+											</small>
+										)}
+									</td>
+									<td>
+										{run.completed} / {run.total}
+										<small>{t("completed")}</small>
+									</td>
+									<td>
+										{run.rated} / {run.total}
+										<small>{t("scoredCount")}</small>
+									</td>
+									<td>
+										{confirming === run.id ? (
+											<div
+												className="eval-row-actions"
+												role="group"
+												aria-label={t("confirmDelete")}
+												onKeyDown={(event) => {
+													if (event.key === "Escape") setConfirming(undefined);
+												}}
+												onBlur={(event) => {
+													if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+														setConfirming(undefined);
+												}}
+											>
+												<button className="eval-row-action" onClick={() => setConfirming(undefined)}>
+													{t("cancelEdit")}
+												</button>
+												<button
+													className="eval-row-action confirm"
+													autoFocus
+													disabled={busy}
+													onClick={() => {
+														setConfirming(undefined);
+														onDelete(run.id);
+													}}
+												>
+													{t("confirmDelete")}
+												</button>
+											</div>
+										) : (
+											<div className="eval-row-actions">
+												<button className="eval-row-action open" onClick={() => onOpen(run.id)}>
+													{t("open")}
+												</button>
+												<button
+													className="eval-row-action quiet"
+													disabled={busy || run.pending > 0}
+													title={run.pending > 0 ? t("deleteRunning") : t("delete")}
+													aria-label={`${t("delete")} ${run.name}`}
+													onClick={() => setConfirming(run.id)}
+												>
+													{t("delete")}
+												</button>
+											</div>
+										)}
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			) : (
+				<div className="eval-empty">
+					<IconClock />
+					<h2>{t("emptyHistory")}</h2>
+					<p>{t("historyDesc")}</p>
+				</div>
+			)}
+		</div>
+	);
 }

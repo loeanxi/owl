@@ -19,7 +19,12 @@ test("known file actions name only their exact basename and retain the caller's 
 test("only the complete project-check command earns that action label", () => {
 	setUiLanguage("zh");
 	assert.equal(permissionActionTitle("bash", { command: "  npm run check  " }), "运行项目检查");
-	for (const command of ["npm run check && echo done", "echo npm run check", "npm\nrun\ncheck", "npm run check; upload result"]) {
+	for (const command of [
+		"npm run check && echo done",
+		"echo npm run check",
+		"npm\nrun\ncheck",
+		"npm run check; upload result",
+	]) {
 		assert.equal(permissionActionTitle("bash", { command }), "运行 Bash 命令");
 		assert.equal(permissionActionTitle("powershell", { command }), "运行 PowerShell 命令");
 	}
@@ -27,7 +32,13 @@ test("only the complete project-check command earns that action label", () => {
 
 test("unknown tools name the requested operation without inferring effects from arbitrary JSON", () => {
 	setUiLanguage("zh");
-	for (const input of [null, 42, ["delete", "upload"], '<script>not executable</script>', { command: "delete everything", path: "private/file", safe: true }]) {
+	for (const input of [
+		null,
+		42,
+		["delete", "upload"],
+		"<script>not executable</script>",
+		{ command: "delete everything", path: "private/file", safe: true },
+	]) {
 		assert.equal(permissionActionTitle("custom_tool", input), "确认 custom_tool 操作");
 	}
 });

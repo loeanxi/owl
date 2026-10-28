@@ -391,10 +391,45 @@ export interface TextSignatureV1 {
 	phase?: "commentary" | "final_answer";
 }
 
+/**
+ * 一条引用。
+ *
+ * 各 provider 的引用形状差别很大，这里拍平成一个最小公共形状：
+ *
+ *  - Anthropic：text block 上的 `citations[]`，流式时以 `citations_delta` 逐条到达。
+ *    变体有 `char_location` / `page_location` / `content_block_location`
+ *    （文档引用）与 `web_search_result_location` / `search_result_location`（网页引用）。
+ *  - OpenAI Responses：`output_text` 的 `annotations[]`，`type: "url_citation"`。
+ *  - pi-messages：网关自己归一后的 `citations`。
+ *
+ * Claude Desktop 把引用做成锚点级 UI：正文里是行内角标，底部是来源面板。
+ */
+export interface Citation {
+	/** 来源标题（网页标题 / 文档名）。 */
+	title?: string;
+	/** 来源地址；纯文档引用没有地址。 */
+	url?: string;
+	/** 被引用的原文片段。 */
+	snippet?: string;
+	/** 在本条 text block 里的起始字符（0 基，含）。 */
+	startIndex?: number;
+	/** 在本条 text block 里的结束字符（0 基，不含）。 */
+	endIndex?: number;
+	/** provider 原始类型（`char_location` / `url_citation` / …），供上层分支处理。 */
+	source?: string;
+}
+
 export interface TextContent {
 	type: "text";
 	text: string;
 	textSignature?: string; // e.g., for OpenAI responses, message metadata (legacy id string or TextSignatureV1 JSON)
+	/**
+	 * Provider-supplied citations for this text block.
+	 *
+	 * Claude Desktop renders these as inline markers plus a sources panel, and
+	 * treats a cited paragraph as something that must not be folded away.
+	 */
+	citations?: Citation[];
 }
 
 export interface ThinkingContent {
@@ -427,6 +462,15 @@ export interface ToolCall {
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
 	/** OpenAI Responses namespace for calls to dynamically loaded or namespaced tools. */
 	namespace?: string;
+	/**
+	 * Provider-specific: this call is internal and must not appear in the answer
+	 * stream (Claude Desktop's `hidden_in_chat`).
+	 *
+	 * Claude hides such calls from the chat but still counts them, and drops
+	 * their results too. A gateway that speaks `pi-messages` can set it to keep
+	 * bookkeeping tools out of the user's answer.
+	 */
+	hiddenInChat?: boolean;
 }
 
 export interface Usage {
@@ -785,6 +829,13 @@ export type AssistantMessageEvent =
 	| { type: "start"; partial: AssistantMessage }
 	| { type: "text_start"; contentIndex: number; partial: AssistantMessage }
 	| { type: "text_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
+	| {
+			/** A citation arrived for the text block at `contentIndex`. */
+			type: "text_citation";
+			contentIndex: number;
+			citation: Citation;
+			partial: AssistantMessage;
+	  }
 	| { type: "text_end"; contentIndex: number; content: string; partial: AssistantMessage }
 	| { type: "thinking_start"; contentIndex: number; partial: AssistantMessage }
 	| { type: "thinking_delta"; contentIndex: number; delta: string; partial: AssistantMessage }

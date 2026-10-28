@@ -6,10 +6,11 @@
  * 卸载 / 终端退出时 kill；StrictMode 双挂载靠 disposed 标记保证不多留孤儿
  * 会话。容器尺寸变化经 ResizeObserver → fit addon → term.resize 同步行列。
  */
+
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { t, useT } from "../../i18n/index.ts";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TabComponentProps } from "../registry.ts";
 import { clearTerminalTail, reportTerminalTail } from "../terminal-state.ts";
@@ -50,17 +51,20 @@ export function TerminalTab({ client, cwd, tab, onToChat }: TabComponentProps): 
 		let lastRows = 0;
 		// xterm accepts literal RGB colors, while CSS tokens may contain color-mix().
 		const colors = document.createElement("canvas").getContext("2d");
-		const readTheme = () => terminalTheme(
-			readWorkbenchPalette(getComputedStyle(el), resolveSurfaceTheme(document.documentElement.dataset)),
-			(color) => {
-				if (!colors) return color;
-				colors.clearRect(0, 0, 1, 1);
-				colors.fillStyle = color;
-				colors.fillRect(0, 0, 1, 1);
-				const bytes = colors.getImageData(0, 0, 1, 1).data;
-				return `#${Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-			},
-		);
+		const readTheme = () =>
+			terminalTheme(
+				readWorkbenchPalette(getComputedStyle(el), resolveSurfaceTheme(document.documentElement.dataset)),
+				(color) => {
+					if (!colors) return color;
+					colors.clearRect(0, 0, 1, 1);
+					colors.fillStyle = color;
+					colors.fillRect(0, 0, 1, 1);
+					const bytes = colors.getImageData(0, 0, 1, 1).data;
+					return `#${Array.from(bytes)
+						.map((byte) => byte.toString(16).padStart(2, "0"))
+						.join("")}`;
+				},
+			);
 
 		const term = new Terminal({
 			fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
@@ -76,7 +80,9 @@ export function TerminalTab({ client, cwd, tab, onToChat }: TabComponentProps): 
 		term.open(el);
 		termRef.current = term;
 		// Update the existing renderer without restarting the PTY or losing scrollback.
-		const offTheme = observeWorkbenchTheme(el, () => { term.options.theme = readTheme(); });
+		const offTheme = observeWorkbenchTheme(el, () => {
+			term.options.theme = readTheme();
+		});
 		try {
 			fit.fit();
 		} catch {
@@ -100,7 +106,9 @@ export function TerminalTab({ client, cwd, tab, onToChat }: TabComponentProps): 
 			}
 			alive = false;
 			setStatus("exited");
-			term.write(`\r\n\x1b[2m${message.exitCode ? t("term.exitedCode", { code: message.exitCode }) : t("term.exited")}\x1b[0m\r\n`);
+			term.write(
+				`\r\n\x1b[2m${message.exitCode ? t("term.exitedCode", { code: message.exitCode }) : t("term.exited")}\x1b[0m\r\n`,
+			);
 		});
 
 		void (async () => {

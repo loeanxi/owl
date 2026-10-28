@@ -1,0 +1,302 @@
+<!doctype html>
+<!-- PROTOTYPE：侧边栏「变动」tab 的提交历史视图。纯静态，数据取自本仓库真实提交（顶部 2 条未推送为模拟）。?view=list|detail|menu -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Owl · 提交历史原型</title>
+<style>
+	:root {
+		--canvas: #202321;
+		--panel: #282d29;
+		--chrome: #191d1a;
+		--border: #343c35;
+		--text: #e9e7e0;
+		--muted: #969f97;
+		--hover: #282e29;
+		--accent: #50a992;
+		--accent-soft: color-mix(in srgb, #50a992 14%, transparent);
+		--green: #6fcf97;
+		--red: #f08995;
+		--amber: #dbbd80;
+		--sky: #94b8dc;
+		--font: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+		--mono: "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+	}
+	* { box-sizing: border-box; margin: 0; padding: 0; }
+	body { background: #121413; font-family: var(--font); color: var(--text); font-size: 13px; padding: 24px; display: flex; gap: 28px; align-items: flex-start; }
+	.pane { width: 460px; height: 880px; display: flex; flex-direction: column; background: var(--canvas); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: relative; }
+	.note { width: 300px; color: var(--muted); font-size: 12.5px; line-height: 1.8; }
+	.note h2 { color: var(--text); font-size: 15px; margin-bottom: 10px; }
+	.note b { color: var(--text); font-weight: 600; }
+	.note ol { padding-left: 18px; }
+	.note li { margin-bottom: 6px; }
+	.note .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
+
+	/* 工作台顶栏 + tab 条 */
+	.tabs { height: 42px; flex: 0 0 42px; display: flex; background: var(--chrome); border-bottom: 1px solid var(--border); }
+	.tab { display: flex; align-items: center; gap: 7px; padding: 0 14px; color: var(--muted); font-size: 12px; border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent); position: relative; }
+	.tab.active { background: var(--canvas); color: var(--text); }
+	.tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); }
+
+	/* 头部：变动 / 历史 切换 */
+	.head { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+	.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
+	.seg span { padding: 3px 12px; border-radius: 6px; font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+	.seg span.on { background: var(--canvas); color: var(--text); box-shadow: 0 1px 0 rgba(0,0,0,.25); }
+	.count { font-size: 10.5px; padding: 0 5px; border-radius: 4px; background: var(--hover); color: var(--muted); }
+	.branch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; }
+	.branch .ahead { color: var(--amber); font-size: 11px; }
+	.icon-btn { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--muted); }
+	.icon-btn:hover { background: var(--hover); color: var(--text); }
+
+	/* 搜索 + 分支筛选 */
+	.filters { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+	.search { flex: 1; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--muted); font-size: 12.5px; }
+	.select { height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 12px; }
+
+	/* 未推送条 */
+	.sync { display: flex; align-items: center; gap: 8px; margin: 8px 10px 2px; padding: 7px 10px; border-radius: 8px; background: color-mix(in srgb, var(--amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--amber) 28%, transparent); font-size: 12px; color: var(--amber); }
+	.sync .grow { flex: 1; }
+	.btn { height: 26px; padding: 0 11px; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+	/* 列表 */
+	.list { flex: 1; min-height: 0; overflow: hidden; padding: 4px 0 8px; }
+	.day { padding: 10px 14px 4px 38px; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+	.row { position: relative; display: flex; gap: 0; margin: 1px 5px; border-radius: 7px; cursor: pointer; }
+	.row:hover, .row.sel { background: var(--hover); }
+	.row.sel { box-shadow: inset 2px 0 0 var(--accent); }
+	.rail { width: 28px; flex: 0 0 28px; position: relative; }
+	.rail::before { content: ""; position: absolute; left: 13px; top: 0; bottom: 0; width: 2px; background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+	.row.first .rail::before { top: 14px; }
+	.row.last .rail::before { bottom: calc(100% - 14px); }
+	.dot { position: absolute; left: 8px; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: var(--canvas); border: 2px solid var(--accent); }
+	.dot.is-head { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+	.dot.local { border-color: var(--amber); border-style: dashed; }
+	.body { flex: 1; min-width: 0; padding: 6px 8px 6px 2px; }
+	.subj { display: flex; align-items: center; gap: 6px; font-size: 13px; line-height: 1.5; }
+	.subj .txt { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.type { font-size: 11px; color: var(--muted); }
+	.meta { display: flex; align-items: center; gap: 8px; margin-top: 1px; font-size: 11.5px; color: var(--muted); }
+	.hash { font-family: var(--mono); font-size: 11px; color: var(--sky); }
+	.ref { font-size: 10.5px; padding: 0 6px; line-height: 17px; border-radius: 9px; white-space: nowrap; }
+	.ref.local { background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+	.ref.remote { background: color-mix(in srgb, var(--sky) 12%, transparent); color: var(--sky); border: 1px solid color-mix(in srgb, var(--sky) 35%, transparent); }
+	.ref.tag { background: color-mix(in srgb, var(--amber) 12%, transparent); color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); }
+	.ci { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; }
+	.ci.ok { color: var(--green); }
+	.ci.fail { color: var(--red); }
+	.ci.run { color: var(--amber); }
+	.av { width: 16px; height: 16px; border-radius: 50%; background: #3b5d54; color: #cfe9e1; font-size: 9px; display: inline-flex; align-items: center; justify-content: center; }
+	.more { margin: 10px auto 0; display: block; text-align: center; font-size: 12px; color: var(--muted); }
+
+	/* 展开详情 */
+	.detail { margin: 2px 5px 6px 33px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+	.detail .msg { font-size: 12.5px; line-height: 1.75; color: color-mix(in srgb, var(--text) 85%, var(--muted)); max-height: 44px; overflow: hidden; position: relative; }
+	.detail .msg::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 22px; background: linear-gradient(transparent, var(--panel)); }
+	.detail .facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; font-size: 11.5px; color: var(--muted); }
+	.detail .facts b { color: var(--text); font-weight: 500; }
+	.detail .acts { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+	.files-h { display: flex; justify-content: space-between; padding: 8px 0 4px; font-size: 11.5px; color: var(--muted); }
+	.file { display: flex; align-items: center; gap: 7px; padding: 3px 6px; margin: 0 -6px; border-radius: 6px; font-size: 12px; }
+	.file.sel { background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
+	.file .st { width: 12px; font-size: 10.5px; font-weight: 700; }
+	.st.M { color: var(--amber); } .st.A { color: var(--green); } .st.D { color: var(--red); }
+	.file .p { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+	.file .n { font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+	.n .a { color: var(--green); } .n .d { color: var(--red); }
+	.bar { display: inline-flex; gap: 1px; margin-left: 4px; vertical-align: middle; }
+	.bar i { width: 5px; height: 7px; border-radius: 1px; background: var(--border); }
+	.bar i.a { background: var(--green); } .bar i.d { background: var(--red); }
+
+	/* diff 面板 */
+	.diff { height: 36%; flex: 0 0 36%; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+	.diff-h { display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+	.diff-h .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.diff-b { flex: 1; overflow: hidden; font-family: var(--mono); font-size: 11.5px; line-height: 1.65; }
+	.ln { display: flex; white-space: pre; }
+	.ln .g { width: 34px; flex: 0 0 34px; text-align: right; padding-right: 6px; color: color-mix(in srgb, var(--muted) 70%, transparent); }
+	.ln .c { padding-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+	.ln.add { background: rgba(80, 169, 146, .14); } .ln.add .c { color: #bfe8d5; }
+	.ln.del { background: rgba(240, 137, 149, .12); } .ln.del .c { color: #f3c0c6; }
+	.ln.hunk { color: var(--sky); background: color-mix(in srgb, var(--sky) 8%, transparent); }
+
+	/* 右键菜单 */
+	.menu { position: absolute; z-index: 5; width: 236px; padding: 5px; border-radius: 9px; background: #2b302c; border: 1px solid #424b43; box-shadow: 0 12px 32px rgba(0,0,0,.45); }
+	.mi { display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: 6px; font-size: 12.5px; }
+	.mi:hover, .mi.hl { background: var(--accent-soft); }
+	.mi .k { margin-left: auto; font-size: 11px; color: var(--muted); }
+	.mi .gh { margin-left: auto; font-size: 10px; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, var(--sky) 14%, transparent); color: var(--sky); }
+	.sep { height: 1px; margin: 4px 6px; background: #424b43; }
+	.ico { width: 14px; text-align: center; color: var(--muted); }
+	svg { display: block; }
+</style>
+</head>
+<body>
+<div class="pane" id="pane"></div>
+<div class="note" id="note"></div>
+<script>
+const view = new URLSearchParams(location.search).get("view") || "list";
+
+const commits = [
+	{ h: "7e1c2a9", s: "feat(owl-github): 移植 safe-github，agent 可读写 PR / Issue / Actions", a: "lx", t: "刚刚", day: "今天", local: true, refs: [["local", "main"]], head: true },
+	{ h: "4b90d1e", s: "feat(desktop): 变动页新增提交历史视图", a: "lx", t: "12 分钟前", day: "今天", local: true },
+	{ h: "b49b407", s: "feat(coding-agent): 研究工作台接入 REA 静态分析、运行规则与进度检查点、失败诊断和提示词管理", a: "lx", t: "2 小时前", day: "今天", refs: [["remote", "origin/main"]], ci: "run" },
+	{ h: "d2b1255", s: "feat(desktop): 会话栏与主区收进统一工作区框，对话列加宽，工具行显示退出码", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "c189808", s: "feat(desktop): 定时任务新会话可指定模型，Agent 报错时记为失败", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "5ef5155", s: "fix(coding-agent): print 模式被守卫中止时输出原因并以失败退出", a: "lx", t: "2 小时前", day: "今天", ci: "fail" },
+	{ h: "2d0e90c", s: "feat(coding-agent): 提示词要求并行发起独立工具调用并限制调查规模", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "79f2808", s: "fix(coding-agent): 编辑前必读在文件未变时跨轮次有效，结构化 oldText 给出可执行报错", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "e3c286a", s: "test(repo): 桌面端与 Office 插件测试接入 CI，coding-agent 按已知失败清单判定", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "de095dd", s: "feat(owl-safety-net): 拦截会改写共享工作区的 git stash", a: "lx", t: "2 小时前", day: "今天", ci: "ok" },
+	{ h: "643542a", s: "feat(pool): WorkBuddy 积分记录到期时间，选号优先消耗临期积分", a: "lx", t: "2 天前", day: "10月10日 周六", refs: [["tag", "v0.9.3"]], ci: "ok" },
+	{ h: "0c0c92a", s: "feat(evaluation): 新建测评选模型时可按供应商筛选", a: "lx", t: "2 天前", day: "10月10日 周六", ci: "ok" },
+	{ h: "8fbdb12", s: "fix(desktop): 外链改走侧边栏或系统浏览器，不再把主窗口导航走", a: "lx", t: "2 天前", day: "10月10日 周六", ci: "ok" },
+	{ h: "3cb818a", s: "fix(models): 同 ID 覆盖内置模型时保留未声明的能力字段，设置页可勾选识图", a: "lx", t: "2 天前", day: "10月10日 周六", ci: "ok" },
+];
+
+const files = [
+	["M", "apps/desktop/scripts/fixtures/workbench-responsive.mjs", 17, 15],
+	["M", "apps/desktop/src/chat-appearance.ts", 1, 1],
+	["M", "apps/desktop/src/components/ChatStream.tsx", 5, 1],
+	["M", "apps/desktop/src/components/ConversationHeader.tsx", 13, 11],
+	["M", "apps/desktop/src/components/SessionSidebar.tsx", 63, 11],
+	["A", "apps/desktop/src/hooks/summarize.test.ts", 38, 0],
+	["M", "apps/desktop/src/hooks/summarize.ts", 27, 1],
+	["M", "apps/desktop/src/i18n/zh.ts", 4, 0],
+];
+
+const diff = [
+	["hunk", "", "@@ -38,6 +38,27 @@ function firstString(args)"],
+	["", "38", "\treturn \"\";"],
+	["", "39", "}"],
+	["", "40", ""],
+	["add", "41", "const LEADING_CD = /^\\s*cd\\s+(?:\"([^\"]+)\"|'([^']+)'|([^\\s;&|\"']+))\\s*(?:&&|;)\\s*/;"],
+	["add", "42", ""],
+	["add", "43", "/**"],
+	["add", "44", " * 拆出命令开头的 `cd <dir> &&`：模型每条命令几乎都以它开头，"],
+	["add", "45", " * 直接截断上屏，摘要只剩一串路径。"],
+	["add", "46", " */"],
+	["add", "47", "export function splitLeadingCd(command: string) {"],
+	["add", "48", "\tconst match = LEADING_CD.exec(command);"],
+	["add", "49", "\tconst rest = match ? command.slice(match[0].length) : \"\";"],
+	["add", "50", "\tif (!match || !rest.trim()) return { rest: command };"],
+	["add", "51", "\treturn { dir: match[1] ?? match[2] ?? match[3], rest };"],
+	["add", "52", "}"],
+	["hunk", "", "@@ -46,7 +67,12 @@ export function summarizeToolCall(name, args)"],
+	["", "67", "\t\tcase \"powershell\": {"],
+	["", "68", "\t\t\tconst command = str(a.command);"],
+	["del", "49", "\t\t\treturn { summary: `\\`${clip(trimSpaces(command), 80)}\\``, detail: command };"],
+	["add", "70", "\t\t\tconst { dir, rest } = name === \"bash\" ? splitLeadingCd(command) : { rest: command };"],
+	["add", "71", "\t\t\tconst shown = clip(trimSpaces(rest), 80);"],
+];
+
+const icon = {
+	branch: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9c0 5-12 3-12 8"/></svg>',
+	refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
+	search: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+	chev: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>',
+	up: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+	x: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+};
+
+const ciBadge = (ci) => !ci ? "" : ci === "ok" ? '<span class="ci ok" title="CI 通过">✓</span>' : ci === "fail" ? '<span class="ci fail" title="CI 失败">✕</span>' : '<span class="ci run" title="CI 运行中">●</span>';
+const refBadge = ([kind, name]) => `<span class="ref ${kind}">${kind === "local" ? "HEAD → " : kind === "tag" ? "🏷 " : ""}${name}</span>`;
+const splitType = (s) => { const m = /^(\w+\([^)]*\)):\s*(.*)$/.exec(s); return m ? [m[1], m[2]] : ["", s]; };
+const bar = (a, d) => { const total = a + d || 1; const ga = Math.round((a / total) * 5); return '<span class="bar">' + Array.from({ length: 5 }, (_, i) => `<i class="${i < ga ? "a" : a + d && i < 5 ? "d" : ""}"></i>`).join("") + "</span>"; };
+
+function row(c, i, opts = {}) {
+	const [type, text] = splitType(c.s);
+	const cls = ["row", i === 0 ? "first" : "", i === commits.length - 1 ? "last" : "", opts.sel ? "sel" : ""].join(" ");
+	return `<div class="${cls}" data-i="${i}">
+		<div class="rail"><span class="dot ${c.head ? "is-head" : ""} ${c.local && !c.head ? "local" : ""}"></span></div>
+		<div class="body">
+			<div class="subj"><span class="txt">${text}</span>${(c.refs || []).map(refBadge).join("")}</div>
+			<div class="meta"><span class="hash">${c.h}</span><span class="type">${type}</span><span class="av">${c.a[0].toUpperCase()}</span><span>${c.t}</span>${ciBadge(c.ci)}</div>
+		</div>
+	</div>`;
+}
+
+function detailBlock() {
+	return `<div class="detail">
+		<div class="msg">侧栏和主区各自算边距，窄窗口下宽度测量要扣除主框外边距才不出错。现在两者放进同一个工作区框，容器测量直接取父级内容区；图标栏改为 40px 按钮，侧栏宽度可拖拽、方向键调整并在窄窗口下临时限宽而不覆盖偏好。</div>
+		<div class="facts"><span>作者</span><b>lx · 2026-10-12 09:14</b><span>提交</span><b class="hash">d2b125542a1f…</b><span>父提交</span><b class="hash">c189808</b><span>CI</span><b style="color:var(--green)">✓ 7/7 检查通过</b></div>
+		<div class="acts"><span class="btn">复制哈希</span><span class="btn">在 GitHub 打开 ↗</span><span class="btn primary">让 Owl 解释</span></div>
+		<div class="files-h"><span>13 个文件</span><span><span style="color:var(--green)">+328</span> <span style="color:var(--red)">−133</span></span></div>
+		${files.map((f, i) => `<div class="file ${i === 6 ? "sel" : ""}"><span class="st ${f[0]}">${f[0]}</span><span class="p">${f[1]}</span><span class="n"><span class="a">+${f[2]}</span> <span class="d">−${f[3]}</span>${bar(f[2], f[3])}</span></div>`).join("")}
+		<div class="files-h" style="justify-content:center;padding-bottom:0">还有 5 个文件 ▾</div>
+	</div>`;
+}
+
+function render() {
+	const sel = view === "detail" ? 3 : view === "menu" ? 5 : -1;
+	let list = "";
+	let lastDay = "";
+	commits.forEach((c, i) => {
+		if (view === "detail" && i > 5) return;
+		if (c.day !== lastDay) { list += `<div class="day">${c.day}</div>`; lastDay = c.day; }
+		list += row(c, i, { sel: i === sel });
+		if (view === "detail" && i === 3) list += detailBlock();
+	});
+	if (view !== "detail") list += '<span class="more">加载更早的 50 条</span>';
+
+	document.getElementById("pane").innerHTML = `
+		<div class="tabs"><div class="tab">文件</div><div class="tab active">变动</div><div class="tab">终端</div><div class="tab">浏览器</div></div>
+		<div class="head">
+			<div class="seg"><span>变动 <span class="count">3</span></span><span class="on">历史</span></div>
+			<div class="branch">${icon.branch}<span>main</span><span class="ahead" style="display:inline-flex;align-items:center;gap:1px">${icon.up}2</span><span style="opacity:.6">⟂ origin/main</span></div>
+			<span class="icon-btn">${icon.refresh}</span>
+		</div>
+		<div class="filters">
+			<div class="search">${icon.search}<span>搜索提交信息、作者或哈希</span></div>
+			<div class="select">当前分支 ${icon.chev}</div>
+		</div>
+		${view !== "detail" ? `<div class="sync">${icon.up}<span class="grow">2 个提交尚未推送到 origin/main</span><span class="btn" style="color:var(--amber);border-color:color-mix(in srgb,var(--amber) 35%,transparent);background:transparent">推送</span></div>` : ""}
+		<div class="list">${list}</div>
+		${view === "detail" ? `<div class="diff">
+			<div class="diff-h"><span class="grow">apps/desktop/src/hooks/summarize.ts</span><span style="color:var(--sky)">d2b1255</span><span class="icon-btn" style="width:22px;height:22px">▴</span><span class="icon-btn" style="width:22px;height:22px">${icon.x}</span></div>
+			<div class="diff-b">${diff.map(([k, n, c]) => `<div class="ln ${k}"><span class="g">${n}</span><span class="c">${k === "add" ? "+" : k === "del" ? "-" : k === "hunk" ? "" : " "}${c.replace(/</g, "&lt;")}</span></div>`).join("")}</div>
+		</div>` : ""}
+		${view === "menu" ? `<div class="menu" style="left:150px;top:470px">
+			<div class="mi"><span class="ico">⧉</span>复制哈希<span class="k">5ef5155</span></div>
+			<div class="mi"><span class="ico">≡</span>复制提交信息</div>
+			<div class="sep"></div>
+			<div class="mi"><span class="ico">↗</span>在 GitHub 上打开<span class="gh">GitHub</span></div>
+			<div class="mi hl" style="color:var(--red)"><span class="ico" style="color:var(--red)">✕</span>查看失败的 CI<span class="gh">GitHub</span></div>
+			<div class="sep"></div>
+			<div class="mi"><span class="ico" style="color:var(--accent)">✦</span>让 Owl 解释这个提交</div>
+			<div class="mi"><span class="ico" style="color:var(--accent)">✦</span>让 Owl 修复这次 CI 失败</div>
+			<div class="sep"></div>
+			<div class="mi"><span class="ico">⇄</span>与工作区比较</div>
+		</div>` : ""}
+	`;
+
+	const notes = {
+		list: `<h2>① 历史列表</h2><ol>
+			<li><b>入口</b>：「变动」tab 头部加「变动 / 历史」切换，不新增 tab。</li>
+			<li><b>提交行</b>：标题 + 类型前缀弱化显示；哈希、作者、相对时间；按天分组。</li>
+			<li><b>引用徽标</b>：<span class="tag">HEAD → main</span> 本地分支、蓝色远程分支、黄色 tag。</li>
+			<li><b>未推送</b>：领先远程的提交用虚线黄点标出，顶部提示条带「推送」按钮。</li>
+			<li><b>CI 状态</b>（GitHub 增强）：已推送的提交显示 ✓ / ✕ / ●，数据来自 gh。</li>
+			<li>搜索按信息 / 作者 / 哈希过滤；分支下拉可切「全部分支」；底部分页加载。</li></ol>`,
+		detail: `<h2>② 展开提交 + 看 diff</h2><ol>
+			<li>单击提交原地展开：完整说明、作者时间、父提交、CI 汇总。</li>
+			<li>操作按钮：复制哈希、在 GitHub 打开、<b>让 Owl 解释</b>（把提交发到对话）。</li>
+			<li>文件列表带 M/A/D 状态和增删条，单击文件在下方 diff 面板查看——复用现有 <b>DiffView</b>，和「变动」页一致。</li>
+			<li>diff 面板可展开 / 关闭，与现在的变动页交互相同。</li></ol>`,
+		menu: `<h2>③ 右键菜单</h2><ol>
+			<li>复制哈希 / 复制提交信息。</li>
+			<li><b>GitHub 增强</b>：在 GitHub 上打开；CI 失败的提交多一项「查看失败的 CI」。</li>
+			<li><b>和 agent 联动</b>：让 Owl 解释提交、让 Owl 修复 CI 失败（调用刚移植的 github_run_logs 等工具）。</li>
+			<li>与工作区比较。第一版不放 revert / reset / checkout 这类改写历史的操作。</li></ol>`,
+	};
+	document.getElementById("note").innerHTML = notes[view];
+	if (view === "detail") {
+		const listEl = document.querySelector(".list");
+		listEl.scrollTop = document.querySelector(".row.sel").offsetTop - listEl.offsetTop - 4;
+	}
+}
+render();
+</script>
+</body>
+</html>

@@ -30,12 +30,19 @@ test("falls back to the first unfinished todo when none is in progress", () => {
 test("unknown, missing, cancelled and error statuses never count as completed", () => {
 	for (const status of [undefined, "unknown", "done", "ok", "cancelled", "error", "COMPLETED"]) {
 		const item: TodoItem = { content: "未确认完成的真实事项", ...(status === undefined ? {} : { status }) };
-		assert.deepEqual(summarizeTodos([item]), { completed: 0, total: 1, current: item, allDone: false }, String(status));
+		assert.deepEqual(
+			summarizeTodos([item]),
+			{ completed: 0, total: 1, current: item, allDone: false },
+			String(status),
+		);
 	}
 });
 
 test("all-done state requires every actual checklist item to be completed", () => {
-	const todos: TodoItem[] = [{ content: "第一项", status: "completed" }, { content: "第二项", status: "completed" }];
+	const todos: TodoItem[] = [
+		{ content: "第一项", status: "completed" },
+		{ content: "第二项", status: "completed" },
+	];
 	assert.deepEqual(summarizeTodos(todos), { completed: 2, total: 2, current: undefined, allDone: true });
 	const unknown: TodoItem = { content: "还没有核对状态" };
 	assert.deepEqual(summarizeTodos([...todos, unknown]), { completed: 2, total: 3, current: unknown, allDone: false });

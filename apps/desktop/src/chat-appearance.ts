@@ -1,5 +1,10 @@
 /** Reading preferences apply to chat content, without changing the app or composer font. */
-import { applyWorkEffects, DEFAULT_WORK_EFFECTS, parseWorkEffects, type WorkEffects } from "./components/work-process-effects.ts";
+import {
+	applyWorkEffects,
+	DEFAULT_WORK_EFFECTS,
+	parseWorkEffects,
+	type WorkEffects,
+} from "./components/work-process-effects.ts";
 
 export interface ChatAppearance {
 	fontSize: number;
@@ -46,9 +51,7 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
 
 /** Older or malformed settings fall back per field; finite numeric values stay within the UI range. */
 export function parseChatAppearance(raw: unknown): ChatAppearance {
-	const value = typeof raw === "object" && raw !== null && !Array.isArray(raw)
-		? raw as Record<string, unknown>
-		: {};
+	const value = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 	return {
 		fontSize: boundedNumber(value.fontSize, DEFAULT_CHAT_APPEARANCE.fontSize, 14, 22, 1),
 		codeFontSize: boundedNumber(value.codeFontSize, DEFAULT_CHAT_APPEARANCE.codeFontSize, 11, 18, 1),

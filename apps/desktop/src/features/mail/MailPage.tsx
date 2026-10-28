@@ -23,8 +23,8 @@ import { MailConnectionDialog } from "./MailConnectionDialog.tsx";
 import { MailDialog } from "./MailDialog.tsx";
 import { mailErrorText } from "./mail-errors.ts";
 import { mailThreadKey, mergeMailPage, readableAccounts, summaryRef, threadContext } from "./mail-model.ts";
-import { useMailAgent } from "./useMailAgent.ts";
 import type { MailScopeDetails, MailSource } from "./useMailAgent.ts";
+import { useMailAgent } from "./useMailAgent.ts";
 import "./mail.css";
 
 export interface MailPageProps {

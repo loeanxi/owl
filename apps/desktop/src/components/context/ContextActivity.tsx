@@ -1,7 +1,15 @@
 /** 上下文事件与文件活动两张卡片（对齐 dsh-context 的 Context Events / File Activity）。 */
 import { useMemo, useState } from "react";
 import type { ContextEventKind, ContextEventRow, ContextFileOp } from "../../bridge/protocol.ts";
-import { type FileEntry, type FileKind, fileBadgeOf, fileEntriesOf, fmtSigned, fmtTime, stamp } from "./context-model.ts";
+import {
+	type FileEntry,
+	type FileKind,
+	fileBadgeOf,
+	fileEntriesOf,
+	fmtSigned,
+	fmtTime,
+	stamp,
+} from "./context-model.ts";
 
 const EVENT_KINDS: ContextEventKind[] = ["inject", "compact", "prune", "model", "mode"];
 const KIND_LABEL: Record<ContextEventKind, string> = {
@@ -65,7 +73,12 @@ export function EventsCard({
 								<span className={`ctx-event-icon ctx-event-${event.kind}`}>{KIND_ICON[event.kind]}</span>
 								<span className={`ctx-kind ctx-kind-${event.kind}`}>{KIND_LABEL[event.kind]}</span>
 								{jumpable ? (
-									<button type="button" className="ctx-event-label ctx-event-jump" title={event.label} onClick={() => onFocusEvent(event)}>
+									<button
+										type="button"
+										className="ctx-event-label ctx-event-jump"
+										title={event.label}
+										onClick={() => onFocusEvent(event)}
+									>
 										{event.label}
 									</button>
 								) : (
@@ -77,7 +90,9 @@ export function EventsCard({
 									<span className="ctx-event-at">{stamp(event.turn, event.step)}</span>
 								)}
 								{event.delta !== undefined && event.delta !== 0 && (
-									<span className={`ctx-event-tokens${event.delta > 0 ? " ctx-up" : ""}`}>{fmtSigned(event.delta)}</span>
+									<span className={`ctx-event-tokens${event.delta > 0 ? " ctx-up" : ""}`}>
+										{fmtSigned(event.delta)}
+									</span>
 								)}
 								<span className="ctx-event-time">{fmtTime(event.ts)}</span>
 							</div>
@@ -128,7 +143,8 @@ export function FilesCard({
 	const entries = useMemo(() => fileEntriesOf(files, cwd, upTo), [files, cwd, upTo]);
 	const kindFiles = useMemo(() => {
 		const out: Record<FileKind | "all", number> = { all: entries.length, read: 0, write: 0, search: 0, image: 0 };
-		for (const entry of entries) for (const key of ["read", "write", "search", "image"] as FileKind[]) if (entry.counts[key] > 0) out[key] += 1;
+		for (const entry of entries)
+			for (const key of ["read", "write", "search", "image"] as FileKind[]) if (entry.counts[key] > 0) out[key] += 1;
 		return out;
 	}, [entries]);
 	const shown = useMemo(() => {
@@ -168,7 +184,12 @@ export function FilesCard({
 						</button>
 					))}
 				</div>
-				<input className="ctx-search" value={query} placeholder="按路径过滤…" onChange={(event) => setQuery(event.target.value)} />
+				<input
+					className="ctx-search"
+					value={query}
+					placeholder="按路径过滤…"
+					onChange={(event) => setQuery(event.target.value)}
+				/>
 			</div>
 			<div className="ctx-fa-meta">
 				<span>{shown.length} 个文件</span>
@@ -186,7 +207,12 @@ export function FilesCard({
 							["path", "按路径"],
 						] as const
 					).map(([key, label]) => (
-						<button key={key} type="button" className={`ctx-gran-btn${sort === key ? " ctx-gran-on" : ""}`} onClick={() => setSort(key)}>
+						<button
+							key={key}
+							type="button"
+							className={`ctx-gran-btn${sort === key ? " ctx-gran-on" : ""}`}
+							onClick={() => setSort(key)}
+						>
 							{label}
 						</button>
 					))}
@@ -194,7 +220,9 @@ export function FilesCard({
 			</div>
 			{shown.length === 0 ? (
 				<div className="ctx-lane ctx-lane-tall">
-					<span className="ctx-empty">{entries.length === 0 ? "该范围内没有文件读取、写入或搜索操作" : "没有匹配当前过滤条件的文件"}</span>
+					<span className="ctx-empty">
+						{entries.length === 0 ? "该范围内没有文件读取、写入或搜索操作" : "没有匹配当前过滤条件的文件"}
+					</span>
 				</div>
 			) : (
 				<div className="ctx-fa-list">

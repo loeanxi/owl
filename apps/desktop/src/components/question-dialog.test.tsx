@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QuestionRequest } from "../bridge/protocol.ts";
 import { setUiLanguage } from "../i18n/index.ts";
@@ -18,8 +18,18 @@ const request: QuestionRequest = {
 	sessionId: "session-1",
 	toolCallId: "ask-1",
 	questions: [
-		{ header: "超时", question: "超时改成多少毫秒？", multiSelect: false, options: [{ label: "3000" }, { label: "5000", description: "更保守" }] },
-		{ header: "范围", question: "要覆盖哪些文件？", multiSelect: true, options: [{ label: "仅 src" }, { label: "全部" }] },
+		{
+			header: "超时",
+			question: "超时改成多少毫秒？",
+			multiSelect: false,
+			options: [{ label: "3000" }, { label: "5000", description: "更保守" }],
+		},
+		{
+			header: "范围",
+			question: "要覆盖哪些文件？",
+			multiSelect: true,
+			options: [{ label: "仅 src" }, { label: "全部" }],
+		},
 	],
 };
 
@@ -35,8 +45,15 @@ beforeEach(() => {
 	vi.stubGlobal("CustomEvent", dom.window.CustomEvent);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
-	dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
+	dom.window.matchMedia = () =>
+		({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
 	setUiLanguage("zh");
 	host = document.getElementById("root")!;
 	root = createRoot(host);
@@ -82,7 +99,9 @@ describe("question card escape staging", () => {
 
 	it("keeps the cancel button as a one-click path", async () => {
 		await render();
-		const cancel = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "取消")!;
+		const cancel = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+			(button) => button.textContent === "取消",
+		)!;
 		await act(async () => cancel.click());
 		expect(props.onAnswer).toHaveBeenCalledWith([], true);
 		expect(host.querySelector<HTMLElement>(".owl-question-card")!.getAttribute("data-collapsed")).toBe("false");

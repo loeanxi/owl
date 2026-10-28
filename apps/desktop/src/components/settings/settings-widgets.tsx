@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { t } from "../../i18n/index.ts";
 import { normalizeHexColor } from "../../owl-appearance.ts";
-import { weColorToHex, weHexToColor, type WallpaperPropDef } from "../../we-props.ts";
+import { type WallpaperPropDef, weColorToHex, weHexToColor } from "../../we-props.ts";
 
 /** 设置侧栏导航项 */
 export function NavItem({
@@ -81,7 +81,8 @@ export function WallpaperPropRow({
 	onInput: (value: unknown) => void;
 	onReset: () => void;
 }) {
-	const inputClass = "rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent";
+	const inputClass =
+		"rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent";
 	// 静态说明 / 分节标题
 	if (prop.ptype === "text" || prop.ptype === "group") {
 		return (
@@ -97,17 +98,14 @@ export function WallpaperPropRow({
 				<div className="min-w-0">
 					<div className="owl-settings-row-title">
 						{prop.text}
-						{changed && <i className="owl-wallpaper-prop-dot" title={t("settings.appearance.wallpaperPropChanged")} />}
+						{changed && (
+							<i className="owl-wallpaper-prop-dot" title={t("settings.appearance.wallpaperPropChanged")} />
+						)}
 					</div>
 				</div>
 				{changed && (
 					<div className="owl-settings-row-control">
-						<button
-							type="button"
-							className="owl-settings-button"
-							disabled={disabled}
-							onClick={onReset}
-						>
+						<button type="button" className="owl-settings-button" disabled={disabled} onClick={onReset}>
 							{t("settings.appearance.wallpaperPropReset")}
 						</button>
 					</div>
@@ -146,7 +144,11 @@ export function WallpaperPropRow({
 							className="w-full accent-owl-accent disabled:opacity-40"
 							min={prop.min ?? 0}
 							max={prop.max ?? 1}
-							step={prop.step ?? (prop.max ?? 1) - (prop.min ?? 0) > 0 ? ((prop.max ?? 1) - (prop.min ?? 0)) / 100 : 0.01}
+							step={
+								(prop.step ?? (prop.max ?? 1) - (prop.min ?? 0) > 0)
+									? ((prop.max ?? 1) - (prop.min ?? 0)) / 100
+									: 0.01
+							}
 							value={Number(prop.value ?? 0)}
 							disabled={disabled}
 							onChange={(event) => onInput(event.currentTarget.valueAsNumber)}
@@ -166,16 +168,23 @@ export function WallpaperPropRow({
 						}}
 					>
 						{prop.options.map((option, index) => (
-							<option key={index} value={String(index)}>{option.label}</option>
+							<option key={index} value={String(index)}>
+								{option.label}
+							</option>
 						))}
 					</select>
 				)}
-				{(prop.ptype === "textinput" || prop.ptype === "other" || prop.ptype === "file" || prop.ptype === "directory") && (
+				{(prop.ptype === "textinput" ||
+					prop.ptype === "other" ||
+					prop.ptype === "file" ||
+					prop.ptype === "directory") && (
 					<input
 						type="text"
 						aria-label={prop.text}
 						className={`${inputClass} w-full`}
-						value={typeof prop.value === "string" ? prop.value : prop.value === null ? "" : JSON.stringify(prop.value)}
+						value={
+							typeof prop.value === "string" ? prop.value : prop.value === null ? "" : JSON.stringify(prop.value)
+						}
 						disabled={disabled}
 						onChange={(event) => onInput(event.currentTarget.value)}
 					/>
@@ -190,7 +199,8 @@ export function Switch({
 	checked,
 	onChange,
 	disabled,
-	title,}: {
+	title,
+}: {
 	checked: boolean;
 	onChange: (next: boolean) => void;
 	disabled?: boolean;
@@ -274,7 +284,12 @@ export function ColorField({
 				onChange={(event) => commit(event.currentTarget.value)}
 			/>
 			{value && (
-				<button type="button" className="owl-settings-colorfield-reset" disabled={disabled} onClick={() => onChange("")}>
+				<button
+					type="button"
+					className="owl-settings-colorfield-reset"
+					disabled={disabled}
+					onClick={() => onChange("")}
+				>
 					{resetLabel}
 				</button>
 			)}

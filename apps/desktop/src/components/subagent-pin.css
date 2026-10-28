@@ -12,7 +12,8 @@
 .owl-subagent-anchor > * { pointer-events: auto; }
 .owl-conversation-pins {
 	position: absolute;
-	top: 10px;
+	/* 悬浮会话头占着顶部 44px，浮动胶囊下移让出位置，否则 todo/子代理钉会被图标组盖住。 */
+	top: calc(var(--owl-chat-header-h, 44px) + 2px);
 	right: 20px;
 	left: 20px;
 	z-index: 16;
@@ -111,8 +112,9 @@ html:is([data-owl-preset="liquid-glass"], [data-owl-preset="frost"]):not([data-o
 	box-shadow: var(--owl-lg-rim), var(--owl-lg-card-shadow);
 }
 @media (max-width: 760px) {
-	.owl-subagent-anchor,
-	.owl-conversation-pins { top: 6px; right: 12px; left: 12px; }
+	.owl-subagent-anchor { top: 6px; }
+	/* 窄屏也保留给悬浮头的高度，只收小左右边距。 */
+	.owl-conversation-pins { top: calc(var(--owl-chat-header-h, 44px) + 2px); right: 12px; left: 12px; }
 	.owl-conversation-pins > .owl-subagent-anchor { inset: auto; }
 }
 @media (prefers-reduced-motion: reduce) {

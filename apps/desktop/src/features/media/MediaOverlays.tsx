@@ -12,9 +12,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useT } from "../../i18n/index.ts";
-import { mediaApi, type MediaConfigView } from "./hub.ts";
-import { useExtrapolatedPosition, useMediaHubSnapshot } from "./use-media.ts";
+import { type MediaConfigView, mediaApi } from "./hub.ts";
 import { TOP_LYRICS_KEY } from "./MediaSettingsTab.tsx";
+import { useExtrapolatedPosition, useMediaHubSnapshot } from "./use-media.ts";
 
 export function MediaOverlays(): React.JSX.Element {
 	return (

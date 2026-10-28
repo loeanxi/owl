@@ -66,6 +66,19 @@ describe("AgentSession concurrent prompt guard", () => {
 	let session: AgentSession;
 	let tempDir: string;
 
+	/**
+	 * 等会话进入 streaming 状态。
+	 * 固定 sleep 10ms 在并行跑整套测试时会被压掉（机器一忙，agent 起流就超过 10ms），
+	 * 于是断言偶发失败。这里改成轮询，等不到再报错。
+	 */
+	async function waitForStreaming(target: AgentSession, timeoutMs = 5000): Promise<void> {
+		const deadline = Date.now() + timeoutMs;
+		while (!target.isStreaming) {
+			if (Date.now() > deadline) throw new Error("会话没有进入 streaming 状态");
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+	}
+
 	beforeEach(async () => {
 		tempDir = join(tmpdir(), `pi-concurrent-test-${Date.now()}`);
 		mkdirSync(tempDir, { recursive: true });
@@ -137,8 +150,8 @@ describe("AgentSession concurrent prompt guard", () => {
 		// Start first prompt (don't await, it will block until abort)
 		const firstPrompt = session.prompt("First message");
 
-		// Wait a tick for isStreaming to be set
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		// 等会话真的进入 streaming：固定 sleep 在并行跑全套时会被压掉。
+		await waitForStreaming(session);
 
 		// Verify we're streaming
 		expect(session.isStreaming).toBe(true);
@@ -158,7 +171,7 @@ describe("AgentSession concurrent prompt guard", () => {
 
 		// Start first prompt
 		const firstPrompt = session.prompt("First message");
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await waitForStreaming(session);
 
 		// steer should work while streaming
 		await expect(session.steer("Steering message")).resolves.toBe("queued");
@@ -174,7 +187,7 @@ describe("AgentSession concurrent prompt guard", () => {
 
 		// Start first prompt
 		const firstPrompt = session.prompt("First message");
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await waitForStreaming(session);
 
 		// followUp should work while streaming
 		await expect(session.followUp("Follow-up message")).resolves.toBe("queued");

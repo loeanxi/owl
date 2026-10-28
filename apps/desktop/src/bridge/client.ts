@@ -1,29 +1,34 @@
+import { getUiLanguage } from "../i18n/index.ts";
+import {
+	beginEditorAccountTransition,
+	cancelEditorAccountTransition,
+	prepareEditorExit,
+	targetEditorAccountTransition,
+} from "../sidebar/editor-exit-guard.ts";
 import type {
+	DesktopClientRequestWithoutId,
+	DesktopServerMessage,
+	DiffApprovalChangedMessage,
 	ExecutionAnomalyListInput,
 	ExecutionAnomalyListResult,
 	ExecutionAnomalyProcessInput,
 	ExecutionAnomalyRecord,
-	DesktopClientRequestWithoutId,
-	DesktopServerMessage,
-	DiffApprovalChangedMessage,
 	IabServerMessage,
-	MirrorServerMessage,
 	MailAgentDraftMessage,
 	MapResultsMessage,
+	MirrorServerMessage,
 	NewsOpenMessage,
 	PermissionRequestMessage,
 	QuestionAnswerPayload,
 	QuestionRequestMessage,
 	ServerEventMessage,
+	SidebarContextMessage,
 	SidebarOpenMessage,
 	SidebarShowMessage,
-	SidebarContextMessage,
 	TermDataMessage,
 	TermExitMessage,
 	ViewerChangedMessage,
 } from "./protocol.ts";
-import { beginEditorAccountTransition, cancelEditorAccountTransition, prepareEditorExit, targetEditorAccountTransition } from "../sidebar/editor-exit-guard.ts";
-import { getUiLanguage } from "../i18n/index.ts";
 
 export type PermissionRequest = PermissionRequestMessage;
 export type QuestionRequest = QuestionRequestMessage;
@@ -83,10 +88,21 @@ function decodeServerMessage(data: unknown): DesktopServerMessage | undefined {
 		}
 	}
 	if (message.type === "mail.agent.draft") {
-		if (typeof message.sessionId !== "string" || !message.sessionId || !message.draft || typeof message.draft !== "object") return undefined;
+		if (
+			typeof message.sessionId !== "string" ||
+			!message.sessionId ||
+			!message.draft ||
+			typeof message.draft !== "object"
+		)
+			return undefined;
 		const draft = message.draft as Record<string, unknown>;
 		if (["accountId", "to", "subject", "body"].some((key) => typeof draft[key] !== "string")) return undefined;
-		if (["id", "threadId", "cc", "bcc", "inReplyTo", "references"].some((key) => draft[key] !== undefined && typeof draft[key] !== "string")) return undefined;
+		if (
+			["id", "threadId", "cc", "bcc", "inReplyTo", "references"].some(
+				(key) => draft[key] !== undefined && typeof draft[key] !== "string",
+			)
+		)
+			return undefined;
 	}
 	return value as DesktopServerMessage;
 }
@@ -96,6 +112,24 @@ type Pending = {
 	reject: (error: Error) => void;
 	timer?: ReturnType<typeof setTimeout>;
 };
+
+/** session.list 的应答形状：各调用点关心的字段不同，统一按 unknown 载荷缓存。 */
+type SessionListReply = { ok: boolean; result?: unknown; error?: string };
+
+/** 列表复用窗口：短到只覆盖同一次界面刷新里的并发请求，长到不影响“改完立刻可见”。 */
+const SESSION_LIST_TTL_MS = 1000;
+
+/** 会话增删改：这些请求发出后列表缓存立刻作废，下一次拉取一定是新数据。 */
+const SESSION_LIST_INVALIDATING_TYPES = new Set([
+	"session.create",
+	"session.rename",
+	"session.archive",
+	"session.unarchive",
+	"session.delete",
+	"session.fork",
+	"session.prompt",
+	"session.compact",
+]);
 
 /**
  * Typed WebSocket client for the owl desktop bridge.
@@ -123,6 +157,17 @@ export class BridgeClient {
 	private statusHandlers = new Set<(connected: boolean) => void>();
 	/** sessionId → 引用计数；空表示未声明，桥端按 all 推送（兼容旧行为）。 */
 	private watchedSessions = new Map<string, number>();
+	/**
+	 * session.list 是最热的请求：侧栏、灵动岛、起始页、助理面板、项目页各自要一份
+	 * 全量列表（近千行、1MB+ 的 JSON）。这些调用点互不相识，一次会话打开里会并发
+	 * 十几次，把同一份大 JSON 传十几次、也在主线程解析十几次。
+	 * 这里按 scope 合并：同一时刻只发一次，短时间内的重复请求复用上一次结果；
+	 * 会话增删改会立刻失效缓存，保证列表不会停在旧状态。
+	 */
+	private sessionListFlight = new Map<string, Promise<SessionListReply>>();
+	private sessionListCache = new Map<string, { at: number; value: SessionListReply }>();
+	/** 列表缓存的代次：会话增删改会让代次 +1，正在飞的旧应答因此不会回填缓存。 */
+	private sessionListGeneration = 0;
 	private url: string;
 	private closedByUser = false;
 
@@ -384,34 +429,100 @@ export class BridgeClient {
 		return () => this.mapResultsHandlers.delete(handler);
 	}
 
-	request<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{
+	request<T = unknown>(
+		request: DesktopClientRequestWithoutId & { id?: string },
+	): Promise<{
 		ok: boolean;
 		result?: T;
 		error?: string;
 	}> {
 		if (request.type === "account.switch") {
 			const transition = beginEditorAccountTransition();
-			if (transition === undefined) return Promise.resolve({ ok: false, error: getUiLanguage() === "en" ? "An account switch is already in progress" : "账号正在切换，请稍候" });
+			if (transition === undefined)
+				return Promise.resolve({
+					ok: false,
+					error: getUiLanguage() === "en" ? "An account switch is already in progress" : "账号正在切换，请稍候",
+				});
 			return (async () => {
 				try {
 					if (!(await prepareEditorExit())) {
 						cancelEditorAccountTransition(transition);
-						return { ok: false, error: getUiLanguage() === "en" ? "Editor changes were not preserved; account was not switched" : "编辑内容尚未保留，账号未切换" };
+						return {
+							ok: false,
+							error:
+								getUiLanguage() === "en"
+									? "Editor changes were not preserved; account was not switched"
+									: "编辑内容尚未保留，账号未切换",
+						};
 					}
 					const response = await this.sendRequest<T>(request);
 					if (!response.ok) cancelEditorAccountTransition(transition);
 					else {
 						const account = (response.result as { account?: { dataDir?: unknown } } | undefined)?.account;
-						targetEditorAccountTransition(transition, typeof account?.dataDir === "string" ? account.dataDir : undefined);
+						targetEditorAccountTransition(
+							transition,
+							typeof account?.dataDir === "string" ? account.dataDir : undefined,
+						);
 					}
 					return response;
-				} catch (error) { cancelEditorAccountTransition(transition); throw error; }
+				} catch (error) {
+					cancelEditorAccountTransition(transition);
+					throw error;
+				}
 			})();
 		}
+		// 会话增删改之后，列表缓存必须作废：否则侧栏会停在旧的一版。
+		// 在这里（而不是传输层）作废，请求合并与失效逻辑彼此独立、可单独验证。
+		if (SESSION_LIST_INVALIDATING_TYPES.has(request.type)) {
+			this.sessionListCache.clear();
+			this.sessionListFlight.clear();
+			this.sessionListGeneration += 1;
+		}
+		if (request.type === "session.list") return this.requestSessionList<T>(request);
 		return this.sendRequest<T>(request);
 	}
 
-	private sendRequest<T = unknown>(request: DesktopClientRequestWithoutId & { id?: string }): Promise<{ ok: boolean; result?: T; error?: string }> {
+	/**
+	 * session.list 的合并入口：同一 scope 同时只发一次，短时间内的重复请求复用上一次结果。
+	 * 会话增删改会清掉缓存，列表因此不会停在旧状态。
+	 */
+	private requestSessionList<T = unknown>(
+		request: Extract<DesktopClientRequestWithoutId, { type: "session.list" }> & { id?: string },
+	): Promise<{
+		ok: boolean;
+		result?: T;
+		error?: string;
+	}> {
+		const key = JSON.stringify([request.scope ?? null, request.sessionDir ?? null]);
+		const cached = this.sessionListCache.get(key);
+		if (cached && Date.now() - cached.at < SESSION_LIST_TTL_MS) {
+			return Promise.resolve(cached.value as { ok: boolean; result?: T; error?: string });
+		}
+		const inflight = this.sessionListFlight.get(key);
+		if (inflight) return inflight as Promise<{ ok: boolean; result?: T; error?: string }>;
+		const generation = this.sessionListGeneration;
+		const promise = this.sendRequest<T>(request)
+			.then((value) => {
+				// 请求期间发生过会话增删改：这份结果已经过时，不回填缓存。
+				if (this.sessionListGeneration === generation) this.sessionListCache.set(key, { at: Date.now(), value });
+				return value;
+			})
+			.finally(() => {
+				// 只清自己这一条：作废后可能已经有新的在飞请求占着同一个 key。
+				if (this.sessionListFlight.get(key) === promise) this.sessionListFlight.delete(key);
+			});
+		this.sessionListFlight.set(key, promise as Promise<SessionListReply>);
+		return promise;
+	}
+
+	private sendRequest<T = unknown>(
+		request: DesktopClientRequestWithoutId & { id?: string },
+	): Promise<{ ok: boolean; result?: T; error?: string }> {
+		// 会话增删改之后，列表缓存必须作废：否则侧栏会停在旧的一版。
+		if (SESSION_LIST_INVALIDATING_TYPES.has(request.type)) {
+			this.sessionListCache.clear();
+			this.sessionListGeneration += 1;
+		}
 		const id = request.id ?? `req-${++this.seq}`;
 		return new Promise((resolve, reject) => {
 			if (!this.ws || this.ws.readyState !== this.ws.OPEN) {
@@ -439,14 +550,14 @@ export class BridgeClient {
 			if (request.type === "session.fork") {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new Error('分支请求超时：桥可能是旧版本，请重启应用后重试'));
+					reject(new Error("分支请求超时：桥可能是旧版本，请重启应用后重试"));
 				}, 15_000);
 			}
 			// 导出同理：旧桥不认识 session.exportLog 也不回包，不设超时菜单点了就没任何反馈
 			if (request.type === "session.exportLog") {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new Error('导出请求超时：桥可能是旧版本，请重启应用后重试'));
+					reject(new Error("导出请求超时：桥可能是旧版本，请重启应用后重试"));
 				}, 30_000);
 			}
 			if (request.type === "evaluation.request") {
@@ -456,24 +567,58 @@ export class BridgeClient {
 				}, 60_000);
 			}
 			// 审查和提示词设置都是快操作；桥已连接但不回包时，应让面板退出等待并可重试。
-			if (request.type.startsWith("diffApproval.") || request.type.startsWith("research.prompts.") || request.type.startsWith("execution.anomalies.")) {
+			if (
+				request.type.startsWith("diffApproval.") ||
+				request.type.startsWith("research.prompts.") ||
+				request.type.startsWith("execution.anomalies.")
+			) {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
-					reject(new Error(request.type.startsWith("execution.anomalies.") ? "执行异常日志请求超时，请重试" : request.type.startsWith("research.prompts.") ? "提示词设置请求超时，请重新连接后重试" : "Review request timed out"));
+					reject(
+						new Error(
+							request.type.startsWith("execution.anomalies.")
+								? "执行异常日志请求超时，请重试"
+								: request.type.startsWith("research.prompts.")
+									? "提示词设置请求超时，请重新连接后重试"
+									: "Review request timed out",
+						),
+					);
 				}, 15_000);
 			}
 			// 其余门控 UI 的快请求统一兜底：session.prompt 的应答是立即 ack（真正的
 			// 回答走事件流），session.resume 要回放整份转录所以放宽到 30s。桥假死时
 			// 没有这层超时，composer 的 submitting / 会话切换会永久卡住。
 			const fallbackTimeout =
-				request.type.startsWith("process.") || request.type === "subagent.interrupt" ? 15_000 :
-				request.type === "session.promptSuggestion" || request.type === "session.promptSuggestion.cancel" ? 15_000 :
-				request.type === "session.resume" ? 30_000
-				: request.type.startsWith("editor.") || request.type === "fs.stat" || request.type.startsWith("session.queue.") ? 30_000
-				: request.type === "models.discover" ? 30_000
-				: ["account.switch", "session.create", "session.prompt", "session.stats", "session.running", "session.turns", "session.setModel", "session.setThinkingLevel", "permission.response", "question.response", "subagent.list", "subagent.get", "models.list", "build.hello"].includes(request.type)
+				request.type.startsWith("process.") || request.type === "subagent.interrupt"
 					? 15_000
-					: undefined;
+					: request.type === "session.promptSuggestion" || request.type === "session.promptSuggestion.cancel"
+						? 15_000
+						: request.type === "session.resume"
+							? 30_000
+							: request.type.startsWith("editor.") ||
+									request.type === "fs.stat" ||
+									request.type.startsWith("session.queue.")
+								? 30_000
+								: request.type === "models.discover"
+									? 30_000
+									: [
+												"account.switch",
+												"session.create",
+												"session.prompt",
+												"session.stats",
+												"session.running",
+												"session.turns",
+												"session.setModel",
+												"session.setThinkingLevel",
+												"permission.response",
+												"question.response",
+												"subagent.list",
+												"subagent.get",
+												"models.list",
+												"build.hello",
+											].includes(request.type)
+										? 15_000
+										: undefined;
 			if (fallbackTimeout !== undefined) {
 				pending.timer = setTimeout(() => {
 					this.pending.delete(id);
@@ -494,8 +639,17 @@ export class BridgeClient {
 	}
 
 	/** 应答 agent 的提问；cancelled=true 表示用户放弃整份问卷。失败恢复同 respondPermission。 */
-	respondQuestion(requestId: string, answers: QuestionAnswerPayload[], cancelled = false): Promise<{ ok: boolean; error?: string }> {
-		const pending = this.request({ type: "question.response", requestId, answers, ...(cancelled ? { cancelled: true } : {}) });
+	respondQuestion(
+		requestId: string,
+		answers: QuestionAnswerPayload[],
+		cancelled = false,
+	): Promise<{ ok: boolean; error?: string }> {
+		const pending = this.request({
+			type: "question.response",
+			requestId,
+			answers,
+			...(cancelled ? { cancelled: true } : {}),
+		});
 		pending.catch(() => {});
 		return pending;
 	}

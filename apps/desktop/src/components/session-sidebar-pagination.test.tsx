@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage } from "../i18n/index.ts";
@@ -33,7 +33,13 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("CustomEvent", dom.window.CustomEvent);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	vi.stubGlobal("requestAnimationFrame", (callback: () => void) => setTimeout(callback, 0));
 	vi.stubGlobal("cancelAnimationFrame", (id: ReturnType<typeof setTimeout>) => clearTimeout(id));
 	const storage = new Map<string, string>();
@@ -42,7 +48,17 @@ beforeEach(() => {
 		setItem: (key: string, value: string) => storage.set(key, value),
 		removeItem: (key: string) => storage.delete(key),
 	});
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 264, height: 800, top: 0, left: 0, right: 264, bottom: 800, toJSON: () => ({}) });
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 264,
+		height: 800,
+		top: 0,
+		left: 0,
+		right: 264,
+		bottom: 800,
+		toJSON: () => ({}),
+	});
 	dom.window.HTMLElement.prototype.scrollTo = () => {};
 	dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 	host = dom.document.getElementById("root")!;
@@ -51,14 +67,26 @@ beforeEach(() => {
 	root = createRoot(host);
 	setUiLanguage("zh");
 	sessions = [];
-	const request = vi.fn(async (message: { type: string }) => message.type === "session.list"
-		? { ok: true, result: sessions }
-		: { ok: true, result: {} });
+	const request = vi.fn(async (message: { type: string }) =>
+		message.type === "session.list" ? { ok: true, result: sessions } : { ok: true, result: {} },
+	);
 	props = {
 		client: { request } as unknown as BridgeClient,
-		sessionScope: "chat", connected: true, activeId: undefined, activeProject: "D:/owl",
-		runningSessions: new Set(), refreshKey: "initial", revision: 0, focus: "chat", minimized: false,
-		onToggleMinimized: vi.fn(), onNewChat: vi.fn(), onNewChatInProject: vi.fn(), onSelectProject: vi.fn(), onOpenSession: vi.fn(), onOpenSearchHit: vi.fn(),
+		sessionScope: "chat",
+		connected: true,
+		activeId: undefined,
+		activeProject: "D:/owl",
+		runningSessions: new Set(),
+		refreshKey: "initial",
+		revision: 0,
+		focus: "chat",
+		minimized: false,
+		onToggleMinimized: vi.fn(),
+		onNewChat: vi.fn(),
+		onNewChatInProject: vi.fn(),
+		onSelectProject: vi.fn(),
+		onOpenSession: vi.fn(),
+		onOpenSearchHit: vi.fn(),
 	};
 });
 
@@ -71,7 +99,14 @@ afterEach(async () => {
 function rows(prefix: string, count: number, cwd?: string): Session[] {
 	return Array.from({ length: count }, (_, index) => {
 		const time = new Date(2026, 9, 15, 11, 59 - index).toISOString();
-		return { id: `${prefix}-${index}`, name: `${prefix} 会话 ${index + 1}`, scope: "chat", created: time, modified: time, ...(cwd ? { cwd } : {}) };
+		return {
+			id: `${prefix}-${index}`,
+			name: `${prefix} 会话 ${index + 1}`,
+			scope: "chat",
+			created: time,
+			modified: time,
+			...(cwd ? { cwd } : {}),
+		};
 	});
 }
 
@@ -179,13 +214,21 @@ describe("sidebar lists revealed in batches", () => {
 	it("keeps the default current project expanded when another project is opened for the first time", async () => {
 		sessions = [...rows("owl", 12, "D:/owl"), ...rows("manager", 12, "D:/manager")];
 		await render();
-		expect(project("d:/owl").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe("true");
+		expect(project("d:/owl").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe(
+			"true",
+		);
 		expect(visibleRows(project("d:/owl"))).toHaveLength(5);
-		expect(project("d:/manager").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe("false");
+		expect(project("d:/manager").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe(
+			"false",
+		);
 		await openProject("d:/manager");
-		expect(project("d:/owl").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe("true");
+		expect(project("d:/owl").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe(
+			"true",
+		);
 		expect(visibleRows(project("d:/owl"))).toHaveLength(5);
-		expect(project("d:/manager").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe("true");
+		expect(project("d:/manager").querySelector(".owl-sidebar-project-toggle")?.getAttribute("aria-expanded")).toBe(
+			"true",
+		);
 		expect(visibleRows(project("d:/manager"))).toHaveLength(5);
 	});
 
@@ -209,7 +252,10 @@ describe("sidebar lists revealed in batches", () => {
 
 	it("also limits project-grouped recent sessions globally rather than revealing five in each project", async () => {
 		sessions = datedRows().map((row, index) => ({ ...row, cwd: index % 2 === 0 ? "D:/owl" : "D:/manager" }));
-		localStorage.setItem("owl.chat.projectSidebar", JSON.stringify({ recentView: "projects", readInitialized: true }));
+		localStorage.setItem(
+			"owl.chat.projectSidebar",
+			JSON.stringify({ recentView: "projects", readInitialized: true }),
+		);
 		await render();
 		const recent = section("recent");
 		expect(visibleRows(recent)).toHaveLength(5);
@@ -243,10 +289,20 @@ describe("sidebar lists revealed in batches", () => {
 	it("reveals projects five at a time while the current project stays visible outside the window", async () => {
 		sessions = Array.from({ length: 9 }, (_, index) => {
 			const time = new Date(2026, 9, 15, 11, 59 - index).toISOString();
-			return { id: `p${index}`, name: `项目会话 ${index}`, scope: "chat" as const, created: time, modified: time, cwd: `D:/p${index}` };
+			return {
+				id: `p${index}`,
+				name: `项目会话 ${index}`,
+				scope: "chat" as const,
+				created: time,
+				modified: time,
+				cwd: `D:/p${index}`,
+			};
 		});
 		await render({ activeProject: "D:/p8" });
-		const groups = (): string[] => [...section("projects").querySelectorAll<HTMLElement>(".owl-sidebar-project-group")].map((node) => node.dataset.projectPath!);
+		const groups = (): string[] =>
+			[...section("projects").querySelectorAll<HTMLElement>(".owl-sidebar-project-group")].map(
+				(node) => node.dataset.projectPath!,
+			);
 		expect(groups()).toEqual(["d:/p0", "d:/p1", "d:/p2", "d:/p3", "d:/p4", "d:/p8"]);
 		const more = controls("projects:merged-default").querySelector<HTMLButtonElement>(".owl-sidebar-list-more")!;
 		expect(more.textContent).toMatch(/再显示\s*3\s*个项目/);
@@ -265,7 +321,10 @@ describe("sidebar lists revealed in batches", () => {
 		];
 		await render({ activeProject: "" });
 		const recent = section("recent");
-		const row = (name: string): HTMLElement => [...recent.querySelectorAll<HTMLElement>(".owl-sidebar-session-row")].find((item) => item.textContent?.includes(name))!;
+		const row = (name: string): HTMLElement =>
+			[...recent.querySelectorAll<HTMLElement>(".owl-sidebar-session-row")].find((item) =>
+				item.textContent?.includes(name),
+			)!;
 		expect(row("昨天的会话").closest("[data-session-period]")?.getAttribute("data-session-period")).toBe("yesterday");
 		expect(row("昨天的会话").querySelector(".owl-sidebar-row-time")?.textContent).toBe("昨天");
 		expect(row("更早的会话").closest("[data-session-period]")?.getAttribute("data-session-period")).toBe("earlier");
@@ -308,7 +367,9 @@ describe("sidebar lists revealed in batches", () => {
 		await render({ activeProject: "", activeId: "recent-11", refreshKey: "recent-window" });
 		const recent = section("recent");
 		expect(visibleRows(recent)).toHaveLength(6);
-		expect(recent.querySelector('[data-session-period="earlier"] [aria-current="page"]')?.textContent).toContain("recent 会话 12");
+		expect(recent.querySelector('[data-session-period="earlier"] [aria-current="page"]')?.textContent).toContain(
+			"recent 会话 12",
+		);
 	});
 
 	it("keeps a pin through a single glitched refresh and prunes only after the session stays missing", async () => {
@@ -333,17 +394,25 @@ describe("sidebar lists revealed in batches", () => {
 		const intoView = vi.fn();
 		window.HTMLElement.prototype.scrollIntoView = intoView;
 		await render();
-		const buttons = section("projects").querySelectorAll<HTMLButtonElement>(".owl-sidebar-session-row .owl-sidebar-row-main");
+		const buttons = section("projects").querySelectorAll<HTMLButtonElement>(
+			".owl-sidebar-session-row .owl-sidebar-row-main",
+		);
 		await click(buttons[2]!);
 		expect(props.onOpenSession).toHaveBeenCalledWith("owl-2");
 		// 点击后激活落到该行：不允许把列表拉到该行（用户刚点的行就在指针下，跟随=跳动）。
 		await render({ activeId: "owl-2" });
-		await act(async () => { vi.advanceTimersByTime(50); });
+		await act(async () => {
+			vi.advanceTimersByTime(50);
+		});
 		expect(intoView).not.toHaveBeenCalled();
 		// 点击窗口过后，别的来源激活（快捷键循环/分支跳转）仍要跟随。
-		await act(async () => { vi.advanceTimersByTime(2500); });
+		await act(async () => {
+			vi.advanceTimersByTime(2500);
+		});
 		await render({ activeId: "owl-5", refreshKey: "cycle" });
-		await act(async () => { vi.advanceTimersByTime(50); });
+		await act(async () => {
+			vi.advanceTimersByTime(50);
+		});
 		expect(intoView).toHaveBeenCalled();
 	});
 
@@ -366,7 +435,14 @@ describe("sidebar lists revealed in batches", () => {
 		await showMore("pinned", 5);
 		await showMore("project:d:/owl", 5);
 		await showMore("recent", 5);
-		const newer: Session = { id: "owl-new", name: "新到的后台会话", scope: "chat", cwd: "D:/owl", created: new Date(2026, 9, 15, 12).toISOString(), modified: new Date(2026, 9, 15, 12).toISOString() };
+		const newer: Session = {
+			id: "owl-new",
+			name: "新到的后台会话",
+			scope: "chat",
+			cwd: "D:/owl",
+			created: new Date(2026, 9, 15, 12).toISOString(),
+			modified: new Date(2026, 9, 15, 12).toISOString(),
+		};
 		sessions = [newer, ...sessions];
 		await render({ refreshKey: "background-update" });
 		expect(visibleRows(section("pinned"))).toHaveLength(10);
@@ -374,7 +450,9 @@ describe("sidebar lists revealed in batches", () => {
 		expect(visibleRows(section("recent"))).toHaveLength(10);
 		expect(project("d:/owl").textContent).toContain("新到的后台会话");
 		expect(section("recent").textContent).toContain("新到的后台会话");
-		expect(vi.mocked(props.client.request).mock.calls.filter(([request]) => request.type === "session.list")).toHaveLength(2);
+		expect(
+			vi.mocked(props.client.request).mock.calls.filter(([request]) => request.type === "session.list"),
+		).toHaveLength(2);
 	});
 
 	it("preserves all hidden project sessions when a visible row is dragged to another visible position", async () => {
@@ -384,18 +462,39 @@ describe("sidebar lists revealed in batches", () => {
 		const visible = visibleRows(group);
 		expect(visible).toHaveLength(5);
 		for (const [index, row] of visible.entries()) {
-			row.getBoundingClientRect = () => ({ x: 0, y: index * 32, width: 240, height: 32, top: index * 32, left: 0, right: 240, bottom: (index + 1) * 32, toJSON: () => ({}) });
+			row.getBoundingClientRect = () => ({
+				x: 0,
+				y: index * 32,
+				width: 240,
+				height: 32,
+				top: index * 32,
+				left: 0,
+				right: 240,
+				bottom: (index + 1) * 32,
+				toJSON: () => ({}),
+			});
 		}
 		const payload = new Map<string, string>();
-		const transfer = { effectAllowed: "", dropEffect: "", setData: (format: string, value: string) => payload.set(format, value), getData: (format: string) => payload.get(format) ?? "" };
-		const drag = (type: string): Event => Object.assign(new window.Event(type, { bubbles: true, cancelable: true }), { dataTransfer: transfer, clientY: 90 });
+		const transfer = {
+			effectAllowed: "",
+			dropEffect: "",
+			setData: (format: string, value: string) => payload.set(format, value),
+			getData: (format: string) => payload.get(format) ?? "",
+		};
+		const drag = (type: string): Event =>
+			Object.assign(new window.Event(type, { bubbles: true, cancelable: true }), {
+				dataTransfer: transfer,
+				clientY: 90,
+			});
 		await act(async () => visible[0]!.dispatchEvent(drag("dragstart")));
 		expect(transfer.getData("text/plain")).toBe("owl-0");
 		const dropZone = group.querySelector<HTMLElement>(".owl-sidebar-project-sessions")!;
 		await act(async () => dropZone.dispatchEvent(drag("dragover")));
 		await act(async () => dropZone.dispatchEvent(drag("drop")));
 		const saved = JSON.parse(localStorage.getItem("owl.sidebar.sessionOrder") ?? "{}");
-		expect(saved).toEqual({ "d:/owl": ["owl-1", "owl-2", "owl-0", ...Array.from({ length: 9 }, (_, index) => `owl-${index + 3}`)] });
+		expect(saved).toEqual({
+			"d:/owl": ["owl-1", "owl-2", "owl-0", ...Array.from({ length: 9 }, (_, index) => `owl-${index + 3}`)],
+		});
 		expect(visibleRows(project("d:/owl"))).toHaveLength(5);
 		await showMore("project:d:/owl", 5);
 		await showMore("project:d:/owl", 2);

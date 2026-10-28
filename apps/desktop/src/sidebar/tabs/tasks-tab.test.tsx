@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
 import { applyEvent, type ChatEntry, type ToolCard, type ToolStatus } from "../../hooks/transcript.ts";
@@ -69,8 +69,12 @@ describe("TasksTab real task states", () => {
 			const label = t(`tasks.${status}`);
 			expect(current.getAttribute("data-status")).toBe(status);
 			expect(current.textContent).toContain(label);
-			expect(current.querySelector(`[aria-label="${t("tasks.toolState", { name: "read", status: label })}"]`)).not.toBeNull();
-			expect(current.querySelector("[aria-hidden='true']")?.className.includes("bg-emerald-500")).toBe(status === "ok");
+			expect(
+				current.querySelector(`[aria-label="${t("tasks.toolState", { name: "read", status: label })}"]`),
+			).not.toBeNull();
+			expect(current.querySelector("[aria-hidden='true']")?.className.includes("bg-emerald-500")).toBe(
+				status === "ok",
+			);
 		}
 		expect(row("error").querySelector("[aria-hidden='true']")?.className).toContain("bg-red-400");
 		expect(container.textContent).toContain(t("tasks.stats", { rounds: 1, tools: 5 }));
@@ -79,19 +83,33 @@ describe("TasksTab real task states", () => {
 	it("follows actual call, execution and cancellation events without counting a cancellation as success", async () => {
 		let entries: ChatEntry[] = [{ kind: "user", text: "检查" }];
 		entries = event(entries, { type: "message_start", message: { role: "assistant", content: [] } });
-		entries = event(entries, { type: "message_update", assistantMessageEvent: {
-			type: "toolcall_end", toolCall: { id: "call", name: "read", arguments: { path: "file.txt" } },
-		} });
+		entries = event(entries, {
+			type: "message_update",
+			assistantMessageEvent: {
+				type: "toolcall_end",
+				toolCall: { id: "call", name: "read", arguments: { path: "file.txt" } },
+			},
+		});
 		await render(entries);
 		expect(row("call").textContent).toContain(t("tasks.pending"));
 		expect(row("call").querySelector("time")).toBeNull();
-		entries = event(entries, { type: "tool_execution_start", toolCallId: "call", toolName: "read", args: { path: "file.txt" } });
+		entries = event(entries, {
+			type: "tool_execution_start",
+			toolCallId: "call",
+			toolName: "read",
+			args: { path: "file.txt" },
+		});
 		await render(entries);
 		expect(row("call").textContent).toContain(t("tasks.running"));
 		await act(async () => vi.advanceTimersByTime(3000));
 		expect(row("call").querySelector("[data-elapsed-ms]")?.getAttribute("data-elapsed-ms")).toBe("3000");
-		entries = event(entries, { type: "tool_execution_end", toolCallId: "call", toolName: "read", isError: true,
-			result: { content: [{ type: "text", text: "Operation aborted" }] } });
+		entries = event(entries, {
+			type: "tool_execution_end",
+			toolCallId: "call",
+			toolName: "read",
+			isError: true,
+			result: { content: [{ type: "text", text: "Operation aborted" }] },
+		});
 		await render(entries, false);
 		expect(row("call").getAttribute("data-status")).toBe("cancelled");
 		expect(row("call").textContent).toContain(t("tasks.cancelled"));
@@ -107,7 +125,11 @@ describe("TasksTab real task states", () => {
 		expect(container.textContent).toContain(t("tasks.stats", { rounds: 1, tools: 1 }));
 		expect(container.querySelector("[data-task-queued='true']")?.textContent).toContain(t("tasks.queued"));
 		expect(container.textContent).not.toContain(t("tasks.round", { n: 2 }));
-		await render([{ kind: "user", text: "当前任务" }, assistant([tool("active", "ok")]), { ...queued, queued: false }]);
+		await render([
+			{ kind: "user", text: "当前任务" },
+			assistant([tool("active", "ok")]),
+			{ ...queued, queued: false },
+		]);
 		expect(container.textContent).toContain(t("tasks.stats", { rounds: 2, tools: 1 }));
 		expect(container.querySelector("[data-task-queued='true']")).toBeNull();
 		expect(container.textContent).toContain(t("tasks.round", { n: 2 }));
@@ -122,14 +144,17 @@ describe("TasksTab real task states", () => {
 
 	it("shows actual start/end timestamps and freezes completed duration while a parallel tool keeps running", async () => {
 		const start = NOW - 5000;
-		await render([assistant([
-			tool("done", "ok", { startedAt: start, finishedAt: start + 2000 }),
-			tool("active", "running", { startedAt: start }),
-		])]);
+		await render([
+			assistant([
+				tool("done", "ok", { startedAt: start, finishedAt: start + 2000 }),
+				tool("active", "running", { startedAt: start }),
+			]),
+		]);
 		const stamps = [...row("done").querySelectorAll("time")];
 		// linkedom retains React's camel-case spelling on the <time> attribute.
 		expect(stamps.map((stamp) => stamp.getAttribute("dateTime"))).toEqual([
-			new Date(start).toISOString(), new Date(start + 2000).toISOString(),
+			new Date(start).toISOString(),
+			new Date(start + 2000).toISOString(),
 		]);
 		expect(row("done").textContent).toContain(t("tasks.duration", { time: "2.0s" }));
 		expect(row("active").textContent).toContain(t("tasks.elapsed", { time: "5.0s" }));
@@ -139,12 +164,14 @@ describe("TasksTab real task states", () => {
 	});
 
 	it("leaves missing, invalid, and inverted timing unknown instead of inventing elapsed time", async () => {
-		await render([assistant([
-			tool("missing", "ok"),
-			tool("end-only", "error", { finishedAt: NOW }),
-			tool("invalid", "running", { startedAt: Number.NaN, finishedAt: Number.POSITIVE_INFINITY }),
-			tool("inverted", "ok", { startedAt: NOW, finishedAt: NOW - 1000 }),
-		])]);
+		await render([
+			assistant([
+				tool("missing", "ok"),
+				tool("end-only", "error", { finishedAt: NOW }),
+				tool("invalid", "running", { startedAt: Number.NaN, finishedAt: Number.POSITIVE_INFINITY }),
+				tool("inverted", "ok", { startedAt: NOW, finishedAt: NOW - 1000 }),
+			]),
+		]);
 		expect(container.querySelector("[data-elapsed-ms]")).toBeNull();
 		expect(row("missing").querySelector("time")).toBeNull();
 		expect(row("invalid").querySelector("time")).toBeNull();
@@ -154,11 +181,16 @@ describe("TasksTab real task states", () => {
 	});
 
 	it("does not tick pending, interrupted, or stale idle tools without a real finish timestamp", async () => {
-		await render([assistant([
-			tool("pending", "pending", { startedAt: NOW - 1000 }),
-			tool("cancelled", "cancelled", { startedAt: NOW - 1000 }),
-			tool("stale", "running", { startedAt: NOW - 1000 }),
-		])], false);
+		await render(
+			[
+				assistant([
+					tool("pending", "pending", { startedAt: NOW - 1000 }),
+					tool("cancelled", "cancelled", { startedAt: NOW - 1000 }),
+					tool("stale", "running", { startedAt: NOW - 1000 }),
+				]),
+			],
+			false,
+		);
 		expect(vi.getTimerCount()).toBe(0);
 		await act(async () => vi.advanceTimersByTime(60_000));
 		expect(container.querySelector("[data-elapsed-ms]")).toBeNull();
@@ -181,12 +213,21 @@ describe("TasksTab real task states", () => {
 	});
 
 	it("explains orphan tool-result success and failure with visible labels", async () => {
-		await render([
-			{ kind: "toolResult", toolName: "read", ok: true, brief: "file content" },
-			{ kind: "toolResult", toolName: "bash", ok: false, brief: "exit 1" },
-		], false);
-		expect(container.querySelector(`[aria-label="${t("tasks.toolState", { name: "read", status: t("tasks.ok") })}"]`)?.textContent).toContain(t("tasks.ok"));
-		expect(container.querySelector(`[aria-label="${t("tasks.toolState", { name: "bash", status: t("tasks.error") })}"]`)?.textContent).toContain(t("tasks.error"));
+		await render(
+			[
+				{ kind: "toolResult", toolName: "read", ok: true, brief: "file content" },
+				{ kind: "toolResult", toolName: "bash", ok: false, brief: "exit 1" },
+			],
+			false,
+		);
+		expect(
+			container.querySelector(`[aria-label="${t("tasks.toolState", { name: "read", status: t("tasks.ok") })}"]`)
+				?.textContent,
+		).toContain(t("tasks.ok"));
+		expect(
+			container.querySelector(`[aria-label="${t("tasks.toolState", { name: "bash", status: t("tasks.error") })}"]`)
+				?.textContent,
+		).toContain(t("tasks.error"));
 	});
 
 	it("clears the live clock when the tab switches to idle or unmounts", async () => {

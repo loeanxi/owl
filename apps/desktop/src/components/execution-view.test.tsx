@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ChatEntry, ToolCard } from "../hooks/transcript.ts";
 import { setUiLanguage } from "../i18n/index.ts";
@@ -26,13 +26,33 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
-	vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
+	vi.stubGlobal(
+		"requestAnimationFrame",
+		vi.fn(() => 1),
+	);
 	vi.stubGlobal("cancelAnimationFrame", vi.fn());
 	vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn(async () => {}) } });
 	dom.window.getSelection = () => null;
-	dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 40, top: 0, left: 0, right: 800, bottom: 40, toJSON: () => ({}) });
+	dom.window.matchMedia = () =>
+		({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 800,
+		height: 40,
+		top: 0,
+		left: 0,
+		right: 800,
+		bottom: 40,
+		toJSON: () => ({}),
+	});
 	setUiLanguage("zh");
 	host = document.getElementById("root")!;
 	root = createRoot(host);
@@ -46,7 +66,15 @@ afterEach(async () => {
 });
 
 function tool(id: string, status: ToolCard["status"] = "ok", output = "真实输出"): ToolCard {
-	return { id, name: "read", args: JSON.stringify({ path: `src/${id}.ts` }), detail: `src/${id}.ts`, summary: `读取 ${id}.ts`, status, output: { text: output, totalLines: output.split("\n").length } };
+	return {
+		id,
+		name: "read",
+		args: JSON.stringify({ path: `src/${id}.ts` }),
+		detail: `src/${id}.ts`,
+		summary: `读取 ${id}.ts`,
+		status,
+		output: { text: output, totalLines: output.split("\n").length },
+	};
 }
 function assistant(entryId: string, tools: ToolCard[], extra: Partial<Assistant> = {}): Assistant {
 	return { kind: "assistant", entryId, text: "", thinking: "", tools, ...extra };
@@ -71,8 +99,17 @@ function visibleText(): string {
 
 it("folds twelve tools across five silent model rounds into one direct operation disclosure", async () => {
 	let nextId = 0;
-	const messages = [2, 3, 3, 2, 2].map((count, index) => assistant(`silent-round-${index}`, Array.from({ length: count }, () => tool(`silent-${nextId++}`)), { thinking: `隐藏思考 ${index}` }));
-	await render({ entries: turn(...messages, assistant("answer", [], { text: "看完了，给你一个概览。" })), activity: "idle" });
+	const messages = [2, 3, 3, 2, 2].map((count, index) =>
+		assistant(
+			`silent-round-${index}`,
+			Array.from({ length: count }, () => tool(`silent-${nextId++}`)),
+			{ thinking: `隐藏思考 ${index}` },
+		),
+	);
+	await render({
+		entries: turn(...messages, assistant("answer", [], { text: "看完了，给你一个概览。" })),
+		activity: "idle",
+	});
 	expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(1);
 	expect(host.querySelectorAll(".owl-work-history-toggle, .owl-tool-group-summary")).toHaveLength(0);
 	expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
@@ -85,7 +122,10 @@ it("folds twelve tools across five silent model rounds into one direct operation
 it("keeps finished historical errors in the disclosure without pinning stale output before the answer", async () => {
 	const failed = tool("missing", "error", "Path not found: D:/owl/owl-re-v1/packages");
 	const corrected = tool("correct-path", "ok", "owl-mono/packages exists");
-	await render({ entries: turn(assistant("work", [failed, corrected]), assistant("answer", [], { text: "项目根目录已经确认。" })), activity: "idle" });
+	await render({
+		entries: turn(assistant("work", [failed, corrected]), assistant("answer", [], { text: "项目根目录已经确认。" })),
+		activity: "idle",
+	});
 	expect(host.querySelector(".owl-work-latest-state")).toBeNull();
 	expect(host.querySelector(".owl-work-issue-tail")).toBeNull();
 	// 结束态不再显示失败角标；历史错误仍在工具记录详情里可查。
@@ -113,7 +153,10 @@ it("keeps compact tool headers to one action and exposes the full-output action 
 
 it("keeps finished cancellation in the original records while normal history stays folded", async () => {
 	const output = ["first", "second", "third", "fourth", "取消前的原始输出"].join("\n");
-	await render({ entries: turn(assistant("work", [tool("old"), tool("current", "cancelled", output)])), activity: "idle" });
+	await render({
+		entries: turn(assistant("work", [tool("old"), tool("current", "cancelled", output)])),
+		activity: "idle",
+	});
 	expect(host.querySelector(".owl-work-process-summary")?.getAttribute("aria-expanded")).toBe("false");
 	expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
 	expect(host.querySelector(".owl-work-latest-state, .owl-work-issue-tail")).toBeNull();
@@ -141,7 +184,10 @@ it("opens original tool records and all command output by default in verbose, re
 	expect(host.querySelector('[data-tool-id="long"] .owl-tool-summary')?.getAttribute("aria-expanded")).toBe("true");
 	expect(host.querySelector('[data-tool-id="long"] .owl-tool-output')?.textContent).toBe(output);
 	await click('[data-tool-id="long"] .owl-tool-summary');
-	await render({ entries: turn(assistant("work", [{ ...call, status: "ok" }]), assistant("answer", [], { text: "真实最终答案" })), activity: "idle" });
+	await render({
+		entries: turn(assistant("work", [{ ...call, status: "ok" }]), assistant("answer", [], { text: "真实最终答案" })),
+		activity: "idle",
+	});
 	expect(host.querySelector('[data-tool-id="long"] .owl-tool-summary')?.getAttribute("aria-expanded")).toBe("false");
 	await render({ executionView: "normal" });
 	await render({ executionView: "verbose" });
@@ -150,7 +196,11 @@ it("opens original tool records and all command output by default in verbose, re
 
 it("retains the manual output preview when verbose is left and entered again", async () => {
 	const output = Array.from({ length: 40 }, (_, index) => `line-${index}`).join("\n");
-	await render({ executionView: "verbose", entries: turn(assistant("work", [tool("long", "ok", output)])), activity: "idle" });
+	await render({
+		executionView: "verbose",
+		entries: turn(assistant("work", [tool("long", "ok", output)])),
+		activity: "idle",
+	});
 	await click('[data-tool-id="long"] .owl-work-output-toggle');
 	expect(host.querySelector('[data-tool-id="long"] .owl-tool-output')?.textContent).not.toContain("line-0\n");
 	await render({ executionView: "normal" });
@@ -202,14 +252,27 @@ it("exposes only real thinking segments in thinking view without unfolding tools
 });
 
 it("retains manual thinking expansion through streaming text growth and persisted entry IDs", async () => {
-	await render({ executionView: "thinking", entries: turn(assistant("", [tool("read", "running")], { entryId: undefined, thinking: "正在核对第一处" })) });
+	await render({
+		executionView: "thinking",
+		entries: turn(assistant("", [tool("read", "running")], { entryId: undefined, thinking: "正在核对第一处" })),
+	});
 	await click(".owl-thinking button");
 	await render({ executionView: "normal" });
-	await render({ entries: turn(assistant("", [tool("read", "running")], { entryId: undefined, thinking: "正在核对第一处，然后检查第二处" })) });
+	await render({
+		entries: turn(
+			assistant("", [tool("read", "running")], { entryId: undefined, thinking: "正在核对第一处，然后检查第二处" }),
+		),
+	});
 	await render({ executionView: "thinking" });
 	expect(host.querySelector(".owl-thinking button")?.getAttribute("aria-expanded")).toBe("true");
 	await render({ executionView: "normal" });
-	await render({ entries: turn(assistant("persisted-work", [tool("read")], { thinking: "正在核对第一处，然后检查第二处，核对结束" }), assistant("answer", [], { text: "核对结果" })), activity: "idle" });
+	await render({
+		entries: turn(
+			assistant("persisted-work", [tool("read")], { thinking: "正在核对第一处，然后检查第二处，核对结束" }),
+			assistant("answer", [], { text: "核对结果" }),
+		),
+		activity: "idle",
+	});
 	await render({ executionView: "thinking" });
 	expect(host.querySelector(".owl-thinking button")?.getAttribute("aria-expanded")).toBe("true");
 	expect(visibleText()).toContain("正在核对第一处，然后检查第二处，核对结束");
@@ -227,7 +290,15 @@ it("opens the exact tool owner in the workspace from the failure tail", async ()
 });
 
 it("keeps a non-zero check visible during work until the identical check succeeds, then retains history on finish", async () => {
-	const failed: ToolCard = { id: "failed-check", name: "bash", args: '{"command":"npm run check"}', summary: "运行项目检查", detail: "npm run check", status: "error", output: { text: "ChatStream.tsx(18,4): error TS2339\nCommand exited with code 2", totalLines: 2 } };
+	const failed: ToolCard = {
+		id: "failed-check",
+		name: "bash",
+		args: '{"command":"npm run check"}',
+		summary: "运行项目检查",
+		detail: "npm run check",
+		status: "error",
+		output: { text: "ChatStream.tsx(18,4): error TS2339\nCommand exited with code 2", totalLines: 2 },
+	};
 	const unrelated = tool("different-operation", "ok", "后台任务已启动");
 	const onInspectTool = vi.fn();
 	await render({ onInspectTool, entries: turn(assistant("work", [failed, unrelated])), activity: "working" });
@@ -238,7 +309,12 @@ it("keeps a non-zero check visible during work until the identical check succeed
 	expect(host.querySelector(".owl-work-issue-tail")?.textContent).toBe(failed.output!.text);
 	await click(".owl-work-issue-tail");
 	expect(onInspectTool).toHaveBeenCalledExactlyOnceWith(failed, 1);
-	const recovered: ToolCard = { ...failed, id: "successful-retry", status: "ok", output: { text: "相同检查已返回退出码 0", totalLines: 1 } };
+	const recovered: ToolCard = {
+		...failed,
+		id: "successful-retry",
+		status: "ok",
+		output: { text: "相同检查已返回退出码 0", totalLines: 1 },
+	};
 	await render({ entries: turn(assistant("work", [failed, unrelated, recovered])) });
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).not.toContain("执行结果待核对");
 	expect(host.querySelector(".owl-work-latest-state")?.textContent).toContain("已完成");
@@ -249,29 +325,65 @@ it("keeps a non-zero check visible during work until the identical check succeed
 	expect(host.querySelector(".owl-work-latest-state, .owl-work-issue-tail")).toBeNull();
 });
 
-it.each(["normal", "thinking", "verbose"] as ExecutionView[])("keeps progress, tool groups and the final answer in real order in %s", async (executionView) => {
-	await render({ executionView, activity: "idle", entries: turn(
-		assistant("intro", [tool("inspect")], { text: "先检查当前实现。", segments: [{ kind: "text", text: "先检查当前实现。" }, { kind: "tool", toolId: "inspect" }] }),
-		assistant("discovery", [tool("edit")], { text: "发现状态误判，接着修复分支。", segments: [{ kind: "text", text: "发现状态误判，接着修复分支。" }, { kind: "tool", toolId: "edit" }] }),
-		assistant("final", [], { text: "已修复，结果如下。" }),
-	) });
-	const sequence = [...host.querySelector(".owl-chat-column")!.children].flatMap((row) => row.querySelector(".owl-work-process") ? [...row.querySelectorAll(".owl-work-process-body > .owl-work-process-item")].map((item) => item.getAttribute("data-work-kind") === "note" ? "note:" + item.textContent?.trim() : "tool-group") : []);
-	// 一轮只有一个折叠行：说明与工具组同处其中，并按真实顺序交错。
-	// 折叠状态下工具行收起，公开进展仍然可见。
-	expect(sequence).toEqual(executionView === "verbose" ? ["note:先检查当前实现。", "tool-group", "note:发现状态误判，接着修复分支。", "tool-group"] : ["note:先检查当前实现。", "note:发现状态误判，接着修复分支。"]);
-	expect(visibleText()).toContain("先检查当前实现。");
-	expect(visibleText()).toContain("发现状态误判，接着修复分支。");
-	expect(host.querySelectorAll('[data-owl-answer="true"]')).toHaveLength(1);
-	expect(host.querySelector('[data-owl-answer="true"]')?.textContent).toContain("已修复，结果如下。");
-	if (executionView !== "verbose") {
-		expect(host.querySelectorAll(".owl-work-history-toggle")).toHaveLength(0);
-		expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(1);
-		expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
-	}
-});
+it.each(["normal", "thinking", "verbose"] as ExecutionView[])(
+	"keeps progress, tool groups and the final answer in real order in %s",
+	async (executionView) => {
+		await render({
+			executionView,
+			activity: "idle",
+			entries: turn(
+				assistant("intro", [tool("inspect")], {
+					text: "先检查当前实现。",
+					segments: [
+						{ kind: "text", text: "先检查当前实现。" },
+						{ kind: "tool", toolId: "inspect" },
+					],
+				}),
+				assistant("discovery", [tool("edit")], {
+					text: "发现状态误判，接着修复分支。",
+					segments: [
+						{ kind: "text", text: "发现状态误判，接着修复分支。" },
+						{ kind: "tool", toolId: "edit" },
+					],
+				}),
+				assistant("final", [], { text: "已修复，结果如下。" }),
+			),
+		});
+		const sequence = [...host.querySelector(".owl-chat-column")!.children].flatMap((row) =>
+			row.querySelector(".owl-work-process")
+				? [...row.querySelectorAll(".owl-work-process-body > .owl-work-process-item")].map((item) =>
+						item.getAttribute("data-work-kind") === "note" ? "note:" + item.textContent?.trim() : "tool-group",
+					)
+				: [],
+		);
+		// 一轮只有一个折叠行：说明与工具组同处其中，并按真实顺序交错。
+		// 折叠状态下工具行收起，公开进展仍然可见。
+		expect(sequence).toEqual(
+			executionView === "verbose"
+				? ["note:先检查当前实现。", "tool-group", "note:发现状态误判，接着修复分支。", "tool-group"]
+				: ["note:先检查当前实现。", "note:发现状态误判，接着修复分支。"],
+		);
+		expect(visibleText()).toContain("先检查当前实现。");
+		expect(visibleText()).toContain("发现状态误判，接着修复分支。");
+		expect(host.querySelectorAll('[data-owl-answer="true"]')).toHaveLength(1);
+		expect(host.querySelector('[data-owl-answer="true"]')?.textContent).toContain("已修复，结果如下。");
+		if (executionView !== "verbose") {
+			expect(host.querySelectorAll(".owl-work-history-toggle")).toHaveLength(0);
+			expect(host.querySelectorAll(".owl-work-process-summary")).toHaveLength(1);
+			expect(host.querySelectorAll(".owl-tool-row")).toHaveLength(0);
+		}
+	},
+);
 
 it("treats a commentary-only segment as visible progress even before any tool exists", async () => {
-	await render({ entries: turn(assistant("commentary", [], { text: "我先确认两个调用点。", segments: [{ kind: "text", text: "我先确认两个调用点。", phase: "commentary" }] })) });
+	await render({
+		entries: turn(
+			assistant("commentary", [], {
+				text: "我先确认两个调用点。",
+				segments: [{ kind: "text", text: "我先确认两个调用点。", phase: "commentary" }],
+			}),
+		),
+	});
 	expect(visibleText()).toContain("我先确认两个调用点。");
 	expect(host.querySelector('[data-owl-answer="true"]')).toBeNull();
 	expect(host.querySelector('[data-work-kind="note"]')?.textContent).toContain("我先确认两个调用点。");
@@ -280,14 +392,29 @@ it("treats a commentary-only segment as visible progress even before any tool ex
 it("preserves keyboard focus and the opened output when progress splits an existing tool group", async () => {
 	let activeElement: Element = document.body;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => activeElement });
-	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function(this: HTMLElement) { activeElement = this; });
+	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+		activeElement = this;
+	});
 	const first = tool("first");
 	const second = tool("second", "running", "保留正在读的真实输出");
 	await render({ executionView: "verbose", entries: turn(assistant("work", [first, second])) });
 	const focused = host.querySelector<HTMLButtonElement>('[data-tool-id="second"] .owl-work-record-toolbar button')!;
 	focused.focus();
 	expect(document.activeElement).toBe(focused);
-	await render({ entries: turn(assistant("work", [first, { ...second, status: "ok" }], { text: "发现新的调用点，接着核对。", segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "发现新的调用点，接着核对。" }, { kind: "tool", toolId: "second" }] }), assistant("answer", [], { text: "已完成本轮核对。" })), activity: "idle" });
+	await render({
+		entries: turn(
+			assistant("work", [first, { ...second, status: "ok" }], {
+				text: "发现新的调用点，接着核对。",
+				segments: [
+					{ kind: "tool", toolId: "first" },
+					{ kind: "text", text: "发现新的调用点，接着核对。" },
+					{ kind: "tool", toolId: "second" },
+				],
+			}),
+			assistant("answer", [], { text: "已完成本轮核对。" }),
+		),
+		activity: "idle",
+	});
 	expect(document.activeElement).not.toBe(focused);
 	expect(document.activeElement?.closest('[data-tool-id="second"]')).not.toBeNull();
 	expect(host.querySelector('[data-tool-id="second"] .owl-tool-output')?.textContent).toBe("保留正在读的真实输出");
@@ -300,7 +427,12 @@ it("keeps the same process and read output mounted when a later silent round add
 	await click('[data-tool-id="already-reading"] .owl-tool-summary');
 	const process = host.querySelector(".owl-work-process");
 	const row = host.querySelector('[data-tool-id="already-reading"]');
-	await render({ entries: turn(assistant("first-owner", [first]), assistant("later-owner", [tool("later", "running")], { thinking: "后续模型实际返回的隐藏思考" })) });
+	await render({
+		entries: turn(
+			assistant("first-owner", [first]),
+			assistant("later-owner", [tool("later", "running")], { thinking: "后续模型实际返回的隐藏思考" }),
+		),
+	});
 	expect(host.querySelector(".owl-work-process")).toBe(process);
 	expect(host.querySelector('[data-tool-id="already-reading"]')).toBe(row);
 	expect(row?.querySelector(".owl-tool-output")?.textContent).toBe("正在查阅的输出原文");
@@ -311,14 +443,21 @@ it("keeps the same process and read output mounted when a later silent round add
 it("keeps a thinking-only process and its focused disclosure mounted when its first tool arrives", async () => {
 	let activeElement: Element = document.body;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => activeElement });
-	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function(this: HTMLElement) { activeElement = this; });
-	await render({ executionView: "thinking", entries: turn(assistant("thinking-owner", [], { thinking: "第一段真实思考" })) });
+	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+		activeElement = this;
+	});
+	await render({
+		executionView: "thinking",
+		entries: turn(assistant("thinking-owner", [], { thinking: "第一段真实思考" })),
+	});
 	await click(".owl-thinking button");
 	const process = host.querySelector(".owl-work-process");
 	const disclosure = host.querySelector<HTMLButtonElement>(".owl-thinking button")!;
 	const original = host.querySelector(".owl-thinking pre");
 	disclosure.focus();
-	await render({ entries: turn(assistant("thinking-owner", [tool("first", "running")], { thinking: "第一段真实思考，接着执行" })) });
+	await render({
+		entries: turn(assistant("thinking-owner", [tool("first", "running")], { thinking: "第一段真实思考，接着执行" })),
+	});
 	expect(host.querySelector(".owl-work-process")).toBe(process);
 	expect(host.querySelector(".owl-thinking button")).toBe(disclosure);
 	expect(host.querySelector(".owl-thinking pre")).toBe(original);

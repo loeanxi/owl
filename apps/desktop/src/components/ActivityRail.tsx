@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { hasTauri, startDebugRebuild, switchAccountBridge } from "../bridge/native.ts";
 import type { BridgeClient } from "../bridge/client.ts";
+import { hasTauri, startDebugRebuild, switchAccountBridge } from "../bridge/native.ts";
 import type { DesktopAccountInfo } from "../bridge/protocol.ts";
-import { getUiLanguageSetting, setUiLanguageSetting, useT, type TextKey, type UiLanguageSetting } from "../i18n/index.ts";
 import { useMediaPlayingDot } from "../features/media/use-media.ts";
+import {
+	getUiLanguageSetting,
+	setUiLanguageSetting,
+	type TextKey,
+	type UiLanguageSetting,
+	useT,
+} from "../i18n/index.ts";
 import { AccountAvatar, useAccountAvatar } from "./AccountAvatar.tsx";
 import "./account.css";
 import { IconFolder, IconHome, IconNews, IconPin, IconSelf, IconSettings } from "./icons.tsx";
@@ -13,7 +19,24 @@ import "./navigation-design.css";
 import "./activity-rail-collapse.css";
 
 /** 主导航视图；设置作为覆盖页保留当前视图。 */
-export type RailView = "manager" | "chat" | "automation" | "map" | "news" | "mail" | "evaluation" | "media" | "projects" | "research" | "guide" | "myself" | "expert" | "career" | "bagu" | "market" | "account";
+export type RailView =
+	| "manager"
+	| "chat"
+	| "automation"
+	| "map"
+	| "news"
+	| "mail"
+	| "evaluation"
+	| "media"
+	| "projects"
+	| "research"
+	| "guide"
+	| "myself"
+	| "expert"
+	| "career"
+	| "bagu"
+	| "market"
+	| "account";
 
 /** 菜单底部通知条：调试更新流程的进度 / 结果。 */
 type UpdateNotice = {
@@ -23,15 +46,17 @@ type UpdateNotice = {
 };
 
 /** 菜单条目：普通动作项，或界面语言子菜单占位。 */
-type RailMenuItem = {
-	label: TextKey;
-	icon: React.ReactNode;
-	action: () => void;
-	closeOnSelect?: boolean;
-	disabled?: boolean;
-	busy?: boolean;
-	disabledTitle?: TextKey;
-} | { kind: "language" };
+type RailMenuItem =
+	| {
+			label: TextKey;
+			icon: React.ReactNode;
+			action: () => void;
+			closeOnSelect?: boolean;
+			disabled?: boolean;
+			busy?: boolean;
+			disabledTitle?: TextKey;
+	  }
+	| { kind: "language" };
 
 /** 可置顶功能条目（Codex 式）：默认不占位，图钉后进入图标栏下方置顶区。 */
 type RailTool = {
@@ -43,48 +68,111 @@ type RailTool = {
 };
 
 const RAIL_TOOL_ICONS: Record<string, React.ReactNode> = {
-	news: <IconNews className="h-[18px] w-[18px]" />,
-	projects: <IconFolder className="h-[18px] w-[18px]" />,
+	news: <IconNews className="h-4 w-4" />,
+	projects: <IconFolder className="h-4 w-4" />,
 	automation: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<circle cx="12" cy="13" r="8" />
 			<path d="M12 9v4l2.5 2.5" />
 			<path d="M5 3 2 6M19 3l3 3" />
 		</svg>
 	),
 	map: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
 			<path d="M9 3v15M15 6v15" />
 		</svg>
 	),
 	mail: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<rect x="3" y="5" width="18" height="14" rx="2" />
 			<path d="m3 6 9 7 9-7" />
 		</svg>
 	),
 	media: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<path d="M9 18V6l11-2v11" />
 			<circle cx="6.5" cy="18" r="2.6" />
 			<circle cx="17.5" cy="15" r="2.6" />
 		</svg>
 	),
 	expert: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<circle cx="12" cy="12" r="9.5" />
 			<path d="m15.5 8.5-2 5-5 2 2-5z" />
 		</svg>
 	),
 	bagu: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<circle cx="12" cy="8.5" r="5" />
 			<path d="M9.2 12.8 7.5 21l4.5-2.4L16.5 21l-1.7-8.2" />
 		</svg>
 	),
 	market: (
-		<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+		<svg
+			className="h-4 w-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.6"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
 			<path d="M13.5 3.5 15 5a1.4 1.4 0 0 1-1 2.4h-1.3a1.6 1.6 0 0 0 0 3.2H14a1.4 1.4 0 0 1 1.4 1.4v1.6a1.4 1.4 0 0 0 1.4 1.4H19a1.6 1.6 0 0 0 0-3.2h-.4" />
 			<path d="M19.6 10.6A1.7 1.7 0 0 1 21 12.3V19a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 19V5.6A1.6 1.6 0 0 1 5.6 4h6.1a1.7 1.7 0 0 1 1.7 1.4Z" />
 		</svg>
@@ -142,7 +230,16 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 		const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]'));
 		if (items.length === 0) return;
 		const idx = items.indexOf(document.activeElement as HTMLButtonElement);
-		const next = step === "first" ? 0 : step === "last" ? items.length - 1 : idx === -1 ? (step > 0 ? 0 : items.length - 1) : (idx + step + items.length) % items.length;
+		const next =
+			step === "first"
+				? 0
+				: step === "last"
+					? items.length - 1
+					: idx === -1
+						? step > 0
+							? 0
+							: items.length - 1
+						: (idx + step + items.length) % items.length;
 		items[next]?.focus();
 	};
 
@@ -180,10 +277,17 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 					}
 				}}
 			>
-				<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z" /></svg>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<circle cx="12" cy="12" r="9" />
+					<path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18Z" />
+				</svg>
 				<span>{t("rail.language")}</span>
-				<span className="owl-rail-menu-current">{t(options.find((option) => option.value === current)?.labelKey ?? "settings.general.uiLanguageZh")}</span>
-				<span className="owl-rail-menu-arrow" aria-hidden="true">›</span>
+				<span className="owl-rail-menu-current">
+					{t(options.find((option) => option.value === current)?.labelKey ?? "settings.general.uiLanguageZh")}
+				</span>
+				<span className="owl-rail-menu-arrow" aria-hidden="true">
+					›
+				</span>
 			</button>
 			{open && (
 				<div
@@ -201,7 +305,16 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 							triggerRef.current?.focus();
 							return;
 						}
-						const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
+						const step =
+							event.key === "ArrowDown"
+								? 1
+								: event.key === "ArrowUp"
+									? -1
+									: event.key === "Home"
+										? "first"
+										: event.key === "End"
+											? "last"
+											: undefined;
 						if (step === undefined) return;
 						event.preventDefault();
 						event.stopPropagation();
@@ -219,7 +332,9 @@ function LanguageMenuItem({ onPick }: { onPick: (next: UiLanguageSetting) => voi
 								aria-checked={active}
 								onClick={() => onPick(option.value)}
 							>
-								<span className="owl-rail-menu-check" aria-hidden="true">{active ? "✓" : ""}</span>
+								<span className="owl-rail-menu-check" aria-hidden="true">
+									{active ? "✓" : ""}
+								</span>
 								<span>{t(option.labelKey)}</span>
 							</button>
 						);
@@ -352,11 +467,12 @@ export function ActivityRail({
 			}
 			setUpdateNotice({ tone: "success", key: "rail.debugUpdateStarted" });
 		} catch (error) {
-			const message = error instanceof Error && error.message.trim()
-				? error.message.trim()
-				: typeof error === "string" && error.trim()
-					? error.trim()
-					: String(error || "unknown");
+			const message =
+				error instanceof Error && error.message.trim()
+					? error.message.trim()
+					: typeof error === "string" && error.trim()
+						? error.trim()
+						: String(error || "unknown");
 			setUpdateNotice({ tone: "error", key: "rail.debugUpdateFailed", vars: { message } });
 			updateBusyRef.current = false;
 			setUpdateAction(undefined);
@@ -434,16 +550,51 @@ export function ActivityRail({
 
 	const menuGroups: RailMenuItem[][] = [
 		[
-			{ label: "rail.settings", icon: <IconSettings className="h-4 w-4" />, action: () => onOpenSettings("general") },
-			{ label: "rail.about", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></svg>, action: () => window.alert(t("rail.aboutText")) },
+			{
+				label: "rail.settings",
+				icon: <IconSettings className="h-4 w-4" />,
+				action: () => onOpenSettings("general"),
+			},
+			{
+				label: "rail.about",
+				icon: (
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<circle cx="12" cy="12" r="9" />
+						<path d="M12 11v6M12 7h.01" />
+					</svg>
+				),
+				action: () => window.alert(t("rail.aboutText")),
+			},
 			{ kind: "language" },
-			{ label: "rail.models", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" /><circle cx="15" cy="17" r="3" /></svg>, action: () => onOpenSettings("models") },
+			{
+				label: "rail.models",
+				icon: (
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M4 7h16M4 17h16" />
+						<circle cx="9" cy="7" r="3" />
+						<circle cx="15" cy="17" r="3" />
+					</svg>
+				),
+				action: () => onOpenSettings("models"),
+			},
 		],
 		[
 			{
 				label: updateAction === "debug" ? "rail.debugUpdating" : "rail.debugUpdate",
-				icon: <svg className={updateAction === "debug" ? "owl-rail-menu-spinner" : undefined} viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /><path d="m15 17 2 2 4-4" /></svg>,
-				action: () => { void debugUpdate(); },
+				icon: (
+					<svg
+						className={updateAction === "debug" ? "owl-rail-menu-spinner" : undefined}
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+					>
+						<path d="M20 11a8 8 0 1 0-2.3 5.7" />
+						<path d="M20 4v7h-7" />
+						<path d="m15 17 2 2 4-4" />
+					</svg>
+				),
+				action: () => {
+					void debugUpdate();
+				},
 				closeOnSelect: false,
 				disabled: !nativeAvailable || updateAction !== undefined,
 				busy: updateAction === "debug",
@@ -451,8 +602,25 @@ export function ActivityRail({
 			},
 		],
 		[
-			{ label: "help.guide", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15" /></svg>, action: onOpenGuide },
-			{ label: "help.shortcuts", icon: <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M7 10h.01M11 10h.01M15 10h.01M18 10h.01M7 14h10" /></svg>, action: onShowShortcuts },
+			{
+				label: "help.guide",
+				icon: (
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1Zm0 0v15" />
+					</svg>
+				),
+				action: onOpenGuide,
+			},
+			{
+				label: "help.shortcuts",
+				icon: (
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<rect x="3" y="6" width="18" height="12" rx="2" />
+						<path d="M7 10h.01M11 10h.01M15 10h.01M18 10h.01M7 14h10" />
+					</svg>
+				),
+				action: onShowShortcuts,
+			},
 		],
 	];
 
@@ -511,15 +679,25 @@ export function ActivityRail({
 	const drawerRest = RAIL_TOOLS.filter((tool) => !pins.includes(tool.view));
 
 	return (
-		<nav id="owl-activity-rail" className="owl-activity-rail" hidden={collapsed} data-tauri-drag-region="deep" aria-label={t("rail.aria")}>
+		<nav
+			id="owl-activity-rail"
+			className="owl-activity-rail"
+			hidden={collapsed}
+			data-tauri-drag-region="deep"
+			aria-label={t("rail.aria")}
+		>
 			<button
 				type="button"
 				className="owl-rail-brand"
 				title={t("rail.homeTitle")}
 				aria-label={t("rail.home")}
-				onClick={() => { setMenuOpen(false); setToolsOpen(false); onHome(); }}
+				onClick={() => {
+					setMenuOpen(false);
+					setToolsOpen(false);
+					onHome();
+				}}
 			>
-				<IconHome className="h-5 w-5" />
+				<IconHome className="h-4 w-4" />
 			</button>
 
 			{/* 「我的助理」：顶部固定入口（每天一个 owl-myself/md 的日程与提炼）。 */}
@@ -531,7 +709,7 @@ export function ActivityRail({
 				aria-current={view === "myself" && !settingsOpen ? "page" : undefined}
 				onClick={() => onSelect("myself")}
 			>
-				<IconSelf className="h-[18px] w-[18px]" />
+				<IconSelf className="h-4 w-4" />
 			</button>
 
 			{/* 功能抽屉触发钮：Codex 式放在固定组末尾、分隔线之上。 */}
@@ -553,7 +731,16 @@ export function ActivityRail({
 						}
 					}}
 				>
-					<svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+					<svg
+						className="h-4 w-4"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.6"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						aria-hidden="true"
+					>
 						<rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
 						<rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
 						<rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
@@ -568,33 +755,54 @@ export function ActivityRail({
 						role="menu"
 						aria-label={t("rail.tools")}
 						onBlur={(event) => {
-							if (event.relatedTarget && !toolsRootRef.current?.contains(event.relatedTarget as Node)) setToolsOpen(false);
+							if (event.relatedTarget && !toolsRootRef.current?.contains(event.relatedTarget as Node))
+								setToolsOpen(false);
 						}}
 						onKeyDown={(event) => {
-							const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
+							const step =
+								event.key === "ArrowDown"
+									? 1
+									: event.key === "ArrowUp"
+										? -1
+										: event.key === "Home"
+											? "first"
+											: event.key === "End"
+												? "last"
+												: undefined;
 							if (step === undefined) return;
 							event.preventDefault();
 							event.stopPropagation();
-							const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
+							const items = Array.from(
+								event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+							);
 							if (items.length === 0) return;
 							const current = items.indexOf(document.activeElement as HTMLButtonElement);
-							const next = step === "first" ? 0 : step === "last" ? items.length - 1 : (current + step + items.length) % items.length;
+							const next =
+								step === "first"
+									? 0
+									: step === "last"
+										? items.length - 1
+										: (current + step + items.length) % items.length;
 							items[next]?.focus();
 						}}
 					>
-					{drawerPinned.length > 0 && (
-						<>
-							<div className="owl-rail-tools-group">{drawerRest.length > 0 ? t("rail.pins") : t("rail.tools")}</div>
-							{drawerPinned.map((tool) => renderDrawerRow(tool, true))}
-						</>
-					)}
-					{drawerRest.length > 0 && (
-						<>
-							{drawerPinned.length > 0 && <div className="owl-rail-menu-separator" role="separator" />}
-							<div className="owl-rail-tools-group">{drawerPinned.length > 0 ? t("rail.toolsMore") : t("rail.toolsAll")}</div>
-							{drawerRest.map((tool) => renderDrawerRow(tool, false))}
-						</>
-					)}
+						{drawerPinned.length > 0 && (
+							<>
+								<div className="owl-rail-tools-group">
+									{drawerRest.length > 0 ? t("rail.pins") : t("rail.tools")}
+								</div>
+								{drawerPinned.map((tool) => renderDrawerRow(tool, true))}
+							</>
+						)}
+						{drawerRest.length > 0 && (
+							<>
+								{drawerPinned.length > 0 && <div className="owl-rail-menu-separator" role="separator" />}
+								<div className="owl-rail-tools-group">
+									{drawerPinned.length > 0 ? t("rail.toolsMore") : t("rail.toolsAll")}
+								</div>
+								{drawerRest.map((tool) => renderDrawerRow(tool, false))}
+							</>
+						)}
 					</div>
 				)}
 			</div>
@@ -633,16 +841,35 @@ export function ActivityRail({
 						role="menu"
 						aria-label={t("rail.appMenu")}
 						onBlur={(event) => {
-							if (event.relatedTarget && !menuRootRef.current?.contains(event.relatedTarget as Node)) setMenuOpen(false);
+							if (event.relatedTarget && !menuRootRef.current?.contains(event.relatedTarget as Node))
+								setMenuOpen(false);
 						}}
 						onKeyDown={(event) => {
-							const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "Home" ? "first" : event.key === "End" ? "last" : undefined;
+							const step =
+								event.key === "ArrowDown"
+									? 1
+									: event.key === "ArrowUp"
+										? -1
+										: event.key === "Home"
+											? "first"
+											: event.key === "End"
+												? "last"
+												: undefined;
 							if (step === undefined) return;
 							event.preventDefault();
 							event.stopPropagation();
-							const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'));
+							const items = Array.from(
+								event.currentTarget.querySelectorAll<HTMLButtonElement>(
+									'button[role="menuitem"]:not(:disabled)',
+								),
+							);
 							const current = items.indexOf(document.activeElement as HTMLButtonElement);
-							const next = step === "first" ? 0 : step === "last" ? items.length - 1 : (current + step + items.length) % items.length;
+							const next =
+								step === "first"
+									? 0
+									: step === "last"
+										? items.length - 1
+										: (current + step + items.length) % items.length;
 							items[next]?.focus();
 						}}
 					>
@@ -669,29 +896,47 @@ export function ActivityRail({
 							aria-expanded={switcherOpen}
 							onClick={() => setSwitcherOpen((open) => !open)}
 						>
-							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10 3 14l4 4" /><path d="M17 14H3" /><path d="m17 4 4 4-4 4" /><path d="M7 8h14" /></svg>
+							<svg viewBox="0 0 24 24" aria-hidden="true">
+								<path d="M7 10 3 14l4 4" />
+								<path d="M17 14H3" />
+								<path d="m17 4 4 4-4 4" />
+								<path d="M7 8h14" />
+							</svg>
 							<span>{t("account.switch")}</span>
 						</button>
-						{switcherOpen && (accountInfo?.accounts ?? []).map((account) => (
+						{switcherOpen &&
+							(accountInfo?.accounts ?? []).map((account) => (
+								<button
+									key={account.id}
+									type="button"
+									role="menuitem"
+									className={`owl-rail-account-row${account.id === currentAccount?.id ? " is-current" : ""}`}
+									title={account.hasPassword ? t("account.switchPasswordHint") : undefined}
+									onClick={() => {
+										if (account.id === currentAccount?.id) return;
+										switchToAccount(account);
+									}}
+								>
+									<AccountAvatar name={account.name} size={20} />
+									<span>{account.name}</span>
+									{account.hasPassword && <span aria-hidden="true">🔒</span>}
+									{account.id === currentAccount?.id && (
+										<span className="owl-rail-account-check" aria-hidden="true">
+											✓
+										</span>
+									)}
+								</button>
+							))}
+						{switcherOpen && (
 							<button
-								key={account.id}
 								type="button"
 								role="menuitem"
-								className={`owl-rail-account-row${account.id === currentAccount?.id ? " is-current" : ""}`}
-								title={account.hasPassword ? t("account.switchPasswordHint") : undefined}
+								className="owl-rail-account-row"
 								onClick={() => {
-									if (account.id === currentAccount?.id) return;
-									switchToAccount(account);
+									setMenuOpen(false);
+									onOpenSettings("accounts");
 								}}
 							>
-								<AccountAvatar name={account.name} size={20} />
-								<span>{account.name}</span>
-								{account.hasPassword && <span aria-hidden="true">🔒</span>}
-								{account.id === currentAccount?.id && <span className="owl-rail-account-check" aria-hidden="true">✓</span>}
-							</button>
-						))}
-						{switcherOpen && (
-							<button type="button" role="menuitem" className="owl-rail-account-row" onClick={() => { setMenuOpen(false); onOpenSettings("accounts"); }}>
 								<span aria-hidden="true">＋</span>
 								<span>{t("account.manage")}</span>
 							</button>
@@ -707,14 +952,18 @@ export function ActivityRail({
 								if (currentAccount) switchToAccount(currentAccount);
 							}}
 						>
-							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5v16h4" /><path d="m13 8 4 4-4 4" /><path d="M17 12H7" /></svg>
+							<svg viewBox="0 0 24 24" aria-hidden="true">
+								<path d="M9 4H5v16h4" />
+								<path d="m13 8 4 4-4 4" />
+								<path d="M17 12H7" />
+							</svg>
 							<span>{t("account.logout")}</span>
 						</button>
 						<div className="owl-rail-menu-separator" role="separator" />
 						{menuGroups.map((group, index) => (
 							<div key={index} role="group">
 								{index > 0 && <div className="owl-rail-menu-separator" role="separator" />}
-								{group.map((item) => (
+								{group.map((item) =>
 									"kind" in item ? (
 										<LanguageMenuItem
 											key="language"
@@ -740,13 +989,17 @@ export function ActivityRail({
 											{item.icon}
 											<span>{t(item.label)}</span>
 										</button>
-									)
-								))}
+									),
+								)}
 							</div>
 						))}
 						{updateNotice && (
 							<div role="group" aria-label={t("rail.updateStatus")}>
-								<div className={`owl-rail-update-status is-${updateNotice.tone}`} role="status" aria-live="polite">
+								<div
+									className={`owl-rail-update-status is-${updateNotice.tone}`}
+									role="status"
+									aria-live="polite"
+								>
 									{t(updateNotice.key, updateNotice.vars)}
 								</div>
 							</div>

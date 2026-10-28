@@ -127,7 +127,7 @@ function cellFromToolCard(card: ToolCard, index: number): TrajectoryCell {
 		...(output !== "" ? { outputDetail: output, resultPreview: firstLine(output) } : {}),
 		isError: card.status === "error" || undefined,
 		cancelled: card.status === "cancelled" || undefined,
-		streaming: (card.status === "pending" || card.status === "running") || undefined,
+		streaming: card.status === "pending" || card.status === "running" || undefined,
 		timeSeconds: durationSeconds(endedAt, startedAt),
 		startedAt,
 		endedAt,
@@ -225,9 +225,7 @@ export function deriveTrajectoryLayout(entries: readonly ChatEntry[]): Trajector
 			kind: "message",
 			recordId: `assistant\u0000${entry.entryId ?? index}`,
 			title: t("trajectory.cellAssistant"),
-			...(toolCallOnly
-				? { preview: t("trajectory.toolCallOnly"), summary: t("trajectory.toolCallOnly") }
-				: {}),
+			...(toolCallOnly ? { preview: t("trajectory.toolCallOnly"), summary: t("trajectory.toolCallOnly") } : {}),
 			...(!toolCallOnly && entry.text !== "" ? { preview: entry.text, outputDetail: entry.text } : {}),
 			...(entry.thinking !== "" ? { thinkingDetail: entry.thinking } : {}),
 			...(entry.error !== undefined ? { isError: true, resultPreview: entry.error } : {}),
@@ -261,7 +259,9 @@ export function deriveTrajectoryLayout(entries: readonly ChatEntry[]): Trajector
 		const groups: TrajectoryGroupModel[] = entry.groups.map((group) => ({
 			title: group.title,
 			cells: group.laid.map((l) => l.cell),
-			...(group.title !== t("trajectory.groupMessage") ? { description: groupDescription(group.laid.map((l) => l.cell)) } : {}),
+			...(group.title !== t("trajectory.groupMessage")
+				? { description: groupDescription(group.laid.map((l) => l.cell)) }
+				: {}),
 		}));
 		const times = entry.laid.flatMap((l) => {
 			const start = finiteTime(l.cell.startedAt);

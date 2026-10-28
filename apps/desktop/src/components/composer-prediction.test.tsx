@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../bridge/client.ts";
 import { setUiLanguage, t } from "../i18n/index.ts";
@@ -10,7 +10,10 @@ import { composerPredictionText } from "./composer-prediction-copy.ts";
 
 const useSuggestion = vi.hoisted(() => vi.fn());
 vi.mock("../hooks/use-prompt-suggestion.ts", () => ({ usePromptSuggestion: useSuggestion }));
-vi.mock("../bridge/native.ts", () => ({ listenForOsFileDrop: async () => () => {}, readLocalImage: async () => undefined }));
+vi.mock("../bridge/native.ts", () => ({
+	listenForOsFileDrop: async () => () => {},
+	readLocalImage: async () => undefined,
+}));
 vi.mock("./OwlMascot.tsx", () => ({ OwlMascot: () => null }));
 
 type Props = React.ComponentProps<typeof Composer>;
@@ -42,30 +45,64 @@ beforeEach(() => {
 	root = createRoot(container);
 	suggestion = nextPrompt;
 	enabled = true;
-	accept = vi.fn(() => { const text = suggestion; suggestion = undefined; return text; });
-	dismiss = vi.fn(() => { suggestion = undefined; });
-	setEnabled = vi.fn((value: boolean) => { enabled = value; if (!value) suggestion = undefined; });
+	accept = vi.fn(() => {
+		const text = suggestion;
+		suggestion = undefined;
+		return text;
+	});
+	dismiss = vi.fn(() => {
+		suggestion = undefined;
+	});
+	setEnabled = vi.fn((value: boolean) => {
+		enabled = value;
+		if (!value) suggestion = undefined;
+	});
 	useSuggestion.mockReset().mockImplementation(() => ({ suggestion, enabled, accept, dismiss, setEnabled }));
 	props = {
 		client: { request: async () => ({ ok: true, result: { receipts: [] } }) } as unknown as BridgeClient,
-		connected: true, disabled: false, running: false, hideEnvironment: true, hideMascot: true,
-		onSend: vi.fn(() => true), onAbort: vi.fn(), onDraftChange: vi.fn(),
-		providers: [], model: "fixture/model", onModel: vi.fn(), thinkingLevel: "high", onThinkingLevel: vi.fn(),
-		approvalMode: "confirm", onApprovalMode: vi.fn(), sessionInfo: undefined,
-		workspaceDir: "D:/owl", projects: [], onSwitchProject: vi.fn(), commands: [], searchFiles: async () => [],
-		queueSessionId: "session-a", queueProfile: "profile-a", queueOwnerRevision: 1,
+		connected: true,
+		disabled: false,
+		running: false,
+		hideEnvironment: true,
+		hideMascot: true,
+		onSend: vi.fn(() => true),
+		onAbort: vi.fn(),
+		onDraftChange: vi.fn(),
+		providers: [],
+		model: "fixture/model",
+		onModel: vi.fn(),
+		thinkingLevel: "high",
+		onThinkingLevel: vi.fn(),
+		approvalMode: "confirm",
+		onApprovalMode: vi.fn(),
+		sessionInfo: undefined,
+		workspaceDir: "D:/owl",
+		projects: [],
+		onSwitchProject: vi.fn(),
+		commands: [],
+		searchFiles: async () => [],
+		queueSessionId: "session-a",
+		queueProfile: "profile-a",
+		queueOwnerRevision: 1,
 	};
 });
 
-afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
+afterEach(async () => {
+	await act(async () => root.unmount());
+	vi.unstubAllGlobals();
+});
 
 async function render(overrides: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...overrides };
 	await act(async () => root.render(<Composer {...props} />));
 }
 
-function editor(): HTMLElement { return container.querySelector<HTMLElement>('[role="textbox"]')!; }
-function acceptButton(): HTMLButtonElement | null { return container.querySelector<HTMLButtonElement>(".owl-composer-prediction-accept"); }
+function editor(): HTMLElement {
+	return container.querySelector<HTMLElement>('[role="textbox"]')!;
+}
+function acceptButton(): HTMLButtonElement | null {
+	return container.querySelector<HTMLButtonElement>(".owl-composer-prediction-accept");
+}
 async function key(name: string, modifiers: Record<string, boolean | number> = {}): Promise<Event> {
 	const event = new window.Event("keydown", { bubbles: true, cancelable: true });
 	Object.assign(event, { key: name, code: name, isComposing: false, ...modifiers });
@@ -73,7 +110,10 @@ async function key(name: string, modifiers: Record<string, boolean | number> = {
 	return event;
 }
 async function type(text: string): Promise<void> {
-	await act(async () => { editor().textContent = text; editor().dispatchEvent(new window.Event("input", { bubbles: true })); });
+	await act(async () => {
+		editor().textContent = text;
+		editor().dispatchEvent(new window.Event("input", { bubbles: true }));
+	});
 }
 
 describe("Composer next prompt suggestion", () => {
@@ -82,7 +122,9 @@ describe("Composer next prompt suggestion", () => {
 		expect(editor().getAttribute("data-placeholder")).toBe(nextPrompt);
 		expect(container.querySelector(".owl-composer-prediction-ghost")?.textContent).toBe(nextPrompt);
 		expect(editor().textContent).toBe("");
-		expect(container.querySelector<HTMLButtonElement>('[aria-label="' + t("composer.send") + '"]')?.disabled).toBe(true);
+		expect(container.querySelector<HTMLButtonElement>('[aria-label="' + t("composer.send") + '"]')?.disabled).toBe(
+			true,
+		);
 		expect((await key("Tab")).defaultPrevented).toBe(true);
 		expect(editor().textContent).toBe(nextPrompt);
 		expect(props.onDraftChange).toHaveBeenCalledExactlyOnceWith(nextPrompt);
@@ -141,7 +183,16 @@ describe("Composer next prompt suggestion", () => {
 	it("dismisses an already visible suggestion even when the user only types a space", async () => {
 		useSuggestion.mockImplementation(function useVisibleFixtureSuggestion() {
 			const [visible, setVisible] = React.useState(true);
-			return { suggestion: visible ? suggestion : undefined, enabled, accept, setEnabled, dismiss: () => { dismiss(); setVisible(false); } };
+			return {
+				suggestion: visible ? suggestion : undefined,
+				enabled,
+				accept,
+				setEnabled,
+				dismiss: () => {
+					dismiss();
+					setVisible(false);
+				},
+			};
 		});
 		await render();
 		await type(" ");
@@ -174,14 +225,15 @@ describe("Composer next prompt suggestion", () => {
 		expect(useSuggestion).toHaveBeenLastCalledWith(expect.objectContaining({ eligible: false }));
 	});
 
-	it.each([
-		{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true },
-	])("leaves modified or composing Tab untouched: %j", async (modifiers) => {
-		await render();
-		expect((await key("Tab", modifiers)).defaultPrevented).toBe(false);
-		expect(accept).not.toHaveBeenCalled();
-		expect(props.onSend).not.toHaveBeenCalled();
-	});
+	it.each([{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }])(
+		"leaves modified or composing Tab untouched: %j",
+		async (modifiers) => {
+			await render();
+			expect((await key("Tab", modifiers)).defaultPrevented).toBe(false);
+			expect(accept).not.toHaveBeenCalled();
+			expect(props.onSend).not.toHaveBeenCalled();
+		},
+	);
 
 	it("ignores candidate-selection keys while an IME composition is active", async () => {
 		await render();
@@ -204,8 +256,18 @@ describe("Composer next prompt suggestion", () => {
 	});
 
 	it.each([
-		{ disabled: true }, { connected: false }, { running: true }, { paused: true },
-		{ modelSelection: { status: "pending" as const, target: "fixture/next", actual: "fixture/model", running: false } },
+		{ disabled: true },
+		{ connected: false },
+		{ running: true },
+		{ paused: true },
+		{
+			modelSelection: {
+				status: "pending" as const,
+				target: "fixture/next",
+				actual: "fixture/model",
+				running: false,
+			},
+		},
 	])("hides suggestions when the composer cannot safely adopt one: %j", async (state) => {
 		await render(state);
 		expect(acceptButton()).toBeNull();

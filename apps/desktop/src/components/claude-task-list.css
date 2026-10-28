@@ -1,0 +1,65 @@
+/**
+ * Claude 的行内任务清单卡。
+ *
+ * 形态对着 Claude 的步骤行：每项一行，左边一个状态标记，右边是事项本身。
+ * 标记用形状区分（✓ / ◐ / ○），不只靠颜色 —— Claude 的步骤行也是这么做的。
+ * 进行中的那项用主色 + 半粗，是「现在在做什么」的唯一视觉锚点。
+ */
+
+.owl-claude-tasklist {
+	min-width: 0;
+	margin: 2px 0;
+}
+
+.owl-claude-tasklist-items {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.owl-claude-tasklist-item {
+	display: flex;
+	min-width: 0;
+	align-items: baseline;
+	gap: 8px;
+	font-size: var(--owl-claude-font-size-body, 13px);
+	line-height: var(--owl-claude-leading-body, 20px);
+}
+
+.owl-claude-tasklist-mark {
+	flex: none;
+	width: 12px;
+	color: var(--owl-reading-faint, currentColor);
+	text-align: center;
+	font-size: var(--owl-claude-font-size-body-sm, 12px);
+}
+
+.owl-claude-tasklist-item[data-status="completed"] .owl-claude-tasklist-mark {
+	color: var(--color-owl-success);
+}
+
+.owl-claude-tasklist-item[data-status="in_progress"] .owl-claude-tasklist-mark {
+	color: var(--color-owl-accent);
+}
+
+.owl-claude-tasklist-text {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--owl-reading-muted);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-claude-tasklist-item[data-status="completed"] .owl-claude-tasklist-text {
+	color: var(--owl-reading-faint);
+	text-decoration: line-through;
+	text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.owl-claude-tasklist-item[data-status="in_progress"] .owl-claude-tasklist-text {
+	color: var(--owl-reading-text);
+	font-weight: 500;
+}

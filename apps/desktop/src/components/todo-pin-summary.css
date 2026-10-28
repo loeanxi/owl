@@ -1,7 +1,27 @@
-.owl-todo-anchor[data-presentation="summary"] { position: relative; inset: auto; flex: 1; min-width: 0; align-items: flex-start; pointer-events: auto; }
+/* 摘要形态（TodoPin 的 presentation="summary"）挂在 AgentConversation 的 header 插槽里。
+   .owl-agent-conversation 是 flex-direction: column 的容器，插槽内容默认占一个布局行。
+   摘要条是浮层（与同层的悬浮顶栏 ConversationHeader 一致），不该占行：
+   此前写的是 position: relative + flex: 1 —— 纵向 flex 里 flex:1 会把它撑满剩余高度，
+   把真正的对话区（.owl-agent-conversation__body）挤到下半屏，
+   表现为会话顶部一大片空白、内容被压到下面。
+   现在绝对定位：锚在顶栏下沿，水平方向与阅读列（.owl-chat-column）同宽同起点。 */
+.owl-todo-anchor[data-presentation="summary"] {
+	position: absolute;
+	top: calc(var(--owl-chat-header-h, 44px) + 4px);
+	left: 0;
+	right: 0;
+	/* 与 .owl-chat-column 同一取宽规则（index.css），两处共用同一个上限变量。 */
+	max-width: min(var(--owl-chat-width, 880px), 100%);
+	margin: 0 auto;
+	z-index: 15;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	min-width: 0;
+}
 .owl-todo-anchor[data-presentation="summary"] .owl-todo-trigger { width: auto; max-width: 100%; height: 28px; gap: 7px; justify-content: flex-start; border: 0; padding: 0; background: transparent; box-shadow: none; backdrop-filter: none; color: var(--owl-ui-text); font-size: 12px; animation: none; }
 .owl-todo-anchor[data-presentation="summary"] .owl-todo-trigger:hover { color: var(--color-owl-accent); }
-.owl-todo-summary-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.owl-todo-summary-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .owl-todo-summary-count { flex-shrink: 0; color: var(--owl-ui-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .owl-todo-summary-chevron { width: 13px; height: 13px; flex-shrink: 0; color: var(--owl-ui-muted); }
 .owl-todo-anchor[data-presentation="summary"] .owl-todo-popover { position: absolute; top: 100%; left: 0; width: min(360px, calc(100cqw - 32px)); max-width: calc(100cqw - 32px); transform-origin: top left; }

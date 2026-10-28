@@ -17,6 +17,7 @@ import { calculateCost } from "../models.ts";
 import type {
 	Api,
 	AssistantMessage,
+	Citation,
 	ImageContent,
 	Model,
 	StopReason,
@@ -49,6 +50,51 @@ import { transformMessages } from "./transform-messages.ts";
 // =============================================================================
 // Utilities
 // =============================================================================
+
+/**
+ * 把 OpenAI Responses 的一条 annotation 归一成 owl 的公共引用形状。
+ *
+ * Responses 的网页引用是 `type: "url_citation"`，带 `url` / `title` /
+ * `start_index` / `end_index`（后者是相对整条 output_text 的偏移）。
+ * 别的 annotation 类型（file_citation 等）先只保留原文片段。
+ */
+function normalizeAnnotation(raw: unknown): Citation | undefined {
+	if (raw === null || typeof raw !== "object") return undefined;
+	const item = raw as {
+		type?: unknown;
+		url?: unknown;
+		title?: unknown;
+		start_index?: unknown;
+		end_index?: unknown;
+		file_id?: unknown;
+		filename?: unknown;
+	};
+	const source = typeof item.type === "string" ? item.type : undefined;
+	const url = typeof item.url === "string" ? item.url : undefined;
+	const title =
+		typeof item.title === "string" ? item.title : typeof item.filename === "string" ? item.filename : undefined;
+	const startIndex = typeof item.start_index === "number" ? item.start_index : undefined;
+	const endIndex = typeof item.end_index === "number" ? item.end_index : undefined;
+	if (title === undefined && url === undefined) return undefined;
+	return {
+		...(title !== undefined ? { title } : {}),
+		...(url !== undefined ? { url } : {}),
+		...(startIndex !== undefined ? { startIndex } : {}),
+		...(endIndex !== undefined ? { endIndex } : {}),
+		...(source !== undefined ? { source } : {}),
+	};
+}
+
+/** 归一一条 output_text 的 annotation 数组。 */
+function normalizeAnnotations(raw: unknown): Citation[] {
+	if (!Array.isArray(raw)) return [];
+	const out: Citation[] = [];
+	for (const item of raw) {
+		const citation = normalizeAnnotation(item);
+		if (citation !== undefined) out.push(citation);
+	}
+	return out;
+}
 
 function encodeTextSignatureV1(id: string, phase?: TextSignatureV1["phase"]): string {
 	const payload: TextSignatureV1 = { v: 1, id };
@@ -721,6 +767,19 @@ export async function processResponsesStream<TApi extends Api>(
 			const slot = getSlot(event.output_index, "text");
 			if (!slot) continue;
 			updateTextPart(event.output_index, event.content_index, event.item_id, event.delta, true, false);
+		} else if (event.type === "response.output_text.annotation.added") {
+			// 引用（url_citation / file_citation）逐条到达。
+			const slot = getSlot(event.output_index, "text");
+			if (!slot) continue;
+			const citation = normalizeAnnotation(event.annotation);
+			if (citation === undefined) continue;
+			slot.block.citations = [...(slot.block.citations ?? []), citation];
+			stream.push({
+				type: "text_citation",
+				contentIndex: slot.contentIndex,
+				citation,
+				partial: output,
+			});
 		} else if (event.type === "response.refusal.delta") {
 			updateTextPart(event.output_index, event.content_index, event.item_id, event.delta, true, true);
 		} else if (event.type === "response.refusal.done") {
@@ -782,6 +841,21 @@ export async function processResponsesStream<TApi extends Api>(
 			} else if (item.type === "message" && slot?.type === "text") {
 				recordMessageRefusals(event.output_index, item);
 				slot.block.text = item.content?.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("") || "";
+				// 有些服务端只在最终 item 上带 annotation，不发 annotation.added 事件。
+				const annotations =
+					item.content?.flatMap((c) => (c.type === "output_text" ? normalizeAnnotations(c.annotations) : [])) ??
+					[];
+				if (annotations.length > 0) {
+					const known = new Set(
+						(slot.block.citations ?? []).map((citation) => `${citation.url ?? ""}|${citation.title ?? ""}`),
+					);
+					for (const citation of annotations) {
+						const key = `${citation.url ?? ""}|${citation.title ?? ""}`;
+						if (known.has(key)) continue;
+						known.add(key);
+						slot.block.citations = [...(slot.block.citations ?? []), citation];
+					}
+				}
 				slot.block.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
 				stream.push({
 					type: "text_end",

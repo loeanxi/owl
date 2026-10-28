@@ -1,8 +1,8 @@
 import { useId, useLayoutEffect, useState } from "react";
+import { usePendingResponses } from "../bridge/pending-responses.ts";
 import type { QuestionAnswerPayload, QuestionRequest } from "../bridge/protocol.ts";
 import { useT } from "../i18n/index.ts";
 import { renderMarkdown } from "./ChatStream.tsx";
-import { usePendingResponses } from "../bridge/pending-responses.ts";
 import { PendingResponseNotice } from "./PendingResponseNotice.tsx";
 import { usePendingRequestCopy } from "./pending-request-copy.ts";
 import "./question-card.css";
@@ -26,7 +26,14 @@ interface QuestionUiState {
 }
 
 function initialState(): QuestionUiState {
-	return { picked: new Set<string>(), custom: "", customOpen: false, note: "", noteOpen: false, previewOpen: new Set<string>() };
+	return {
+		picked: new Set<string>(),
+		custom: "",
+		customOpen: false,
+		note: "",
+		noteOpen: false,
+		previewOpen: new Set<string>(),
+	};
 }
 
 export function QuestionDialog({
@@ -46,23 +53,29 @@ export function QuestionDialog({
 	const copy = usePendingRequestCopy();
 	const draft = controller?.questionDrafts.get(request.requestId);
 	const total = request.questions.length;
-	const [states, setStates] = useState<QuestionUiState[]>(() => draft?.states.length === total ? draft.states : request.questions.map(initialState));
+	const [states, setStates] = useState<QuestionUiState[]>(() =>
+		draft?.states.length === total ? draft.states : request.questions.map(initialState),
+	);
 	// 草稿晚到（弹卷挂载时 controller 还没存过，随后旧实例恢复/事件补写）：本地尚无任何作答
 	// 且草稿有内容时同步一次；用户已开始作答则不覆盖。
 	useLayoutEffect(() => {
 		if (!draft || draft.states.length !== total) return;
-		setStates((current) => current.some((s) => isAnswered(s)) ? current : draft.states);
-		setCurrent((value) => value === 0 && draft.current !== 0 ? draft.current : value);
+		setStates((current) => (current.some((s) => isAnswered(s)) ? current : draft.states));
+		setCurrent((value) => (value === 0 && draft.current !== 0 ? draft.current : value));
 		setCollapsed(draft.collapsed);
 	}, [draft]);
 	const [current, setCurrent] = useState(draft?.current ?? 0);
 	const [missing, setMissing] = useState<Set<number>>(draft?.missing ?? new Set());
 	const [collapsed, setCollapsed] = useState(draft?.collapsed ?? false);
-	useLayoutEffect(() => { controller?.saveQuestionDraft(request.requestId, { states, current, missing, collapsed }); }, [controller, request.requestId, states, current, missing, collapsed]);
+	useLayoutEffect(() => {
+		controller?.saveQuestionDraft(request.requestId, { states, current, missing, collapsed });
+	}, [controller, request.requestId, states, current, missing, collapsed]);
 	// 已答题号随作答/恢复草稿上报（R18）：小地图的实心/空心依据。
 	useLayoutEffect(() => {
 		const answered = new Set<number>();
-		states.forEach((state, index) => { if (isAnswered(state)) answered.add(index); });
+		states.forEach((state, index) => {
+			if (isAnswered(state)) answered.add(index);
+		});
 		onAnsweredChange?.(answered);
 	}, [states, onAnsweredChange]);
 
@@ -94,7 +107,10 @@ export function QuestionDialog({
 	}
 
 	function setCustom(index: number, text: string, multiSelect: boolean): void {
-		patch(index, { custom: text, ...(multiSelect ? {} : { picked: new Set<string>(), previewOpen: new Set<string>() }) });
+		patch(index, {
+			custom: text,
+			...(multiSelect ? {} : { picked: new Set<string>(), previewOpen: new Set<string>() }),
+		});
 	}
 
 	function togglePreview(index: number, label: string): void {
@@ -183,15 +199,23 @@ export function QuestionDialog({
 			<div className="owl-question-card__progress">
 				{!collapsed && question.header && (
 					<>
-						<span className="owl-question-card__topic" title={question.header}>{question.header}</span>
-						<span aria-hidden="true" className="owl-question-card__separator">·</span>
+						<span className="owl-question-card__topic" title={question.header}>
+							{question.header}
+						</span>
+						<span aria-hidden="true" className="owl-question-card__separator">
+							·
+						</span>
 					</>
 				)}
-				<span className="owl-question-card__step">
-					{t("question.progress", { i: qi + 1, n: total })}
-				</span>
-				{!collapsed && question.multiSelect && <span className="owl-question-card__multi-hint">{t("question.multiSelectHint")}</span>}
-				{collapsed && <span className="owl-question-card__summary" title={question.question}>{question.question}</span>}
+				<span className="owl-question-card__step">{t("question.progress", { i: qi + 1, n: total })}</span>
+				{!collapsed && question.multiSelect && (
+					<span className="owl-question-card__multi-hint">{t("question.multiSelectHint")}</span>
+				)}
+				{collapsed && (
+					<span className="owl-question-card__summary" title={question.question}>
+						{question.question}
+					</span>
+				)}
 				<div hidden={collapsed || total < 2} className="owl-question-card__steps">
 					{request.questions.map((q, i) => (
 						<button
@@ -225,14 +249,21 @@ export function QuestionDialog({
 			</div>
 			<div id={`${questionId}-body`} hidden={collapsed} className="owl-question-card__body">
 				<div className="owl-question-card__heading">
-					<p id={questionId} className="owl-question-card__question">{question.question}</p>
+					<p id={questionId} className="owl-question-card__question">
+						{question.question}
+					</p>
 				</div>
 				{unanswered && <p className="mt-1 text-xs text-owl-danger">{t("question.missingWarning")}</p>}
-				<div className="owl-question-card__options" role={question.multiSelect ? "group" : "radiogroup"} aria-labelledby={questionId}>
+				<div
+					className="owl-question-card__options"
+					role={question.multiSelect ? "group" : "radiogroup"}
+					aria-labelledby={questionId}
+				>
 					{question.options.map((option) => {
 						const picked = state.picked.has(option.label);
 						const previewVisible =
-							state.previewOpen.has(option.label) || (!question.multiSelect && picked && option.preview !== undefined);
+							state.previewOpen.has(option.label) ||
+							(!question.multiSelect && picked && option.preview !== undefined);
 						return (
 							<div key={option.label} className="owl-question-card__option">
 								<div
@@ -248,7 +279,15 @@ export function QuestionDialog({
 										pick(qi, option.label, question.multiSelect);
 									}}
 									onKeyDown={(event) => {
-										if (event.target !== event.currentTarget || event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing || event.repeat) return;
+										if (
+											event.target !== event.currentTarget ||
+											event.ctrlKey ||
+											event.metaKey ||
+											event.altKey ||
+											event.nativeEvent.isComposing ||
+											event.repeat
+										)
+											return;
 										if (event.key !== " " && event.key !== "Enter") return;
 										event.preventDefault();
 										event.stopPropagation();
@@ -265,13 +304,15 @@ export function QuestionDialog({
 									<span className="min-w-0 flex-1">
 										<span className="owl-question-card__option-label block">{option.label}</span>
 										{option.description && (
-											<span className="owl-question-card__description block text-owl-muted">{option.description}</span>
+											<span className="owl-question-card__description block text-owl-muted">
+												{option.description}
+											</span>
 										)}
 									</span>
 									{option.preview && (
 										<button
 											type="button"
-										className="owl-question-card__preview-toggle shrink-0 rounded border border-owl-border px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+											className="owl-question-card__preview-toggle shrink-0 rounded border border-owl-border px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover hover:text-owl-text"
 											onClick={(event) => {
 												event.stopPropagation();
 												togglePreview(qi, option.label);
@@ -298,7 +339,9 @@ export function QuestionDialog({
 						hidden={!customVisible}
 						id={`${questionId}-custom`}
 						className={`owl-question-card__custom flex cursor-pointer items-center gap-2 rounded-lg border transition-colors ${
-							state.custom.trim() !== "" ? "border-owl-accent bg-owl-accent/10" : "border-owl-border hover:bg-owl-hover"
+							state.custom.trim() !== ""
+								? "border-owl-accent bg-owl-accent/10"
+								: "border-owl-border hover:bg-owl-hover"
 						}`}
 						onClick={(event) => {
 							const input = event.currentTarget.querySelector("input");

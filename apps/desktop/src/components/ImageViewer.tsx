@@ -6,7 +6,12 @@ import "./image-viewer.css";
 export type ImageViewerItem = { src: string; alt: string };
 
 /** The native top layer and body portal keep images outside chat masks and scrolling containers. */
-export function ImageViewer({ images, index, onIndexChange, onClose }: {
+export function ImageViewer({
+	images,
+	index,
+	onIndexChange,
+	onClose,
+}: {
 	images: readonly ImageViewerItem[];
 	index: number;
 	onIndexChange: (index: number) => void;
@@ -41,7 +46,11 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 	const ready = Boolean(currentNatural) && failed !== source;
 	const gallery = images.length > 1;
 	const fitScale = currentNatural
-		? Math.min(1, Math.max(1, viewport.width - (gallery ? 128 : 48)) / currentNatural.width, Math.max(1, viewport.height - 48) / currentNatural.height)
+		? Math.min(
+				1,
+				Math.max(1, viewport.width - (gallery ? 128 : 48)) / currentNatural.width,
+				Math.max(1, viewport.height - 48) / currentNatural.height,
+			)
 		: 1;
 	const minScale = Math.min(0.1, fitScale);
 
@@ -70,7 +79,8 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 			element.removeEventListener("wheel", handleWheel);
 			if (element.open) element.close();
 			document.body.style.overflow = previousOverflow;
-			if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+			if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
+				previousFocus.focus({ preventScroll: true });
 		};
 	}, []);
 
@@ -97,7 +107,10 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 		if (!currentNatural) return;
 		if (fitted) {
 			setScale(fitScale);
-			if (stage.current) { stage.current.scrollLeft = 0; stage.current.scrollTop = 0; }
+			if (stage.current) {
+				stage.current.scrollLeft = 0;
+				stage.current.scrollTop = 0;
+			}
 		}
 	}, [fitted, fitScale, currentNatural]);
 
@@ -123,27 +136,64 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 		const imageBounds = picture.getBoundingClientRect();
 		const x = clientX ?? bounds.left + element.clientWidth / 2;
 		const y = clientY ?? bounds.top + element.clientHeight / 2;
-		anchor.current = { x: (x - imageBounds.left) / scale, y: (y - imageBounds.top) / scale, viewportX: x - bounds.left, viewportY: y - bounds.top };
+		anchor.current = {
+			x: (x - imageBounds.left) / scale,
+			y: (y - imageBounds.top) / scale,
+			viewportX: x - bounds.left,
+			viewportY: y - bounds.top,
+		};
 		setFitted(false);
 		setScale(next);
 	};
-	const fit = (): void => { anchor.current = undefined; setFitted(true); setScale(fitScale); if (stage.current) { stage.current.scrollLeft = 0; stage.current.scrollTop = 0; } };
-	const move = (offset: number): void => { const next = index + offset; if (next >= 0 && next < images.length) onIndexChange(next); };
+	const fit = (): void => {
+		anchor.current = undefined;
+		setFitted(true);
+		setScale(fitScale);
+		if (stage.current) {
+			stage.current.scrollLeft = 0;
+			stage.current.scrollTop = 0;
+		}
+	};
+	const move = (offset: number): void => {
+		const next = index + offset;
+		if (next >= 0 && next < images.length) onIndexChange(next);
+	};
 	keyboard.current = (event) => {
-		if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
-		if (event.key === "+" || event.key === "=") { event.preventDefault(); zoom(scale * 1.25); }
-		else if (event.key === "-") { event.preventDefault(); zoom(scale / 1.25); }
-		else if (event.key === "0") { event.preventDefault(); fit(); }
-		else if (event.key === "1") { event.preventDefault(); zoom(1); }
-		else if (event.key === "Home" || event.key === "End") {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			onCloseRef.current();
+			return;
+		}
+		if (event.key === "+" || event.key === "=") {
+			event.preventDefault();
+			zoom(scale * 1.25);
+		} else if (event.key === "-") {
+			event.preventDefault();
+			zoom(scale / 1.25);
+		} else if (event.key === "0") {
+			event.preventDefault();
+			fit();
+		} else if (event.key === "1") {
+			event.preventDefault();
+			zoom(1);
+		} else if (event.key === "Home" || event.key === "End") {
 			event.preventDefault();
 			const element = stage.current;
-			if (element) element.scrollTo({ top: event.key === "Home" ? 0 : Math.max(0, element.scrollHeight - element.clientHeight), behavior: "instant" });
-		}
-		else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.shiftKey && gallery) { event.preventDefault(); move(event.key === "ArrowLeft" ? -1 : 1); }
-		else if (event.key.startsWith("Arrow")) {
+			if (element)
+				element.scrollTo({
+					top: event.key === "Home" ? 0 : Math.max(0, element.scrollHeight - element.clientHeight),
+					behavior: "instant",
+				});
+		} else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !event.shiftKey && gallery) {
 			event.preventDefault();
-			stage.current?.scrollBy({ left: event.key === "ArrowLeft" ? -80 : event.key === "ArrowRight" ? 80 : 0, top: event.key === "ArrowUp" ? -80 : event.key === "ArrowDown" ? 80 : 0, behavior: "instant" });
+			move(event.key === "ArrowLeft" ? -1 : 1);
+		} else if (event.key.startsWith("Arrow")) {
+			event.preventDefault();
+			stage.current?.scrollBy({
+				left: event.key === "ArrowLeft" ? -80 : event.key === "ArrowRight" ? 80 : 0,
+				top: event.key === "ArrowUp" ? -80 : event.key === "ArrowDown" ? 80 : 0,
+				behavior: "instant",
+			});
 		}
 	};
 	wheel.current = (event) => {
@@ -154,32 +204,135 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 
 	if (!image) return null;
 	return createPortal(
-		<dialog ref={dialog} className="owl-image-viewer" aria-label={text("title")} aria-describedby={helpId} aria-modal="true"
-			onCancel={(event) => { event.preventDefault(); onCloseRef.current(); }}
-			onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+		<dialog
+			ref={dialog}
+			className="owl-image-viewer"
+			aria-label={text("title")}
+			aria-describedby={helpId}
+			aria-modal="true"
+			onCancel={(event) => {
+				event.preventDefault();
+				onCloseRef.current();
+			}}
+			onClick={(event) => event.stopPropagation()}
+			onPointerDown={(event) => event.stopPropagation()}
+			onWheel={(event) => event.stopPropagation()}
+			onKeyDown={(event) => event.stopPropagation()}
+		>
 			<header className="owl-image-viewer-toolbar">
-				<div className="owl-image-viewer-heading"><span>{text("title")}</span><span className="owl-image-viewer-count" aria-live="polite">{index + 1} / {images.length}</span></div>
-				<div className="owl-image-viewer-controls" role="group" aria-label={text("title")}>
-					<button type="button" onClick={() => zoom(scale / 1.25)} disabled={!ready || scale <= minScale} aria-label={text("zoomOut")} title={`${text("zoomOut")} (−)`}><svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg></button>
-					<output className="owl-image-viewer-scale" aria-live="polite">{Math.round(scale * 100)}%</output>
-					<button type="button" onClick={() => zoom(scale * 1.25)} disabled={!ready || scale >= 8} aria-label={text("zoomIn")} title={`${text("zoomIn")} (+)`}><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg></button>
-					<span className="owl-image-viewer-divider" />
-					<button type="button" className="owl-image-viewer-fit" onClick={fit} disabled={!ready} aria-pressed={fitted} aria-label={text("fit")} title={`${text("fit")} (0)`}><svg viewBox="0 0 24 24"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4" /></svg><span>{text("fit")}</span></button>
-					<button type="button" className="owl-image-viewer-actual" onClick={() => zoom(1)} disabled={!ready} aria-label={text("actual")} title={`${text("actual")} (1)`}>100%</button>
+				<div className="owl-image-viewer-heading">
+					<span>{text("title")}</span>
+					<span className="owl-image-viewer-count" aria-live="polite">
+						{index + 1} / {images.length}
+					</span>
 				</div>
-				<button ref={closeButton} type="button" className="owl-image-viewer-close" onClick={onClose} aria-label={text("close")} title={`${text("close")} (Esc)`}><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+				<div className="owl-image-viewer-controls" role="group" aria-label={text("title")}>
+					<button
+						type="button"
+						onClick={() => zoom(scale / 1.25)}
+						disabled={!ready || scale <= minScale}
+						aria-label={text("zoomOut")}
+						title={`${text("zoomOut")} (−)`}
+					>
+						<svg viewBox="0 0 24 24">
+							<path d="M5 12h14" />
+						</svg>
+					</button>
+					<output className="owl-image-viewer-scale" aria-live="polite">
+						{Math.round(scale * 100)}%
+					</output>
+					<button
+						type="button"
+						onClick={() => zoom(scale * 1.25)}
+						disabled={!ready || scale >= 8}
+						aria-label={text("zoomIn")}
+						title={`${text("zoomIn")} (+)`}
+					>
+						<svg viewBox="0 0 24 24">
+							<path d="M5 12h14M12 5v14" />
+						</svg>
+					</button>
+					<span className="owl-image-viewer-divider" />
+					<button
+						type="button"
+						className="owl-image-viewer-fit"
+						onClick={fit}
+						disabled={!ready}
+						aria-pressed={fitted}
+						aria-label={text("fit")}
+						title={`${text("fit")} (0)`}
+					>
+						<svg viewBox="0 0 24 24">
+							<path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4" />
+						</svg>
+						<span>{text("fit")}</span>
+					</button>
+					<button
+						type="button"
+						className="owl-image-viewer-actual"
+						onClick={() => zoom(1)}
+						disabled={!ready}
+						aria-label={text("actual")}
+						title={`${text("actual")} (1)`}
+					>
+						100%
+					</button>
+				</div>
+				<button
+					ref={closeButton}
+					type="button"
+					className="owl-image-viewer-close"
+					onClick={onClose}
+					aria-label={text("close")}
+					title={`${text("close")} (Esc)`}
+				>
+					<svg viewBox="0 0 24 24">
+						<path d="m6 6 12 12M18 6 6 18" />
+					</svg>
+				</button>
 			</header>
 			<div className="owl-image-viewer-workspace">
-				<div ref={stage} className="owl-image-viewer-stage" tabIndex={0} data-gallery={gallery || undefined} data-zoomed={ready && scale > fitScale + 0.001 || undefined}
-					onClick={(event) => { const blank = event.target === event.currentTarget || event.target instanceof HTMLElement && event.target.classList.contains("owl-image-viewer-canvas"); if (!dragged.current && backdropDown.current !== false && blank) onClose(); backdropDown.current = undefined; }}
-					onDoubleClick={(event) => { if (!dragged.current && (event.target === imageElement.current || imagePressed.current)) { if (fitted) zoom(Math.max(1, fitScale * 2), event.clientX, event.clientY); else fit(); } }}
+				<div
+					ref={stage}
+					className="owl-image-viewer-stage"
+					tabIndex={0}
+					data-gallery={gallery || undefined}
+					data-zoomed={(ready && scale > fitScale + 0.001) || undefined}
+					onClick={(event) => {
+						const blank =
+							event.target === event.currentTarget ||
+							(event.target instanceof HTMLElement &&
+								event.target.classList.contains("owl-image-viewer-canvas"));
+						if (!dragged.current && backdropDown.current !== false && blank) onClose();
+						backdropDown.current = undefined;
+					}}
+					onDoubleClick={(event) => {
+						if (!dragged.current && (event.target === imageElement.current || imagePressed.current)) {
+							if (fitted) zoom(Math.max(1, fitScale * 2), event.clientX, event.clientY);
+							else fit();
+						}
+					}}
 					onPointerDown={(event) => {
 						dragged.current = false;
 						imagePressed.current = event.target === imageElement.current;
-						backdropDown.current = event.target === event.currentTarget || event.target instanceof HTMLElement && event.target.classList.contains("owl-image-viewer-canvas");
+						backdropDown.current =
+							event.target === event.currentTarget ||
+							(event.target instanceof HTMLElement &&
+								event.target.classList.contains("owl-image-viewer-canvas"));
 						const element = event.currentTarget;
-						if (event.button !== 0 || element.scrollWidth <= element.clientWidth + 1 && element.scrollHeight <= element.clientHeight + 1) return;
-						drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, left: element.scrollLeft, top: element.scrollTop };
+						if (
+							event.button !== 0 ||
+							(element.scrollWidth <= element.clientWidth + 1 &&
+								element.scrollHeight <= element.clientHeight + 1)
+						)
+							return;
+						drag.current = {
+							pointer: event.pointerId,
+							x: event.clientX,
+							y: event.clientY,
+							left: element.scrollLeft,
+							top: element.scrollTop,
+						};
 						element.setPointerCapture(event.pointerId);
 						element.dataset.dragging = "true";
 						element.focus({ preventScroll: true });
@@ -191,19 +344,111 @@ export function ImageViewer({ images, index, onIndexChange, onClose }: {
 						event.currentTarget.scrollLeft = start.left - (event.clientX - start.x);
 						event.currentTarget.scrollTop = start.top - (event.clientY - start.y);
 					}}
-					onPointerUp={(event) => { drag.current = undefined; delete event.currentTarget.dataset.dragging; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
-					onPointerCancel={(event) => { drag.current = undefined; dragged.current = true; delete event.currentTarget.dataset.dragging; }}>
+					onPointerUp={(event) => {
+						drag.current = undefined;
+						delete event.currentTarget.dataset.dragging;
+						if (event.currentTarget.hasPointerCapture(event.pointerId))
+							event.currentTarget.releasePointerCapture(event.pointerId);
+					}}
+					onPointerCancel={(event) => {
+						drag.current = undefined;
+						dragged.current = true;
+						delete event.currentTarget.dataset.dragging;
+					}}
+				>
 					<div className="owl-image-viewer-canvas">
-						<img key={`${image.src}:${attempt}`} ref={imageElement} src={image.src} alt={image.alt} draggable={false} className="owl-image-viewer-image"
-							style={{ width: currentNatural ? currentNatural.width * scale : undefined, height: currentNatural ? currentNatural.height * scale : undefined, visibility: ready ? "visible" : "hidden" }}
-							onLoad={(event) => { const element = event.currentTarget; if (element !== imageElement.current || element.getAttribute("src") !== sourceRef.current) return; if (element.naturalWidth > 0 && element.naturalHeight > 0) setNatural({ source: image.src, width: element.naturalWidth, height: element.naturalHeight }); }}
-							onError={(event) => { if (event.currentTarget === imageElement.current) setFailed(image.src); }} />
+						<img
+							key={`${image.src}:${attempt}`}
+							ref={imageElement}
+							src={image.src}
+							alt={image.alt}
+							draggable={false}
+							className="owl-image-viewer-image"
+							style={{
+								width: currentNatural ? currentNatural.width * scale : undefined,
+								height: currentNatural ? currentNatural.height * scale : undefined,
+								visibility: ready ? "visible" : "hidden",
+							}}
+							onLoad={(event) => {
+								const element = event.currentTarget;
+								if (element !== imageElement.current || element.getAttribute("src") !== sourceRef.current)
+									return;
+								if (element.naturalWidth > 0 && element.naturalHeight > 0)
+									setNatural({
+										source: image.src,
+										width: element.naturalWidth,
+										height: element.naturalHeight,
+									});
+							}}
+							onError={(event) => {
+								if (event.currentTarget === imageElement.current) setFailed(image.src);
+							}}
+						/>
 					</div>
 				</div>
-				{!ready && <div className="owl-image-viewer-status" role="status">{failed === source ? <><span>{text("failed")}</span><button type="button" onClick={() => { setFailed(undefined); setNatural(undefined); setAttempt((value) => value + 1); }}>{text("retry")}</button></> : text("loading")}</div>}
-				{gallery && <><button type="button" className="owl-image-viewer-nav is-previous" onClick={() => move(-1)} disabled={index === 0} aria-label={text("previous")} title={text("previous")}><svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6" /></svg></button><button type="button" className="owl-image-viewer-nav is-next" onClick={() => move(1)} disabled={index === images.length - 1} aria-label={text("next")} title={text("next")}><svg viewBox="0 0 24 24"><path d="m10 6 6 6-6 6" /></svg></button></>}
+				{!ready && (
+					<div className="owl-image-viewer-status" role="status">
+						{failed === source ? (
+							<>
+								<span>{text("failed")}</span>
+								<button
+									type="button"
+									onClick={() => {
+										setFailed(undefined);
+										setNatural(undefined);
+										setAttempt((value) => value + 1);
+									}}
+								>
+									{text("retry")}
+								</button>
+							</>
+						) : (
+							text("loading")
+						)}
+					</div>
+				)}
+				{gallery && (
+					<>
+						<button
+							type="button"
+							className="owl-image-viewer-nav is-previous"
+							onClick={() => move(-1)}
+							disabled={index === 0}
+							aria-label={text("previous")}
+							title={text("previous")}
+						>
+							<svg viewBox="0 0 24 24">
+								<path d="m14 6-6 6 6 6" />
+							</svg>
+						</button>
+						<button
+							type="button"
+							className="owl-image-viewer-nav is-next"
+							onClick={() => move(1)}
+							disabled={index === images.length - 1}
+							aria-label={text("next")}
+							title={text("next")}
+						>
+							<svg viewBox="0 0 24 24">
+								<path d="m10 6 6 6-6 6" />
+							</svg>
+						</button>
+					</>
+				)}
 			</div>
-			<footer className="owl-image-viewer-footer" id={helpId}><span className="owl-image-viewer-help">{text("help")}{gallery && <span className="owl-image-viewer-gallery-help"> · {text("galleryHelp")}</span>}</span><span className="owl-image-viewer-compact-help">{text("compactHelp")}</span>{currentNatural && <span>{currentNatural.width} × {currentNatural.height}</span>}</footer>
-		</dialog>, document.body,
+			<footer className="owl-image-viewer-footer" id={helpId}>
+				<span className="owl-image-viewer-help">
+					{text("help")}
+					{gallery && <span className="owl-image-viewer-gallery-help"> · {text("galleryHelp")}</span>}
+				</span>
+				<span className="owl-image-viewer-compact-help">{text("compactHelp")}</span>
+				{currentNatural && (
+					<span>
+						{currentNatural.width} × {currentNatural.height}
+					</span>
+				)}
+			</footer>
+		</dialog>,
+		document.body,
 	);
 }

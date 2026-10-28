@@ -22,15 +22,28 @@ test("selects the latest unfinished running action before a pending action", () 
 });
 
 test("keeps only the last three settled actions in their original order", () => {
-	const actions = [action("old", "ok"), action("error", "error"), action("running", "running"), action("cancelled", "cancelled"), action("done", "ok")];
+	const actions = [
+		action("old", "ok"),
+		action("error", "error"),
+		action("running", "running"),
+		action("cancelled", "cancelled"),
+		action("done", "ok"),
+	];
 	const facts = workActionFacts(actions);
-	assert.deepEqual(facts.recent.map(({ key }) => key), ["error", "cancelled", "done"]);
+	assert.deepEqual(
+		facts.recent.map(({ key }) => key),
+		["error", "cancelled", "done"],
+	);
 	assert.equal(actions.length, 5);
 });
 
 test("a later unrelated success does not recover a failed operation", () => {
 	const failed = action("failed", "error");
-	const facts = workActionFacts([failed, action("other-path", "ok", '{"path":"src/other.tsx"}'), action("other-tool", "ok", failed.card.args, "write")]);
+	const facts = workActionFacts([
+		failed,
+		action("other-path", "ok", '{"path":"src/other.tsx"}'),
+		action("other-tool", "ok", failed.card.args, "write"),
+	]);
 	assert.deepEqual(facts.issues, [failed]);
 	assert.deepEqual(facts.recovered, []);
 });
@@ -82,7 +95,9 @@ test("every error remains reviewable even with non-zero shell output or a guard 
 
 test("cancelled and pending retries do not resolve issues and later errors remain issues", () => {
 	const failed = action("failed", "error");
-	assert.deepEqual(workActionFacts([failed, action("cancelled", "cancelled"), action("pending", "pending")]).issues, [failed]);
+	assert.deepEqual(workActionFacts([failed, action("cancelled", "cancelled"), action("pending", "pending")]).issues, [
+		failed,
+	]);
 	const laterFailed = action("later-failed", "error");
 	const facts = workActionFacts([failed, action("ok", "ok"), laterFailed]);
 	assert.deepEqual(facts.recovered, [failed]);
@@ -92,19 +107,30 @@ test("cancelled and pending retries do not resolve issues and later errors remai
 test("uses existing path summaries and recognizes only the complete project-check command", () => {
 	setUiLanguage("zh");
 	assert.equal(workActionTitle(action("read", "running").card), "读取 chat.tsx");
-	assert.equal(workActionTitle(action("check", "running", '{"command":"npm run check"}', "bash").card), "运行项目检查");
+	assert.equal(
+		workActionTitle(action("check", "running", '{"command":"npm run check"}', "bash").card),
+		"运行项目检查",
+	);
 	for (const command of ["npm run check && echo done", "echo npm run check", "npm\nrun\ncheck"]) {
 		const shell = action("shell", "running", JSON.stringify({ command }), "powershell").card;
 		const title = workActionTitle({ ...shell, summary: shell.name });
 		assert.notEqual(title, "运行项目检查");
-		assert.ok(title.includes(command.replace(/\s+/g, " ")), "the concrete command remains identifiable without opening raw details");
+		assert.ok(
+			title.includes(command.replace(/\s+/g, " ")),
+			"the concrete command remains identifiable without opening raw details",
+		);
 	}
 	const unknown = action("unknown", "running", "{}", "browser_custom");
 	assert.equal(workActionTitle(unknown.card), unknown.card.summary);
 });
 
 test("a meaningful shell summary remains the human title instead of being rebuilt from the raw command", () => {
-	const shell = action("shell", "running", '{"command":"git diff -- src/safe.ts && echo raw-command-detail"}', "bash").card;
+	const shell = action(
+		"shell",
+		"running",
+		'{"command":"git diff -- src/safe.ts && echo raw-command-detail"}',
+		"bash",
+	).card;
 	const summary = "核对 src/safe.ts 的代码差异";
 	assert.equal(workActionTitle({ ...shell, summary }), summary);
 	assert.ok(!workActionTitle({ ...shell, summary }).includes("raw-command-detail"));

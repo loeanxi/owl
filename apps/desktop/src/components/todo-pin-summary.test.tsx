@@ -1,10 +1,10 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { ChatEntry } from "../hooks/transcript.ts";
 import type { TodoItem } from "../hooks/todo.ts";
+import type { ChatEntry } from "../hooks/transcript.ts";
 import { setUiLanguage } from "../i18n/index.ts";
 import { TodoPin } from "./TodoPin.tsx";
 
@@ -32,15 +32,28 @@ afterEach(async () => {
 });
 
 async function render(todos: TodoItem[]): Promise<void> {
-	const entries: ChatEntry[] = [{ kind: "assistant", text: "", thinking: "", tools: [{ id: "todos", name: "todo", args: JSON.stringify({ todos }), summary: "更新任务清单", status: "ok" }] }];
+	const entries: ChatEntry[] = [
+		{
+			kind: "assistant",
+			text: "",
+			thinking: "",
+			tools: [{ id: "todos", name: "todo", args: JSON.stringify({ todos }), summary: "更新任务清单", status: "ok" }],
+		},
+	];
 	await act(async () => root.render(<TodoPin entries={entries} presentation="summary" />));
 }
 
 it("renders the actual current task and completed count, updates the open list and restores focus on Escape", async () => {
 	let activeElement: Element = document.body;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => activeElement });
-	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function(this: HTMLElement) { activeElement = this; });
-	const todos: TodoItem[] = [{ content: "已读取实现", status: "completed" }, { content: "核对取消状态", status: "in_progress" }, { content: "汇报结果", status: "pending" }];
+	vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+		activeElement = this;
+	});
+	const todos: TodoItem[] = [
+		{ content: "已读取实现", status: "completed" },
+		{ content: "核对取消状态", status: "in_progress" },
+		{ content: "汇报结果", status: "pending" },
+	];
 	await render(todos);
 	const trigger = host.querySelector<HTMLButtonElement>(".owl-todo-trigger")!;
 	expect(trigger.textContent).toContain("核对取消状态");

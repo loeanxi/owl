@@ -10,14 +10,14 @@
  * @module features/media/hub
  */
 
-import type { BridgeUiStatus } from "../../../../../packages/owl-media-bridge/src/bridge-runtime.ts";
-import type { MediaCommand } from "../../../../../packages/owl-media-bridge/src/domain/types.ts";
-import type { FavoriteEntry, ListeningEntry } from "../../../../../packages/owl-media-bridge/src/listening-memory.ts";
-import type { ListeningReport } from "../../../../../packages/owl-media-bridge/src/listening-report.ts";
-import type { BridgeSettingsPatch } from "../../../../../packages/owl-media-bridge/src/http.ts";
 import type {
 	BridgeUiDiagnostics,
+	BridgeUiStatus,
 } from "../../../../../packages/owl-media-bridge/src/bridge-runtime.ts";
+import type { MediaCommand } from "../../../../../packages/owl-media-bridge/src/domain/types.ts";
+import type { BridgeSettingsPatch } from "../../../../../packages/owl-media-bridge/src/http.ts";
+import type { FavoriteEntry, ListeningEntry } from "../../../../../packages/owl-media-bridge/src/listening-memory.ts";
+import type { ListeningReport } from "../../../../../packages/owl-media-bridge/src/listening-report.ts";
 
 export type { BridgeSettingsPatch, BridgeUiDiagnostics, BridgeUiStatus, MediaCommand };
 export type { PlayerOption } from "../../../../../packages/owl-media-bridge/src/domain/types.ts";
@@ -57,8 +57,7 @@ export const mediaApi = {
 	undo: (activityId: number): Promise<BridgeUiStatus> => post("/media-bridge/api/control/undo", { activityId }),
 	fade: (volumePercent: number, durationSeconds: number): Promise<BridgeUiStatus> =>
 		post("/media-bridge/api/volume/fade", { volumePercent, durationSeconds }),
-	report: (range: "today" | "week"): Promise<ListeningReport> =>
-		post("/media-bridge/api/listening/report", { range }),
+	report: (range: "today" | "week"): Promise<ListeningReport> => post("/media-bridge/api/listening/report", { range }),
 	history: (limit = 50): Promise<{ today: readonly ListeningEntry[]; recent: readonly ListeningEntry[] }> =>
 		post("/media-bridge/api/memory/history", { limit }),
 	favorites: (): Promise<{ favorites: readonly FavoriteEntry[] }> => post("/media-bridge/api/memory/favorites"),

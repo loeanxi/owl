@@ -58,9 +58,9 @@ Every SSE frame carries one JSON object on a `data:` line. Frames are separated 
 | Event | Fields | Notes |
 | --- | --- | --- |
 | `start` | — | Optional. |
-| `text_start` | `contentIndex` | Opens a text block. |
+| `text_start` | `contentIndex`, `citations?` | Opens a text block. |
 | `text_delta` | `contentIndex`, `delta` | Appends to the text block. |
-| `text_end` | `contentIndex`, `content`, `contentSignature?` | Closes the text block. |
+| `text_end` | `contentIndex`, `content`, `contentSignature?`, `citations?` | Closes the text block. |
 | `thinking_start` | `contentIndex`, `summaries?` | Opens a thinking block. |
 | `thinking_delta` | `contentIndex`, `delta` | Appends raw thinking text. |
 | `thinking_end` | `contentIndex`, `content`, `contentSignature?`, `redacted?`, `summaries?` | Closes the thinking block. |
@@ -124,6 +124,38 @@ function toPiSummary(summary: unknown): string[] {
 		.filter((text) => text.trim() !== "");
 }
 ```
+
+## Citations
+
+A gateway can forward citations so the answer shows inline markers and a
+sources panel, the way Claude Desktop does. `citations` is an array of
+objects:
+
+```json
+{
+  "type": "text_end",
+  "contentIndex": 0,
+  "content": "…",
+  "citations": [
+    { "title": "Example Domain", "url": "https://example.com/page", "source": "url_citation", "endIndex": 42 }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `title` | Source title (page title or document name). |
+| `url` | Source address. A document citation has none. |
+| `snippet` | The quoted passage. |
+| `startIndex` / `endIndex` | Character offsets **into the text of this block**. |
+| `source` | Provider's own citation type. |
+
+Two rules matter:
+
+- `endIndex` is only meaningful when `source` is `url_citation`. Anthropic's
+  `char_location` offsets point into the **source document**, not into the
+  answer, so the client must not use them as text anchors.
+- A citation needs a `title` or a `url`; entries with neither are dropped.
 
 ## What the gateway does not need to do
 

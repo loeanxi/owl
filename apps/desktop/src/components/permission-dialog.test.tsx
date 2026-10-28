@@ -1,10 +1,10 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PermissionRequest } from "../bridge/protocol.ts";
 import { PendingResponses, PendingResponsesContext } from "../bridge/pending-responses.ts";
+import type { PermissionRequest } from "../bridge/protocol.ts";
 import { setUiLanguage, t } from "../i18n/index.ts";
 import { PermissionDialog } from "./PermissionDialog.tsx";
 import { permissionDialogText as text } from "./permission-dialog-copy.ts";
@@ -24,7 +24,13 @@ let outerScroll: ReturnType<typeof vi.fn>;
 let frames: Map<number, FrameRequestCallback>;
 let frameId: number;
 
-const first: PermissionRequest = { type: "permission_request", requestId: "permission-one", sessionId: "conversation-one", toolName: "bash", input: { command: "git diff -- src/main.ts" } };
+const first: PermissionRequest = {
+	type: "permission_request",
+	requestId: "permission-one",
+	sessionId: "conversation-one",
+	toolName: "bash",
+	input: { command: "git diff -- src/main.ts" },
+};
 
 beforeEach(() => {
 	const dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
@@ -36,27 +42,68 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	frames = new Map(); frameId = 0;
-	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { const id = ++frameId; frames.set(id, callback); return id; });
+	frames = new Map();
+	frameId = 0;
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		const id = ++frameId;
+		frames.set(id, callback);
+		return id;
+	});
 	vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
 	active = null;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
-	dom.window.HTMLElement.prototype.focus = function (): void { active = this; };
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 600, height: 40, top: 0, left: 0, right: 600, bottom: 40, toJSON: () => ({}) });
-	// Linkedom reports -1 even for div[tabindex="0"]; browsers reflect the explicit value.
-	Object.defineProperty(dom.window.HTMLElement.prototype, "tabIndex", { configurable: true,
-		get() { const value = this.getAttribute("tabindex"); return value === null ? /^(BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(this.tagName) ? 0 : -1 : Number(value); },
-		set(value: number) { this.setAttribute("tabindex", String(value)); },
+	dom.window.HTMLElement.prototype.focus = function (): void {
+		active = this;
+	};
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 600,
+		height: 40,
+		top: 0,
+		left: 0,
+		right: 600,
+		bottom: 40,
+		toJSON: () => ({}),
 	});
-	Object.defineProperty(dom.window.HTMLElement.prototype, "open", { configurable: true, get() { return this.hasAttribute("open"); }, set(value: boolean) { if (value) this.setAttribute("open", ""); else this.removeAttribute("open"); } });
-	outerScroll = vi.fn(); dom.window.scrollTo = outerScroll;
+	// Linkedom reports -1 even for div[tabindex="0"]; browsers reflect the explicit value.
+	Object.defineProperty(dom.window.HTMLElement.prototype, "tabIndex", {
+		configurable: true,
+		get() {
+			const value = this.getAttribute("tabindex");
+			return value === null
+				? /^(BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY)$/.test(this.tagName)
+					? 0
+					: -1
+				: Number(value);
+		},
+		set(value: number) {
+			this.setAttribute("tabindex", String(value));
+		},
+	});
+	Object.defineProperty(dom.window.HTMLElement.prototype, "open", {
+		configurable: true,
+		get() {
+			return this.hasAttribute("open");
+		},
+		set(value: boolean) {
+			if (value) this.setAttribute("open", "");
+			else this.removeAttribute("open");
+		},
+	});
+	outerScroll = vi.fn();
+	dom.window.scrollTo = outerScroll;
 	controller = new PendingResponses();
-	decisions = vi.fn(); respond = vi.fn(async () => ({ ok: true })); confirmed = vi.fn();
+	decisions = vi.fn();
+	respond = vi.fn(async () => ({ ok: true }));
+	confirmed = vi.fn();
 	props = { request: first, workspace: "D:/projects/工业平台", contextLabel: "质量接口修复", onLater: vi.fn() };
 	setUiLanguage("zh");
 	host = dom.document.getElementById("root")!;
-	opener = document.createElement("button"); opener.textContent = "原始审批入口";
-	document.body.insertBefore(opener, host); opener.focus();
+	opener = document.createElement("button");
+	opener.textContent = "原始审批入口";
+	document.body.insertBefore(opener, host);
+	opener.focus();
 	root = createRoot(host);
 });
 
@@ -66,26 +113,56 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
-async function flush(): Promise<void> { await act(async () => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach((callback) => callback(0)); }); }
+async function flush(): Promise<void> {
+	await act(async () => {
+		const callbacks = [...frames.values()];
+		frames.clear();
+		callbacks.forEach((callback) => callback(0));
+	});
+}
 async function render(overrides: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...overrides };
 	const request = props.request;
-	await act(async () => root.render(<PendingResponsesContext.Provider value={controller}><PermissionDialog {...props} onDecide={(approved) => {
-		decisions(approved);
-		void controller.submit({ requestId: request.requestId, sessionId: request.sessionId, respond: () => respond(request.requestId, approved), confirmed });
-	}} /></PendingResponsesContext.Provider>));
+	await act(async () =>
+		root.render(
+			<PendingResponsesContext.Provider value={controller}>
+				<PermissionDialog
+					{...props}
+					onDecide={(approved) => {
+						decisions(approved);
+						void controller.submit({
+							requestId: request.requestId,
+							sessionId: request.sessionId,
+							respond: () => respond(request.requestId, approved),
+							confirmed,
+						});
+					}}
+				/>
+			</PendingResponsesContext.Provider>,
+		),
+	);
 	await flush();
 }
-function dialog(): HTMLElement { return host.querySelector<HTMLElement>(".owl-permission-dialog")!; }
-function body(): HTMLElement { return host.querySelector<HTMLElement>(".owl-permission-body")!; }
-function source(): HTMLDetailsElement { return host.querySelector<HTMLDetailsElement>(".owl-permission-source")!; }
+function dialog(): HTMLElement {
+	return host.querySelector<HTMLElement>(".owl-permission-dialog")!;
+}
+function body(): HTMLElement {
+	return host.querySelector<HTMLElement>(".owl-permission-body")!;
+}
+function source(): HTMLDetailsElement {
+	return host.querySelector<HTMLDetailsElement>(".owl-permission-source")!;
+}
 function button(label: string): HTMLButtonElement {
 	// 允许按钮带 Ctrl+Enter 快捷键标注，匹配前先剥离。
-	const result = [...host.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => (candidate.textContent ?? "").replace("Ctrl+Enter", "").trim() === label);
+	const result = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+		(candidate) => (candidate.textContent ?? "").replace("Ctrl+Enter", "").trim() === label,
+	);
 	if (!result) throw new Error(`Missing button ${label}`);
 	return result;
 }
-async function click(control: HTMLElement): Promise<void> { await act(async () => control.click()); }
+async function click(control: HTMLElement): Promise<void> {
+	await act(async () => control.click());
+}
 async function key(target: HTMLElement, value: string, shiftKey = false): Promise<Event> {
 	const event = new window.Event("keydown", { bubbles: true, cancelable: true });
 	Object.defineProperties(event, { key: { value }, shiftKey: { value: shiftKey } });
@@ -95,7 +172,8 @@ async function key(target: HTMLElement, value: string, shiftKey = false): Promis
 
 describe("Permission review presentation and original input", () => {
 	it("shows the complete command and project clearly without approving or initially focusing Allow", async () => {
-		const command = '  cd "D:/projects/超长项目/深层目录"\n' + 'echo "<保留> & 中文引号"\n'.repeat(40) + "COMMAND_TAIL_SENTINEL\n";
+		const command =
+			'  cd "D:/projects/超长项目/深层目录"\n' + 'echo "<保留> & 中文引号"\n'.repeat(40) + "COMMAND_TAIL_SENTINEL\n";
 		const workspace = "D:/projects/" + "很长的目录/".repeat(12) + "真实项目";
 		await render({ request: { ...first, input: { command } }, workspace });
 		expect(host.querySelector(".owl-permission-title")?.textContent).toBe("运行 Bash 命令");
@@ -116,21 +194,34 @@ describe("Permission review presentation and original input", () => {
 		expect(respond).not.toHaveBeenCalled();
 	});
 
-	it.each(["zh", "en"] as const)("keeps unknown JSON and HTML characters literal with unknown workspace in %s", async (language) => {
-		setUiLanguage(language);
-		const input = { payload: '<script>bad()</script> "引号" & <img src=x onerror=bad()>', path: "D:/" + "long/".repeat(50) + "最后文件.json", nested: { keep: [1, false, "多行\n原文"] } };
-		const toolName = 'unknown_tool"><img src=x>';
-		await render({ request: { ...first, toolName, input }, workspace: undefined });
-		expect(host.querySelector(".owl-permission-title")?.textContent).toBe(text("toolAction", { tool: toolName }));
-		expect(host.querySelector(".owl-permission-input-text")?.textContent).toBe(JSON.stringify(input, null, 2));
-		expect(host.querySelector(".owl-permission-raw-input")?.textContent).toBe(JSON.stringify(input, null, 2));
-		expect(host.querySelector("script, img, [onerror]")).toBeNull();
-		expect(host.querySelector(".owl-permission-workspace-name")?.textContent).toBe(language === "en" ? "Project directory unavailable" : "项目目录暂不可用");
-		expect(host.querySelector(".owl-permission-workspace-path")).toBeNull();
-	});
+	it.each(["zh", "en"] as const)(
+		"keeps unknown JSON and HTML characters literal with unknown workspace in %s",
+		async (language) => {
+			setUiLanguage(language);
+			const input = {
+				payload: '<script>bad()</script> "引号" & <img src=x onerror=bad()>',
+				path: "D:/" + "long/".repeat(50) + "最后文件.json",
+				nested: { keep: [1, false, "多行\n原文"] },
+			};
+			const toolName = 'unknown_tool"><img src=x>';
+			await render({ request: { ...first, toolName, input }, workspace: undefined });
+			expect(host.querySelector(".owl-permission-title")?.textContent).toBe(text("toolAction", { tool: toolName }));
+			expect(host.querySelector(".owl-permission-input-text")?.textContent).toBe(JSON.stringify(input, null, 2));
+			expect(host.querySelector(".owl-permission-raw-input")?.textContent).toBe(JSON.stringify(input, null, 2));
+			expect(host.querySelector("script, img, [onerror]")).toBeNull();
+			expect(host.querySelector(".owl-permission-workspace-name")?.textContent).toBe(
+				language === "en" ? "Project directory unavailable" : "项目目录暂不可用",
+			);
+			expect(host.querySelector(".owl-permission-workspace-path")).toBeNull();
+		},
+	);
 
 	it("labels edit text as a preview and makes all long original edits and hidden read fields available", async () => {
-		const input = { path: "D:/project/真实文件.ts", edits: [{ oldText: "旧".repeat(400) + "OLD_TAIL_SENTINEL", newText: "新".repeat(500) + "NEW_TAIL_SENTINEL" }], expectedVersion: "retain-this-field" };
+		const input = {
+			path: "D:/project/真实文件.ts",
+			edits: [{ oldText: "旧".repeat(400) + "OLD_TAIL_SENTINEL", newText: "新".repeat(500) + "NEW_TAIL_SENTINEL" }],
+			expectedVersion: "retain-this-field",
+		};
 		await render({ request: { ...first, toolName: "edit", input } });
 		expect(host.querySelector(".owl-permission-title")?.textContent).toBe("编辑 真实文件.ts");
 		expect(host.querySelector(".owl-permission-input-label")?.textContent).toBe(text("changePreview"));
@@ -141,7 +232,12 @@ describe("Permission review presentation and original input", () => {
 		expect(source().textContent).toContain("OLD_TAIL_SENTINEL");
 		expect(source().textContent).toContain("NEW_TAIL_SENTINEL");
 		expect(source().textContent).toContain("retain-this-field");
-		const read = { path: "D:/project/真实文件.ts", offset: 83, limit: 16, custom: { preserve: "READ_EXTRA_SENTINEL" } };
+		const read = {
+			path: "D:/project/真实文件.ts",
+			offset: 83,
+			limit: 16,
+			custom: { preserve: "READ_EXTRA_SENTINEL" },
+		};
 		await render({ request: { ...first, requestId: "read-request", toolName: "read", input: read } });
 		expect(host.querySelector(".owl-permission-input-text")?.textContent).toBe(read.path);
 		expect(host.querySelector(".owl-permission-raw-input")?.textContent).toBe(JSON.stringify(read, null, 2));
@@ -150,30 +246,42 @@ describe("Permission review presentation and original input", () => {
 });
 
 describe("Acknowledged permission decisions", () => {
-	it.each([true, false])("submits approved=%s once, keeps static button labels pending and retries the original decision", async (approved) => {
-		const pending = Promise.withResolvers<Response>();
-		respond.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ ok: true });
-		await render();
-		const label = t(approved ? "perm.allow" : "perm.deny");
-		await act(async () => { const control = button(label); control.click(); control.click(); });
-		expect(decisions).toHaveBeenCalledExactlyOnceWith(approved);
-		expect(respond).toHaveBeenCalledExactlyOnceWith("permission-one", approved);
-		expect(button(t("perm.allow")).disabled).toBe(true);
-		expect(button(t("perm.deny")).disabled).toBe(true);
-		expect(active).toBe(body());
-		expect(button(t("perm.allow")).textContent).toBe(t("perm.allow") + "Ctrl+Enter");
-		expect(button(t("perm.deny")).textContent).toBe(t("perm.deny"));
-		expect(host.querySelector('.owl-pending-feedback[role="status"]')?.textContent).toContain("等待提交确认");
-		await act(async () => pending.resolve({ ok: false, error: "拒绝不是允许：Host retained request" }));
-		await flush();
-		expect(host.querySelector('[role="alert"]')?.textContent).toContain("Host retained request");
-		expect(host.querySelector(".owl-permission-raw-input")?.textContent).toBe(JSON.stringify(first.input, null, 2));
-		expect(confirmed).not.toHaveBeenCalled();
-		await click(button("原样重试"));
-		expect(respond.mock.calls).toEqual([["permission-one", approved], ["permission-one", approved]]);
-		expect(confirmed).toHaveBeenCalledOnce();
-		expect(decisions).toHaveBeenCalledOnce();
-	});
+	it.each([true, false])(
+		"submits approved=%s once, keeps static button labels pending and retries the original decision",
+		async (approved) => {
+			const pending = Promise.withResolvers<Response>();
+			respond.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ ok: true });
+			await render();
+			const label = t(approved ? "perm.allow" : "perm.deny");
+			await act(async () => {
+				const control = button(label);
+				control.click();
+				control.click();
+			});
+			expect(decisions).toHaveBeenCalledExactlyOnceWith(approved);
+			expect(respond).toHaveBeenCalledExactlyOnceWith("permission-one", approved);
+			expect(button(t("perm.allow")).disabled).toBe(true);
+			expect(button(t("perm.deny")).disabled).toBe(true);
+			expect(active).toBe(body());
+			expect(button(t("perm.allow")).textContent).toBe(t("perm.allow") + "Ctrl+Enter");
+			expect(button(t("perm.deny")).textContent).toBe(t("perm.deny"));
+			expect(host.querySelector('.owl-pending-feedback[role="status"]')?.textContent).toContain("等待提交确认");
+			await act(async () => pending.resolve({ ok: false, error: "拒绝不是允许：Host retained request" }));
+			await flush();
+			expect(host.querySelector('[role="alert"]')?.textContent).toContain("Host retained request");
+			expect(host.querySelector(".owl-permission-raw-input")?.textContent).toBe(
+				JSON.stringify(first.input, null, 2),
+			);
+			expect(confirmed).not.toHaveBeenCalled();
+			await click(button("原样重试"));
+			expect(respond.mock.calls).toEqual([
+				["permission-one", approved],
+				["permission-one", approved],
+			]);
+			expect(confirmed).toHaveBeenCalledOnce();
+			expect(decisions).toHaveBeenCalledOnce();
+		},
+	);
 
 	it("uses Later and Escape only to defer, never as an allow or deny response", async () => {
 		await render();
@@ -190,16 +298,19 @@ describe("Acknowledged permission decisions", () => {
 		respond.mockReturnValueOnce(pending.promise);
 		const command = "echo original-line\n".repeat(200) + "COMPLETE_COMMAND_TAIL";
 		await render({ request: { ...first, input: { command } } });
-		const scroller = body(); const footer = host.querySelector(".owl-permission-foot")!;
+		const scroller = body();
+		const footer = host.querySelector(".owl-permission-foot")!;
 		scroller.scrollTop = 900;
-		await click(button(t("perm.deny"))); await flush();
+		await click(button(t("perm.deny")));
+		await flush();
 		expect(scroller.scrollTop).toBe(0);
 		expect(scroller.firstElementChild?.classList.contains("owl-pending-feedback")).toBe(true);
 		scroller.scrollTop = 700;
 		await render();
 		expect(scroller.scrollTop).toBe(700);
 		const error = "very-long-error <not-html>\n".repeat(120) + "ERROR_TAIL_SENTINEL";
-		await act(async () => pending.resolve({ ok: false, error })); await flush();
+		await act(async () => pending.resolve({ ok: false, error }));
+		await flush();
 		expect(scroller.scrollTop).toBe(0);
 		expect(scroller.firstElementChild?.getAttribute("role")).toBe("alert");
 		expect(scroller.querySelector('[role="alert"]')?.textContent).toContain(error);
@@ -214,7 +325,8 @@ describe("Acknowledged permission decisions", () => {
 describe("Permission focus and request ownership", () => {
 	it("traps Tab and Shift+Tab around body, native summary and footer while keeping the initial focus neutral", async () => {
 		await render();
-		const region = body(); const summary = source().querySelector<HTMLElement>("summary")!;
+		const region = body();
+		const summary = source().querySelector<HTMLElement>("summary")!;
 		const allow = button(t("perm.allow"));
 		expect(active).toBe(dialog());
 		const backwards = await key(dialog(), "Tab", true);
@@ -234,10 +346,13 @@ describe("Permission focus and request ownership", () => {
 	});
 
 	it("does not capture collapsed detail controls and includes them once native details opens", async () => {
-		const pending = Promise.withResolvers<Response>(); respond.mockReturnValueOnce(pending.promise);
+		const pending = Promise.withResolvers<Response>();
+		respond.mockReturnValueOnce(pending.promise);
 		await render({ onLater: undefined });
 		await click(button(t("perm.deny")));
-		const detailControl = document.createElement("button"); detailControl.textContent = "详情中的控件"; source().append(detailControl);
+		const detailControl = document.createElement("button");
+		detailControl.textContent = "详情中的控件";
+		source().append(detailControl);
 		const summary = source().querySelector<HTMLElement>("summary")!;
 		summary.focus();
 		expect((await key(summary, "Tab")).defaultPrevented).toBe(true);
@@ -253,11 +368,19 @@ describe("Permission focus and request ownership", () => {
 	});
 
 	it("resets reading state for a new request, ignores old request feedback and restores the original opener on final unmount", async () => {
-		const pending = Promise.withResolvers<Response>(); respond.mockReturnValueOnce(pending.promise).mockResolvedValue({ ok: true });
+		const pending = Promise.withResolvers<Response>();
+		respond.mockReturnValueOnce(pending.promise).mockResolvedValue({ ok: true });
 		await render();
 		await click(button(t("perm.deny")));
-		body().scrollTop = 400; source().open = true;
-		const next: PermissionRequest = { ...first, requestId: "permission-two", sessionId: "conversation-two", toolName: "read", input: { path: "D:/other/第二份材料.md", offset: 9 } };
+		body().scrollTop = 400;
+		source().open = true;
+		const next: PermissionRequest = {
+			...first,
+			requestId: "permission-two",
+			sessionId: "conversation-two",
+			toolName: "read",
+			input: { path: "D:/other/第二份材料.md", offset: 9 },
+		};
 		await render({ request: next, workspace: "D:/other" });
 		expect(body().scrollTop).toBe(0);
 		expect(source().hasAttribute("open")).toBe(false);
@@ -268,7 +391,10 @@ describe("Permission focus and request ownership", () => {
 		expect(host.querySelector('[role="alert"]')).toBeNull();
 		expect(button(t("perm.allow")).disabled).toBe(false);
 		await click(button(t("perm.allow")));
-		expect(respond.mock.calls).toEqual([["permission-one", false], ["permission-two", true]]);
+		expect(respond.mock.calls).toEqual([
+			["permission-one", false],
+			["permission-two", true],
+		]);
 		await act(async () => root.render(null));
 		expect(active).toBe(opener);
 	});
@@ -276,13 +402,18 @@ describe("Permission focus and request ownership", () => {
 
 describe("permission change preview and keyboard decision", () => {
 	const editRequest: PermissionRequest = {
-		type: "permission_request", requestId: "permission-edit", sessionId: "conversation-one", toolName: "edit",
+		type: "permission_request",
+		requestId: "permission-edit",
+		sessionId: "conversation-one",
+		toolName: "edit",
 		input: { path: "src/app.tsx", edits: [{ oldText: "旧的一行", newText: "新的实现" }] },
 	};
 
 	it("renders edit changes as a colored diff with honest truncation", async () => {
 		const oldText = Array.from({ length: 12 }, (_, i) => `旧第 ${i + 1} 行`).join("\n");
-		await render({ request: { ...editRequest, input: { path: "src/app.tsx", edits: [{ oldText, newText: "新的实现" }] } } });
+		await render({
+			request: { ...editRequest, input: { path: "src/app.tsx", edits: [{ oldText, newText: "新的实现" }] } },
+		});
 		const dels = [...host.querySelectorAll(".owl-permission-diff-del")];
 		const adds = [...host.querySelectorAll(".owl-permission-diff-add")];
 		// 每侧最多 8 行：删除侧截断且明示，新增侧完整。
@@ -296,7 +427,15 @@ describe("permission change preview and keyboard decision", () => {
 
 	it("clips long write content with an explicit size hint", async () => {
 		const content = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n");
-		await render({ request: { type: "permission_request", requestId: "permission-write", sessionId: "conversation-one", toolName: "write", input: { path: "scripts/setup.mjs", content } } });
+		await render({
+			request: {
+				type: "permission_request",
+				requestId: "permission-write",
+				sessionId: "conversation-one",
+				toolName: "write",
+				input: { path: "scripts/setup.mjs", content },
+			},
+		});
 		const pre = host.querySelector(".owl-permission-input-text")!;
 		expect(pre.textContent).toContain("line 15");
 		expect(pre.textContent).not.toContain("line 16");

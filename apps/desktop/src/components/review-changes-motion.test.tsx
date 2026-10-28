@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useReviewChangesMotion } from "./use-review-changes-motion.ts";
 
@@ -45,8 +45,12 @@ function MotionFixture({ collapsed }: { collapsed: boolean }): React.JSX.Element
 	const ref = useReviewChangesMotion(collapsed, "test-turn");
 	return (
 		<section ref={ref}>
-			<div className="owl-changes-item" ref={attachAnimation}>one.ts</div>
-			<div className="owl-changes-item" ref={attachAnimation}>two.ts</div>
+			<div className="owl-changes-item" ref={attachAnimation}>
+				one.ts
+			</div>
+			<div className="owl-changes-item" ref={attachAnimation}>
+				two.ts
+			</div>
 		</section>
 	);
 }
@@ -70,13 +74,22 @@ beforeEach(() => {
 		addEventListener: vi.fn((_type: string, listener: () => void) => mediaListeners.add(listener)),
 		removeEventListener: vi.fn((_type: string, listener: () => void) => mediaListeners.delete(listener)),
 	};
-	vi.stubGlobal("matchMedia", vi.fn(() => media));
-	vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
-		const id = ++nextFrame;
-		frames.set(id, callback);
-		return id;
-	}));
-	vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => frames.delete(id)));
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn(() => media),
+	);
+	vi.stubGlobal(
+		"requestAnimationFrame",
+		vi.fn((callback: FrameRequestCallback) => {
+			const id = ++nextFrame;
+			frames.set(id, callback);
+			return id;
+		}),
+	);
+	vi.stubGlobal(
+		"cancelAnimationFrame",
+		vi.fn((id: number) => frames.delete(id)),
+	);
 	vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
 	animate = vi.fn((_keyframes, _options) => {
 		const animation: TestAnimation = { cancel: vi.fn(), onfinish: null };
@@ -98,7 +111,15 @@ async function render(collapsed: boolean): Promise<HTMLElement> {
 	await act(async () => root.render(<MotionFixture collapsed={collapsed} />));
 	const card = container.querySelector<HTMLElement>("section")!;
 	vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
-		x: 10, y: 20, left: 10, top: 20, right: 410, bottom: 100, width: 400, height: 80, toJSON: () => ({}),
+		x: 10,
+		y: 20,
+		left: 10,
+		top: 20,
+		right: 410,
+		bottom: 100,
+		width: 400,
+		height: 80,
+		toJSON: () => ({}),
 	});
 	return card;
 }
@@ -189,7 +210,9 @@ describe("review changes motion", () => {
 		expect(cancelAnimationFrame).toHaveBeenCalled();
 		expect(observers[0].disconnect).toHaveBeenCalledOnce();
 		expect(mediaListeners.size).toBe(0);
-		expect(removeCard.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(["pointerenter", "pointermove", "pointerleave"]));
+		expect(removeCard.mock.calls.map(([type]) => type)).toEqual(
+			expect.arrayContaining(["pointerenter", "pointermove", "pointerleave"]),
+		);
 		expect(removeDocument).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
 		expect(removeWindow).toHaveBeenCalledWith("resize", expect.any(Function));
 		expect(removeWindow).toHaveBeenCalledWith("scroll", expect.any(Function), true);

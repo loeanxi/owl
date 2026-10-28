@@ -1,15 +1,36 @@
 /* Keep the reading column and chrome proportional to the space left by panels. */
+/* 顶栏悬浮：不再占布局行，浮在对话区上方。头部本体 pointer-events: none，
+   整条透明带上的滚轮与文字选择照常穿到下面的对话区；只有标题块和按钮组恢复
+   可交互（否则悬浮头会变成一条 44px 的鼠标黑洞）。顶部铺一道从面板色到透明的
+   渐变，内容滚到顶时从标题下方淡出，平时与背景同色看不出来。 */
 .owl-desktop-shell .owl-main-frame > .owl-chat-header,
 .owl-desktop-shell .owl-agent-conversation > .owl-chat-header {
+	position: absolute;
+	inset: 0 0 auto 0;
+	z-index: 17;
 	grid-template-columns: minmax(0, 1fr) auto auto;
-	height: 60px;
-	min-height: 60px;
-	flex-basis: 60px;
-	gap: 12px;
-	padding: 0 20px;
+	height: var(--owl-chat-header-h, 44px);
+	min-height: var(--owl-chat-header-h, 44px);
+	flex-basis: auto;
+	gap: 10px;
+	padding: 0 14px;
+	pointer-events: none;
+	border-bottom: 0;
+	background: linear-gradient(
+		to bottom,
+		var(--owl-conversation-bg, var(--color-owl-bg)) 58%,
+		color-mix(in srgb, var(--owl-conversation-bg, var(--color-owl-bg)) 55%, transparent) 82%,
+		transparent
+	);
+}
+
+/* 头部内各块恢复指针：视图切换、动作按钮、标题与铅笔都要能点。 */
+.owl-desktop-shell .owl-chat-header > :is(.owl-shell-header-info, .owl-view-tabs, .owl-shell-header-actions) {
+	pointer-events: auto;
 }
 
 .owl-desktop-shell .owl-chat-header .owl-shell-header-info {
+	justify-self: start;
 	gap: 8px;
 }
 
@@ -33,8 +54,18 @@
 	grid-row: 1;
 }
 
+/* 顶栏已抽离文档流，滚动区自己让出它的高度，首条消息从标题下沿开始。 */
 .owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
-	padding: 28px clamp(20px, 4cqw, 48px) 24px;
+	padding: calc(var(--owl-chat-header-h, 44px) + 8px) clamp(20px, 4cqw, 48px) 24px;
+}
+
+/* 任务摘要条（TodoPin 的 summary 形态）也浮在顶栏下方。它不占布局行，
+   但会盖住首条消息，所以滚动区要多让出它的高度。
+   摘要条挂在 .owl-agent-conversation 的 header 插槽里（聊天滚动区是它的兄弟），
+   所以判据写在会话容器上。不在场时不额外留白。
+   让位高度与 todo-pin-summary.css 里摘要条的偏移保持一致（顶栏下沿 + 条高 + 间距）。 */
+.owl-desktop-shell .owl-agent-conversation:has(> .owl-todo-anchor[data-presentation="summary"]) .owl-chat-scroll {
+	padding-top: calc(var(--owl-chat-header-h, 44px) + 8px + 36px);
 }
 
 .owl-desktop-shell .owl-chat-surface:has(.owl-chat-minimap) .owl-chat-scroll {
@@ -63,29 +94,40 @@
 @container owl-conversation (max-width: 660px) {
 	.owl-desktop-shell .owl-main-frame > .owl-chat-header,
 	.owl-desktop-shell .owl-agent-conversation > .owl-chat-header {
-		grid-template-columns: minmax(0, 1fr) auto;
-		height: auto;
-		min-height: 88px;
-		flex-basis: auto;
-		gap: 8px 12px;
-		padding: 12px 16px;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		gap: 6px;
+		padding: 0 10px;
 	}
 
-	.owl-desktop-shell .owl-chat-header .owl-shell-header-actions {
-		grid-column: 2;
-		grid-row: 1;
+	.owl-desktop-shell .owl-chat-header .owl-shell-preset-tag {
+		display: none;
 	}
+}
 
-	.owl-desktop-shell .owl-chat-header .owl-view-tabs {
-		grid-column: 1 / -1;
-		grid-row: 2;
-		justify-self: start;
-	}
+/* 上下文 / 轨迹视图也住在这块区域里，同样让出悬浮头的首屏高度。
+   （内边距随内容滚动，滚下去后内容会从头部渐变下穿过。） */
+.owl-desktop-shell .owl-agent-conversation .ctx-root {
+	padding-top: calc(var(--owl-chat-header-h, 44px) + 6px);
+}
+
+.owl-desktop-shell .owl-agent-conversation .owl-trajectory-toolbar {
+	padding-top: calc(var(--owl-chat-header-h, 44px) + 6px);
+}
+
+/* 左侧阅读缩略图从顶部通到底，悬浮头会盖住它上半截；顶部从头部下沿开始。 */
+.owl-desktop-shell .owl-chat-minimap {
+	top: calc(var(--owl-chat-header-h, 44px) + 8px);
+}
+
+/* 研究页不用 ConversationHeader，顶部是它自己的提示词工具条：同样让出头部高度，
+   否则右侧按钮会被悬浮头的图标组盖住。 */
+.owl-desktop-shell .owl-main-frame .research-prompt-toolbar {
+	padding-top: calc(var(--owl-chat-header-h, 44px) + 6px);
 }
 
 @container owl-chat (max-width: 520px) {
 	.owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
-		padding: 20px 16px;
+		padding: calc(var(--owl-chat-header-h, 44px) + 4px) 16px 16px;
 		scrollbar-gutter: auto;
 	}
 
@@ -118,7 +160,7 @@
 
 @media (max-height: 720px) {
 	.owl-desktop-shell .owl-chat-surface .owl-chat-scroll {
-		padding-top: 16px;
+		padding-top: var(--owl-chat-header-h, 44px);
 		padding-bottom: 16px;
 	}
 

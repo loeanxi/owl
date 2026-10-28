@@ -136,7 +136,12 @@ export function parseGuideChapter(meta: GuideChapterMeta, raw: string): GuideCha
 				key: `${no}.${tipMatch[1]}`,
 				title: tipMatch[2].trim(),
 				tags: [],
-				cost: "", plain: "", benefit: "", grade: "", sources: "", remark: "",
+				cost: "",
+				plain: "",
+				benefit: "",
+				grade: "",
+				sources: "",
+				remark: "",
 			};
 			drafts.push(tip);
 			field = undefined;
@@ -155,12 +160,18 @@ export function parseGuideChapter(meta: GuideChapterMeta, raw: string): GuideCha
 		}
 		const fieldMatch = FIELD_RE.exec(line);
 		if (fieldMatch) {
-			field = fieldMatch[1] === "成本" ? "cost"
-				: fieldMatch[1] === "说人话" ? "plain"
-				: fieldMatch[1] === "收益" ? "benefit"
-				: fieldMatch[1] === "证据等级" ? "grade"
-				: fieldMatch[1] === "来源" ? "sources"
-				: "remark";
+			field =
+				fieldMatch[1] === "成本"
+					? "cost"
+					: fieldMatch[1] === "说人话"
+						? "plain"
+						: fieldMatch[1] === "收益"
+							? "benefit"
+							: fieldMatch[1] === "证据等级"
+								? "grade"
+								: fieldMatch[1] === "来源"
+									? "sources"
+									: "remark";
 			append(fieldMatch[2].trim());
 			continue;
 		}
@@ -168,7 +179,8 @@ export function parseGuideChapter(meta: GuideChapterMeta, raw: string): GuideCha
 		append(line.trim());
 	}
 
-	const gradeOf = (value: string): GuideTip["grade"] => /^[ABC]/.test(value.trim()) ? (value.trim().charAt(0) as GuideTip["grade"]) : "C";
+	const gradeOf = (value: string): GuideTip["grade"] =>
+		/^[ABC]/.test(value.trim()) ? (value.trim().charAt(0) as GuideTip["grade"]) : "C";
 	const tips: GuideTip[] = drafts.map((draft) => ({
 		...draft,
 		grade: gradeOf(draft.grade),
@@ -178,22 +190,28 @@ export function parseGuideChapter(meta: GuideChapterMeta, raw: string): GuideCha
 }
 
 /** 逐章抓取；单章失败不影响其他章，返回成功解析的章节（按章号排序）与失败数。 */
-export async function fetchGuideChapters(onProgress?: (done: number, total: number) => void): Promise<{ chapters: GuideChapter[]; failed: number }> {
+export async function fetchGuideChapters(
+	onProgress?: (done: number, total: number) => void,
+): Promise<{ chapters: GuideChapter[]; failed: number }> {
 	const total = GUIDE_CHAPTERS.length;
 	let done = 0;
-	const settled = await Promise.all(GUIDE_CHAPTERS.map(async (meta) => {
-		try {
-			const response = await fetch(GUIDE_RAW_BASE + encodeURIComponent(`${meta.file}.md`), { signal: AbortSignal.timeout(30000) });
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
-			const raw = await response.text();
-			return parseGuideChapter(meta, raw);
-		} catch {
-			return undefined;
-		} finally {
-			done += 1;
-			onProgress?.(done, total);
-		}
-	}));
+	const settled = await Promise.all(
+		GUIDE_CHAPTERS.map(async (meta) => {
+			try {
+				const response = await fetch(GUIDE_RAW_BASE + encodeURIComponent(`${meta.file}.md`), {
+					signal: AbortSignal.timeout(30000),
+				});
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const raw = await response.text();
+				return parseGuideChapter(meta, raw);
+			} catch {
+				return undefined;
+			} finally {
+				done += 1;
+				onProgress?.(done, total);
+			}
+		}),
+	);
 	const chapters = settled.filter((chapter): chapter is GuideChapter => Boolean(chapter)).sort((a, b) => a.no - b.no);
 	return { chapters, failed: total - chapters.length };
 }

@@ -1,0 +1,360 @@
+/**
+ * 产物页。
+ *
+ * 形态对着 Claude Desktop 的 artifact page：产物本体占主区，页底一条 composer，
+ * 回答以短摘录内联回显。颜色走 owl 的主题层 `--color-owl-*` 变量
+ * （工作台内部把它们映射到自己的面板色），不另起一套。
+ */
+
+.owl-artifact {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	flex-direction: column;
+	overflow: hidden;
+	color: var(--color-owl-text);
+}
+
+/* ---- 头部 ---- */
+
+.owl-artifact-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--color-owl-border);
+	font-size: 12px;
+}
+
+.owl-artifact-kind {
+	flex: none;
+	padding: 0 5px;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--color-owl-text) 8%, transparent);
+	color: var(--color-owl-muted);
+	font-size: 11px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.owl-artifact-kind[data-kind="chart"] {
+	background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent);
+	color: var(--color-owl-accent);
+}
+
+.owl-artifact-kind[data-kind="table"] {
+	background: color-mix(in srgb, var(--color-owl-success) 14%, transparent);
+	color: var(--color-owl-success);
+}
+
+.owl-artifact-title {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-artifact-path {
+	min-width: 0;
+	max-width: 40%;
+	overflow: hidden;
+	color: var(--color-owl-muted);
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 11px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---- 视图切换（产物 / 对话）---- */
+
+.owl-artifact-modes {
+	display: flex;
+	flex: none;
+	gap: 2px;
+	padding: 2px;
+	border-radius: 7px;
+	background: color-mix(in srgb, var(--color-owl-text) 6%, transparent);
+}
+
+.owl-artifact-mode {
+	padding: 2px 8px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font-size: 11px;
+	line-height: 16px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.owl-artifact-mode:hover {
+	color: var(--color-owl-text);
+}
+
+.owl-artifact-mode.is-active {
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+}
+
+/* ---- 主体 ---- */
+
+.owl-artifact-body {
+	min-height: 0;
+	flex: 1;
+	overflow: auto;
+	padding: 10px 12px;
+}
+
+.owl-artifact-note {
+	margin: 12px 0;
+	color: var(--color-owl-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	text-align: center;
+}
+
+.owl-artifact-note.is-error {
+	color: var(--owl-ui-danger, #d48080);
+	text-align: left;
+}
+
+/* ---- 文件产物 ---- */
+
+.owl-artifact-file {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.owl-artifact-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+}
+
+.owl-artifact-text {
+	margin: 0;
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: var(--color-owl-sidebar);
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 11px;
+	line-height: 1.6;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.owl-artifact-file-actions {
+	display: flex;
+	flex: none;
+	gap: 6px;
+}
+
+.owl-artifact-file-actions button {
+	padding: 2px 8px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font-size: 11px;
+	line-height: 16px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.owl-artifact-file-actions button:hover {
+	background: var(--color-owl-hover);
+	color: var(--color-owl-text);
+}
+
+/* ---- 对话线程 ---- */
+
+.owl-artifact-thread {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.owl-artifact-turn {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.owl-artifact-turn.is-user {
+	align-items: flex-end;
+}
+
+.owl-artifact-bubble {
+	max-width: 85%;
+	padding: 4px 9px;
+	border-radius: 12px 12px 4px 12px;
+	background: var(--color-owl-bubble);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.owl-artifact-answer {
+	min-width: 0;
+	font-size: 12px;
+	line-height: 1.7;
+	overflow-wrap: anywhere;
+}
+
+.owl-artifact-answer p {
+	margin: 0 0 6px;
+}
+
+.owl-artifact-answer p:last-child {
+	margin-bottom: 0;
+}
+
+.owl-artifact-tool {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--color-owl-muted);
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.owl-artifact-tool-mark {
+	color: var(--color-owl-success);
+}
+
+.owl-artifact-tool-mark.is-error {
+	color: var(--owl-ui-danger, #d48080);
+}
+
+/* ---- 内联回执（Claude 的 "Claude's reply"）---- */
+
+.owl-artifact-reply {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	gap: 3px;
+	margin: 0 8px 6px;
+	padding: 7px 9px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--color-owl-text) 4%, transparent);
+}
+
+.owl-artifact-reply-label {
+	color: var(--color-owl-muted);
+	font-size: 10px;
+	line-height: 14px;
+}
+
+.owl-artifact-reply-text {
+	margin: 0;
+	color: var(--color-owl-muted);
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.owl-artifact-reply-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 2px;
+}
+
+.owl-artifact-reply-action {
+	padding: 1px 7px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 5px;
+	background: transparent;
+	color: var(--color-owl-muted);
+	font-size: 11px;
+	line-height: 16px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.owl-artifact-reply-action:hover {
+	background: var(--color-owl-hover);
+	color: var(--color-owl-text);
+}
+
+/* ---- 页底 composer ---- */
+
+.owl-artifact-composer {
+	display: flex;
+	flex: none;
+	align-items: flex-end;
+	gap: 6px;
+	padding: 8px;
+	border-top: 1px solid var(--color-owl-border);
+}
+
+.owl-artifact-input {
+	min-height: 30px;
+	max-height: 120px;
+	flex: 1;
+	resize: none;
+	padding: 6px 9px;
+	border: 1px solid var(--color-owl-border);
+	border-radius: 8px;
+	background: var(--color-owl-panel);
+	color: var(--color-owl-text);
+	font-family: var(--font-sans);
+	font-size: 12px;
+	line-height: 1.5;
+	outline: none;
+}
+
+.owl-artifact-input:focus {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 60%, transparent);
+}
+
+.owl-artifact-input:disabled {
+	opacity: 0.6;
+}
+
+.owl-artifact-send {
+	display: flex;
+	width: 28px;
+	height: 28px;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 50%;
+	background: var(--color-owl-accent);
+	color: #fff;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.owl-artifact-send:hover:not(:disabled) {
+	background: var(--color-owl-accent-hover, var(--color-owl-accent));
+}
+
+.owl-artifact-send:disabled {
+	cursor: not-allowed;
+	opacity: 0.4;
+}
+
+/* ---- 产物不在了 ---- */
+
+.owl-artifact-empty {
+	display: flex;
+	height: 100%;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	color: var(--color-owl-muted);
+	font-size: 12px;
+	text-align: center;
+}

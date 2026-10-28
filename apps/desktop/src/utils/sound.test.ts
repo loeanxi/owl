@@ -12,8 +12,13 @@ class FakeGain {
 	gain = new FakeParam();
 	connectedTo: unknown[] = [];
 	disconnected = false;
-	connect(node: unknown) { this.connectedTo.push(node); return node; }
-	disconnect() { this.disconnected = true; }
+	connect(node: unknown) {
+		this.connectedTo.push(node);
+		return node;
+	}
+	disconnect() {
+		this.disconnected = true;
+	}
 }
 
 class FakeOscillator {
@@ -32,8 +37,16 @@ class FakeAudioContext {
 	state = "running";
 	destination = { name: "destination" };
 	resume = vi.fn(async () => {});
-	createGain() { const gain = new FakeGain(); gains.push(gain); return gain; }
-	createOscillator() { const oscillator = new FakeOscillator(); oscillators.push(oscillator); return oscillator; }
+	createGain() {
+		const gain = new FakeGain();
+		gains.push(gain);
+		return gain;
+	}
+	createOscillator() {
+		const oscillator = new FakeOscillator();
+		oscillators.push(oscillator);
+		return oscillator;
+	}
 }
 
 beforeEach(() => {

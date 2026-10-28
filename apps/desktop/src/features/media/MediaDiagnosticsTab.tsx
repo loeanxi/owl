@@ -5,8 +5,8 @@
  */
 
 import { useState } from "react";
-import { useT, type TextKey } from "../../i18n/index.ts";
-import { mediaApi, type BridgeUiDiagnostics } from "./hub.ts";
+import { type TextKey, useT } from "../../i18n/index.ts";
+import { type BridgeUiDiagnostics, mediaApi } from "./hub.ts";
 
 const CHECK_LABEL_KEYS: Record<string, TextKey> = {
 	"player-configured": "media.diag.check.player",
@@ -52,7 +52,12 @@ export function MediaDiagnosticsTab({ active }: { active: boolean }): React.JSX.
 	return (
 		<div className="owl-media-diag">
 			<div className="owl-media-diag-bar">
-				<button type="button" className="owl-media-primary-btn" disabled={running || !active} onClick={() => void run()}>
+				<button
+					type="button"
+					className="owl-media-primary-btn"
+					disabled={running || !active}
+					onClick={() => void run()}
+				>
 					{running ? t("media.diag.running") : t("media.diag.run")}
 				</button>
 				{result !== undefined && (
@@ -68,9 +73,17 @@ export function MediaDiagnosticsTab({ active }: { active: boolean }): React.JSX.
 						{result.checks.map((check) => (
 							<div key={check.id} className="owl-media-check">
 								<span className={`owl-media-check-ico is-${check.state}`}>
-									{check.state === "pass" ? "✓" : check.state === "warn" ? "!" : check.state === "info" ? "i" : "✕"}
+									{check.state === "pass"
+										? "✓"
+										: check.state === "warn"
+											? "!"
+											: check.state === "info"
+												? "i"
+												: "✕"}
 								</span>
-								<span className="owl-media-check-label">{t(CHECK_LABEL_KEYS[check.id] ?? "media.diag.check.player")}</span>
+								<span className="owl-media-check-label">
+									{t(CHECK_LABEL_KEYS[check.id] ?? "media.diag.check.player")}
+								</span>
 								{check.detail !== undefined && <span className="owl-media-check-detail">{check.detail}</span>}
 							</div>
 						))}

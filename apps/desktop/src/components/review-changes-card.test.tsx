@@ -1,11 +1,11 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BridgeClient } from "../bridge/client.ts";
 import type { DesktopClientRequestWithoutId, DiffApprovalFileSummary } from "../bridge/protocol.ts";
-import { getFileIconTheme, setFileIconTheme, type FileIconThemeId } from "../file-icons/file-icon-theme.ts";
+import { type FileIconThemeId, getFileIconTheme, setFileIconTheme } from "../file-icons/file-icon-theme.ts";
 import type { FileArtifact } from "../hooks/artifacts.ts";
 import { getUiLanguageSetting, setUiLanguage, setUiLanguageSetting, t } from "../i18n/index.ts";
 import { consumeEditorDiffFocus, peekEditorDiffFocus } from "../sidebar/editor-diff-focus.ts";
@@ -88,6 +88,14 @@ beforeEach(() => {
 				result = {
 					diff: "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n-old-value\n+new-value\n",
 					truncated: false,
+				};
+			else if (request.type === "diffApproval.diffs")
+				result = {
+					diffs: request.entryIds.map((id) => ({
+						id,
+						diff: "diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@ -1 +1 @@\n-old-value\n+new-value\n",
+						truncated: false,
+					})),
 				};
 			else if (request.type === "diffApproval.preview")
 				result = {
@@ -190,9 +198,11 @@ describe("review changes card presentation and actions", () => {
 		await render();
 		const firstRow = container.querySelector(".owl-changes-item")!;
 		await click(button(t("chat.reviewCta"), firstRow));
-		expect(calls.filter((request) => request.type === "diffApproval.diff")).toEqual([
-			{ type: "diffApproval.diff", cwd: "D:/project", entryId: "operation-0" },
+		// 取 diff 走批量请求：一次往返顶多个条目，不再一个改动一个请求。
+		expect(calls.filter((request) => request.type === "diffApproval.diffs")).toEqual([
+			{ type: "diffApproval.diffs", cwd: "D:/project", entryIds: ["operation-0"] },
 		]);
+		expect(calls.filter((request) => request.type === "diffApproval.diff")).toEqual([]);
 		expect(firstRow.textContent).toContain("new-value");
 		await click(button("仅撤销本轮改动"));
 		expect(calls.find((request) => request.type === "diffApproval.preview")).toMatchObject({

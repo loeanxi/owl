@@ -10,11 +10,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n/index.ts";
-import { refreshMediaStatus, type BridgeUiStatus, type MediaHubSnapshot } from "./hub.ts";
-import { useExtrapolatedPosition, useMediaCommands, useMediaHubSnapshot } from "./use-media.ts";
-import { MediaMemoryTab } from "./MediaMemoryTab.tsx";
+import { type BridgeUiStatus, type MediaHubSnapshot, refreshMediaStatus } from "./hub.ts";
 import { MediaDiagnosticsTab } from "./MediaDiagnosticsTab.tsx";
+import { MediaMemoryTab } from "./MediaMemoryTab.tsx";
 import { MediaSettingsTab } from "./MediaSettingsTab.tsx";
+import { useExtrapolatedPosition, useMediaCommands, useMediaHubSnapshot } from "./use-media.ts";
 import "./media.css";
 
 type MediaTab = "playing" | "memory" | "diagnostics" | "settings";
@@ -67,9 +67,7 @@ export function MediaView({ active }: { active: boolean }): React.JSX.Element {
 				</div>
 			</div>
 
-			{(banner !== undefined || error !== undefined) && (
-				<div className="owl-media-banner">{banner ?? error}</div>
-			)}
+			{(banner !== undefined || error !== undefined) && <div className="owl-media-banner">{banner ?? error}</div>}
 
 			{tab === "playing" && <PlayerTab status={status} position={position} commands={commands} />}
 			{tab === "memory" && <MediaMemoryTab active={active} />}
@@ -103,7 +101,8 @@ function PlayerTab({
 	const [volume, setVolume] = useState<number | undefined>(undefined);
 	// 音量滑杆本地受控（拖动中不被轮询打断），松手/变更稳定后再发命令。
 	useEffect(() => {
-		if (status?.volumePercent !== undefined) setVolume((current) => (current === undefined ? status.volumePercent : current));
+		if (status?.volumePercent !== undefined)
+			setVolume((current) => (current === undefined ? status.volumePercent : current));
 	}, [status?.volumePercent]);
 	const shownVolume = volume ?? status?.volumePercent ?? 0;
 
@@ -128,13 +127,19 @@ function PlayerTab({
 		);
 	}
 
-	const progress = duration !== undefined && duration > 0 && position !== undefined ? Math.min(100, (position / duration) * 100) : 0;
+	const progress =
+		duration !== undefined && duration > 0 && position !== undefined ? Math.min(100, (position / duration) * 100) : 0;
 
 	return (
 		<div className="owl-media-player">
 			<div className="owl-media-art-col">
 				<div className="owl-media-art-glow" data-playing={status.state === "playing" ? "true" : "false"}>
-					<Artwork title={track?.title ?? ""} artist={track?.artist ?? ""} url={track?.artworkUrl} playing={status.state === "playing"} />
+					<Artwork
+						title={track?.title ?? ""}
+						artist={track?.artist ?? ""}
+						url={track?.artworkUrl}
+						playing={status.state === "playing"}
+					/>
 				</div>
 				<div className="owl-media-src-badge">
 					<span className="owl-media-source-dot" data-state={status.state} />
@@ -151,7 +156,9 @@ function PlayerTab({
 				<div className="owl-media-tags">
 					{status.metadataState === "pending" && <span className="owl-media-tag">{t("media.tag.loading")}</span>}
 					{status.metadataState === "degraded" && <span className="owl-media-tag">{t("media.tag.degraded")}</span>}
-					{status.lyrics !== undefined && status.lyrics.length > 0 && <span className="owl-media-tag">{t("media.tag.lyrics")}</span>}
+					{status.lyrics !== undefined && status.lyrics.length > 0 && (
+						<span className="owl-media-tag">{t("media.tag.lyrics")}</span>
+					)}
 					{memory?.favorite === true && <span className="owl-media-tag is-fav">♥</span>}
 				</div>
 
@@ -173,18 +180,47 @@ function PlayerTab({
 					</div>
 					<div className="owl-media-times">
 						<span>{position !== undefined ? formatTime(position) : "0:00"}</span>
-						<span>{duration !== undefined ? `-${formatTime(Math.max(0, duration - (position ?? 0)))} / ${formatTime(duration)}` : "—"}</span>
+						<span>
+							{duration !== undefined
+								? `-${formatTime(Math.max(0, duration - (position ?? 0)))} / ${formatTime(duration)}`
+								: "—"}
+						</span>
 					</div>
 				</div>
 
 				<div className="owl-media-transport">
-					<button type="button" className="owl-media-ghost-btn" disabled={capabilities?.previous !== true} title={t("media.previous")} onClick={commands.previous} aria-label={t("media.previous")}>
+					<button
+						type="button"
+						className="owl-media-ghost-btn"
+						disabled={capabilities?.previous !== true}
+						title={t("media.previous")}
+						onClick={commands.previous}
+						aria-label={t("media.previous")}
+					>
 						<SvgIcon path="M6 5h2v14H6zM20 5v14L9 12z" />
 					</button>
-					<button type="button" className="owl-media-main-btn" disabled={capabilities?.playPause !== true} title={status.state === "playing" ? t("media.pause") : t("media.play")} onClick={commands.playPause} aria-label={status.state === "playing" ? t("media.pause") : t("media.play")}>
-						{status.state === "playing" ? <SvgIcon path="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" /> : <SvgIcon path="M8 5v14l11-7z" />}
+					<button
+						type="button"
+						className="owl-media-main-btn"
+						disabled={capabilities?.playPause !== true}
+						title={status.state === "playing" ? t("media.pause") : t("media.play")}
+						onClick={commands.playPause}
+						aria-label={status.state === "playing" ? t("media.pause") : t("media.play")}
+					>
+						{status.state === "playing" ? (
+							<SvgIcon path="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" />
+						) : (
+							<SvgIcon path="M8 5v14l11-7z" />
+						)}
 					</button>
-					<button type="button" className="owl-media-ghost-btn" disabled={capabilities?.next !== true} title={t("media.next")} onClick={commands.next} aria-label={t("media.next")}>
+					<button
+						type="button"
+						className="owl-media-ghost-btn"
+						disabled={capabilities?.next !== true}
+						title={t("media.next")}
+						onClick={commands.next}
+						aria-label={t("media.next")}
+					>
 						<SvgIcon path="M18 5h-2v14h2zM4 5v14l11-7z" />
 					</button>
 					<button
@@ -194,7 +230,12 @@ function PlayerTab({
 						onClick={commands.toggleFavorite}
 						aria-label={t("media.favorite")}
 					>
-						<svg viewBox="0 0 24 24" fill={memory?.favorite === true ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
+						<svg
+							viewBox="0 0 24 24"
+							fill={memory?.favorite === true ? "currentColor" : "none"}
+							stroke="currentColor"
+							strokeWidth="1.8"
+						>
 							<path d="M12 21s-7.5-4.7-10-9.3C.6 8.6 2.6 5 6.2 5c2.2 0 3.7 1.2 4.6 2.6L12 9l1.2-1.4C14.1 6.2 15.6 5 17.8 5c3.6 0 5.6 3.6 4.2 6.7C19.5 16.3 12 21 12 21z" />
 						</svg>
 					</button>
@@ -233,9 +274,14 @@ function PlayerTab({
 						<div className="owl-media-lyrics-none">{t("media.lyrics.none")}</div>
 					) : (
 						status.lyrics.map((line, index) => (
-							<div key={`${line.startMs}-${index}`} className={`owl-media-lyric-line${index === lyricIndex ? " is-cur" : ""}${lyricIndex >= 0 && index === lyricIndex - 1 ? " is-near" : ""}${lyricIndex >= 0 && index === lyricIndex + 1 ? " is-near" : ""}`}>
+							<div
+								key={`${line.startMs}-${index}`}
+								className={`owl-media-lyric-line${index === lyricIndex ? " is-cur" : ""}${lyricIndex >= 0 && index === lyricIndex - 1 ? " is-near" : ""}${lyricIndex >= 0 && index === lyricIndex + 1 ? " is-near" : ""}`}
+							>
 								{line.text}
-								{line.translation !== undefined && <span className="owl-media-lyric-tr">{line.translation}</span>}
+								{line.translation !== undefined && (
+									<span className="owl-media-lyric-tr">{line.translation}</span>
+								)}
 							</div>
 						))
 					)}
@@ -259,7 +305,17 @@ function useCurrentLyricIndex(lyrics: BridgeUiStatus["lyrics"], position: number
 	}, [lyrics, position]);
 }
 
-function Artwork({ title, artist, url, playing }: { title: string; artist: string; url?: string; playing: boolean }): React.JSX.Element {
+function Artwork({
+	title,
+	artist,
+	url,
+	playing,
+}: {
+	title: string;
+	artist: string;
+	url?: string;
+	playing: boolean;
+}): React.JSX.Element {
 	const [broken, setBroken] = useState(false);
 	const failed = url === undefined || broken;
 	return (
@@ -274,7 +330,10 @@ function Artwork({ title, artist, url, playing }: { title: string; artist: strin
 			)}
 			{playing && (
 				<div className="owl-media-eq" aria-hidden="true">
-					<i /><i /><i /><i />
+					<i />
+					<i />
+					<i />
+					<i />
 				</div>
 			)}
 		</div>

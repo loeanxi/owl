@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hideProject, isSessionUnread, moveProjectToSection, parseProjectSidebarPreferences, removeProjectSection, withSessionsRead } from "./project-sidebar-model.ts";
+import {
+	hideProject,
+	isSessionUnread,
+	moveProjectToSection,
+	parseProjectSidebarPreferences,
+	removeProjectSection,
+	withSessionsRead,
+} from "./project-sidebar-model.ts";
 
 test("malformed preferences cannot leave projects in nonexistent partitions", () => {
-	const prefs = parseProjectSidebarPreferences({ sections: [{ id: "work", name: "工作" }, { id: "work", name: "重复" }, null], assignments: { "D:\\OWL\\": "work", "D:/gone": "missing" }, hidden: ["D:\\OWL", "d:/owl/", 42] });
+	const prefs = parseProjectSidebarPreferences({
+		sections: [{ id: "work", name: "工作" }, { id: "work", name: "重复" }, null],
+		assignments: { "D:\\OWL\\": "work", "D:/gone": "missing" },
+		hidden: ["D:\\OWL", "d:/owl/", 42],
+	});
 	assert.deepEqual(prefs.sections, [{ id: "work", name: "工作" }]);
 	assert.deepEqual(prefs.assignments, { "d:/owl": "work" });
 	assert.deepEqual(prefs.hidden, ["d:/owl"]);
@@ -11,9 +22,17 @@ test("malformed preferences cannot leave projects in nonexistent partitions", ()
 test("recent display mode is independent and survives read and partition updates", () => {
 	assert.equal(parseProjectSidebarPreferences({ view: "projects" }).recentView, "merged");
 	assert.equal(parseProjectSidebarPreferences({ recentView: "unknown" }).recentView, "merged");
-	const prefs = parseProjectSidebarPreferences({ view: "merged", recentView: "projects", sections: [{ id: "work", name: "工作" }] });
+	const prefs = parseProjectSidebarPreferences({
+		view: "merged",
+		recentView: "projects",
+		sections: [{ id: "work", name: "工作" }],
+	});
 	assert.equal(prefs.view, "merged");
-	assert.equal(parseProjectSidebarPreferences(withSessionsRead(prefs, [{ id: "a", modified: "2026-10-04T01:00:00Z" }])).recentView, "projects");
+	assert.equal(
+		parseProjectSidebarPreferences(withSessionsRead(prefs, [{ id: "a", modified: "2026-10-04T01:00:00Z" }]))
+			.recentView,
+		"projects",
+	);
 	assert.equal(removeProjectSection(prefs, "work").recentView, "projects");
 });
 test("moving and removing a partition preserves projects and returns their assignment to default", () => {

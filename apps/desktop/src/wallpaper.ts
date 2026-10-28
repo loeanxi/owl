@@ -85,7 +85,7 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? value as Record<string, unknown>
+		? (value as Record<string, unknown>)
 		: {};
 }
 
@@ -116,11 +116,15 @@ export function parseOwlWallpaper(raw: unknown): OwlWallpaperSettings {
 		fit,
 		pauseOnHidden: value.pauseOnHidden !== false,
 		pauseOnBlur: value.pauseOnBlur === true,
-		contentRating: ["all", "everyone", "pg13", "mature"].includes(rating) ? rating : DEFAULT_OWL_WALLPAPER.contentRating,
+		contentRating: ["all", "everyone", "pg13", "mature"].includes(rating)
+			? rating
+			: DEFAULT_OWL_WALLPAPER.contentRating,
 		sceneFps: SCENE_FPS_VALUES.has(Number(value.sceneFps)) ? Number(value.sceneFps) : DEFAULT_OWL_WALLPAPER.sceneFps,
 		props,
 		rotationEnabled: value.rotationEnabled === true,
-		rotationInterval: Math.round(clampNumber(value.rotationInterval, 1, 1440, DEFAULT_OWL_WALLPAPER.rotationInterval)),
+		rotationInterval: Math.round(
+			clampNumber(value.rotationInterval, 1, 1440, DEFAULT_OWL_WALLPAPER.rotationInterval),
+		),
 		rotationOrder: order === "random" ? "random" : "sequence",
 	};
 }
@@ -193,7 +197,10 @@ function parseSchemeColor(raw: string | undefined): { h: number; s: number; l: n
 	let g = 0.55;
 	let b = 0.42;
 	if (typeof raw === "string" && raw.trim()) {
-		const parts = raw.trim().split(/[\s,]+/).map(Number);
+		const parts = raw
+			.trim()
+			.split(/[\s,]+/)
+			.map(Number);
 		if (parts.length >= 3 && parts.slice(0, 3).every((n) => Number.isFinite(n))) {
 			const max = Math.max(...parts.slice(0, 3));
 			const scale = max > 1 ? 1 / 255 : 1; // 兼容 0..255 写法
@@ -228,7 +235,9 @@ function deriveGlassPalette(schemeColor: string | undefined): GlassPalette {
 	// 统一 hsl() 组装:h、s、l 三个数各自格式化,避免模板拼接出多余成分
 	const hsl = (l: number, sat = s, alpha?: number): string => {
 		const base = `hsl(${h.toFixed(1)} ${Math.round(clamp01(sat) * 100)}% ${Math.round(clamp01(l) * 100)}%)`;
-		return alpha === undefined ? base : `hsl(${h.toFixed(1)} ${Math.round(clamp01(sat) * 100)}% ${Math.round(clamp01(l) * 100)}% / ${alpha})`;
+		return alpha === undefined
+			? base
+			: `hsl(${h.toFixed(1)} ${Math.round(clamp01(sat) * 100)}% ${Math.round(clamp01(l) * 100)}% / ${alpha})`;
 	};
 	if (dark) {
 		const accentS = Math.max(0.42, rawS);
@@ -270,10 +279,20 @@ function deriveGlassPalette(schemeColor: string | undefined): GlassPalette {
 
 function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
 	const c = (1 - Math.abs(2 * l - 1)) * s;
-	const hp = ((h % 360) + 360) % 360 / 60;
+	const hp = (((h % 360) + 360) % 360) / 60;
 	const x = c * (1 - Math.abs((hp % 2) - 1));
 	const [r1, g1, b1] =
-		hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+		hp < 1
+			? [c, x, 0]
+			: hp < 2
+				? [x, c, 0]
+				: hp < 3
+					? [0, c, x]
+					: hp < 4
+						? [0, x, c]
+						: hp < 5
+							? [x, 0, c]
+							: [c, 0, x];
 	const m = l - c / 2;
 	return { r: r1 + m, g: g1 + m, b: b1 + m };
 }
@@ -288,7 +307,8 @@ const GLASS_VARS = [
 	"--owl-glass-hover",
 	"--owl-glass-border",
 	"--owl-glass-text",
-	"--owl-glass-muted",	"--owl-glass-faint",
+	"--owl-glass-muted",
+	"--owl-glass-faint",
 	"--owl-glass-code",
 	"--owl-glass-dark",
 	"--owl-wp-text-shadow",
@@ -320,9 +340,7 @@ export function applyOwlGlassTheme(schemeColor: string | undefined): void {
 	// 文字阴影随档位:深玻璃浅字要重黑影;亮玻璃深字只给一点白晕,重黑影会把字糊掉。
 	root.style.setProperty(
 		"--owl-wp-text-shadow",
-		p.dark
-			? "0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45)"
-			: "0 1px 2px rgba(255, 255, 255, 0.6)",
+		p.dark ? "0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45)" : "0 1px 2px rgba(255, 255, 255, 0.6)",
 	);
 	if (typeof window !== "undefined") window.dispatchEvent(new Event("owl-appearance-change"));
 }

@@ -1,23 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DesktopClientRequestWithoutId, ResearchPromptSettings, ResearchPromptsExportResult, ResearchPromptsResult } from "../../bridge/protocol.ts";
-import { importedResearchPrompts, ResearchPromptController, researchPromptModelOptions, visibleResearchPrompts } from "./research-prompts.ts";
+import type {
+	DesktopClientRequestWithoutId,
+	ResearchPromptSettings,
+	ResearchPromptsExportResult,
+	ResearchPromptsResult,
+} from "../../bridge/protocol.ts";
+import {
+	importedResearchPrompts,
+	ResearchPromptController,
+	researchPromptModelOptions,
+	visibleResearchPrompts,
+} from "./research-prompts.ts";
 
 type Response = { ok: boolean; result?: ResearchPromptsResult | ResearchPromptsExportResult; error?: string };
 class PromptBridge {
 	requests: DesktopClientRequestWithoutId[] = [];
-	settings: ResearchPromptSettings = { version: 1, enabled: false, activePresetId: null, presets: [{ id: "first", name: "First", content: "Original research prompt" }, { id: "second", name: "Second", content: "Second research prompt" }] };
+	settings: ResearchPromptSettings = {
+		version: 1,
+		enabled: false,
+		activePresetId: null,
+		presets: [
+			{ id: "first", name: "First", content: "Original research prompt" },
+			{ id: "second", name: "Second", content: "Second research prompt" },
+		],
+	};
 	respond?: (request: DesktopClientRequestWithoutId) => Response | Promise<Response>;
 	async request<T>(request: DesktopClientRequestWithoutId): Promise<{ ok: boolean; result?: T; error?: string }> {
 		this.requests.push(structuredClone(request));
-		if (this.respond) { const result = await this.respond(request); return { ...result, result: result.result as T | undefined }; }
+		if (this.respond) {
+			const result = await this.respond(request);
+			return { ...result, result: result.result as T | undefined };
+		}
 		if (request.type === "research.prompts.save") {
-			if (request.settings.activePresetId && !request.settings.presets.some((preset) => preset.id === request.settings.activePresetId)) return { ok: false, error: "active id missing" };
+			if (
+				request.settings.activePresetId &&
+				!request.settings.presets.some((preset) => preset.id === request.settings.activePresetId)
+			)
+				return { ok: false, error: "active id missing" };
 			this.settings = structuredClone(request.settings);
 		}
-		if (request.type === "research.prompts.apply") this.settings = { ...this.settings, enabled: true, activePresetId: request.presetId };
+		if (request.type === "research.prompts.apply")
+			this.settings = { ...this.settings, enabled: true, activePresetId: request.presetId };
 		if (request.type === "research.prompts.restore") this.settings = { ...this.settings, enabled: false };
-		return { ok: true, result: { settings: structuredClone(this.settings), defaultPrompt: "Default research role" } as T };
+		return {
+			ok: true,
+			result: { settings: structuredClone(this.settings), defaultPrompt: "Default research role" } as T,
+		};
 	}
 }
 
@@ -34,7 +63,14 @@ async function modelLibrary(): Promise<{ bridge: PromptBridge; controller: Resea
 	const result = await fresh();
 	result.bridge.settings.presets = [
 		{ id: "first", name: "Claude example", content: "Claude content", modelFamilies: ["claude"] },
-		{ id: "second", name: "Multi model", content: "Shared content", description: "Older sample", sourceUrl: "https://github.com/example/prompts/blob/main/shared.md", modelFamilies: ["deepseek", "gpt"] },
+		{
+			id: "second",
+			name: "Multi model",
+			content: "Shared content",
+			description: "Older sample",
+			sourceUrl: "https://github.com/example/prompts/blob/main/shared.md",
+			modelFamilies: ["deepseek", "gpt"],
+		},
 		{ id: "legacy", name: "DeepSeek R1 sample", content: "Legacy content" },
 		{ id: "generic", name: "Evidence first", content: "General content" },
 	];
@@ -49,19 +85,37 @@ test("one-click override waits for the edited library to save before applying th
 	controller.edit({ content: "Edited prompt" });
 	let finishSave: ((response: Response) => void) | undefined;
 	bridge.respond = (request) => {
-		if (request.type === "research.prompts.save") return new Promise((resolve) => { finishSave = resolve; });
+		if (request.type === "research.prompts.save")
+			return new Promise((resolve) => {
+				finishSave = resolve;
+			});
 		if (request.type !== "research.prompts.apply") throw new Error("unexpected request");
 		assert.equal(request.presetId, "second");
-		return { ok: true, result: { settings: { ...controller.getSnapshot().draft, enabled: true, activePresetId: "second" }, defaultPrompt: "Default research role" } };
+		return {
+			ok: true,
+			result: {
+				settings: { ...controller.getSnapshot().draft, enabled: true, activePresetId: "second" },
+				defaultPrompt: "Default research role",
+			},
+		};
 	};
 	const applying = controller.apply();
-	assert.deepEqual(bridge.requests.map((request) => request.type), ["research.prompts.save"]);
+	assert.deepEqual(
+		bridge.requests.map((request) => request.type),
+		["research.prompts.save"],
+	);
 	assert.equal(controller.getSnapshot().saved?.enabled, false);
 	assert.equal(controller.getSnapshot().busy, true);
 	controller.edit({ content: "Edits during save must not race the payload" });
-	finishSave?.({ ok: true, result: { settings: structuredClone(controller.getSnapshot().draft), defaultPrompt: "Default research role" } });
+	finishSave?.({
+		ok: true,
+		result: { settings: structuredClone(controller.getSnapshot().draft), defaultPrompt: "Default research role" },
+	});
 	assert.equal(await applying, true);
-	assert.deepEqual(bridge.requests.map((request) => request.type), ["research.prompts.save", "research.prompts.apply"]);
+	assert.deepEqual(
+		bridge.requests.map((request) => request.type),
+		["research.prompts.save", "research.prompts.apply"],
+	);
 	assert.equal(controller.getSnapshot().saved?.presets[1].content, "Edited prompt");
 	assert.equal(controller.getSnapshot().saved?.enabled, true);
 	assert.equal(controller.getSnapshot().saved?.activePresetId, "second");
@@ -79,13 +133,25 @@ test("failed save keeps the edit and never applies an older saved prompt", async
 	assert.equal(controller.getSnapshot().dirty, true);
 	assert.equal(controller.getSnapshot().error, "disk unavailable");
 	assert.equal(controller.getSnapshot().notice, undefined);
-	assert.deepEqual(bridge.requests.map((request) => request.type), ["research.prompts.save"]);
+	assert.deepEqual(
+		bridge.requests.map((request) => request.type),
+		["research.prompts.save"],
+	);
 });
 
 test("save success followed by apply failure reports the real persisted library without claiming activation", async () => {
 	const { bridge, controller } = await fresh();
 	controller.edit({ content: "Saved but not activated" });
-	bridge.respond = (request) => request.type === "research.prompts.save" ? { ok: true, result: { settings: structuredClone(controller.getSnapshot().draft), defaultPrompt: "Default research role" } } : { ok: false, error: "activation rejected" };
+	bridge.respond = (request) =>
+		request.type === "research.prompts.save"
+			? {
+					ok: true,
+					result: {
+						settings: structuredClone(controller.getSnapshot().draft),
+						defaultPrompt: "Default research role",
+					},
+				}
+			: { ok: false, error: "activation rejected" };
 	assert.equal(await controller.apply(), false);
 	assert.equal(controller.getSnapshot().draft.presets[0].content, "Saved but not activated");
 	assert.equal(controller.getSnapshot().saved?.presets[0].content, "Saved but not activated");
@@ -101,7 +167,10 @@ test("restore disables the override while preserving the saved library and unsav
 	controller.edit({ content: "Keep this unsaved draft" });
 	bridge.requests = [];
 	assert.equal(await controller.restore(), true);
-	assert.deepEqual(bridge.requests.map((request) => request.type), ["research.prompts.restore"]);
+	assert.deepEqual(
+		bridge.requests.map((request) => request.type),
+		["research.prompts.restore"],
+	);
 	assert.equal(controller.getSnapshot().saved?.enabled, false);
 	assert.equal(controller.getSnapshot().saved?.presets.length, 2);
 	assert.equal(controller.getSnapshot().saved?.presets[0].content, "Original research prompt");
@@ -142,7 +211,9 @@ test("reconnect and retry refresh the server state while preserving edits and se
 	assert.equal(await controller.save(), false);
 	assert.equal(bridge.requests.length, 0);
 	controller.setConnected(true);
-	bridge.respond = () => { throw new Error("bridge timed out"); };
+	bridge.respond = () => {
+		throw new Error("bridge timed out");
+	};
 	assert.equal(await controller.load(), false);
 	assert.equal(controller.getSnapshot().draft.presets[1].content, "Offline edit");
 	assert.equal(controller.getSnapshot().busy, false);
@@ -157,7 +228,10 @@ test("reconnect and retry refresh the server state while preserving edits and se
 test("a load response arriving after disconnection cannot replace the retained draft", async () => {
 	const { bridge, controller } = await fresh();
 	let finish: ((response: Response) => void) | undefined;
-	bridge.respond = () => new Promise((resolve) => { finish = resolve; });
+	bridge.respond = () =>
+		new Promise((resolve) => {
+			finish = resolve;
+		});
 	const loading = controller.load();
 	controller.setConnected(false);
 	controller.edit({ content: "Edit after connection loss" });
@@ -170,7 +244,20 @@ test("a load response arriving after disconnection cannot replace the retained d
 
 test("JSON imports regenerate ids and cannot enable or overwrite an existing prompt", async () => {
 	const { bridge, controller } = await fresh();
-	assert.equal(controller.import(JSON.stringify({ version: 1, enabled: true, activePresetId: "first", presets: [{ id: "first", name: "Imported", content: "Imported text", sourceUrl: "https://example.org/source" }] }), "prompts.json"), true);
+	assert.equal(
+		controller.import(
+			JSON.stringify({
+				version: 1,
+				enabled: true,
+				activePresetId: "first",
+				presets: [
+					{ id: "first", name: "Imported", content: "Imported text", sourceUrl: "https://example.org/source" },
+				],
+			}),
+			"prompts.json",
+		),
+		true,
+	);
 	assert.equal(controller.getSnapshot().draft.presets.length, 3);
 	assert.equal(controller.getSnapshot().draft.presets[0].content, "Original research prompt");
 	assert.notEqual(controller.getSnapshot().draft.presets[2].id, "first");
@@ -183,7 +270,10 @@ test("JSON imports regenerate ids and cannot enable or overwrite an existing pro
 test("invalid imports and credential-bearing source URLs keep the library intact", async () => {
 	const { controller } = await fresh();
 	const previous = controller.getSnapshot().draft;
-	assert.equal(controller.import('{"name":"Bad","content":"text","sourceUrl":"https://user:pass@example.org"}', "bad.json"), false);
+	assert.equal(
+		controller.import('{"name":"Bad","content":"text","sourceUrl":"https://user:pass@example.org"}', "bad.json"),
+		false,
+	);
 	assert.equal(controller.getSnapshot().draft, previous);
 	assert.equal(controller.import("invalid json", "bad.json"), false);
 	assert.equal(controller.getSnapshot().draft, previous);
@@ -208,18 +298,29 @@ test("clearing an enabled prompt requires restoring the default before saving th
 test("desktop export writes the current draft through the bridge without persisting or activating it", async () => {
 	const { bridge, controller } = await fresh();
 	controller.edit({ content: "Export this unsaved edit" });
-	bridge.respond = () => ({ ok: true, result: { savedPath: "C:\\Users\\Test\\Downloads\\owl-research-prompts.json" } });
+	bridge.respond = () => ({
+		ok: true,
+		result: { savedPath: "C:\\Users\\Test\\Downloads\\owl-research-prompts.json" },
+	});
 	assert.equal(await controller.exportLibrary(), true);
 	assert.equal(bridge.requests.length, 1);
 	const request = bridge.requests[0];
 	assert.equal(request.type, "research.prompts.export");
-	assert.equal(request.type === "research.prompts.export" && request.settings.presets[0].content, "Export this unsaved edit");
+	assert.equal(
+		request.type === "research.prompts.export" && request.settings.presets[0].content,
+		"Export this unsaved edit",
+	);
 	assert.equal(controller.getSnapshot().dirty, true);
 	assert.equal(controller.getSnapshot().saved?.presets[0].content, "Original research prompt");
 	assert.equal(controller.getSnapshot().saved?.enabled, false);
 	assert.equal(controller.getSnapshot().notice, "promptExported");
 	await controller.revealExport();
-	assert.deepEqual(bridge.requests[1], { type: "open.external", action: "reveal", cwd: "C:\\Users\\Test\\Downloads", target: "owl-research-prompts.json" });
+	assert.deepEqual(bridge.requests[1], {
+		type: "open.external",
+		action: "reveal",
+		cwd: "C:\\Users\\Test\\Downloads",
+		target: "owl-research-prompts.json",
+	});
 });
 
 test("export failure reports an error and preserves edits and activation state for retry", async () => {
@@ -246,7 +347,10 @@ test("model and search filters preserve activation, hidden presets and unsaved e
 	const saved = controller.getSnapshot().saved;
 	bridge.requests = [];
 	controller.setFilters({ modelFilter: "deepseek" });
-	assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["second", "legacy"]);
+	assert.deepEqual(
+		visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+		["second", "legacy"],
+	);
 	assert.equal(controller.getSnapshot().selectedId, "second");
 	controller.setFilters({ searchQuery: "does not exist" });
 	assert.equal(controller.getSnapshot().selectedId, null);
@@ -269,11 +373,20 @@ test("one preset matches each explicit model category and legacy categories are 
 	const { controller } = await modelLibrary();
 	const before = JSON.stringify(controller.getSnapshot().draft);
 	controller.setFilters({ modelFilter: "gpt" });
-	assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["second"]);
+	assert.deepEqual(
+		visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+		["second"],
+	);
 	controller.setFilters({ modelFilter: "deepseek" });
-	assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["second", "legacy"]);
+	assert.deepEqual(
+		visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+		["second", "legacy"],
+	);
 	controller.setFilters({ modelFilter: "general" });
-	assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["generic"]);
+	assert.deepEqual(
+		visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+		["generic"],
+	);
 	assert.equal(JSON.stringify(controller.getSnapshot().draft), before);
 	assert.equal(controller.getSnapshot().dirty, false);
 });
@@ -282,7 +395,10 @@ test("search matches names, descriptions and source URLs while retaining the cur
 	const { controller } = await modelLibrary();
 	for (const query of ["  MULTI MODEL  ", "older sample", "example/prompts"]) {
 		controller.setFilters({ searchQuery: query });
-		assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["second"]);
+		assert.deepEqual(
+			visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+			["second"],
+		);
 	}
 	controller.setFilters({ modelFilter: "claude" });
 	assert.equal(visibleResearchPrompts(controller.getSnapshot()).length, 0);
@@ -327,7 +443,24 @@ test("editing model tags resets conflicting filters while preserving selection a
 test("tagged JSON imports and exports preserve multiple model categories without activating or filtering the payload", async () => {
 	const { bridge, controller } = await modelLibrary();
 	controller.setFilters({ modelFilter: "deepseek" });
-	assert.equal(controller.import(JSON.stringify({ enabled: true, activePresetId: "external-id", presets: [{ id: "external-id", name: "Imported tagged", content: "Import content", modelFamilies: ["deepseek", "gemini"] }] }), "models.json"), true);
+	assert.equal(
+		controller.import(
+			JSON.stringify({
+				enabled: true,
+				activePresetId: "external-id",
+				presets: [
+					{
+						id: "external-id",
+						name: "Imported tagged",
+						content: "Import content",
+						modelFamilies: ["deepseek", "gemini"],
+					},
+				],
+			}),
+			"models.json",
+		),
+		true,
+	);
 	const imported = controller.getSnapshot().draft.presets.at(-1);
 	assert.notEqual(imported?.id, "external-id");
 	assert.deepEqual(imported?.modelFamilies, ["deepseek", "gemini"]);
@@ -350,13 +483,22 @@ test("tagged JSON imports and exports preserve multiple model categories without
 
 test("unknown valid categories remain filterable while malformed category imports leave the draft intact", async () => {
 	const { controller } = await fresh();
-	assert.equal(controller.import(JSON.stringify({ name: "Future sample", content: "content", modelFamilies: ["future-model"] }), "future.json"), true);
+	assert.equal(
+		controller.import(
+			JSON.stringify({ name: "Future sample", content: "content", modelFamilies: ["future-model"] }),
+			"future.json",
+		),
+		true,
+	);
 	assert.ok(researchPromptModelOptions(controller.getSnapshot().draft.presets).includes("future-model"));
 	controller.setFilters({ modelFilter: "future-model" });
 	assert.equal(visibleResearchPrompts(controller.getSnapshot()).length, 1);
 	const before = controller.getSnapshot().draft;
 	for (const modelFamilies of [["GPT"], ["gpt", "gpt"], [], [42]]) {
-		assert.equal(controller.import(JSON.stringify({ name: "Bad tags", content: "content", modelFamilies }), "bad.json"), false);
+		assert.equal(
+			controller.import(JSON.stringify({ name: "Bad tags", content: "content", modelFamilies }), "bad.json"),
+			false,
+		);
 		assert.equal(controller.getSnapshot().draft, before);
 	}
 });
@@ -368,7 +510,10 @@ test("restoring with zero matches keeps the full saved library and unsaved draft
 	controller.setFilters({ modelFilter: "gemini", searchQuery: "missing" });
 	bridge.requests = [];
 	assert.equal(await controller.restore(), true);
-	assert.deepEqual(bridge.requests.map((request) => request.type), ["research.prompts.restore"]);
+	assert.deepEqual(
+		bridge.requests.map((request) => request.type),
+		["research.prompts.restore"],
+	);
 	assert.equal(controller.getSnapshot().selectedId, null);
 	assert.equal(controller.getSnapshot().saved?.enabled, false);
 	assert.equal(controller.getSnapshot().saved?.presets.length, 4);
@@ -389,7 +534,10 @@ test("an edit that stops matching search preserves selection so continued edits 
 	assert.equal(controller.getSnapshot().selectedId, "first");
 	assert.equal(controller.getSnapshot().searchQuery, "");
 	assert.equal(controller.getSnapshot().notice, "promptFiltersReset");
-	assert.deepEqual(visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id), ["first", "second"]);
+	assert.deepEqual(
+		visibleResearchPrompts(controller.getSnapshot()).map((preset) => preset.id),
+		["first", "second"],
+	);
 	controller.edit({ content: "Continue changing the first prompt" });
 	assert.equal(controller.getSnapshot().draft.presets[0].name, "Renamed first");
 	assert.equal(controller.getSnapshot().draft.presets[0].content, "Continue changing the first prompt");
@@ -401,7 +549,13 @@ test("an edit that stops matching search preserves selection so continued edits 
 test("imports outside current filters give a specific notice and preserve the existing selection", async () => {
 	const { bridge, controller } = await modelLibrary();
 	controller.setFilters({ modelFilter: "claude" });
-	assert.equal(controller.import(JSON.stringify({ name: "Gemini sample", content: "Imported content", modelFamilies: ["gemini"] }), "gemini.json"), true);
+	assert.equal(
+		controller.import(
+			JSON.stringify({ name: "Gemini sample", content: "Imported content", modelFamilies: ["gemini"] }),
+			"gemini.json",
+		),
+		true,
+	);
 	assert.equal(controller.getSnapshot().modelFilter, "claude");
 	assert.equal(controller.getSnapshot().selectedId, "first");
 	assert.equal(controller.getSnapshot().notice, "promptImportedFiltered");

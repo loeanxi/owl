@@ -43,7 +43,7 @@ export function useLifeProbe(input: {
 				return;
 			}
 			const next = response.result.channels;
-			setChannels((current) => sameReading(current, next) ? current : next);
+			setChannels((current) => (sameReading(current, next) ? current : next));
 			setRound("ok");
 			setCheckedAt(response.result.probedAt);
 		} catch {
@@ -66,7 +66,15 @@ function sameReading(current: readonly LifeChannel[], next: readonly LifeChannel
 	for (let index = 0; index < current.length; index += 1) {
 		const left = current[index];
 		const right = next[index];
-		if (!left || !right || left.id !== right.id || left.level !== right.level || left.note !== right.note || left.evidence !== right.evidence) return false;
+		if (
+			!left ||
+			!right ||
+			left.id !== right.id ||
+			left.level !== right.level ||
+			left.note !== right.note ||
+			left.evidence !== right.evidence
+		)
+			return false;
 	}
 	return true;
 }

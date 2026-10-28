@@ -97,7 +97,12 @@ export function parseUnifiedDiff(input: string): DiffFile[] {
 				} else if (raw.startsWith("\\")) {
 					// "\ No newline at end of file" —— 忽略
 				} else {
-					hunk.lines.push({ type: "ctx", text: raw.startsWith(" ") ? raw.slice(1) : raw, oldNo: oldNo++, newNo: newNo++ });
+					hunk.lines.push({
+						type: "ctx",
+						text: raw.startsWith(" ") ? raw.slice(1) : raw,
+						oldNo: oldNo++,
+						newNo: newNo++,
+					});
 				}
 				index += 1;
 			}

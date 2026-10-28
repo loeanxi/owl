@@ -34,4 +34,3 @@ export function consumeEditorDiffFocus(): string | undefined {
 
 /** EditorTab 订阅用：聚焦请求的事件名。 */
 export const EDITOR_DIFF_FOCUS_EVENT = FOCUS_EVENT;
-

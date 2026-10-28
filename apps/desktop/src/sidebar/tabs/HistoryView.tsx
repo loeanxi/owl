@@ -4,8 +4,16 @@
  * 未推送提示条 + 推送）。CI 状态经宿主的 gh 查询，gh 不可用时静默隐藏。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+	GitCiState,
+	GitCommitDetail,
+	GitCommitFile,
+	GitHistoryEntry,
+	GitHistoryResult,
+	GitRef,
+	GitWorkspaceRepo,
+} from "../../bridge/protocol.ts";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
-import type { GitCiState, GitCommitDetail, GitCommitFile, GitHistoryEntry, GitHistoryResult, GitRef, GitWorkspaceRepo } from "../../bridge/protocol.ts";
 import type { SidebarApi } from "../api.ts";
 import { DiffView } from "../DiffView.tsx";
 import { IconCopy, IconExternal, IconGitBranch, IconLoader, IconRefresh, IconSearch, IconX } from "../icons.tsx";
@@ -109,9 +117,23 @@ function fileStatusClass(status: string): string {
 
 function CiMark({ state, t }: { state: GitCiState | undefined; t: Translate }): React.JSX.Element | null {
 	if (state === undefined) return null;
-	if (state === "success") return <span className="text-[11px] text-emerald-300" title={t("history.ciSuccess")}>✓</span>;
-	if (state === "failure") return <span className="text-[11px] text-red-300" title={t("history.ciFailure")}>✕</span>;
-	return <span className="animate-pulse text-[10px] text-amber-300" title={t("history.ciPending")}>●</span>;
+	if (state === "success")
+		return (
+			<span className="text-[11px] text-emerald-300" title={t("history.ciSuccess")}>
+				✓
+			</span>
+		);
+	if (state === "failure")
+		return (
+			<span className="text-[11px] text-red-300" title={t("history.ciFailure")}>
+				✕
+			</span>
+		);
+	return (
+		<span className="animate-pulse text-[10px] text-amber-300" title={t("history.ciPending")}>
+			●
+		</span>
+	);
 }
 
 function ciText(state: GitCiState | undefined, t: Translate): string | undefined {
@@ -132,7 +154,10 @@ function ChangeBar({ additions, deletions }: { additions: number; deletions: num
 	return (
 		<span className="ml-1 inline-flex gap-px align-middle">
 			{Array.from({ length: 5 }, (_, index) => (
-				<i key={index} className={`h-[7px] w-[5px] rounded-[1px] ${total === 0 ? "bg-owl-border" : index < green ? "bg-emerald-400" : "bg-red-400"}`} />
+				<i
+					key={index}
+					className={`h-[7px] w-[5px] rounded-[1px] ${total === 0 ? "bg-owl-border" : index < green ? "bg-emerald-400" : "bg-red-400"}`}
+				/>
 			))}
 		</span>
 	);
@@ -147,11 +172,22 @@ function errorText(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
 }
 
-export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVersion, onGitRefresh, onToChat }: HistoryViewProps): React.JSX.Element {
+export function HistoryView({
+	api,
+	cwd,
+	repos,
+	initialRepo,
+	modeSwitch,
+	statusVersion,
+	onGitRefresh,
+	onToChat,
+}: HistoryViewProps): React.JSX.Element {
 	const t = useT();
 	const roots = repos.map((item) => item.root);
 	const reposKey = roots.join("\n");
-	const [repo, setRepo] = useState(() => (initialRepo !== undefined && roots.includes(initialRepo) ? initialRepo : (roots[0] ?? "")));
+	const [repo, setRepo] = useState(() =>
+		initialRepo !== undefined && roots.includes(initialRepo) ? initialRepo : (roots[0] ?? ""),
+	);
 	const repoArg = repo === "" ? undefined : repo;
 	const [scope, setScope] = useState<"current" | "all">("current");
 	const [query, setQuery] = useState("");
@@ -172,7 +208,9 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 	const [expanded, setExpanded] = useState<string | undefined>(undefined);
 	const [against, setAgainst] = useState<Against>("parent");
 	const [allFiles, setAllFiles] = useState(false);
-	const [selected, setSelected] = useState<{ hash: string; short: string; file: GitCommitFile; against: Against } | undefined>(undefined);
+	const [selected, setSelected] = useState<
+		{ hash: string; short: string; file: GitCommitFile; against: Against } | undefined
+	>(undefined);
 	const [diff, setDiff] = useState<string | undefined>(undefined);
 	const [diffLoading, setDiffLoading] = useState(false);
 	const [diffError, setDiffError] = useState<string | undefined>(undefined);
@@ -216,11 +254,19 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			if (mode === "reset") setLoading(true);
 			if (mode === "more") setLoadingMore(true);
 			try {
-				const result = await api.gitHistory(cwd, { ...(repoArg !== undefined ? { repo: repoArg } : {}), all: scope === "all", skip, count });
+				const result = await api.gitHistory(cwd, {
+					...(repoArg !== undefined ? { repo: repoArg } : {}),
+					all: scope === "all",
+					skip,
+					count,
+				});
 				if (seq !== loadSeq.current) return;
 				if (mode === "more" && current !== undefined) {
 					const seen = new Set(current.entries.map((entry) => entry.hash));
-					setHistory({ ...result, entries: [...current.entries, ...result.entries.filter((entry) => !seen.has(entry.hash))] });
+					setHistory({
+						...result,
+						entries: [...current.entries, ...result.entries.filter((entry) => !seen.has(entry.hash))],
+					});
 				} else {
 					setHistory(result);
 				}
@@ -419,11 +465,17 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 	};
 
 	const githubUrl = history?.githubUrl;
-	const repoLabel = githubUrl !== undefined ? githubUrl.replace(/^https:\/\/github\.com\//, "") : repoDisplayName(repoArg ?? ".", cwd);
-	const commitUrl = (hash: string): string | undefined => (githubUrl !== undefined ? `${githubUrl}/commit/${hash}` : undefined);
+	const repoLabel =
+		githubUrl !== undefined
+			? githubUrl.replace(/^https:\/\/github\.com\//, "")
+			: repoDisplayName(repoArg ?? ".", cwd);
+	const commitUrl = (hash: string): string | undefined =>
+		githubUrl !== undefined ? `${githubUrl}/commit/${hash}` : undefined;
 
 	const explain = (entry: { hash: string; short: string; subject: string }): void => {
-		onToChat?.(t("history.explainPrompt", { short: entry.short, hash: entry.hash, subject: entry.subject, repo: repoLabel }));
+		onToChat?.(
+			t("history.explainPrompt", { short: entry.short, hash: entry.hash, subject: entry.subject, repo: repoLabel }),
+		);
 	};
 
 	const fixCi = (entry: GitHistoryEntry): void => {
@@ -455,10 +507,19 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 	);
 	const hasMore = history?.hasMore === true;
 
-	const menuItems = (entry: GitHistoryEntry): Array<{ label: string; icon: React.ReactNode; hint?: string; danger?: boolean; action: () => void } | "sep"> => {
+	const menuItems = (
+		entry: GitHistoryEntry,
+	): Array<{ label: string; icon: React.ReactNode; hint?: string; danger?: boolean; action: () => void } | "sep"> => {
 		const url = commitUrl(entry.hash);
-		const items: Array<{ label: string; icon: React.ReactNode; hint?: string; danger?: boolean; action: () => void } | "sep"> = [
-			{ label: t("history.copyHash"), icon: <IconCopy size={12} />, hint: entry.short, action: () => copy(entry.hash) },
+		const items: Array<
+			{ label: string; icon: React.ReactNode; hint?: string; danger?: boolean; action: () => void } | "sep"
+		> = [
+			{
+				label: t("history.copyHash"),
+				icon: <IconCopy size={12} />,
+				hint: entry.short,
+				action: () => copy(entry.hash),
+			},
 			{
 				label: t("history.copyMessage"),
 				icon: <span className="w-3 text-center">≡</span>,
@@ -469,18 +530,41 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			},
 		];
 		if (url !== undefined) {
-			items.push("sep", { label: t("history.openGithub"), icon: <IconExternal size={12} />, hint: "GitHub", action: () => openUrl(url) });
+			items.push("sep", {
+				label: t("history.openGithub"),
+				icon: <IconExternal size={12} />,
+				hint: "GitHub",
+				action: () => openUrl(url),
+			});
 			if (ci[entry.hash] === "failure") {
-				items.push({ label: t("history.viewFailedCi"), icon: <span className="w-3 text-center">✕</span>, hint: "GitHub", danger: true, action: () => openUrl(`${url}/checks`) });
+				items.push({
+					label: t("history.viewFailedCi"),
+					icon: <span className="w-3 text-center">✕</span>,
+					hint: "GitHub",
+					danger: true,
+					action: () => openUrl(`${url}/checks`),
+				});
 			}
 		}
 		if (onToChat !== undefined) {
-			items.push("sep", { label: t("history.explainMenu"), icon: <span className="w-3 text-center text-owl-accent">✦</span>, action: () => explain(entry) });
+			items.push("sep", {
+				label: t("history.explainMenu"),
+				icon: <span className="w-3 text-center text-owl-accent">✦</span>,
+				action: () => explain(entry),
+			});
 			if (ci[entry.hash] === "failure") {
-				items.push({ label: t("history.fixCi"), icon: <span className="w-3 text-center text-owl-accent">✦</span>, action: () => fixCi(entry) });
+				items.push({
+					label: t("history.fixCi"),
+					icon: <span className="w-3 text-center text-owl-accent">✦</span>,
+					action: () => fixCi(entry),
+				});
 			}
 		}
-		items.push("sep", { label: t("history.compareWorktree"), icon: <span className="w-3 text-center">⇄</span>, action: () => setCompare(entry.hash, "worktree") });
+		items.push("sep", {
+			label: t("history.compareWorktree"),
+			icon: <span className="w-3 text-center">⇄</span>,
+			action: () => setCompare(entry.hash, "worktree"),
+		});
 		return items;
 	};
 
@@ -506,7 +590,11 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 					{failed !== undefined && <div className="text-xs text-red-300">{failed}</div>}
 					{detail !== undefined && (
 						<>
-							{detail.body !== "" && <div className="max-h-40 overflow-auto text-[12.5px] leading-relaxed whitespace-pre-wrap text-owl-text/85">{detail.body}</div>}
+							{detail.body !== "" && (
+								<div className="max-h-40 overflow-auto text-[12.5px] leading-relaxed whitespace-pre-wrap text-owl-text/85">
+									{detail.body}
+								</div>
+							)}
 							<div className="my-2 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 text-[11.5px] text-owl-muted">
 								<span>{t("history.author")}</span>
 								<span className="truncate text-owl-text" title={detail.email}>
@@ -519,7 +607,9 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 										<span>{t("history.parents")}</span>
 										<span className="font-mono text-[11px] text-sky-300">
 											{detail.parents.map((parent) => parent.slice(0, 7)).join("  ")}
-											{detail.parents.length > 1 && <span className="ml-2 font-sans text-owl-faint">{t("history.merge")}</span>}
+											{detail.parents.length > 1 && (
+												<span className="ml-2 font-sans text-owl-faint">{t("history.merge")}</span>
+											)}
 										</span>
 									</>
 								)}
@@ -541,14 +631,22 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 								)}
 								<button
 									type="button"
-									className={against === "worktree" ? `${buttonBase} border-owl-accent/60 bg-owl-accent/10 text-owl-accent hover:bg-owl-accent/15` : button}
+									className={
+										against === "worktree"
+											? `${buttonBase} border-owl-accent/60 bg-owl-accent/10 text-owl-accent hover:bg-owl-accent/15`
+											: button
+									}
 									aria-pressed={against === "worktree"}
 									onClick={() => setCompare(entry.hash, against === "worktree" ? "parent" : "worktree")}
 								>
 									⇄ {t("history.compareWorktree")}
 								</button>
 								{onToChat !== undefined && (
-									<button type="button" className={`${buttonBase} border-owl-accent bg-owl-accent text-white hover:bg-owl-accent-hover`} onClick={() => explain(detail)}>
+									<button
+										type="button"
+										className={`${buttonBase} border-owl-accent bg-owl-accent text-white hover:bg-owl-accent-hover`}
+										onClick={() => explain(detail)}
+									>
 										✦ {t("history.explain")}
 									</button>
 								)}
@@ -556,7 +654,8 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 							<div className="flex justify-between pt-2 pb-1 text-[11.5px] text-owl-muted">
 								<span>{t("history.filesN", { n: files.length })}</span>
 								<span>
-									<span className="text-emerald-300">+{detail.additions}</span> <span className="text-red-300">−{detail.deletions}</span>
+									<span className="text-emerald-300">+{detail.additions}</span>{" "}
+									<span className="text-red-300">−{detail.deletions}</span>
 								</span>
 							</div>
 							{files.length === 0 && <div className="py-1 text-xs text-owl-faint">{t("history.noFiles")}</div>}
@@ -577,14 +676,17 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 											if (event.key === "Enter") openFileDiff(entry.hash, entry.short, file, against);
 										}}
 									>
-										<span className={`w-3 shrink-0 text-[10.5px] font-bold ${fileStatusClass(file.status)}`}>{file.status}</span>
+										<span className={`w-3 shrink-0 text-[10.5px] font-bold ${fileStatusClass(file.status)}`}>
+											{file.status}
+										</span>
 										<span className="min-w-0 flex-1 truncate">
 											<span className="text-owl-text">{name}</span>
 											{dir !== "" && <span className="ml-1.5 text-[11px] text-owl-faint">{dir}</span>}
 										</span>
 										{file.additions !== undefined && file.deletions !== undefined && (
 											<span className="shrink-0 font-mono text-[10.5px] whitespace-nowrap">
-												<span className="text-emerald-300">+{file.additions}</span> <span className="text-red-300">−{file.deletions}</span>
+												<span className="text-emerald-300">+{file.additions}</span>{" "}
+												<span className="text-red-300">−{file.deletions}</span>
 												<ChangeBar additions={file.additions} deletions={file.deletions} />
 											</span>
 										)}
@@ -592,8 +694,14 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 								);
 							})}
 							{files.length > FILES_PREVIEW && (
-								<button type="button" className="mt-1 w-full text-center text-[11.5px] text-owl-muted hover:text-owl-text" onClick={() => setAllFiles(!allFiles)}>
-									{allFiles ? `${t("history.lessFiles")} ▴` : `${t("history.moreFiles", { n: files.length - FILES_PREVIEW })} ▾`}
+								<button
+									type="button"
+									className="mt-1 w-full text-center text-[11.5px] text-owl-muted hover:text-owl-text"
+									onClick={() => setAllFiles(!allFiles)}
+								>
+									{allFiles
+										? `${t("history.lessFiles")} ▴`
+										: `${t("history.moreFiles", { n: files.length - FILES_PREVIEW })} ▾`}
 								</button>
 							)}
 						</>
@@ -643,23 +751,45 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 				}}
 			>
 				<div className="relative w-7 shrink-0">
-					<span className="pointer-events-none absolute left-[13px] w-[2px] bg-owl-accent/45" style={{ top: isFirst ? 14 : 0, bottom: isLast ? "calc(100% - 14px)" : 0 }} />
-					<span className={`absolute ${dot}`} title={entry.unpushed === true ? t("history.unpushed", { n: 1, upstream: history?.upstream ?? "" }) : isMerge ? t("history.merge") : undefined} />
+					<span
+						className="pointer-events-none absolute left-[13px] w-[2px] bg-owl-accent/45"
+						style={{ top: isFirst ? 14 : 0, bottom: isLast ? "calc(100% - 14px)" : 0 }}
+					/>
+					<span
+						className={`absolute ${dot}`}
+						title={
+							entry.unpushed === true
+								? t("history.unpushed", { n: 1, upstream: history?.upstream ?? "" })
+								: isMerge
+									? t("history.merge")
+									: undefined
+						}
+					/>
 				</div>
 				<div className="min-w-0 flex-1 py-1.5 pr-2 pl-0.5">
 					<div className="flex items-center gap-1.5 text-[13px] leading-normal">
 						<span className="min-w-0 flex-1 truncate text-owl-text">{text}</span>
 						{shownRefs.map((ref) => (
-							<span key={`${ref.kind}:${ref.name}`} className={`shrink-0 rounded-full border px-1.5 text-[10.5px] leading-[17px] whitespace-nowrap ${refClass(ref)}`}>
+							<span
+								key={`${ref.kind}:${ref.name}`}
+								className={`shrink-0 rounded-full border px-1.5 text-[10.5px] leading-[17px] whitespace-nowrap ${refClass(ref)}`}
+							>
 								{refLabel(ref)}
 							</span>
 						))}
-						{entry.refs.length > shownRefs.length && <span className="shrink-0 text-[10.5px] text-owl-faint">+{entry.refs.length - shownRefs.length}</span>}
+						{entry.refs.length > shownRefs.length && (
+							<span className="shrink-0 text-[10.5px] text-owl-faint">
+								+{entry.refs.length - shownRefs.length}
+							</span>
+						)}
 					</div>
 					<div className="mt-px flex items-center gap-2 text-[11.5px] text-owl-muted">
 						<span className="font-mono text-[11px] text-sky-300">{entry.short}</span>
 						{type !== "" && <span className="truncate text-[11px] text-owl-faint">{type}</span>}
-						<span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-owl-accent/25 text-[9px] text-owl-accent" title={`${entry.author} <${entry.email}>`}>
+						<span
+							className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-owl-accent/25 text-[9px] text-owl-accent"
+							title={`${entry.author} <${entry.email}>`}
+						>
 							{entry.author.slice(0, 1).toUpperCase()}
 						</span>
 						{/* 作者名直接露出来：那个圆点对所有作者都是同一个强调色，不带区分信息；
@@ -683,7 +813,10 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 		const key = dayKey(entry.time);
 		if (key !== lastDay) {
 			list.push(
-				<div key={`day-${key}-${index}`} className="relative pt-2.5 pr-3.5 pb-1 pl-[38px] text-[11px] tracking-[0.02em] text-owl-muted">
+				<div
+					key={`day-${key}-${index}`}
+					className="relative pt-2.5 pr-3.5 pb-1 pl-[38px] text-[11px] tracking-[0.02em] text-owl-muted"
+				>
 					{index > 0 && <RailLine />}
 					{dayLabel(entry.time, t)}
 				</div>,
@@ -691,15 +824,21 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			lastDay = key;
 		}
 		list.push(<div key={entry.hash}>{row(entry, index)}</div>);
-		if (expanded === entry.hash) list.push(<div key={`${entry.hash}-detail`}>{detailBlock(entry, index < visible.length - 1 || hasMore)}</div>);
+		if (expanded === entry.hash)
+			list.push(<div key={`${entry.hash}-detail`}>{detailBlock(entry, index < visible.length - 1 || hasMore)}</div>);
 	});
 
-	const hoverEntry = hover !== undefined && menu === undefined && expanded !== hover.hash ? entries.find((entry) => entry.hash === hover.hash) : undefined;
+	const hoverEntry =
+		hover !== undefined && menu === undefined && expanded !== hover.hash
+			? entries.find((entry) => entry.hash === hover.hash)
+			: undefined;
 	const hoverDetail = hoverEntry !== undefined ? details[hoverEntry.hash] : undefined;
 	const hoverStyle = ((): React.CSSProperties => {
 		if (hover === undefined) return {};
 		const left = Math.max(8, Math.min(hover.rect.left + 24, window.innerWidth - 316));
-		return hover.rect.bottom > window.innerHeight * 0.6 ? { left, bottom: window.innerHeight - hover.rect.top + 4 } : { left, top: hover.rect.bottom + 4 };
+		return hover.rect.bottom > window.innerHeight * 0.6
+			? { left, bottom: window.innerHeight - hover.rect.top + 4 }
+			: { left, top: hover.rect.bottom + 4 };
 	})();
 
 	return (
@@ -731,20 +870,33 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 								</>
 							)}
 							{history.ahead > 0 && (
-								<span className="shrink-0 text-[11px] text-amber-300" title={t("history.ahead", { n: history.ahead })}>
+								<span
+									className="shrink-0 text-[11px] text-amber-300"
+									title={t("history.ahead", { n: history.ahead })}
+								>
 									↑{history.ahead}
 								</span>
 							)}
 							{history.behind > 0 && (
-								<span className="shrink-0 text-[11px] text-sky-300" title={t("history.behind", { n: history.behind })}>
+								<span
+									className="shrink-0 text-[11px] text-sky-300"
+									title={t("history.behind", { n: history.behind })}
+								>
 									↓{history.behind}
 								</span>
 							)}
-							{history.upstream !== undefined && repos.length <= 1 && <span className="truncate opacity-60">⟂ {history.upstream}</span>}
+							{history.upstream !== undefined && repos.length <= 1 && (
+								<span className="truncate opacity-60">⟂ {history.upstream}</span>
+							)}
 						</>
 					)}
 				</span>
-				<button type="button" title={t("common.refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text" onClick={() => void load("refresh")}>
+				<button
+					type="button"
+					title={t("common.refresh")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text"
+					onClick={() => void load("refresh")}
+				>
 					<IconRefresh size={14} className={loading ? "animate-spin" : ""} />
 				</button>
 			</div>
@@ -787,8 +939,15 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			{history !== undefined && history.upstream !== undefined && history.ahead > 0 && (
 				<div className="mx-2.5 mt-2 mb-0.5 flex items-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-xs text-amber-300">
 					<span className="shrink-0">↑</span>
-					<span className="min-w-0 flex-1 truncate">{t("history.unpushed", { n: history.ahead, upstream: history.upstream })}</span>
-					<button type="button" disabled={pushing} className="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-md border border-amber-300/35 px-2.5 hover:bg-amber-300/10 disabled:opacity-50" onClick={() => void push()}>
+					<span className="min-w-0 flex-1 truncate">
+						{t("history.unpushed", { n: history.ahead, upstream: history.upstream })}
+					</span>
+					<button
+						type="button"
+						disabled={pushing}
+						className="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-md border border-amber-300/35 px-2.5 hover:bg-amber-300/10 disabled:opacity-50"
+						onClick={() => void push()}
+					>
 						{pushing && <IconLoader size={11} className="animate-spin" />}
 						{pushing ? t("history.pushing") : t("history.push")}
 					</button>
@@ -797,7 +956,12 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			{history !== undefined && history.canPublish && history.branch !== undefined && (
 				<div className="mx-2.5 mt-2 mb-0.5 flex items-center gap-2 rounded-lg border border-owl-accent/30 bg-owl-accent/10 px-2.5 py-1.5 text-xs text-owl-accent">
 					<span className="min-w-0 flex-1 truncate">{t("history.unpublished", { branch: history.branch })}</span>
-					<button type="button" disabled={pushing} className="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-md bg-owl-accent px-2.5 text-white hover:bg-owl-accent-hover disabled:opacity-50" onClick={() => void push()}>
+					<button
+						type="button"
+						disabled={pushing}
+						className="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-md bg-owl-accent px-2.5 text-white hover:bg-owl-accent-hover disabled:opacity-50"
+						onClick={() => void push()}
+					>
 						{pushing && <IconLoader size={11} className="animate-spin" />}
 						{pushing ? t("history.pushing") : t("history.publish")}
 					</button>
@@ -811,7 +975,9 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 					</div>
 				)}
 				{loadError !== undefined && <div className="px-3 py-2 text-xs break-words text-red-300">{loadError}</div>}
-				{history !== undefined && entries.length === 0 && <div className="px-3 py-6 text-center text-xs text-owl-faint">{t("history.empty")}</div>}
+				{history !== undefined && entries.length === 0 && (
+					<div className="px-3 py-6 text-center text-xs text-owl-faint">{t("history.empty")}</div>
+				)}
 				{history !== undefined && entries.length > 0 && visible.length === 0 && (
 					<div className="px-3 py-6 text-center text-xs text-owl-faint">
 						{t("history.noMatch")}
@@ -821,24 +987,43 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 				)}
 				{list}
 				{hasMore && (
-					<button type="button" disabled={loadingMore} className="mx-auto mt-2.5 block text-xs text-owl-muted hover:text-owl-text disabled:opacity-60" onClick={() => void load("more")}>
+					<button
+						type="button"
+						disabled={loadingMore}
+						className="mx-auto mt-2.5 block text-xs text-owl-muted hover:text-owl-text disabled:opacity-60"
+						onClick={() => void load("more")}
+					>
 						{loadingMore ? t("history.loadingMore") : t("history.loadMore", { n: PAGE })}
 					</button>
 				)}
 			</div>
 
 			{selected !== undefined && (
-				<div className={`${expandedDiff ? "h-[78%]" : "h-[36%]"} flex shrink-0 flex-col border-t border-owl-border/60`}>
+				<div
+					className={`${expandedDiff ? "h-[78%]" : "h-[36%]"} flex shrink-0 flex-col border-t border-owl-border/60`}
+				>
 					<div className="flex items-center gap-1.5 border-b border-owl-border/40 py-1 pr-2 pl-3 font-mono text-[11.5px] text-owl-muted">
 						<span className="min-w-0 flex-1 truncate" title={selected.file.path}>
 							{selected.file.path}
 						</span>
 						<span className="shrink-0 text-sky-300">{selected.short}</span>
-						{selected.against === "worktree" && <span className="shrink-0 font-sans text-[11px] text-owl-accent">⇄ {t("history.worktree")}</span>}
-						<button type="button" title={expandedDiff ? t("common.collapse") : t("common.expand")} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={() => setExpandedDiff(!expandedDiff)}>
+						{selected.against === "worktree" && (
+							<span className="shrink-0 font-sans text-[11px] text-owl-accent">⇄ {t("history.worktree")}</span>
+						)}
+						<button
+							type="button"
+							title={expandedDiff ? t("common.collapse") : t("common.expand")}
+							className="rounded p-1 text-owl-muted hover:text-owl-text"
+							onClick={() => setExpandedDiff(!expandedDiff)}
+						>
 							{expandedDiff ? "▾" : "▴"}
 						</button>
-						<button type="button" title={t("window.close")} className="rounded p-1 text-owl-muted hover:text-owl-text" onClick={closeDiff}>
+						<button
+							type="button"
+							title={t("window.close")}
+							className="rounded p-1 text-owl-muted hover:text-owl-text"
+							onClick={closeDiff}
+						>
 							<IconX size={12} />
 						</button>
 					</div>
@@ -849,16 +1034,30 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 							</div>
 						)}
 						{diffError !== undefined && <div className="px-3 py-2 text-xs text-red-300">{diffError}</div>}
-						{!diffLoading && diffError === undefined && diff !== undefined && (diff.trim() === "" ? <div className="px-3 py-2 text-xs text-owl-faint">{t("changes.noDiff")}</div> : <DiffView text={diff} />)}
+						{!diffLoading &&
+							diffError === undefined &&
+							diff !== undefined &&
+							(diff.trim() === "" ? (
+								<div className="px-3 py-2 text-xs text-owl-faint">{t("changes.noDiff")}</div>
+							) : (
+								<DiffView text={diff} />
+							))}
 					</div>
 				</div>
 			)}
 
 			{hoverEntry !== undefined && (
-				<div className="pointer-events-none fixed z-50 w-[300px] rounded-lg border border-owl-border bg-owl-panel p-3 shadow-2xl" style={hoverStyle}>
-					<div className="text-[12.5px] leading-snug font-medium break-words text-owl-text">{hoverEntry.subject}</div>
+				<div
+					className="pointer-events-none fixed z-50 w-[300px] rounded-lg border border-owl-border bg-owl-panel p-3 shadow-2xl"
+					style={hoverStyle}
+				>
+					<div className="text-[12.5px] leading-snug font-medium break-words text-owl-text">
+						{hoverEntry.subject}
+					</div>
 					{hoverDetail !== undefined && hoverDetail.body !== "" && (
-						<div className="mt-1.5 line-clamp-6 text-[11.5px] leading-relaxed whitespace-pre-wrap text-owl-muted">{hoverDetail.body}</div>
+						<div className="mt-1.5 line-clamp-6 text-[11.5px] leading-relaxed whitespace-pre-wrap text-owl-muted">
+							{hoverDetail.body}
+						</div>
 					)}
 					<div className="mt-2 flex items-center gap-1.5 text-[11.5px] text-owl-muted">
 						<span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-owl-accent/25 text-[9px] text-owl-accent">
@@ -872,17 +1071,27 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 						<span className="font-mono text-sky-300">{hoverEntry.short}</span>
 						{hoverDetail !== undefined && (
 							<span className="text-owl-muted">
-								{t("history.filesN", { n: hoverDetail.files.length })} · <span className="text-emerald-300">+{hoverDetail.additions}</span>{" "}
+								{t("history.filesN", { n: hoverDetail.files.length })} ·{" "}
+								<span className="text-emerald-300">+{hoverDetail.additions}</span>{" "}
 								<span className="text-red-300">−{hoverDetail.deletions}</span>
 							</span>
 						)}
-						{hoverDetail === undefined && detailErrors[hoverEntry.hash] === undefined && <IconLoader size={11} className="animate-spin text-owl-faint" />}
+						{hoverDetail === undefined && detailErrors[hoverEntry.hash] === undefined && (
+							<IconLoader size={11} className="animate-spin text-owl-faint" />
+						)}
 					</div>
-					{ciText(ci[hoverEntry.hash], t) !== undefined && <div className={`mt-1 text-[11px] ${ciColor(ci[hoverEntry.hash])}`}>{ciText(ci[hoverEntry.hash], t)}</div>}
+					{ciText(ci[hoverEntry.hash], t) !== undefined && (
+						<div className={`mt-1 text-[11px] ${ciColor(ci[hoverEntry.hash])}`}>
+							{ciText(ci[hoverEntry.hash], t)}
+						</div>
+					)}
 					{hoverEntry.refs.length > 0 && (
 						<div className="mt-1.5 flex flex-wrap gap-1">
 							{hoverEntry.refs.map((ref) => (
-								<span key={`${ref.kind}:${ref.name}`} className={`rounded-full border px-1.5 text-[10.5px] leading-[17px] ${refClass(ref)}`}>
+								<span
+									key={`${ref.kind}:${ref.name}`}
+									className={`rounded-full border px-1.5 text-[10.5px] leading-[17px] ${refClass(ref)}`}
+								>
 									{refLabel(ref)}
 								</span>
 							))}
@@ -904,7 +1113,10 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 					<div
 						role="menu"
 						className="fixed z-50 w-60 overflow-hidden rounded-lg border border-owl-border bg-owl-panel p-1 shadow-xl"
-						style={{ left: Math.min(menu.x, window.innerWidth - 250), top: Math.min(menu.y, window.innerHeight - 300) }}
+						style={{
+							left: Math.min(menu.x, window.innerWidth - 250),
+							top: Math.min(menu.y, window.innerHeight - 300),
+						}}
 					>
 						{menuItems(menu.entry).map((item, index) =>
 							item === "sep" ? (
@@ -922,7 +1134,9 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 								>
 									<span className="flex w-3 shrink-0 justify-center text-owl-muted">{item.icon}</span>
 									<span className="min-w-0 flex-1 truncate">{item.label}</span>
-									{item.hint !== undefined && <span className="shrink-0 font-mono text-[10.5px] text-owl-faint">{item.hint}</span>}
+									{item.hint !== undefined && (
+										<span className="shrink-0 font-mono text-[10.5px] text-owl-faint">{item.hint}</span>
+									)}
 								</button>
 							),
 						)}
@@ -931,7 +1145,9 @@ export function HistoryView({ api, cwd, repos, initialRepo, modeSwitch, statusVe
 			)}
 
 			{toast !== undefined && (
-				<div className="pointer-events-none absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-md border border-owl-border bg-owl-panel px-2.5 py-1 text-xs text-owl-text shadow-lg">{toast}</div>
+				<div className="pointer-events-none absolute bottom-3 left-1/2 z-30 -translate-x-1/2 rounded-md border border-owl-border bg-owl-panel px-2.5 py-1 text-xs text-owl-text shadow-lg">
+					{toast}
+				</div>
 			)}
 		</div>
 	);

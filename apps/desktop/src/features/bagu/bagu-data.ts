@@ -78,7 +78,10 @@ const MEMORY_TEMPLATE = `# 面试官记忆（候选人的薄弱本与偏好）
  * fs.write 会递归建父目录（见 coding-agent sidebar-fs），目录不存在也能直接写。
  * 返回两个文件的当前内容（primer 用）。
  */
-export async function ensureBaguDir(client: BridgeClient, dir: string): Promise<{ interviewer: string; memory: string }> {
+export async function ensureBaguDir(
+	client: BridgeClient,
+	dir: string,
+): Promise<{ interviewer: string; memory: string }> {
 	let interviewer = await readText(client, dir, "interviewer.md");
 	if (interviewer === null) {
 		interviewer = INTERVIEWER_TEMPLATE;

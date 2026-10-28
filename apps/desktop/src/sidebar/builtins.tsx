@@ -9,22 +9,23 @@
 import { lazy } from "react";
 import { t } from "../i18n/index.ts";
 import { setThemePreference } from "../theme.ts";
-import { registerTab, type TabDefinition } from "./registry.ts";
-import { BrowserTab } from "./tabs/BrowserTab.tsx";
-import { ChangesTab } from "./tabs/ChangesTab.tsx";
-import { ExecutionTab } from "./tabs/ExecutionTab.tsx";
 import { executionText } from "./execution-copy.ts";
-import { FilesTab } from "./tabs/FilesTab.tsx";
-import { ImageTab } from "./tabs/ImageTab.tsx";
-import { DocumentTab } from "./tabs/DocumentTab.tsx";
-import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
-import { MirrorTab } from "./tabs/MirrorTab.tsx";
-import { ManagerTab } from "./tabs/ManagerTab.tsx";
-import { ReviewTab } from "./tabs/ReviewTab.tsx";
-import { TasksTab } from "./tabs/TasksTab.tsx";
-import { SideChatTab } from "./tabs/SideChatTab.tsx";
 import { IconFile, IconImage } from "./icons.tsx";
 import { quickActionOf } from "./quick.tsx";
+import { registerTab, type TabDefinition } from "./registry.ts";
+import { ArtifactTab } from "./tabs/ArtifactTab.tsx";
+import { BrowserTab } from "./tabs/BrowserTab.tsx";
+import { ChangesTab } from "./tabs/ChangesTab.tsx";
+import { DocumentTab } from "./tabs/DocumentTab.tsx";
+import { ExecutionTab } from "./tabs/ExecutionTab.tsx";
+import { FilesTab } from "./tabs/FilesTab.tsx";
+import { ImageTab } from "./tabs/ImageTab.tsx";
+import { ImpressionTab } from "./tabs/ImpressionTab.tsx";
+import { ManagerTab } from "./tabs/ManagerTab.tsx";
+import { MirrorTab } from "./tabs/MirrorTab.tsx";
+import { ReviewTab } from "./tabs/ReviewTab.tsx";
+import { SideChatTab } from "./tabs/SideChatTab.tsx";
+import { TasksTab } from "./tabs/TasksTab.tsx";
 
 const EditorTab = lazy(() => import("./tabs/EditorTab.tsx").then((m) => ({ default: m.EditorTab })));
 const TerminalTab = lazy(() => import("./tabs/TerminalTab.tsx").then((m) => ({ default: m.TerminalTab })));
@@ -41,51 +42,80 @@ function quickIcon(kind: string): TabDefinition["icon"] {
 const DEFINITIONS: TabDefinition[] = [
 	{
 		kind: "execution",
-		get title() { return executionText().title; },
-		icon: (size) => <svg width={size ?? 14} height={size ?? 14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="m5 6 2 2-2 2m4 0h2" /></svg>,
+		get title() {
+			return executionText().title;
+		},
+		icon: (size) => (
+			<svg
+				width={size ?? 14}
+				height={size ?? 14}
+				viewBox="0 0 16 16"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.3"
+				aria-hidden="true"
+			>
+				<rect x="2" y="3" width="12" height="10" rx="2" />
+				<path d="m5 6 2 2-2 2m4 0h2" />
+			</svg>
+		),
 		component: ExecutionTab,
 	},
 	{
 		kind: "document",
-		get title() { return t("settings.sidecards.filePreview"); },
+		get title() {
+			return t("settings.sidecards.filePreview");
+		},
 		icon: (size) => <IconFile size={size ?? 14} />,
 		component: DocumentTab,
 		exts: ["md", "markdown", "html", "htm", "txt", "csv", "tsv"],
 	},
 	{
 		kind: "files",
-		get title() { return t("dev.files"); },
+		get title() {
+			return t("dev.files");
+		},
 		icon: quickIcon("files"),
 		component: FilesTab,
 	},
 	{
 		kind: "changes",
-		get title() { return t("dev.changes"); },
+		get title() {
+			return t("dev.changes");
+		},
 		icon: quickIcon("changes"),
 		component: ChangesTab,
 	},
 	{
 		kind: "review",
-		get title() { return t("wb.review"); },
+		get title() {
+			return t("wb.review");
+		},
 		icon: quickIcon("review"),
 		component: ReviewTab,
 	},
 	{
 		kind: "terminal",
-		get title() { return t("start.terminal"); },
+		get title() {
+			return t("start.terminal");
+		},
 		icon: quickIcon("terminal"),
 		// xterm + 语言包都重，走懒加载 chunk
 		component: TerminalTab,
 	},
 	{
 		kind: "browser",
-		get title() { return t("app.browserTab"); },
+		get title() {
+			return t("app.browserTab");
+		},
 		icon: quickIcon("browser"),
 		component: BrowserTab,
 	},
 	{
 		kind: "mirror",
-		get title() { return t("wb.drama"); },
+		get title() {
+			return t("wb.drama");
+		},
 		icon: quickIcon("mirror"),
 		component: MirrorTab,
 	},
@@ -95,7 +125,9 @@ const DEFINITIONS: TabDefinition[] = [
 		icon: quickIcon("mirror"),
 		component: ({ api, client }) => (
 			<ManagerTab
-				onOpenExternal={async (url) => { await api.openExternal("url", url); }}
+				onOpenExternal={async (url) => {
+					await api.openExternal("url", url);
+				}}
 				onThemeChange={async (theme) => {
 					const response = await client.request({ type: "settings.set", values: { theme } });
 					if (!response.ok) throw new Error(response.error ?? "保存主题失败");
@@ -106,32 +138,51 @@ const DEFINITIONS: TabDefinition[] = [
 	},
 	{
 		kind: "tasks",
-		get title() { return t("wb.tasks"); },
+		get title() {
+			return t("wb.tasks");
+		},
 		icon: quickIcon("tasks"),
 		component: TasksTab,
 	},
 	{
 		kind: "impression",
-		get title() { return t("wb.impression"); },
+		get title() {
+			return t("wb.impression");
+		},
 		icon: quickIcon("impression"),
 		component: ImpressionTab,
 	},
 	{
 		kind: "sidechat",
-		get title() { return t("wb.sidechat"); },
+		get title() {
+			return t("wb.sidechat");
+		},
 		icon: quickIcon("sidechat"),
 		component: SideChatTab,
 	},
 	{
+		// 产物页：标题取产物的名字（store 里带上），这里的只是兜底。
+		kind: "artifact",
+		get title() {
+			return t("artifact.tabTitle");
+		},
+		icon: (size) => <IconFile size={size ?? 14} />,
+		component: ArtifactTab,
+	},
+	{
 		kind: "editor",
-		get title() { return t("wb.editor"); },
+		get title() {
+			return t("wb.editor");
+		},
 		icon: (size) => <IconFile size={size ?? 14} />,
 		component: EditorTab,
 		// exts 留空：editor 是 viewer 的兜底 kind（registry.viewerKindFor）
 	},
 	{
 		kind: "image",
-		get title() { return t("settings.sidecards.viewerImage"); },
+		get title() {
+			return t("settings.sidecards.viewerImage");
+		},
 		icon: (size) => <IconImage size={size ?? 14} />,
 		component: ImageTab,
 		exts: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"],

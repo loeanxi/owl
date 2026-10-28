@@ -116,7 +116,12 @@ export function AccountsSection({ client }: { client: BridgeClient }): React.JSX
 						{running ? (
 							<span className="text-xs text-owl-muted">{t("settings.accounts.inUse")}</span>
 						) : (
-							<button type="button" className="owl-settings-input px-3 py-1 text-xs" disabled={busy} onClick={() => onSwitchClick(account)}>
+							<button
+								type="button"
+								className="owl-settings-input px-3 py-1 text-xs"
+								disabled={busy}
+								onClick={() => onSwitchClick(account)}
+							>
 								{t("settings.accounts.switchTo")}
 							</button>
 						)}
@@ -124,7 +129,10 @@ export function AccountsSection({ client }: { client: BridgeClient }): React.JSX
 				);
 			})}
 			{passwordFor && (
-				<SettingRow title={t("settings.accounts.passwordTitle", { name: passwordFor.name })} desc={t("settings.accounts.passwordDesc")}>
+				<SettingRow
+					title={t("settings.accounts.passwordTitle", { name: passwordFor.name })}
+					desc={t("settings.accounts.passwordDesc")}
+				>
 					<div className="flex items-center gap-2">
 						<input
 							type="password"
@@ -136,10 +144,19 @@ export function AccountsSection({ client }: { client: BridgeClient }): React.JSX
 								if (event.key === "Enter") void doSwitch(passwordFor, password);
 							}}
 						/>
-						<button type="button" className="owl-settings-input px-3 py-1 text-xs" disabled={busy} onClick={() => void doSwitch(passwordFor, password)}>
+						<button
+							type="button"
+							className="owl-settings-input px-3 py-1 text-xs"
+							disabled={busy}
+							onClick={() => void doSwitch(passwordFor, password)}
+						>
 							{t("settings.accounts.confirmSwitch")}
 						</button>
-						<button type="button" className="owl-settings-input px-3 py-1 text-xs" onClick={() => setPasswordFor(null)}>
+						<button
+							type="button"
+							className="owl-settings-input px-3 py-1 text-xs"
+							onClick={() => setPasswordFor(null)}
+						>
 							{t("common.cancel")}
 						</button>
 					</div>
@@ -161,7 +178,12 @@ export function AccountsSection({ client }: { client: BridgeClient }): React.JSX
 						value={newPassword}
 						onChange={(event) => setNewPassword(event.target.value)}
 					/>
-					<button type="button" className="owl-settings-input px-3 py-1 text-xs" disabled={busy || !newName.trim()} onClick={() => void create()}>
+					<button
+						type="button"
+						className="owl-settings-input px-3 py-1 text-xs"
+						disabled={busy || !newName.trim()}
+						onClick={() => void create()}
+					>
 						{t("settings.accounts.create")}
 					</button>
 				</div>

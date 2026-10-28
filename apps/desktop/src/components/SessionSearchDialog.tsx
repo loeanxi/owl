@@ -12,7 +12,13 @@ export type SessionSearchDialogProps = SessionSearchPanelProps & {
 };
 
 /** Search keeps its own focus and scrolling surface while the sidebar remains available after closing. */
-export function SessionSearchDialog({ query, onQueryChange, onClose, placeholder, ...panelProps }: SessionSearchDialogProps): React.JSX.Element {
+export function SessionSearchDialog({
+	query,
+	onQueryChange,
+	onClose,
+	placeholder,
+	...panelProps
+}: SessionSearchDialogProps): React.JSX.Element {
 	const text = useSessionSearchText();
 	const titleId = useId();
 	const dialogRef = useRef<HTMLDivElement>(null);
@@ -33,8 +39,11 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, placeholder
 			}
 			if (event.key !== "Tab") return;
 			const dialog = dialogRef.current;
-			const controls = [...(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex]:not([tabindex="-1"])') ?? [])]
-				.filter((element) => element.tabIndex >= 0 && !element.hidden && element.getClientRects().length > 0);
+			const controls = [
+				...(dialog?.querySelectorAll<HTMLElement>(
+					'button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex]:not([tabindex="-1"])',
+				) ?? []),
+			].filter((element) => element.tabIndex >= 0 && !element.hidden && element.getClientRects().length > 0);
 			const first = controls[0];
 			const last = controls.at(-1);
 			if (!first || !last) {
@@ -64,23 +73,70 @@ export function SessionSearchDialog({ query, onQueryChange, onClose, placeholder
 	}, []);
 
 	return createPortal(
-		<div className="owl-session-search-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-			<div ref={dialogRef} className="owl-session-search-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
+		<div
+			className="owl-session-search-backdrop"
+			onClick={(event) => {
+				if (event.target === event.currentTarget) onClose();
+			}}
+		>
+			<div
+				ref={dialogRef}
+				className="owl-session-search-dialog"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={titleId}
+				tabIndex={-1}
+			>
 				<header className="owl-session-search-dialog-heading">
 					<h2 id={titleId}>{text("title")}</h2>
-					<button type="button" className="owl-session-search-dialog-icon owl-session-search-dialog-close" aria-label={text("close")} title={text("close")} onClick={onClose}>
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+					<button
+						type="button"
+						className="owl-session-search-dialog-icon owl-session-search-dialog-close"
+						aria-label={text("close")}
+						title={text("close")}
+						onClick={onClose}
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+							<path d="m6 6 12 12M18 6 6 18" />
+						</svg>
 					</button>
 				</header>
 				<div className="owl-session-search-dialog-control">
 					<IconSearch className="owl-session-search-dialog-search-icon" />
-					<input ref={inputRef} type="text" className="owl-sidebar-search-input owl-session-search-dialog-input" aria-label={placeholder ?? text("placeholder")} placeholder={placeholder ?? text("placeholder")} autoComplete="off" spellCheck={false} value={query} onInput={(event) => onQueryChange(event.currentTarget.value)} />
-					{query && <button type="button" className="owl-session-search-dialog-icon owl-session-search-dialog-clear" aria-label={text("clear")} title={text("clear")} onClick={() => { onQueryChange(""); inputRef.current?.focus(); }}>
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-					</button>}
+					<input
+						ref={inputRef}
+						type="text"
+						className="owl-sidebar-search-input owl-session-search-dialog-input"
+						aria-label={placeholder ?? text("placeholder")}
+						placeholder={placeholder ?? text("placeholder")}
+						autoComplete="off"
+						spellCheck={false}
+						value={query}
+						onInput={(event) => onQueryChange(event.currentTarget.value)}
+					/>
+					{query && (
+						<button
+							type="button"
+							className="owl-session-search-dialog-icon owl-session-search-dialog-clear"
+							aria-label={text("clear")}
+							title={text("clear")}
+							onClick={() => {
+								onQueryChange("");
+								inputRef.current?.focus();
+							}}
+						>
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+								<path d="m6 6 12 12M18 6 6 18" />
+							</svg>
+						</button>
+					)}
 				</div>
 				<div className="owl-session-search-dialog-results">
-					{query.trim() ? <SessionSearchPanel {...panelProps} query={query} /> : <p className="owl-session-search-dialog-empty">{text("start")}</p>}
+					{query.trim() ? (
+						<SessionSearchPanel {...panelProps} query={query} />
+					) : (
+						<p className="owl-session-search-dialog-empty">{text("start")}</p>
+					)}
 				</div>
 			</div>
 		</div>,

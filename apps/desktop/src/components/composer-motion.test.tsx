@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import type * as React from "react";
 import { act, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useComposerMotion } from "./use-composer-motion.ts";
 
@@ -82,7 +82,9 @@ function MotionFixture({
 				<div className="owl-chat-scroll">
 					{questions.map(({ index, position }) => (
 						<div key={index} className="owl-chat-question" data-qidx={index}>
-							<div className="owl-user-bubble" data-position={position}>Message {index}</div>
+							<div className="owl-user-bubble" data-position={position}>
+								Message {index}
+							</div>
 						</div>
 					))}
 				</div>
@@ -91,7 +93,9 @@ function MotionFixture({
 						<div className="owl-composer-accept-glint" />
 						<div className="owl-composer-send-glint" />
 						<div className="owl-composer-editor">Unchanged draft</div>
-						<button className="owl-composer-action" type="button">Send</button>
+						<button className="owl-composer-action" type="button">
+							Send
+						</button>
 					</div>
 				</div>
 			</section>
@@ -132,18 +136,32 @@ beforeEach(() => {
 		addEventListener: vi.fn((_type: string, listener: () => void) => mediaListeners.add(listener)),
 		removeEventListener: vi.fn((_type: string, listener: () => void) => mediaListeners.delete(listener)),
 	};
-	vi.stubGlobal("matchMedia", vi.fn(() => media));
-	vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
-		const id = ++nextFrame;
-		frames.set(id, callback);
-		return id;
-	}));
-	vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => frames.delete(id)));
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn(() => media),
+	);
+	vi.stubGlobal(
+		"requestAnimationFrame",
+		vi.fn((callback: FrameRequestCallback) => {
+			const id = ++nextFrame;
+			frames.set(id, callback);
+			return id;
+		}),
+	);
+	vi.stubGlobal(
+		"cancelAnimationFrame",
+		vi.fn((id: number) => frames.delete(id)),
+	);
 	vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
 	vi.stubGlobal("MutationObserver", TestMutationObserver);
 	vi.spyOn(dom.window.HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
 		if (this.classList.contains("owl-user-bubble")) {
-			return rect(400, this.dataset.position === "clipped" ? 600 : this.dataset.position === "outside-window" ? -200 : 400, 300, 80);
+			return rect(
+				400,
+				this.dataset.position === "clipped" ? 600 : this.dataset.position === "outside-window" ? -200 : 400,
+				300,
+				80,
+			);
 		}
 		if (this.classList.contains("owl-chat-scroll")) return rect(20, 20, 700, 560);
 		return rect(680, 700, 40, 40);
@@ -153,7 +171,9 @@ beforeEach(() => {
 		value: vi.fn(function (this: HTMLElement) {
 			const animation: TestAnimation = {
 				element: this,
-				cancel: vi.fn(() => animation.oncancel?.call(animation as unknown as Animation, {} as AnimationPlaybackEvent)),
+				cancel: vi.fn(() =>
+					animation.oncancel?.call(animation as unknown as Animation, {} as AnimationPlaybackEvent),
+				),
 				onfinish: null,
 				oncancel: null,
 			};
@@ -196,7 +216,8 @@ describe("composer motion", () => {
 		observers[0].emit(true);
 		motion.acceptSuggestion();
 		expect(animations.map(({ element }) => element.className)).toEqual([
-			"owl-composer-accept-glint", "owl-composer-editor",
+			"owl-composer-accept-glint",
+			"owl-composer-editor",
 		]);
 		expect(container.querySelector(".owl-composer-editor")?.textContent).toBe("Unchanged draft");
 		expect(container.querySelectorAll(".owl-user-bubble")).toHaveLength(1);
@@ -204,27 +225,33 @@ describe("composer motion", () => {
 		expect(relay()).toBeNull();
 	});
 
-	it.each(["owl-agent-conversation", "research-conversation"])("relays an accepted send only to the newly committed user bubble in %s", async (conversationClass) => {
-		await render({ conversationClass });
-		observers[0].emit(true);
-		const receipt = motion.beginSend();
-		await render({ conversationClass, questions: [{ index: 1 }, { index: 2 }] });
-		expect(relay()).toBeNull();
-		expect(frames.size).toBe(0);
-		receipt.accepted();
-		flushFrame();
-		expect(relay()).toBeNull();
-		flushFrame();
-		expect(relay()?.getAttribute("aria-hidden")).toBe("true");
-		expect(animations.filter(({ element }) => element.classList.contains("owl-user-bubble"))
-			.map(({ element }) => element.textContent)).toEqual(["Message 2"]);
-		receipt.accepted();
-		expect(document.querySelectorAll(".owl-composer-relay")).toHaveLength(1);
-		expect(frames.size).toBe(0);
-		const dotAnimation = animations.find(({ element }) => element === relay())!;
-		dotAnimation.onfinish?.call(dotAnimation as unknown as Animation, {} as AnimationPlaybackEvent);
-		expect(relay()).toBeNull();
-	});
+	it.each(["owl-agent-conversation", "research-conversation"])(
+		"relays an accepted send only to the newly committed user bubble in %s",
+		async (conversationClass) => {
+			await render({ conversationClass });
+			observers[0].emit(true);
+			const receipt = motion.beginSend();
+			await render({ conversationClass, questions: [{ index: 1 }, { index: 2 }] });
+			expect(relay()).toBeNull();
+			expect(frames.size).toBe(0);
+			receipt.accepted();
+			flushFrame();
+			expect(relay()).toBeNull();
+			flushFrame();
+			expect(relay()?.getAttribute("aria-hidden")).toBe("true");
+			expect(
+				animations
+					.filter(({ element }) => element.classList.contains("owl-user-bubble"))
+					.map(({ element }) => element.textContent),
+			).toEqual(["Message 2"]);
+			receipt.accepted();
+			expect(document.querySelectorAll(".owl-composer-relay")).toHaveLength(1);
+			expect(frames.size).toBe(0);
+			const dotAnimation = animations.find(({ element }) => element === relay())!;
+			dotAnimation.onfinish?.call(dotAnimation as unknown as Animation, {} as AnimationPlaybackEvent);
+			expect(relay()).toBeNull();
+		},
+	);
 
 	it("ignores bubbles in another conversation and ambiguous concurrent rows", async () => {
 		await render();
@@ -244,16 +271,19 @@ describe("composer motion", () => {
 		expect(animations.some(({ element }) => element.classList.contains("owl-user-bubble"))).toBe(false);
 	});
 
-	it.each(["queue", "steer"] as const)("does not represent an accepted %s acknowledgement as a chat delivery", async (delivery) => {
-		await render();
-		observers[0].emit(true);
-		const receipt = motion.beginSend(delivery);
-		await render({ questions: [{ index: 1 }, { index: 2 }] });
-		receipt.accepted();
-		expect(frames.size).toBe(0);
-		expect(relay()).toBeNull();
-		expect(animations.some(({ element }) => element.classList.contains("owl-user-bubble"))).toBe(false);
-	});
+	it.each(["queue", "steer"] as const)(
+		"does not represent an accepted %s acknowledgement as a chat delivery",
+		async (delivery) => {
+			await render();
+			observers[0].emit(true);
+			const receipt = motion.beginSend(delivery);
+			await render({ questions: [{ index: 1 }, { index: 2 }] });
+			receipt.accepted();
+			expect(frames.size).toBe(0);
+			expect(relay()).toBeNull();
+			expect(animations.some(({ element }) => element.classList.contains("owl-user-bubble"))).toBe(false);
+		},
+	);
 
 	it("cancels rejected feedback and cannot later relay the same receipt", async () => {
 		await render();
@@ -290,49 +320,55 @@ describe("composer motion", () => {
 		expect(relay()).toBeNull();
 	});
 
-	it.each(["clipped", "outside-window"] as const)("skips a %s destination without moving the chat scroll", async (position) => {
-		await render();
-		observers[0].emit(true);
-		const chat = container.querySelector<HTMLElement>(".owl-chat-scroll")!;
-		chat.scrollTop = 123;
-		const receipt = motion.beginSend();
-		await render({ questions: [{ index: 1 }, { index: 2, position }] });
-		receipt.accepted();
-		flushFrame();
-		flushFrame();
-		expect(relay()).toBeNull();
-		expect(chat.scrollTop).toBe(123);
-	});
+	it.each(["clipped", "outside-window"] as const)(
+		"skips a %s destination without moving the chat scroll",
+		async (position) => {
+			await render();
+			observers[0].emit(true);
+			const chat = container.querySelector<HTMLElement>(".owl-chat-scroll")!;
+			chat.scrollTop = 123;
+			const receipt = motion.beginSend();
+			await render({ questions: [{ index: 1 }, { index: 2, position }] });
+			receipt.accepted();
+			flushFrame();
+			flushFrame();
+			expect(relay()).toBeNull();
+			expect(chat.scrollTop).toBe(123);
+		},
+	);
 
-	it.each(["hidden", "offscreen", "reduced", "disabled"] as const)("releases active feedback when motion becomes %s", async (reason) => {
-		await render();
-		observers[0].emit(true);
-		const receipt = motion.beginSend();
-		await render({ questions: [{ index: 1 }, { index: 2 }] });
-		receipt.accepted();
-		flushFrame();
-		flushFrame();
-		expect(relay()).not.toBeNull();
-		const running = [...animations];
-		if (reason === "hidden") setHidden(true);
-		else if (reason === "offscreen") observers[0].emit(false);
-		else if (reason === "reduced") {
-			media.matches = true;
-			for (const listener of mediaListeners) listener();
-		} else {
-			document.documentElement.dataset.owlChatMotion = "off";
-			preferenceObservers[0].callback();
-		}
-		expect(relay()).toBeNull();
-		expect(frames.size).toBe(0);
-		expect(running.every(({ cancel }) => cancel.mock.calls.length === 1)).toBe(true);
-		expect(container.querySelector<HTMLElement>("[data-testid='surface']")?.dataset.composerMotion).toBe("paused");
-		const count = animations.length;
-		motion.acceptSuggestion();
-		motion.beginSend().accepted();
-		expect(animations).toHaveLength(count);
-		expect(frames.size).toBe(0);
-	});
+	it.each(["hidden", "offscreen", "reduced", "disabled"] as const)(
+		"releases active feedback when motion becomes %s",
+		async (reason) => {
+			await render();
+			observers[0].emit(true);
+			const receipt = motion.beginSend();
+			await render({ questions: [{ index: 1 }, { index: 2 }] });
+			receipt.accepted();
+			flushFrame();
+			flushFrame();
+			expect(relay()).not.toBeNull();
+			const running = [...animations];
+			if (reason === "hidden") setHidden(true);
+			else if (reason === "offscreen") observers[0].emit(false);
+			else if (reason === "reduced") {
+				media.matches = true;
+				for (const listener of mediaListeners) listener();
+			} else {
+				document.documentElement.dataset.owlChatMotion = "off";
+				preferenceObservers[0].callback();
+			}
+			expect(relay()).toBeNull();
+			expect(frames.size).toBe(0);
+			expect(running.every(({ cancel }) => cancel.mock.calls.length === 1)).toBe(true);
+			expect(container.querySelector<HTMLElement>("[data-testid='surface']")?.dataset.composerMotion).toBe("paused");
+			const count = animations.length;
+			motion.acceptSuggestion();
+			motion.beginSend().accepted();
+			expect(animations).toHaveLength(count);
+			expect(frames.size).toBe(0);
+		},
+	);
 
 	it("cancels a pending relay when navigating away and ignores the stale receipt", async () => {
 		await render();

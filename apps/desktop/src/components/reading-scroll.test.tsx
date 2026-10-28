@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { ChatStream } from "./ChatStream.tsx";
@@ -23,11 +23,18 @@ beforeEach(() => {
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 	resizes = new Set();
-	vi.stubGlobal("ResizeObserver", class {
-		constructor(private callback: ResizeObserverCallback) { resizes.add(callback); }
-		observe(): void {}
-		disconnect(): void { resizes.delete(this.callback); }
-	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			constructor(private callback: ResizeObserverCallback) {
+				resizes.add(callback);
+			}
+			observe(): void {}
+			disconnect(): void {
+				resizes.delete(this.callback);
+			}
+		},
+	);
 	container = dom.document.getElementById("root")!;
 	root = createRoot(container);
 });
@@ -38,13 +45,21 @@ afterEach(async () => {
 });
 
 async function resize(): Promise<void> {
-	await act(async () => { for (const callback of [...resizes]) callback([], {} as ResizeObserver); });
+	await act(async () => {
+		for (const callback of [...resizes]) callback([], {} as ResizeObserver);
+	});
 }
 
 it("treats code expansion as reading while a later real user message resumes bottom-following", async () => {
 	const entries: ChatEntry[] = [
 		{ kind: "user", entryId: "question", text: "查看代码" },
-		{ kind: "assistant", entryId: "answer", text: "```ts\n" + "const value = 1;\n".repeat(30) + "```", thinking: "", tools: [] },
+		{
+			kind: "assistant",
+			entryId: "answer",
+			text: "```ts\n" + "const value = 1;\n".repeat(30) + "```",
+			thinking: "",
+			tools: [],
+		},
 	];
 	const render = async (next: ChatEntry[]): Promise<void> => {
 		await act(async () => root.render(<ChatStream entries={next} sessionId="session" />));
@@ -57,7 +72,7 @@ it("treats code expansion as reading while a later real user message resumes bot
 		clientWidth: { configurable: true, value: 800 },
 		scrollHeight: { configurable: true, get: () => height },
 	});
-	surface.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
+	surface.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
 	Object.defineProperty(container.querySelector("pre")!, "scrollHeight", { configurable: true, value: 700 });
 	surface.scrollTop = 1600;
 	surface.removeAttribute("data-owl-scroll-restoring");

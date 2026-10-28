@@ -94,7 +94,10 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 	};
 
 	const revealMatch = (current: number): void => {
-		rangesRef.current[current]?.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "instant" });
+		rangesRef.current[current]?.startContainer.parentElement?.scrollIntoView({
+			block: "center",
+			behavior: "instant",
+		});
 	};
 
 	const runSearch = (start: number): void => {
@@ -144,15 +147,21 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 			return;
 		}
 		// 防抖扫描后直接定位首个匹配（首跳）：输入即看到目标，不必再按一次 Enter。
-		const timer = window.setTimeout(() => { runSearch(0); revealMatch(currentIndexRef.current); }, SEARCH_DEBOUNCE_MS);
+		const timer = window.setTimeout(() => {
+			runSearch(0);
+			revealMatch(currentIndexRef.current);
+		}, SEARCH_DEBOUNCE_MS);
 		return () => window.clearTimeout(timer);
 	}, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
-	useEffect(() => () => {
-		clearFindHighlights();
-		const previous = previousFocusRef.current;
-		if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
-	}, []);
+	useEffect(
+		() => () => {
+			clearFindHighlights();
+			const previous = previousFocusRef.current;
+			if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+		},
+		[],
+	);
 
 	const findNext = (backwards: boolean): void => {
 		if (!query) return;
@@ -196,10 +205,38 @@ export function FindBar({ onClose }: { onClose: () => void }): React.JSX.Element
 				}}
 			/>
 			{count && <span className="owl-find-count">{t("find.matches", count)}</span>}
-			{missed && <span className="text-[11px] whitespace-nowrap text-owl-danger" role="status">{t("find.notFound")}</span>}
-			<button type="button" className="owl-chrome-button" title={t("find.prev")} aria-label={t("find.prev")} onClick={() => findNext(true)}>↑</button>
-			<button type="button" className="owl-chrome-button" title={t("find.next")} aria-label={t("find.next")} onClick={() => findNext(false)}>↓</button>
-			<button type="button" className="owl-chrome-button" title={t("app.closeAria")} aria-label={t("app.closeAria")} onClick={onClose}>✕</button>
+			{missed && (
+				<span className="text-[11px] whitespace-nowrap text-owl-danger" role="status">
+					{t("find.notFound")}
+				</span>
+			)}
+			<button
+				type="button"
+				className="owl-chrome-button"
+				title={t("find.prev")}
+				aria-label={t("find.prev")}
+				onClick={() => findNext(true)}
+			>
+				↑
+			</button>
+			<button
+				type="button"
+				className="owl-chrome-button"
+				title={t("find.next")}
+				aria-label={t("find.next")}
+				onClick={() => findNext(false)}
+			>
+				↓
+			</button>
+			<button
+				type="button"
+				className="owl-chrome-button"
+				title={t("app.closeAria")}
+				aria-label={t("app.closeAria")}
+				onClick={onClose}
+			>
+				✕
+			</button>
 		</div>
 	);
 }

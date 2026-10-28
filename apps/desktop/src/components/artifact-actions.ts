@@ -2,7 +2,10 @@ import { workspaceArtifactPath } from "../hooks/artifacts.ts";
 import { fileUrlOf } from "../sidebar/api.ts";
 
 /** Reuse the workspace fence and file URL encoding for Windows, UNC and POSIX paths. */
-export function resolveArtifactActionPath(input: string, cwd: string): { relative: string; absolute: string } | undefined {
+export function resolveArtifactActionPath(
+	input: string,
+	cwd: string,
+): { relative: string; absolute: string } | undefined {
 	if (/[\x00-\x1f\x7f]/.test(cwd)) return undefined;
 	const relative = workspaceArtifactPath(input, cwd);
 	if (!relative) return undefined;

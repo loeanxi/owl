@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { getUiLanguage, useT, type TextKey } from "../../i18n/index.ts";
+import { getUiLanguage, type TextKey, useT } from "../../i18n/index.ts";
 import {
 	agentColor,
+	type Board,
 	buildBoard,
 	buildTrend,
 	buildYearHeat,
+	type CareerAgentUsage,
+	type CareerGetResult,
 	fetchCareer,
 	fetchCareerSnapshot,
 	formatTokens,
 	OTHER_GROUP,
 	shortDate,
 	snapshotTime,
-	type Board,
-	type CareerAgentUsage,
-	type CareerGetResult,
 	type Trend,
 	type TrendRange,
 	type YearHeat,
@@ -119,14 +119,23 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 				<h1>{t("titlebar.tokenCareer")}</h1>
 				<span className="owl-career-spacer" />
 				{data && <AgentPicker agents={agents} filter={filter} onPick={setFilter} fmt={fmt} t={t} />}
-				<span className="owl-career-sync" data-status={busy ? "loading" : failed ? "error" : data ? "ready" : "idle"}>
-					{busy && data ? t("career.refreshing", { time: snapshotTime(data.generatedAt) })
-						: busy ? t("career.loading")
-						: failed ? t("career.loadFailed")
-						: data ? t("career.snapshot", { time: snapshotTime(data.generatedAt) })
-						: ""}
+				<span
+					className="owl-career-sync"
+					data-status={busy ? "loading" : failed ? "error" : data ? "ready" : "idle"}
+				>
+					{busy && data
+						? t("career.refreshing", { time: snapshotTime(data.generatedAt) })
+						: busy
+							? t("career.loading")
+							: failed
+								? t("career.loadFailed")
+								: data
+									? t("career.snapshot", { time: snapshotTime(data.generatedAt) })
+									: ""}
 					{!busy && (data || failed) && (
-						<button type="button" onClick={sync} title={t("career.resync")} aria-label={t("career.resync")}>↻</button>
+						<button type="button" onClick={sync} title={t("career.resync")} aria-label={t("career.resync")}>
+							↻
+						</button>
 					)}
 				</span>
 			</div>
@@ -135,20 +144,46 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 				{!data && !failed && (
 					<div className="owl-career-state">
 						<p>{t("career.loading")}</p>
-						<div className="bar"><i /></div>
+						<div className="bar">
+							<i />
+						</div>
 					</div>
 				)}
 				{!data && failed && (
 					<div className="owl-career-state">
 						<p className="err">{t("career.loadFailed")}</p>
-						<p><button type="button" className="owl-career-linkbtn" onClick={sync}>{t("career.retry")}</button></p>
+						<p>
+							<button type="button" className="owl-career-linkbtn" onClick={sync}>
+								{t("career.retry")}
+							</button>
+						</p>
 					</div>
 				)}
 				{board && trend && heat && (
 					<div className="owl-career-grid">
-						<HeroCard board={board} scopeName={filter ? nameOf(filter) : t("career.agentAllOption")} fmt={fmt} t={t} />
-						<TrendCard trend={trend} range={range} onRange={setRange} nameOf={nameOf} fmt={fmt} t={t} onTip={setTip} />
-						<AgentsCard agents={agents} filter={filter} onPick={setFilter} onSources={() => setDrawerOpen(true)} fmt={fmt} t={t} />
+						<HeroCard
+							board={board}
+							scopeName={filter ? nameOf(filter) : t("career.agentAllOption")}
+							fmt={fmt}
+							t={t}
+						/>
+						<TrendCard
+							trend={trend}
+							range={range}
+							onRange={setRange}
+							nameOf={nameOf}
+							fmt={fmt}
+							t={t}
+							onTip={setTip}
+						/>
+						<AgentsCard
+							agents={agents}
+							filter={filter}
+							onPick={setFilter}
+							onSources={() => setDrawerOpen(true)}
+							fmt={fmt}
+							t={t}
+						/>
 						<ModelsCard board={board} agents={agents} filter={filter} fmt={fmt} t={t} />
 						<HeatCard heat={heat} lang={lang} fmt={fmt} t={t} onTip={setTip} />
 						<MilestonesCard board={board} fmt={fmt} t={t} />
@@ -158,7 +193,11 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 
 			<div className="owl-career-foot">
 				<span className="owl-career-foot-src">{t("career.footSource")}</span>
-				{data && <span className="owl-career-foot-time">{t("career.footGenerated", { time: snapshotTime(data.generatedAt) })}</span>}
+				{data && (
+					<span className="owl-career-foot-time">
+						{t("career.footGenerated", { time: snapshotTime(data.generatedAt) })}
+					</span>
+				)}
 				{data && (
 					<button type="button" className="owl-career-foot-btn" onClick={() => setDrawerOpen(true)}>
 						{t("career.sourcesButton", { ok: okCount, total: agents.length })}
@@ -167,7 +206,14 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 			</div>
 
 			<div className={`owl-career-scrim${drawerOpen ? " is-open" : ""}`} onClick={() => setDrawerOpen(false)} />
-			<SourcesDrawer open={drawerOpen} agents={agents} okCount={okCount} onClose={() => setDrawerOpen(false)} fmt={fmt} t={t} />
+			<SourcesDrawer
+				open={drawerOpen}
+				agents={agents}
+				okCount={okCount}
+				onClose={() => setDrawerOpen(false)}
+				fmt={fmt}
+				t={t}
+			/>
 			{tip && <HoverTip tip={tip} />}
 		</div>
 	);
@@ -177,7 +223,13 @@ export function TokenCareerPage({ active, client }: { active: boolean; client: B
 // 页头：Agent 筛选
 // ---------------------------------------------------------------------------
 
-function AgentPicker({ agents, filter, onPick, fmt, t }: {
+function AgentPicker({
+	agents,
+	filter,
+	onPick,
+	fmt,
+	t,
+}: {
 	agents: CareerAgentUsage[];
 	filter: string;
 	onPick: (id: string) => void;
@@ -188,7 +240,9 @@ function AgentPicker({ agents, filter, onPick, fmt, t }: {
 	const [query, setQuery] = useState("");
 	const root = useRef<HTMLDivElement>(null);
 	const current = agents.find((agent) => agent.id === filter);
-	const withUsage = [...agents].filter((agent) => agent.totals.totalTokens > 0).sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
+	const withUsage = [...agents]
+		.filter((agent) => agent.totals.totalTokens > 0)
+		.sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
 	const without = agents.filter((agent) => agent.totals.totalTokens <= 0);
 	const needle = query.trim().toLowerCase();
 	const match = (agent: CareerAgentUsage): boolean => !needle || agent.name.toLowerCase().includes(needle);
@@ -216,29 +270,53 @@ function AgentPicker({ agents, filter, onPick, fmt, t }: {
 		setQuery("");
 	};
 	const option = (agent: CareerAgentUsage): React.JSX.Element => (
-		<button key={agent.id} type="button" className={filter === agent.id ? "is-on" : ""} onClick={() => pick(agent.id)}>
+		<button
+			key={agent.id}
+			type="button"
+			className={filter === agent.id ? "is-on" : ""}
+			onClick={() => pick(agent.id)}
+		>
 			<span className="sw" style={{ background: agentColor(agent.id) }} />
 			<span className="nm">{agent.name}</span>
 			<span className="meta">
-				{agent.totals.totalTokens > 0 ? fmt(agent.totals.totalTokens) : "—"} · {t("career.sessionsCount", { count: agent.sessions.toLocaleString() })}
+				{agent.totals.totalTokens > 0 ? fmt(agent.totals.totalTokens) : "—"} ·{" "}
+				{t("career.sessionsCount", { count: agent.sessions.toLocaleString() })}
 			</span>
 		</button>
 	);
 
 	return (
 		<div className="owl-career-picker" ref={root}>
-			<button type="button" className="owl-career-picker-btn" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+			<button
+				type="button"
+				className="owl-career-picker-btn"
+				onClick={() => setOpen((value) => !value)}
+				aria-expanded={open}
+			>
 				<span className="k">{t("career.agentLabel")}</span>
 				{current && <span className="sw" style={{ background: agentColor(current.id) }} />}
 				<span className="v">{current ? current.name : t("career.agentAll", { count: withUsage.length })}</span>
 				{!current && <span className="caret">▾</span>}
 			</button>
 			{current && (
-				<button type="button" className="owl-career-picker-clear" onClick={() => pick("")} title={t("career.clearFilter")} aria-label={t("career.clearFilter")}>✕</button>
+				<button
+					type="button"
+					className="owl-career-picker-clear"
+					onClick={() => pick("")}
+					title={t("career.clearFilter")}
+					aria-label={t("career.clearFilter")}
+				>
+					✕
+				</button>
 			)}
 			{open && (
 				<div className="owl-career-menu">
-					<input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("career.agentSearch")} />
+					<input
+						autoFocus
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+						placeholder={t("career.agentSearch")}
+					/>
 					<button type="button" className={!filter ? "is-on" : ""} onClick={() => pick("")}>
 						<span className="nm">{t("career.agentAllOption")}</span>
 						<span className="meta">{fmt(total)}</span>
@@ -263,15 +341,31 @@ function pct(part: number, whole: number): string {
 	return `${(ratio * 100).toFixed(ratio < 0.01 ? 2 : 1)}%`;
 }
 
-function HeroCard({ board, scopeName, fmt, t }: { board: Board; scopeName: string; fmt: Fmt; t: Translate }): React.JSX.Element {
+function HeroCard({
+	board,
+	scopeName,
+	fmt,
+	t,
+}: {
+	board: Board;
+	scopeName: string;
+	fmt: Fmt;
+	t: Translate;
+}): React.JSX.Element {
 	const totals = board.totals;
 	const parts = [
 		{ key: "in", label: t("career.mixInput"), value: totals.input, color: "var(--color-owl-accent)" },
 		{ key: "out", label: t("career.mixOutput"), value: totals.output, color: "var(--owl-career-ink)" },
-		{ key: "cr", label: t("career.mixCacheRead"), value: totals.cacheRead, color: "color-mix(in srgb, var(--color-owl-accent) 38%, var(--color-owl-panel))" },
+		{
+			key: "cr",
+			label: t("career.mixCacheRead"),
+			value: totals.cacheRead,
+			color: "color-mix(in srgb, var(--color-owl-accent) 38%, var(--color-owl-panel))",
+		},
 		{ key: "cw", label: t("career.mixCacheWrite"), value: totals.cacheWrite, color: "var(--owl-career-other)" },
 	].filter((part) => part.value > 0);
-	const peakRatio = board.peak && board.avgPerDay > 0 ? Math.max(1, Math.round(board.peak.tokens / board.avgPerDay)) : 0;
+	const peakRatio =
+		board.peak && board.avgPerDay > 0 ? Math.max(1, Math.round(board.peak.tokens / board.avgPerDay)) : 0;
 	const topModel = board.models[0];
 	return (
 		<section className="owl-career-card is-s12">
@@ -279,7 +373,13 @@ function HeroCard({ board, scopeName, fmt, t }: { board: Board; scopeName: strin
 				<div>
 					<div className="owl-career-eyebrow">
 						{scopeName} · {t("career.cardTotal")}
-						{board.firstDate && <> · {t("career.since", { date: board.firstDate })} · {t("career.careerDays", { days: board.careerDays })}</>}
+						{board.firstDate && (
+							<>
+								{" "}
+								· {t("career.since", { date: board.firstDate })} ·{" "}
+								{t("career.careerDays", { days: board.careerDays })}
+							</>
+						)}
 					</div>
 					<p className="owl-career-bignum">
 						{fmt(totals.totalTokens)}
@@ -289,7 +389,11 @@ function HeroCard({ board, scopeName, fmt, t }: { board: Board; scopeName: strin
 						<div className="owl-career-mix">
 							<div className="bar">
 								{parts.map((part) => (
-									<i key={part.key} style={{ flexGrow: part.value, background: part.color }} title={`${part.label} ${fmt(part.value)}`} />
+									<i
+										key={part.key}
+										style={{ flexGrow: part.value, background: part.color }}
+										title={`${part.label} ${fmt(part.value)}`}
+									/>
 								))}
 							</div>
 							<div className="leg">
@@ -305,28 +409,83 @@ function HeroCard({ board, scopeName, fmt, t }: { board: Board; scopeName: strin
 					)}
 				</div>
 				<div className="owl-career-kpis">
-					<Kpi label={t("career.activeDays")} value={<>{board.activeDays}<small> / {board.careerDays} {t("career.daysUnit")}</small></>} detail={t("career.activeRate", { rate: pct(board.activeDays, board.careerDays) })} />
+					<Kpi
+						label={t("career.activeDays")}
+						value={
+							<>
+								{board.activeDays}
+								<small>
+									{" "}
+									/ {board.careerDays} {t("career.daysUnit")}
+								</small>
+							</>
+						}
+						detail={t("career.activeRate", { rate: pct(board.activeDays, board.careerDays) })}
+					/>
 					<Kpi
 						label={t("career.currentStreak")}
-						value={<>{board.currentStreak}<small> {t("career.daysUnit")}</small></>}
-						detail={board.longestStreakEnd ? t("career.longestStreak", { days: board.longestStreak, date: shortDate(board.longestStreakEnd) }) : "—"}
+						value={
+							<>
+								{board.currentStreak}
+								<small> {t("career.daysUnit")}</small>
+							</>
+						}
+						detail={
+							board.longestStreakEnd
+								? t("career.longestStreak", {
+										days: board.longestStreak,
+										date: shortDate(board.longestStreakEnd),
+									})
+								: "—"
+						}
 					/>
-					<Kpi label={t("career.sessionsTile")} value={board.sessions.toLocaleString()} detail={t("career.dailyAvg", { tokens: fmt(Math.round(board.avgPerDay)) })} />
+					<Kpi
+						label={t("career.sessionsTile")}
+						value={board.sessions.toLocaleString()}
+						detail={t("career.dailyAvg", { tokens: fmt(Math.round(board.avgPerDay)) })}
+					/>
 					<Kpi
 						label={t("career.cardPeak")}
 						value={board.peak && board.peak.tokens > 0 ? fmt(board.peak.tokens) : "—"}
-						detail={board.peak && board.peak.tokens > 0 ? `${shortDate(board.peak.date)}${peakRatio > 1 ? ` · ${t("career.peakVsAvg", { ratio: peakRatio })}` : ""}` : t("career.none")}
+						detail={
+							board.peak && board.peak.tokens > 0
+								? `${shortDate(board.peak.date)}${peakRatio > 1 ? ` · ${t("career.peakVsAvg", { ratio: peakRatio })}` : ""}`
+								: t("career.none")
+						}
 					/>
 					<Kpi
-						label={<>{t("career.cardCost")} <span className="owl-career-tag" title={t("career.costNote")}>{t("career.costTag")}</span></>}
-						value={totals.cost > 0 ? `$${totals.cost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
-						detail={totals.cost > 0 && totals.totalTokens > 0 ? t("career.costPerMillion", { price: ((totals.cost / totals.totalTokens) * 1e6).toFixed(2) }) : t("career.costNone")}
+						label={
+							<>
+								{t("career.cardCost")}{" "}
+								<span className="owl-career-tag" title={t("career.costNote")}>
+									{t("career.costTag")}
+								</span>
+							</>
+						}
+						value={
+							totals.cost > 0
+								? `$${totals.cost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+								: "—"
+						}
+						detail={
+							totals.cost > 0 && totals.totalTokens > 0
+								? t("career.costPerMillion", { price: ((totals.cost / totals.totalTokens) * 1e6).toFixed(2) })
+								: t("career.costNone")
+						}
 						title={t("career.costNote")}
 					/>
 					<Kpi
 						label={t("career.topModel")}
-						value={<span className="mono" title={topModel?.key}>{topModel ? topModel.name : "—"}</span>}
-						detail={topModel ? t("career.shareOf", { pct: pct(topModel.tokens, totals.totalTokens) }) : t("career.none")}
+						value={
+							<span className="mono" title={topModel?.key}>
+								{topModel ? topModel.name : "—"}
+							</span>
+						}
+						detail={
+							topModel
+								? t("career.shareOf", { pct: pct(topModel.tokens, totals.totalTokens) })
+								: t("career.none")
+						}
 					/>
 				</div>
 			</div>
@@ -334,7 +493,17 @@ function HeroCard({ board, scopeName, fmt, t }: { board: Board; scopeName: strin
 	);
 }
 
-function Kpi({ label, value, detail, title }: { label: React.ReactNode; value: React.ReactNode; detail: string; title?: string }): React.JSX.Element {
+function Kpi({
+	label,
+	value,
+	detail,
+	title,
+}: {
+	label: React.ReactNode;
+	value: React.ReactNode;
+	detail: string;
+	title?: string;
+}): React.JSX.Element {
 	return (
 		<div className="owl-career-kpi" title={title}>
 			<div className="k">{label}</div>
@@ -355,7 +524,15 @@ const RANGES: { value: TrendRange; key: TextKey }[] = [
 	{ value: "all", key: "career.rangeAll" },
 ];
 
-function TrendCard({ trend, range, onRange, nameOf, fmt, t, onTip }: {
+function TrendCard({
+	trend,
+	range,
+	onRange,
+	nameOf,
+	fmt,
+	t,
+	onTip,
+}: {
 	trend: Trend;
 	range: TrendRange;
 	onRange: (range: TrendRange) => void;
@@ -379,7 +556,11 @@ function TrendCard({ trend, range, onRange, nameOf, fmt, t, onTip }: {
 				...trend.groups
 					.filter((group) => (bucket.parts[group] ?? 0) > 0)
 					.sort((a, b) => (bucket.parts[b] ?? 0) - (bucket.parts[a] ?? 0))
-					.map((group) => ({ label: nameOf(group), value: fmt(bucket.parts[group] ?? 0), color: agentColor(group) })),
+					.map((group) => ({
+						label: nameOf(group),
+						value: fmt(bucket.parts[group] ?? 0),
+						color: agentColor(group),
+					})),
 			],
 		});
 	};
@@ -388,12 +569,20 @@ function TrendCard({ trend, range, onRange, nameOf, fmt, t, onTip }: {
 			<header className="owl-career-card-head">
 				<span className="title">{t("career.cardTrend")}</span>
 				<span className="sub">
-					{t(trend.weekly ? "career.trendWeekly" : "career.trendDaily", { tokens: fmt(trend.total), count: trend.activeBuckets })}
+					{t(trend.weekly ? "career.trendWeekly" : "career.trendDaily", {
+						tokens: fmt(trend.total),
+						count: trend.activeBuckets,
+					})}
 				</span>
 				<span className="right">
 					<span className="owl-career-seg">
 						{RANGES.map((item) => (
-							<button key={item.value} type="button" className={range === item.value ? "is-on" : ""} onClick={() => onRange(item.value)}>
+							<button
+								key={item.value}
+								type="button"
+								className={range === item.value ? "is-on" : ""}
+								onClick={() => onRange(item.value)}
+							>
 								{t(item.key)}
 							</button>
 						))}
@@ -411,7 +600,13 @@ function TrendCard({ trend, range, onRange, nameOf, fmt, t, onTip }: {
 						<div key={bucket.start} className="col" onMouseMove={(event) => tipFor(index, event)}>
 							{trend.groups.map((group) =>
 								bucket.parts[group] ? (
-									<i key={group} style={{ height: `${((bucket.parts[group] ?? 0) / max) * 100}%`, background: agentColor(group) }} />
+									<i
+										key={group}
+										style={{
+											height: `${((bucket.parts[group] ?? 0) / max) * 100}%`,
+											background: agentColor(group),
+										}}
+									/>
 								) : null,
 							)}
 						</div>
@@ -425,7 +620,9 @@ function TrendCard({ trend, range, onRange, nameOf, fmt, t, onTip }: {
 				{trend.groups.length > 1 && (
 					<div className="series">
 						{trend.groups.map((group) => (
-							<span key={group} style={{ "--c": agentColor(group) } as React.CSSProperties}>{nameOf(group)}</span>
+							<span key={group} style={{ "--c": agentColor(group) } as React.CSSProperties}>
+								{nameOf(group)}
+							</span>
 						))}
 					</div>
 				)}
@@ -467,7 +664,14 @@ function Donut({ rows, total }: { rows: { id: string; value: number }[]; total: 
 	);
 }
 
-function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
+function AgentsCard({
+	agents,
+	filter,
+	onPick,
+	onSources,
+	fmt,
+	t,
+}: {
 	agents: CareerAgentUsage[];
 	filter: string;
 	onPick: (id: string) => void;
@@ -476,7 +680,9 @@ function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
 	t: Translate;
 }): React.JSX.Element {
 	const [expanded, setExpanded] = useState(false);
-	const list = agents.filter((agent) => agent.totals.totalTokens > 0).sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
+	const list = agents
+		.filter((agent) => agent.totals.totalTokens > 0)
+		.sort((a, b) => b.totals.totalTokens - a.totals.totalTokens);
 	const total = list.reduce((sum, agent) => sum + agent.totals.totalTokens, 0);
 	const rest = list.slice(AGENTS_TOP);
 	const restSum = rest.reduce((sum, agent) => sum + agent.totals.totalTokens, 0);
@@ -495,13 +701,27 @@ function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
 			<div className="owl-career-mixbox">
 				<div className="owl-career-donut">
 					<Donut rows={ring} total={total} />
-					<div className="c"><b>{list.length}</b><span>{t("career.agentsUnit")}</span></div>
+					<div className="c">
+						<b>{list.length}</b>
+						<span>{t("career.agentsUnit")}</span>
+					</div>
 				</div>
 				<div className="lead">
 					{topTwo.map((agent) => (
-						<div key={agent.id}><b>{agent.name}</b> {pct(agent.totals.totalTokens, total)}</div>
+						<div key={agent.id}>
+							<b>{agent.name}</b> {pct(agent.totals.totalTokens, total)}
+						</div>
 					))}
-					{topTwo.length > 1 && <div>{t("career.agentsTopTwo", { pct: pct(topTwo.reduce((sum, agent) => sum + agent.totals.totalTokens, 0), total) })}</div>}
+					{topTwo.length > 1 && (
+						<div>
+							{t("career.agentsTopTwo", {
+								pct: pct(
+									topTwo.reduce((sum, agent) => sum + agent.totals.totalTokens, 0),
+									total,
+								),
+							})}
+						</div>
+					)}
 				</div>
 			</div>
 			<ul className="owl-career-alist">
@@ -519,7 +739,10 @@ function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
 					</li>
 				))}
 				{!expanded && rest.length > 0 && (
-					<li className={filter && !rest.some((agent) => agent.id === filter) ? "is-more is-dim" : "is-more"} onClick={() => setExpanded(true)}>
+					<li
+						className={filter && !rest.some((agent) => agent.id === filter) ? "is-more is-dim" : "is-more"}
+						onClick={() => setExpanded(true)}
+					>
 						<span className="sw" style={{ background: agentColor(OTHER_GROUP) }} />
 						<span className="nm">{t("career.agentsMore", { count: rest.length })}</span>
 						<span className="tk">{fmt(restSum)}</span>
@@ -528,9 +751,15 @@ function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
 				)}
 			</ul>
 			<div className="owl-career-card-foot">
-				{expanded && <button type="button" className="owl-career-link" onClick={() => setExpanded(false)}>{t("career.collapse")}</button>}
+				{expanded && (
+					<button type="button" className="owl-career-link" onClick={() => setExpanded(false)}>
+						{t("career.collapse")}
+					</button>
+				)}
 				<span>{t("career.silentSources", { count: agents.length - list.length })}</span>
-				<button type="button" className="owl-career-link is-end" onClick={onSources}>{t("career.viewSources")}</button>
+				<button type="button" className="owl-career-link is-end" onClick={onSources}>
+					{t("career.viewSources")}
+				</button>
 			</div>
 		</section>
 	);
@@ -540,7 +769,19 @@ function AgentsCard({ agents, filter, onPick, onSources, fmt, t }: {
 // 模型排行
 // ---------------------------------------------------------------------------
 
-function ModelsCard({ board, agents, filter, fmt, t }: { board: Board; agents: CareerAgentUsage[]; filter: string; fmt: Fmt; t: Translate }): React.JSX.Element {
+function ModelsCard({
+	board,
+	agents,
+	filter,
+	fmt,
+	t,
+}: {
+	board: Board;
+	agents: CareerAgentUsage[];
+	filter: string;
+	fmt: Fmt;
+	t: Translate;
+}): React.JSX.Element {
 	const [query, setQuery] = useState("");
 	const [expanded, setExpanded] = useState(false);
 	// 同一模型可能由多个 Agent 产生：按模型 key 汇总出用到它的 Agent（构成圆点），只算当前 scope
@@ -558,7 +799,9 @@ function ModelsCard({ board, agents, filter, fmt, t }: { board: Board; agents: C
 		return map;
 	}, [agents, filter]);
 	const needle = query.trim().toLowerCase();
-	const all = board.models.filter((model) => !needle || model.name.toLowerCase().includes(needle) || model.key.toLowerCase().includes(needle));
+	const all = board.models.filter(
+		(model) => !needle || model.name.toLowerCase().includes(needle) || model.key.toLowerCase().includes(needle),
+	);
 	const shown = all.slice(0, expanded ? MODELS_MAX : MODELS_TOP);
 	const max = Math.max(1, all[0]?.tokens ?? 1);
 	return (
@@ -568,12 +811,28 @@ function ModelsCard({ board, agents, filter, fmt, t }: { board: Board; agents: C
 				<span className="sub">{t("career.modelsCount", { count: board.models.length })}</span>
 				<span className="right">
 					<label className="owl-career-search">
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.8"
+							strokeLinecap="round"
+							aria-hidden="true"
+						>
 							<circle cx="11" cy="11" r="7" />
 							<path d="m20 20-3.5-3.5" />
 						</svg>
-						<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("career.searchPlaceholder")} aria-label={t("career.searchPlaceholder")} />
-						{query && <button type="button" aria-label="×" onClick={() => setQuery("")}>×</button>}
+						<input
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder={t("career.searchPlaceholder")}
+							aria-label={t("career.searchPlaceholder")}
+						/>
+						{query && (
+							<button type="button" aria-label="×" onClick={() => setQuery("")}>
+								×
+							</button>
+						)}
 					</label>
 				</span>
 			</header>
@@ -582,13 +841,25 @@ function ModelsCard({ board, agents, filter, fmt, t }: { board: Board; agents: C
 					{shown.map((model, index) => {
 						const ids = users.get(model.key) ?? [model.agentId];
 						return (
-							<li key={model.key} title={`${model.key} · ${ids.map((id) => agents.find((agent) => agent.id === id)?.name ?? id).join(" / ")}`}>
+							<li
+								key={model.key}
+								title={`${model.key} · ${ids.map((id) => agents.find((agent) => agent.id === id)?.name ?? id).join(" / ")}`}
+							>
 								<span className="rk">{index + 1}</span>
 								<span className="mn">
-									{ids.slice(0, 3).map((id) => <i key={id} style={{ background: agentColor(id) }} />)}
+									{ids.slice(0, 3).map((id) => (
+										<i key={id} style={{ background: agentColor(id) }} />
+									))}
 									<span>{model.name}</span>
 								</span>
-								<span className="bar"><i style={{ width: `${(model.tokens / max) * 100}%`, background: agentColor(ids[0] ?? model.agentId) }} /></span>
+								<span className="bar">
+									<i
+										style={{
+											width: `${(model.tokens / max) * 100}%`,
+											background: agentColor(ids[0] ?? model.agentId),
+										}}
+									/>
+								</span>
 								<span className="tk">{fmt(model.tokens)}</span>
 								<span className="pc">{pct(model.tokens, board.totals.totalTokens)}</span>
 							</li>
@@ -602,7 +873,9 @@ function ModelsCard({ board, agents, filter, fmt, t }: { board: Board; agents: C
 				<div className="owl-career-card-foot">
 					<span>{t("career.modelsDotNote")}</span>
 					<button type="button" className="owl-career-link is-end" onClick={() => setExpanded((value) => !value)}>
-						{expanded ? t("career.collapse") : t("career.modelsShowAll", { count: Math.min(all.length, MODELS_MAX) })}
+						{expanded
+							? t("career.collapse")
+							: t("career.modelsShowAll", { count: Math.min(all.length, MODELS_MAX) })}
 					</button>
 				</div>
 			)}
@@ -623,13 +896,15 @@ function MilestonesCard({ board, fmt, t }: { board: Board; fmt: Fmt; t: Translat
 				<span className="sub">{t("career.msBigNote")}</span>
 			</header>
 			<ul className="owl-career-ms">
-				{[...board.milestones].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).map((milestone) => (
-					<li key={`${milestone.key}-${milestone.date}`} className={major.has(milestone.key) ? "is-major" : ""}>
-						<span className="d">{milestone.date}</span>
-						<span className="tt">{milestoneLabel(t, milestone.key, milestone.value)}</span>
-						<span className="x">{milestoneNote(t, milestone, board.firstDate, fmt)}</span>
-					</li>
-				))}
+				{[...board.milestones]
+					.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+					.map((milestone) => (
+						<li key={`${milestone.key}-${milestone.date}`} className={major.has(milestone.key) ? "is-major" : ""}>
+							<span className="d">{milestone.date}</span>
+							<span className="tt">{milestoneLabel(t, milestone.key, milestone.value)}</span>
+							<span className="x">{milestoneNote(t, milestone, board.firstDate, fmt)}</span>
+						</li>
+					))}
 			</ul>
 		</section>
 	);
@@ -647,7 +922,19 @@ function monthName(month: number, lang: "zh" | "en"): string {
 	return lang === "zh" ? `${month}月` : new Date(2000, month - 1, 1).toLocaleString("en", { month: "short" });
 }
 
-function HeatCard({ heat, lang, fmt, t, onTip }: { heat: YearHeat; lang: "zh" | "en"; fmt: Fmt; t: Translate; onTip: ShowTip }): React.JSX.Element {
+function HeatCard({
+	heat,
+	lang,
+	fmt,
+	t,
+	onTip,
+}: {
+	heat: YearHeat;
+	lang: "zh" | "en";
+	fmt: Fmt;
+	t: Translate;
+	onTip: ShowTip;
+}): React.JSX.Element {
 	const weekdays = lang === "zh" ? ["一", "二", "三", "四", "五", "六", "日"] : ["M", "T", "W", "T", "F", "S", "S"];
 	const weekMax = Math.max(1, ...heat.weekday);
 	const weekTop = heat.weekday.indexOf(Math.max(...heat.weekday));
@@ -663,14 +950,21 @@ function HeatCard({ heat, lang, fmt, t, onTip }: { heat: YearHeat; lang: "zh" | 
 					<div className="owl-career-heatwrap">
 						<div className="days">
 							<span />
-							{weekdays.map((day, index) => <span key={index}>{index % 2 === 0 ? day : ""}</span>)}
+							{weekdays.map((day, index) => (
+								<span key={index}>{index % 2 === 0 ? day : ""}</span>
+							))}
 						</div>
 						<div>
 							<div className="months">
 								{heat.months
 									.filter((month) => month.week < heat.weeks.length - 1)
 									.map((month) => (
-										<span key={`${month.week}-${month.month}`} style={{ left: `calc(${month.week} * (var(--cell) + 3px))` }}>{monthName(month.month, lang)}</span>
+										<span
+											key={`${month.week}-${month.month}`}
+											style={{ left: `calc(${month.week} * (var(--cell) + 3px))` }}
+										>
+											{monthName(month.month, lang)}
+										</span>
 									))}
 							</div>
 							<div className="owl-career-heat" onMouseLeave={() => onTip(null)}>
@@ -679,12 +973,22 @@ function HeatCard({ heat, lang, fmt, t, onTip }: { heat: YearHeat; lang: "zh" | 
 										<i
 											key={cell.date}
 											className={cell.level < 0 ? "is-pad" : cell.level > 0 ? `is-l${cell.level}` : ""}
-											onMouseMove={cell.level < 0 ? undefined : (event) => onTip({
-												x: event.clientX,
-												y: event.clientY,
-												title: cell.date,
-												rows: [{ label: t("career.tipTotal"), value: cell.tokens > 0 ? fmt(cell.tokens) : t("career.tipNone") }],
-											})}
+											onMouseMove={
+												cell.level < 0
+													? undefined
+													: (event) =>
+															onTip({
+																x: event.clientX,
+																y: event.clientY,
+																title: cell.date,
+																rows: [
+																	{
+																		label: t("career.tipTotal"),
+																		value: cell.tokens > 0 ? fmt(cell.tokens) : t("career.tipNone"),
+																	},
+																],
+															})
+											}
 										/>
 									)),
 								)}
@@ -714,18 +1018,23 @@ function HeatCard({ heat, lang, fmt, t, onTip }: { heat: YearHeat; lang: "zh" | 
 					</div>
 					<div className="st">
 						<div className="k">{t("career.bestMonth")}</div>
-						<div className="v">{heat.bestMonth
-							? lang === "zh"
-								? `${heat.bestMonth.month.slice(0, 4)}年${Number(heat.bestMonth.month.slice(5))}月`
-								: `${monthName(Number(heat.bestMonth.month.slice(5)), lang)} ${heat.bestMonth.month.slice(0, 4)}`
-							: "—"}</div>
+						<div className="v">
+							{heat.bestMonth
+								? lang === "zh"
+									? `${heat.bestMonth.month.slice(0, 4)}年${Number(heat.bestMonth.month.slice(5))}月`
+									: `${monthName(Number(heat.bestMonth.month.slice(5)), lang)} ${heat.bestMonth.month.slice(0, 4)}`
+								: "—"}
+						</div>
 						<div className="d">{heat.bestMonth ? `${fmt(heat.bestMonth.tokens)} tokens` : t("career.none")}</div>
 					</div>
 					<div className="wk">
 						{heat.weekday.map((value, index) => (
 							<div key={index} title={`${weekdays[index]} · ${fmt(value)}`}>
 								<b>
-									<i className={index === weekTop && value > 0 ? "is-top" : ""} style={{ height: `${Math.max(3, (value / weekMax) * 100)}%` }} />
+									<i
+										className={index === weekTop && value > 0 ? "is-top" : ""}
+										style={{ height: `${Math.max(3, (value / weekMax) * 100)}%` }}
+									/>
 								</b>
 								<span>{weekdays[index]}</span>
 							</div>
@@ -741,7 +1050,14 @@ function HeatCard({ heat, lang, fmt, t, onTip }: { heat: YearHeat; lang: "zh" | 
 // 数据源抽屉
 // ---------------------------------------------------------------------------
 
-function SourcesDrawer({ open, agents, okCount, onClose, fmt, t }: {
+function SourcesDrawer({
+	open,
+	agents,
+	okCount,
+	onClose,
+	fmt,
+	t,
+}: {
 	open: boolean;
 	agents: CareerAgentUsage[];
 	okCount: number;
@@ -751,14 +1067,18 @@ function SourcesDrawer({ open, agents, okCount, onClose, fmt, t }: {
 }): React.JSX.Element {
 	const groups = SOURCE_ORDER.map((status) => ({
 		status,
-		items: agents.filter((agent) => agent.status === status).sort((a, b) => b.totals.totalTokens - a.totals.totalTokens),
+		items: agents
+			.filter((agent) => agent.status === status)
+			.sort((a, b) => b.totals.totalTokens - a.totals.totalTokens),
 	})).filter((group) => group.items.length > 0);
 	return (
 		<aside className={`owl-career-drawer${open ? " is-open" : ""}`} aria-hidden={!open}>
 			<header>
 				<h2>{t("career.cardSources")}</h2>
 				<span className="sub">{t("career.sourcesCount", { ok: okCount, total: agents.length })}</span>
-				<button type="button" onClick={onClose} title={t("career.close")} aria-label={t("career.close")}>✕</button>
+				<button type="button" onClick={onClose} title={t("career.close")} aria-label={t("career.close")}>
+					✕
+				</button>
 			</header>
 			<div className="body">
 				{groups.map((group) => (
@@ -769,12 +1089,24 @@ function SourcesDrawer({ open, agents, okCount, onClose, fmt, t }: {
 						</div>
 						{group.items.map((agent) => (
 							<div key={agent.id} className="row">
-								<span className="sw" style={{ background: agent.totals.totalTokens > 0 ? agentColor(agent.id) : "var(--owl-career-other)" }} />
+								<span
+									className="sw"
+									style={{
+										background:
+											agent.totals.totalTokens > 0 ? agentColor(agent.id) : "var(--owl-career-other)",
+									}}
+								/>
 								<span className="nm">
 									{agent.name}
 									<span className="meta">
-										{" · "}{t("career.sessionsCount", { count: agent.sessions.toLocaleString() })}
-										{agent.lastAt && <>{" · "}{t("career.lastActive", { date: shortDate(agent.lastAt.slice(0, 10)) })}</>}
+										{" · "}
+										{t("career.sessionsCount", { count: agent.sessions.toLocaleString() })}
+										{agent.lastAt && (
+											<>
+												{" · "}
+												{t("career.lastActive", { date: shortDate(agent.lastAt.slice(0, 10)) })}
+											</>
+										)}
 									</span>
 								</span>
 								<span className="tk">{agent.totals.totalTokens > 0 ? fmt(agent.totals.totalTokens) : "—"}</span>
@@ -811,7 +1143,12 @@ function HoverTip({ tip }: { tip: TipState }): React.JSX.Element {
 			<div className="h">{tip.title}</div>
 			{tip.rows.map((row, index) => (
 				<div key={index} className="r">
-					<span style={row.color ? ({ "--c": row.color } as React.CSSProperties) : undefined} className={row.color ? "has-sw" : ""}>{row.label}</span>
+					<span
+						style={row.color ? ({ "--c": row.color } as React.CSSProperties) : undefined}
+						className={row.color ? "has-sw" : ""}
+					>
+						{row.label}
+					</span>
 					<b>{row.value}</b>
 				</div>
 			))}
@@ -821,33 +1158,56 @@ function HoverTip({ tip }: { tip: TipState }): React.JSX.Element {
 
 function milestoneLabel(t: Translate, key: string, value: number | undefined): string {
 	switch (key) {
-		case "start": return t("career.msStart");
-		case "t10m": return t("career.msT10m");
-		case "t100m": return t("career.msT100m");
-		case "t1b": return t("career.msT1b");
-		case "t10b": return t("career.msT10b");
-		case "peak": return t("career.msPeak");
-		case "streak": return t("career.msStreak", { days: value ?? 0 });
-		default: return t("career.msLaunch");
+		case "start":
+			return t("career.msStart");
+		case "t10m":
+			return t("career.msT10m");
+		case "t100m":
+			return t("career.msT100m");
+		case "t1b":
+			return t("career.msT1b");
+		case "t10b":
+			return t("career.msT10b");
+		case "peak":
+			return t("career.msPeak");
+		case "streak":
+			return t("career.msStreak", { days: value ?? 0 });
+		default:
+			return t("career.msLaunch");
 	}
 }
 
-function milestoneNote(t: Translate, milestone: Board["milestones"][number], firstDate: string | undefined, fmt: Fmt): string {
+function milestoneNote(
+	t: Translate,
+	milestone: Board["milestones"][number],
+	firstDate: string | undefined,
+	fmt: Fmt,
+): string {
 	switch (milestone.key) {
-		case "start": return t("career.msStartNote");
-		case "peak": return t("career.msPeakNote", { tokens: fmt(milestone.value ?? 0) });
-		case "streak": return t("career.msStreakNote");
-		case "launch": return t("career.msLaunchNote");
-		default: return firstDate ? t("career.msDayN", { days: daysBetween(firstDate, milestone.date) + 1 }) : "";
+		case "start":
+			return t("career.msStartNote");
+		case "peak":
+			return t("career.msPeakNote", { tokens: fmt(milestone.value ?? 0) });
+		case "streak":
+			return t("career.msStreakNote");
+		case "launch":
+			return t("career.msLaunchNote");
+		default:
+			return firstDate ? t("career.msDayN", { days: daysBetween(firstDate, milestone.date) + 1 }) : "";
 	}
 }
 
 function sourceStatus(t: Translate, status: string): string {
 	switch (status) {
-		case "ok": return t("career.srcOk");
-		case "nodata": return t("career.srcNodata");
-		case "detected": return t("career.srcDetected");
-		case "pending": return t("career.srcPending");
-		default: return t("career.srcUnavailable");
+		case "ok":
+			return t("career.srcOk");
+		case "nodata":
+			return t("career.srcNodata");
+		case "detected":
+			return t("career.srcDetected");
+		case "pending":
+			return t("career.srcPending");
+		default:
+			return t("career.srcUnavailable");
 	}
 }

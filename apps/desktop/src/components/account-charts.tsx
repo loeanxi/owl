@@ -86,7 +86,13 @@ export function WeeklyBars({ byDay, ariaLabel }: { byDay: UsageStatsDay[]; ariaL
 	const barWidth = Math.max(6, slot - 6);
 	const label = (date: Date): string => `${date.getMonth() + 1}/${date.getDate()}`;
 	return (
-		<svg className="owl-profile-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
+		<svg
+			className="owl-profile-chart"
+			viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+			preserveAspectRatio="none"
+			role="img"
+			aria-label={ariaLabel}
+		>
 			{weeks.map((week, index) => {
 				const height = week.tokens > 0 ? Math.max(2, ((CHART_BOTTOM - CHART_TOP) * week.tokens) / max) : 0;
 				const x = index * slot + (slot - barWidth) / 2;
@@ -104,9 +110,15 @@ export function WeeklyBars({ byDay, ariaLabel }: { byDay: UsageStatsDay[]; ariaL
 					</rect>
 				);
 			})}
-			<text className="owl-profile-chart-axis" x={2} y={HEIGHT - 4}>{label(weeks[0]!.start)}</text>
-			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={HEIGHT - 4} textAnchor="end">{label(weeks[weeks.length - 1]!.end)}</text>
-			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={CHART_TOP} textAnchor="end">{formatChartTokens(max)}</text>
+			<text className="owl-profile-chart-axis" x={2} y={HEIGHT - 4}>
+				{label(weeks[0]!.start)}
+			</text>
+			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={HEIGHT - 4} textAnchor="end">
+				{label(weeks[weeks.length - 1]!.end)}
+			</text>
+			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={CHART_TOP} textAnchor="end">
+				{formatChartTokens(max)}
+			</text>
 		</svg>
 	);
 }
@@ -115,7 +127,13 @@ export function CumulativeArea({ byDay, ariaLabel }: { byDay: UsageStatsDay[]; a
 	const points = useMemo(() => cumulativePoints(byDay), [byDay]);
 	if (points.length < 2) {
 		return (
-			<svg className="owl-profile-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={ariaLabel} />
+			<svg
+				className="owl-profile-chart"
+				viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+				preserveAspectRatio="none"
+				role="img"
+				aria-label={ariaLabel}
+			/>
 		);
 	}
 	const max = points[points.length - 1]!.total || 1;
@@ -128,7 +146,13 @@ export function CumulativeArea({ byDay, ariaLabel }: { byDay: UsageStatsDay[]; a
 		return `${Number(month)}/${Number(day)}`;
 	};
 	return (
-		<svg className="owl-profile-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
+		<svg
+			className="owl-profile-chart"
+			viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+			preserveAspectRatio="none"
+			role="img"
+			aria-label={ariaLabel}
+		>
 			<defs>
 				<linearGradient id="owl-profile-cum-gradient" x1="0" y1="0" x2="0" y2="1">
 					<stop offset="0%" stopColor="var(--color-owl-accent, #e56ba0)" stopOpacity="0.28" />
@@ -140,9 +164,15 @@ export function CumulativeArea({ byDay, ariaLabel }: { byDay: UsageStatsDay[]; a
 			<circle className="owl-profile-chart-dot" cx={WIDTH} cy={y(max)} r={4}>
 				<title>{`${points[points.length - 1]!.date} · ${formatChartTokens(max)}`}</title>
 			</circle>
-			<text className="owl-profile-chart-axis" x={2} y={HEIGHT - 4}>{label(points[0]!.date)}</text>
-			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={HEIGHT - 4} textAnchor="end">{label(points[points.length - 1]!.date)}</text>
-			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={CHART_TOP} textAnchor="end">{formatChartTokens(max)}</text>
+			<text className="owl-profile-chart-axis" x={2} y={HEIGHT - 4}>
+				{label(points[0]!.date)}
+			</text>
+			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={HEIGHT - 4} textAnchor="end">
+				{label(points[points.length - 1]!.date)}
+			</text>
+			<text className="owl-profile-chart-axis" x={WIDTH - 2} y={CHART_TOP} textAnchor="end">
+				{formatChartTokens(max)}
+			</text>
 		</svg>
 	);
 }

@@ -9,6 +9,23 @@
 桌面端「设置 → 更新日志」构建时读取本文件。
 -->
 
+## 2026-10-28
+
+### 新增
+
+- `desktop` 回答流对齐 Claude 桌面端：引用与来源、内部工具不进回答流、产物清单与产物页、下一步建议、工具行标签三态
+- `ai` 引用（citations）打通各 provider：Anthropic `citations_delta`、OpenAI `annotations`、pi-messages 归一后的 `citations` 拍平成同一形状
+- `agent` 工具批次回调 `afterToolBatch`，与 `hiddenInChat` 一起让内部工具留在流水里而不进回答正文
+
+### 修复
+
+- `desktop` 会话顶部不再出现大片空白：任务清单摘要条改为浮层，不再撑高对话区把正文压到下半屏
+- `desktop` 侧栏浏览器画面不再抖：舞台尺寸改按小数测量、填满交给 CSS，适应缩放下不再出现随布局反复出现消失的滚动条
+
+### 维护
+
+- `biome` 覆盖 `apps/desktop/src`：该目录只按 format 收敛 import 顺序与换行，lint 规则仍不施加于桌面端
+
 ## 2026-10-27
 
 ### 新增

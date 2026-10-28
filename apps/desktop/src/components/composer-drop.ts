@@ -50,7 +50,10 @@ export function pathsFromUriList(uriList: string): string[] {
 export type HtmlDropFile = { name: string; type?: string; path?: string };
 
 /** 网页 drop：图片留下标给 FileReader；其余文件只要拿得到本地路径就当附件。 */
-export function classifyHtmlDrop(files: readonly HtmlDropFile[], uriList = ""): {
+export function classifyHtmlDrop(
+	files: readonly HtmlDropFile[],
+	uriList = "",
+): {
 	imageIndexes: number[];
 	attachmentPaths: string[];
 	unnamedCount: number;

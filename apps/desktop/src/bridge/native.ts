@@ -28,7 +28,10 @@ export async function switchAccountBridge(agentDir: string): Promise<void> {
 	try {
 		if (!hasTauri()) throw new Error("账号切换需要桌面壳支持");
 		await invoke("switch_account_bridge", { agentDir });
-	} catch (error) { cancelEditorAccountTransition(); throw error; }
+	} catch (error) {
+		cancelEditorAccountTransition();
+		throw error;
+	}
 }
 
 /** 打开系统文件夹选择对话框（资源管理器），取消返回 null。 */
@@ -40,7 +43,10 @@ export async function pickFolder(title: string): Promise<string | null> {
 }
 
 /** 打开系统文件选择对话框；filters 形如 [{ name, extensions: ["mp4","webm"] }]。 */
-export async function pickFile(title: string, filters: { name: string; extensions: string[] }[]): Promise<string | null> {
+export async function pickFile(
+	title: string,
+	filters: { name: string; extensions: string[] }[],
+): Promise<string | null> {
 	if (!hasTauri()) return null;
 	const { open } = await import("@tauri-apps/plugin-dialog");
 	const selected = await open({ multiple: false, title, filters });

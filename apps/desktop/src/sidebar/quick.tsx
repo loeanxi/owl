@@ -7,9 +7,9 @@
 import type { ReactNode } from "react";
 import { activeAppKeybindings, formatAppKeybinding } from "../app-keybindings.ts";
 import { t } from "../i18n/index.ts";
+import { isTabKindEnabled } from "./config.ts";
 import { IconGitBranch } from "./icons.tsx";
 import type { SidebarStore } from "./store.ts";
-import { isTabKindEnabled } from "./config.ts";
 
 interface IconProps {
 	size?: number;
@@ -165,15 +165,127 @@ export interface QuickAction {
  * 数组顺序即菜单展示顺序（已按分组排好）：工作区 → 运行环境 → 会话与 Agent。
  */
 export const QUICK_ACTIONS: QuickAction[] = [
-	{ kind: "files", get label() { return t("dev.files"); }, get desc() { return t("wb.desc.files"); }, group: "workspace", color: "#e0a33e", icon: (s) => <IconFolderSolid size={s} /> },
-	{ kind: "changes", get label() { return t("dev.changes"); }, get desc() { return t("wb.desc.changes"); }, group: "workspace", color: "#41c463", icon: (s) => <IconGitBranch size={s} /> },
-	{ kind: "review", get label() { return t("wb.review"); }, get desc() { return t("wb.desc.review"); }, group: "workspace", color: "#e0708a", icon: (s) => <IconDiffApproval size={s} /> },
-	{ kind: "terminal", get label() { return t("wb.newTerminal"); }, get desc() { return t("wb.desc.terminal"); }, group: "runtime", color: "#4d9fd8", icon: (s) => <IconTerminal size={s} />, get hint() { return formatAppKeybinding(activeAppKeybindings().openTerminal[0]); }, multi: true, get tabTitle() { return t("start.terminal"); } },
-	{ kind: "browser", get label() { return t("app.browserTab"); }, get desc() { return t("wb.desc.browser"); }, group: "runtime", color: "#4d9fd8", icon: (s) => <IconGlobe size={s} />, get hint() { return formatAppKeybinding(activeAppKeybindings().openBrowserTab[0]); }, multi: true },
-	{ kind: "mirror", get label() { return t("wb.drama"); }, get desc() { return t("wb.desc.mirror"); }, group: "runtime", color: "#e8554d", icon: (s) => <IconDrama size={s} />, panel: true },
-	{ kind: "tasks", get label() { return t("wb.tasks"); }, get desc() { return t("wb.desc.tasks"); }, group: "agent", color: "#d29922", icon: (s) => <IconLayers size={s} /> },
-	{ kind: "impression", get label() { return t("wb.impression"); }, get desc() { return t("wb.desc.impression"); }, group: "agent", color: "#c77dff", icon: (s) => <IconUserStar size={s} /> },
-	{ kind: "sidechat", get label() { return t("wb.sidechat"); }, get desc() { return t("wb.desc.sidechat"); }, group: "agent", color: "#549bf5", icon: (s) => <IconChatDiscussion size={s} />, badge: "beta" },
+	{
+		kind: "files",
+		get label() {
+			return t("dev.files");
+		},
+		get desc() {
+			return t("wb.desc.files");
+		},
+		group: "workspace",
+		color: "#e0a33e",
+		icon: (s) => <IconFolderSolid size={s} />,
+	},
+	{
+		kind: "changes",
+		get label() {
+			return t("dev.changes");
+		},
+		get desc() {
+			return t("wb.desc.changes");
+		},
+		group: "workspace",
+		color: "#41c463",
+		icon: (s) => <IconGitBranch size={s} />,
+	},
+	{
+		kind: "review",
+		get label() {
+			return t("wb.review");
+		},
+		get desc() {
+			return t("wb.desc.review");
+		},
+		group: "workspace",
+		color: "#e0708a",
+		icon: (s) => <IconDiffApproval size={s} />,
+	},
+	{
+		kind: "terminal",
+		get label() {
+			return t("wb.newTerminal");
+		},
+		get desc() {
+			return t("wb.desc.terminal");
+		},
+		group: "runtime",
+		color: "#4d9fd8",
+		icon: (s) => <IconTerminal size={s} />,
+		get hint() {
+			return formatAppKeybinding(activeAppKeybindings().openTerminal[0]);
+		},
+		multi: true,
+		get tabTitle() {
+			return t("start.terminal");
+		},
+	},
+	{
+		kind: "browser",
+		get label() {
+			return t("app.browserTab");
+		},
+		get desc() {
+			return t("wb.desc.browser");
+		},
+		group: "runtime",
+		color: "#4d9fd8",
+		icon: (s) => <IconGlobe size={s} />,
+		get hint() {
+			return formatAppKeybinding(activeAppKeybindings().openBrowserTab[0]);
+		},
+		multi: true,
+	},
+	{
+		kind: "mirror",
+		get label() {
+			return t("wb.drama");
+		},
+		get desc() {
+			return t("wb.desc.mirror");
+		},
+		group: "runtime",
+		color: "#e8554d",
+		icon: (s) => <IconDrama size={s} />,
+		panel: true,
+	},
+	{
+		kind: "tasks",
+		get label() {
+			return t("wb.tasks");
+		},
+		get desc() {
+			return t("wb.desc.tasks");
+		},
+		group: "agent",
+		color: "#d29922",
+		icon: (s) => <IconLayers size={s} />,
+	},
+	{
+		kind: "impression",
+		get label() {
+			return t("wb.impression");
+		},
+		get desc() {
+			return t("wb.desc.impression");
+		},
+		group: "agent",
+		color: "#c77dff",
+		icon: (s) => <IconUserStar size={s} />,
+	},
+	{
+		kind: "sidechat",
+		get label() {
+			return t("wb.sidechat");
+		},
+		get desc() {
+			return t("wb.desc.sidechat");
+		},
+		group: "agent",
+		color: "#549bf5",
+		icon: (s) => <IconChatDiscussion size={s} />,
+		badge: "beta",
+	},
 ];
 
 /** 按 kind 取快捷入口（开始页 / 空态卡片共用）。 */

@@ -10,11 +10,21 @@
  * - GenuiAnswerCard / GenuiToolCardView：分别供 ChatStream 的回答正文与
  *   render_ui 工具行使用。
  */
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import type { ToolCard } from "../hooks/transcript.ts";
-import { ErrorBoundary, GenuiActionContext, GenuiBlock, renderGenuiFence, resolveGenuiSpec, setLocale, toolStateKey, type GenuiActionHandler, type GenuiSpec } from "../../../../packages/owl-genui/client/index.ts";
-import { getUiLanguage } from "../i18n/index.ts";
+import { createContext, type ReactNode, useContext, useEffect, useMemo } from "react";
+import {
+	ErrorBoundary,
+	GenuiActionContext,
+	type GenuiActionHandler,
+	GenuiBlock,
+	type GenuiSpec,
+	renderGenuiFence,
+	resolveGenuiSpec,
+	setLocale,
+	toolStateKey,
+} from "../../../../packages/owl-genui/client/index.ts";
 import type { BridgeClient } from "../bridge/client.ts";
+import type { ToolCard } from "../hooks/transcript.ts";
+import { getUiLanguage } from "../i18n/index.ts";
 import { MarkdownAnswer } from "./MarkdownAnswer.tsx";
 
 /** Genui 会话上下文：动作回传 + 持久化身份。 */
@@ -31,7 +41,11 @@ export function useGenuiSession(): GenuiSessionValue {
 }
 
 /** App 顶层装配一次；没有桥/会话时组件自动退化为展示态。 */
-export function GenuiSessionProvider({ client, sessionId, children }: {
+export function GenuiSessionProvider({
+	client,
+	sessionId,
+	children,
+}: {
 	client: BridgeClient;
 	sessionId: string | undefined;
 	children: ReactNode;
@@ -39,15 +53,18 @@ export function GenuiSessionProvider({ client, sessionId, children }: {
 	useEffect(() => {
 		setLocale(getUiLanguage() === "en" ? "en" : "zh");
 	}, []);
-	const value = useMemo<GenuiSessionValue>(() => ({
-		sessionId,
-		sendAction: (action, payload) => {
-			if (!sessionId) return;
-			void client.request({ type: "owl-ui.action", sessionId, action, payload }).catch(() => {
-				// 动作回传失败静默：组件交互不因此打断阅读
-			});
-		},
-	}), [client, sessionId]);
+	const value = useMemo<GenuiSessionValue>(
+		() => ({
+			sessionId,
+			sendAction: (action, payload) => {
+				if (!sessionId) return;
+				void client.request({ type: "owl-ui.action", sessionId, action, payload }).catch(() => {
+					// 动作回传失败静默：组件交互不因此打断阅读
+				});
+			},
+		}),
+		[client, sessionId],
+	);
 	return (
 		<GenuiActionContext.Provider value={value.sendAction}>
 			<GenuiSessionContext.Provider value={value}>{children}</GenuiSessionContext.Provider>
@@ -116,7 +133,12 @@ export function splitGenuiSegments(text: string): GenuiSegment[] {
 }
 
 /** 单个围栏段：settled 后带稳定身份（持久化键），流式中无身份。 */
-function GenuiAnswerSegment({ raw, ordinal, identity, settled }: {
+function GenuiAnswerSegment({
+	raw,
+	ordinal,
+	identity,
+	settled,
+}: {
 	raw: string;
 	ordinal: number;
 	identity: string;
@@ -127,15 +149,17 @@ function GenuiAnswerSegment({ raw, ordinal, identity, settled }: {
 		() => (settled ? { id: `${identity}:fence${ordinal}`, order: [0, 0, ordinal] as const } : undefined),
 		[settled, identity, ordinal],
 	);
-	const context = useMemo(
-		() => (sessionId === undefined ? undefined : { sessionId, source }),
-		[sessionId, source],
-	);
+	const context = useMemo(() => (sessionId === undefined ? undefined : { sessionId, source }), [sessionId, source]);
 	return <>{renderGenuiFence(raw, `${identity}:fence${ordinal}`, context)}</>;
 }
 
 /** 回答正文：混排 markdown 与 owl-ui 组件。无围栏时保持原有单节点渲染。 */
-export function GenuiAnswerCard({ text, identity, settled, renderMarkdown }: {
+export function GenuiAnswerCard({
+	text,
+	identity,
+	settled,
+	renderMarkdown,
+}: {
 	text: string;
 	identity: string;
 	settled: boolean;
@@ -153,7 +177,13 @@ export function GenuiAnswerCard({ text, identity, settled, renderMarkdown }: {
 						<MarkdownAnswer key={index} html={renderMarkdown(segment.text)} />
 					)
 				) : (
-					<GenuiAnswerSegment key={index} raw={segment.raw} ordinal={segment.ordinal} identity={identity} settled={settled} />
+					<GenuiAnswerSegment
+						key={index}
+						raw={segment.raw}
+						ordinal={segment.ordinal}
+						identity={identity}
+						settled={settled}
+					/>
 				),
 			)}
 		</div>
@@ -174,7 +204,9 @@ export function GenuiToolCardView({ card }: { card: ToolCard }): React.JSX.Eleme
 	const stateKey = sessionId === undefined ? undefined : toolStateKey(sessionId, card.id);
 	return (
 		<div className="owl-genui-root">
-			{resolved.spec === null ? renderGenuiFence(resolved.raw, card.id, resolved.context) : (
+			{resolved.spec === null ? (
+				renderGenuiFence(resolved.raw, card.id, resolved.context)
+			) : (
 				<ErrorBoundary key={stateKey ?? card.id}>
 					<GenuiBlock spec={resolved.spec} stateKey={stateKey} animateEntrance={false} />
 				</ErrorBoundary>

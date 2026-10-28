@@ -6,6 +6,7 @@ import {
 	firstContentLine,
 	formatThinkingDuration,
 	isThinkingOnly,
+	mergeThinkingBlocks,
 	thinkingDurationText,
 	toolGroupLabel,
 	truncateLabel,
@@ -14,6 +15,31 @@ import {
 function tool(id: string, status: ToolCard["status"] = "ok"): ToolCard {
 	return { id, name: "read", args: "{}", summary: `summary ${id}`, status };
 }
+
+test("the turn's thinking blocks collapse into one merged block", () => {
+	// 一轮里十几次工具往返就是十几次思考块；合成一段后整轮只占一行。
+	const merged = mergeThinkingBlocks([
+		{ text: "先确认红框那条渐变条在哪。", ms: 1200 },
+		{ text: "用 CDP 读一下计算样式。", ms: 800 },
+	]);
+	assert.equal(merged?.count, 2);
+	assert.equal(merged?.text, "先确认红框那条渐变条在哪。\n\n用 CDP 读一下计算样式。");
+	assert.equal(merged?.ms, 2000);
+	// 没有 provider 摘要时 summaries 是 undefined —— 标题据此改用时长。
+	assert.equal(merged?.summaries, undefined);
+});
+
+test("provider summaries are merged and the missing timing withholds the duration", () => {
+	const merged = mergeThinkingBlocks([{ text: "raw one", ms: 500, summaries: ["查一下渐变条"] }, { text: "raw two" }]);
+	assert.deepEqual(merged?.summaries, ["查一下渐变条"]);
+	// 有一段缺实测时长就不给总时长（不给假时长）。
+	assert.equal(merged?.ms, undefined);
+});
+
+test("empty thinking blocks merge into nothing", () => {
+	assert.equal(mergeThinkingBlocks([]), undefined);
+	assert.equal(mergeThinkingBlocks([{ text: "   " }]), undefined);
+});
 
 test("consecutive tool calls collapse into one group labelled by count", () => {
 	const segments: AssistantSegment[] = [
@@ -25,7 +51,10 @@ test("consecutive tool calls collapse into one group labelled by count", () => {
 	assert.equal(groups.length, 1);
 	assert.equal(groups[0]?.kind, "tools");
 	assert.equal(groups[0]?.label, "Ran 3 commands");
-	assert.deepEqual(groups[0]?.tools.map((card) => card.id), ["a", "b", "c"]);
+	assert.deepEqual(
+		groups[0]?.tools.map((card) => card.id),
+		["a", "b", "c"],
+	);
 });
 
 test("a single tool call uses the singular label", () => {
@@ -40,7 +69,10 @@ test("a tool interrupted by prose starts a new group", () => {
 		{ kind: "tool", toolId: "b" },
 	];
 	const groups = buildAnswerGroups(segments, [tool("a"), tool("b")]);
-	assert.deepEqual(groups.map((group) => group.kind), ["tools", "note", "tools"]);
+	assert.deepEqual(
+		groups.map((group) => group.kind),
+		["tools", "note", "tools"],
+	);
 	assert.equal(groups[0]?.label, "Ran 1 command");
 	assert.equal(groups[2]?.label, "Ran 1 command");
 });
@@ -53,7 +85,10 @@ test("group order preserves the assistant content block order", () => {
 		{ kind: "tool", toolId: "b" },
 	];
 	const groups = buildAnswerGroups(segments, [tool("a"), tool("b")]);
-	assert.deepEqual(groups.map((group) => group.kind), ["note", "tools", "note", "tools"]);
+	assert.deepEqual(
+		groups.map((group) => group.kind),
+		["note", "tools", "note", "tools"],
+	);
 	assert.equal(groups[0]?.label, "先写后端 billing 领域");
 });
 
@@ -63,14 +98,23 @@ test("thinking becomes its own group instead of a tool row", () => {
 		{ kind: "tool", toolId: "a" },
 	];
 	const groups = buildAnswerGroups(segments, [tool("a")]);
-	assert.deepEqual(groups.map((group) => group.kind), ["thinking", "tools"]);
+	assert.deepEqual(
+		groups.map((group) => group.kind),
+		["thinking", "tools"],
+	);
 	assert.equal(groups[0]?.thinking, "需要先确认 billing 领域边界");
 	assert.equal(groups[0]?.label, "需要先确认 billing 领域边界");
 });
 
 test("a thinking-only message is recognised so its body is never rendered as prose", () => {
 	assert.equal(isThinkingOnly([{ kind: "thinking", text: "思考中" }]), true);
-	assert.equal(isThinkingOnly([{ kind: "thinking", text: "思考中" }, { kind: "tool", toolId: "a" }]), false);
+	assert.equal(
+		isThinkingOnly([
+			{ kind: "thinking", text: "思考中" },
+			{ kind: "tool", toolId: "a" },
+		]),
+		false,
+	);
 	assert.equal(isThinkingOnly([{ kind: "text", text: "正文" }]), false);
 	assert.equal(isThinkingOnly([]), false);
 });

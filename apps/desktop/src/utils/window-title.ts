@@ -9,13 +9,14 @@ export type TitleSignal = "done" | "error" | "waiting" | undefined;
  */
 export function windowTitle(pendingUser: boolean, workingSessions: number, signal?: TitleSignal): string {
 	const prefix = signal === "done" ? t("app.titleDone") : signal === "error" ? t("app.titleFailed") : undefined;
-	const suffix = pendingUser || signal === "waiting"
-		? t("app.titleWaiting")
-		: workingSessions > 1
-			? t("app.titleWorkingMany", { n: workingSessions })
-			: workingSessions === 1
-				? t("app.titleWorking")
-				: undefined;
+	const suffix =
+		pendingUser || signal === "waiting"
+			? t("app.titleWaiting")
+			: workingSessions > 1
+				? t("app.titleWorkingMany", { n: workingSessions })
+				: workingSessions === 1
+					? t("app.titleWorking")
+					: undefined;
 	if (prefix && suffix) return `${prefix} · ${suffix} · owl`;
 	if (prefix) return `${prefix} · owl`;
 	return suffix ? `${suffix} · owl` : "owl";

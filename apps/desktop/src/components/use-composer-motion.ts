@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 export interface ComposerSendMotion {
 	accepted: () => void;
@@ -15,7 +15,10 @@ interface Options {
 }
 
 const noSendMotion: ComposerSendMotion = { accepted: () => {}, cancel: () => {} };
-const noController = { accept: () => {}, send: (_delivery?: "queue" | "steer", _source?: HTMLElement): ComposerSendMotion => noSendMotion };
+const noController = {
+	accept: () => {},
+	send: (_delivery?: "queue" | "steer", _source?: HTMLElement): ComposerSendMotion => noSendMotion,
+};
 
 /** Decorative feedback never edits the draft, creates a message, or moves the chat scroll. */
 export function useComposerMotion(options: Options) {
@@ -26,15 +29,20 @@ export function useComposerMotion(options: Options) {
 		const surface = options.surfaceRef.current;
 		const input = options.inputRef.current;
 		if (!surface || !input) return;
-		const reduced = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : undefined;
+		const reduced =
+			typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : undefined;
 		const animations = new Set<Animation>();
 		const frames = new Set<number>();
 		const dots = new Set<HTMLElement>();
 		let visible = typeof IntersectionObserver === "undefined";
 		let generation = 0;
-		const canMove = (): boolean => visible && !document.hidden && !reduced?.matches
-			&& document.documentElement.dataset.owlChatMotion !== "off" && latest.current.owner === options.owner
-			&& latest.current.client === options.client;
+		const canMove = (): boolean =>
+			visible &&
+			!document.hidden &&
+			!reduced?.matches &&
+			document.documentElement.dataset.owlChatMotion !== "off" &&
+			latest.current.owner === options.owner &&
+			latest.current.client === options.client;
 		const stop = (): void => {
 			generation++;
 			for (const frame of frames) window.cancelAnimationFrame(frame);
@@ -52,21 +60,30 @@ export function useComposerMotion(options: Options) {
 			if (!element || !canMove() || typeof element.animate !== "function") return;
 			const animation = element.animate(keyframes, { duration, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
 			animations.add(animation);
-			animation.onfinish = animation.oncancel = () => { animations.delete(animation); };
+			animation.onfinish = animation.oncancel = () => {
+				animations.delete(animation);
+			};
 			return animation;
 		};
 		const nextFrame = (callback: () => void): void => {
 			if (typeof window.requestAnimationFrame !== "function") return;
-			const frame = window.requestAnimationFrame(() => { frames.delete(frame); callback(); });
+			const frame = window.requestAnimationFrame(() => {
+				frames.delete(frame);
+				callback();
+			});
 			frames.add(frame);
 		};
 		controller.current = {
 			accept: () => {
-				animate(input.querySelector(".owl-composer-accept-glint"), [
-					{ opacity: 0, transform: "translateX(-12%)" },
-					{ opacity: 0.8, offset: 0.3 },
-					{ opacity: 0, transform: "translateX(12%)" },
-				], 280);
+				animate(
+					input.querySelector(".owl-composer-accept-glint"),
+					[
+						{ opacity: 0, transform: "translateX(-12%)" },
+						{ opacity: 0.8, offset: 0.3 },
+						{ opacity: 0, transform: "translateX(12%)" },
+					],
+					280,
+				);
 				animate(input.querySelector(".owl-composer-editor"), [{ opacity: 0.7 }, { opacity: 1 }], 200);
 			},
 			send: (delivery, source) => {
@@ -74,19 +91,26 @@ export function useComposerMotion(options: Options) {
 				const button = source ?? (delivery ? null : input.querySelector<HTMLElement>(".owl-composer-action"));
 				const start = button?.getBoundingClientRect();
 				animate(button ?? null, [{ transform: "scale(0.92)" }, { transform: "scale(1)" }], 180);
-				const gather = animate(input.querySelector(".owl-composer-send-glint"), [
-					{ opacity: 0, backgroundPosition: "150% 0" },
-					{ opacity: 1, offset: 0.45 },
-					{ opacity: 0, backgroundPosition: "-50% 0" },
-				], 320);
+				const gather = animate(
+					input.querySelector(".owl-composer-send-glint"),
+					[
+						{ opacity: 0, backgroundPosition: "150% 0" },
+						{ opacity: 1, offset: 0.45 },
+						{ opacity: 0, backgroundPosition: "-50% 0" },
+					],
+					320,
+				);
 				const scope = surface.closest(".owl-agent-conversation, .research-conversation");
 				const rows = [...(scope?.querySelectorAll<HTMLElement>(".owl-chat-question[data-qidx]") ?? [])];
-				const previous = new Set(rows.flatMap(row => [...row.querySelectorAll(".owl-user-bubble")]));
-				const lastQuestion = Math.max(0, ...rows.map(row => Number(row.dataset.qidx) || 0));
+				const previous = new Set(rows.flatMap((row) => [...row.querySelectorAll(".owl-user-bubble")]));
+				const lastQuestion = Math.max(0, ...rows.map((row) => Number(row.dataset.qidx) || 0));
 				const ticket = generation;
 				let pending = true;
 				return {
-					cancel: () => { pending = false; gather?.cancel(); },
+					cancel: () => {
+						pending = false;
+						gather?.cancel();
+					},
 					accepted: () => {
 						if (!pending) return;
 						pending = false;
@@ -94,48 +118,88 @@ export function useComposerMotion(options: Options) {
 						// Queue and steer acknowledgements are not chat deliveries. Never target an old bubble.
 						if (delivery || !scope || !start || start.width <= 0 || start.height <= 0) return;
 						// React commits the optimistic row, then ChatStream restores its own reading position.
-						nextFrame(() => nextFrame(() => {
-							if (ticket !== generation || !canMove() || latest.current.isCurrent?.() === false || !scope.isConnected) return;
-							const candidates = [...scope.querySelectorAll<HTMLElement>(".owl-chat-question[data-qidx]")]
-								.filter(row => Number(row.dataset.qidx) > lastQuestion)
-								.flatMap(row => [...row.querySelectorAll<HTMLElement>(".owl-user-bubble")])
-								.filter(bubble => !previous.has(bubble));
-							// Concurrent replies can add another user row; ambiguous decoration is skipped.
-							if (candidates.length !== 1) return;
-							const bubble = candidates[0]!;
-							const chat = bubble.closest(".owl-chat-scroll");
-							if (!chat || !bubble.isConnected) return;
-							const target = bubble.getBoundingClientRect();
-							const viewport = chat.getBoundingClientRect();
-							const left = Math.max(0, target.left, viewport.left), right = Math.min(window.innerWidth, target.right, viewport.right);
-							const top = Math.max(0, target.top, viewport.top), bottom = Math.min(window.innerHeight, target.bottom, viewport.bottom);
-							if (right - left < 8 || bottom - top < 8 || start.bottom < 0 || start.top > window.innerHeight) return;
-							const dot = document.createElement("i");
-							dot.className = "owl-composer-relay";
-							dot.setAttribute("aria-hidden", "true");
-							dot.style.left = `${start.left + start.width / 2}px`;
-							dot.style.top = `${start.top + start.height / 2}px`;
-							document.body.appendChild(dot);
-							dots.add(dot);
-							const dx = right - Math.min(18, (right - left) / 2) - start.left - start.width / 2;
-							const dy = bottom - Math.min(14, (bottom - top) / 2) - start.top - start.height / 2;
-							const relay = animate(dot, [
-								{ transform: "translate(-50%, -50%) scale(1)", opacity: 0.9 },
-								{ transform: `translate(calc(-50% + ${dx * 0.65}px), calc(-50% + ${dy * 0.4}px)) scale(0.8)`, opacity: 0.8, offset: 0.5 },
-								{ transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.3)`, opacity: 0 },
-							], 320);
-							if (relay) relay.onfinish = relay.oncancel = () => { animations.delete(relay); dots.delete(dot); dot.remove(); };
-							else { dots.delete(dot); dot.remove(); }
-							animate(bubble, [{ opacity: 0.7, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }], 240);
-						}));
+						nextFrame(() =>
+							nextFrame(() => {
+								if (
+									ticket !== generation ||
+									!canMove() ||
+									latest.current.isCurrent?.() === false ||
+									!scope.isConnected
+								)
+									return;
+								const candidates = [...scope.querySelectorAll<HTMLElement>(".owl-chat-question[data-qidx]")]
+									.filter((row) => Number(row.dataset.qidx) > lastQuestion)
+									.flatMap((row) => [...row.querySelectorAll<HTMLElement>(".owl-user-bubble")])
+									.filter((bubble) => !previous.has(bubble));
+								// Concurrent replies can add another user row; ambiguous decoration is skipped.
+								if (candidates.length !== 1) return;
+								const bubble = candidates[0]!;
+								const chat = bubble.closest(".owl-chat-scroll");
+								if (!chat || !bubble.isConnected) return;
+								const target = bubble.getBoundingClientRect();
+								const viewport = chat.getBoundingClientRect();
+								const left = Math.max(0, target.left, viewport.left),
+									right = Math.min(window.innerWidth, target.right, viewport.right);
+								const top = Math.max(0, target.top, viewport.top),
+									bottom = Math.min(window.innerHeight, target.bottom, viewport.bottom);
+								if (right - left < 8 || bottom - top < 8 || start.bottom < 0 || start.top > window.innerHeight)
+									return;
+								const dot = document.createElement("i");
+								dot.className = "owl-composer-relay";
+								dot.setAttribute("aria-hidden", "true");
+								dot.style.left = `${start.left + start.width / 2}px`;
+								dot.style.top = `${start.top + start.height / 2}px`;
+								document.body.appendChild(dot);
+								dots.add(dot);
+								const dx = right - Math.min(18, (right - left) / 2) - start.left - start.width / 2;
+								const dy = bottom - Math.min(14, (bottom - top) / 2) - start.top - start.height / 2;
+								const relay = animate(
+									dot,
+									[
+										{ transform: "translate(-50%, -50%) scale(1)", opacity: 0.9 },
+										{
+											transform: `translate(calc(-50% + ${dx * 0.65}px), calc(-50% + ${dy * 0.4}px)) scale(0.8)`,
+											opacity: 0.8,
+											offset: 0.5,
+										},
+										{
+											transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.3)`,
+											opacity: 0,
+										},
+									],
+									320,
+								);
+								if (relay)
+									relay.onfinish = relay.oncancel = () => {
+										animations.delete(relay);
+										dots.delete(dot);
+										dot.remove();
+									};
+								else {
+									dots.delete(dot);
+									dot.remove();
+								}
+								animate(
+									bubble,
+									[
+										{ opacity: 0.7, transform: "translateY(5px)" },
+										{ opacity: 1, transform: "translateY(0)" },
+									],
+									240,
+								);
+							}),
+						);
 					},
 				};
 			},
 		};
-		const intersection = typeof IntersectionObserver === "function" ? new IntersectionObserver(([entry]) => {
-			visible = entry?.isIntersecting ?? false;
-			refresh();
-		}) : undefined;
+		const intersection =
+			typeof IntersectionObserver === "function"
+				? new IntersectionObserver(([entry]) => {
+						visible = entry?.isIntersecting ?? false;
+						refresh();
+					})
+				: undefined;
 		intersection?.observe(surface);
 		const preferences = typeof MutationObserver === "function" ? new MutationObserver(refresh) : undefined;
 		preferences?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-owl-chat-motion"] });
@@ -154,6 +218,7 @@ export function useComposerMotion(options: Options) {
 	}, [options.owner, options.client]);
 	return {
 		acceptSuggestion: (): void => controller.current.accept(),
-		beginSend: (delivery?: "queue" | "steer", source?: HTMLElement): ComposerSendMotion => controller.current.send(delivery, source),
+		beginSend: (delivery?: "queue" | "steer", source?: HTMLElement): ComposerSendMotion =>
+			controller.current.send(delivery, source),
 	};
 }

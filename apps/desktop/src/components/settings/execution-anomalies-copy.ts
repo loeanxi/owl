@@ -5,7 +5,8 @@ const COPY = {
 	zh: {
 		nav: "执行异常日志",
 		title: "执行异常日志",
-		description: "工具或模型执行异常会自动留档，执行该会话的模型需补充异常原因、处理动作和结果。记录保存在当前 Owl 数据目录。",
+		description:
+			"工具或模型执行异常会自动留档，执行该会话的模型需补充异常原因、处理动作和结果。记录保存在当前 Owl 数据目录。",
 		searchLabel: "搜索执行异常",
 		searchPlaceholder: "搜索会话、模型、工具或异常内容",
 		search: "搜索",
@@ -18,7 +19,8 @@ const COPY = {
 		processingNote: "处理说明",
 		processingVerification: "验证依据",
 		processedAt: "处理时间",
-		processingHint: "填写处理说明和验证依据后，此条会从默认“未处理”列表隐藏，仍可通过处理视图查回，也可恢复为未处理。",
+		processingHint:
+			"填写处理说明和验证依据后，此条会从默认“未处理”列表隐藏，仍可通过处理视图查回，也可恢复为未处理。",
 		processingSave: "保存处理标记",
 		processingCancel: "取消",
 		processingSaving: "正在保存…",
@@ -62,20 +64,27 @@ const COPY = {
 	en: {
 		nav: "Execution anomalies",
 		title: "Execution anomalies",
-		description: "Tool and model failures are saved automatically. The model running the session must add the cause, action and outcome. Records are stored in the current Owl data directory.",
+		description:
+			"Tool and model failures are saved automatically. The model running the session must add the cause, action and outcome. Records are stored in the current Owl data directory.",
 		searchLabel: "Search execution anomalies",
 		searchPlaceholder: "Search sessions, models, tools or errors",
 		search: "Search",
 		filterLabel: "Filter by report status",
 		processingFilter: "Processing view",
-		processingViews: { active: "Unprocessed", optimized: "Optimized", dismissed: "No optimization needed", all: "All" },
+		processingViews: {
+			active: "Unprocessed",
+			optimized: "Optimized",
+			dismissed: "No optimization needed",
+			all: "All",
+		},
 		processingTitle: "Anomaly processing record",
 		processingKinds: { optimized: "Optimized", dismissed: "No optimization needed" },
 		processingActions: { optimized: "Mark as optimized", dismissed: "No optimization needed" },
 		processingNote: "Processing note",
 		processingVerification: "Verification evidence",
 		processedAt: "Processed at",
-		processingHint: "Add a note and verification evidence to hide this record from the default Unprocessed view. You can find it in the processing views and restore it at any time.",
+		processingHint:
+			"Add a note and verification evidence to hide this record from the default Unprocessed view. You can find it in the processing views and restore it at any time.",
 		processingSave: "Save processing mark",
 		processingCancel: "Cancel",
 		processingSaving: "Saving…",

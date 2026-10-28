@@ -23,6 +23,7 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	AgentToolBatch,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
 	FinishTurn,
@@ -122,6 +123,7 @@ export interface AgentOptions {
 	onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
+	afterToolBatch?: (batch: AgentToolBatch, signal?: AbortSignal) => Promise<string | undefined> | string | undefined;
 	finishTurn?: FinishTurn;
 	prepareRequest?: PrepareRequest;
 	prepareNextTurn?: (
@@ -212,6 +214,10 @@ export class Agent {
 		context: AfterToolCallContext,
 		signal?: AbortSignal,
 	) => Promise<AfterToolCallResult | undefined>;
+	public afterToolBatch?: (
+		batch: AgentToolBatch,
+		signal?: AbortSignal,
+	) => Promise<string | undefined> | string | undefined;
 	public finishTurn?: FinishTurn;
 	public prepareRequest?: PrepareRequest;
 	public prepareNextTurn?: (
@@ -246,6 +252,7 @@ export class Agent {
 		this.onProviderStreamEvent = runtimeOptions.onProviderStreamEvent;
 		this.beforeToolCall = runtimeOptions.beforeToolCall;
 		this.afterToolCall = runtimeOptions.afterToolCall;
+		this.afterToolBatch = runtimeOptions.afterToolBatch;
 		this.finishTurn = runtimeOptions.finishTurn;
 		this.prepareRequest = runtimeOptions.prepareRequest;
 		this.prepareNextTurn = runtimeOptions.prepareNextTurn;
@@ -495,6 +502,7 @@ export class Agent {
 			toolExecution: this.toolExecution,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
+			afterToolBatch: this.afterToolBatch,
 			finishTurn: this.finishTurn,
 			prepareRequest: this.prepareRequest,
 			prepareNextTurn:

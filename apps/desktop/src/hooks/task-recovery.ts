@@ -11,7 +11,10 @@ export type TaskRecovery = {
 };
 
 /** Only the latest failed response can offer recovery; old errors and user stops cannot. */
-export function taskRecovery(entries: readonly ChatEntry[], retryStatus?: RetryBannerState | null): TaskRecovery | undefined {
+export function taskRecovery(
+	entries: readonly ChatEntry[],
+	retryStatus?: RetryBannerState | null,
+): TaskRecovery | undefined {
 	if (retryStatus?.phase === "retrying") return undefined;
 	const latest = entries.findLastIndex((entry) => entry.kind === "assistant" || entry.kind === "user");
 	const entry = entries[latest];
@@ -30,16 +33,31 @@ export function taskRecovery(entries: readonly ChatEntry[], retryStatus?: RetryB
 			else uncertainTools++;
 		}
 	}
-	return { id: `${entry.kind === "user" || entry.kind === "assistant" ? entry.entryId ?? entry.timestamp ?? latest : latest}:${reason}`, reason, completedTools, uncertainTools };
+	return {
+		id: `${entry.kind === "user" || entry.kind === "assistant" ? (entry.entryId ?? entry.timestamp ?? latest) : latest}:${reason}`,
+		reason,
+		completedTools,
+		uncertainTools,
+	};
 }
 
 /** Switch only on an explicit user choice, then continue the same history without rewinding. */
-export async function continueTask(client: Pick<BridgeClient, "request">, sessionId: string, model?: string, onModelChanged?: (stats: SessionStatsResult | undefined, model: string) => void): Promise<SessionStatsResult | undefined> {
+export async function continueTask(
+	client: Pick<BridgeClient, "request">,
+	sessionId: string,
+	model?: string,
+	onModelChanged?: (stats: SessionStatsResult | undefined, model: string) => void,
+): Promise<SessionStatsResult | undefined> {
 	let stats: SessionStatsResult | undefined;
 	if (model) {
 		const slash = model.indexOf("/");
 		if (slash <= 0 || slash === model.length - 1) throw new Error(t("recovery.invalidModel"));
-		const changed = await client.request<SessionStatsResult>({ type: "session.setModel", sessionId, provider: model.slice(0, slash), model: model.slice(slash + 1) });
+		const changed = await client.request<SessionStatsResult>({
+			type: "session.setModel",
+			sessionId,
+			provider: model.slice(0, slash),
+			model: model.slice(slash + 1),
+		});
 		if (!changed.ok) throw new Error(changed.error ?? t("recovery.modelFailed"));
 		stats = changed.result;
 		onModelChanged?.(stats, model);

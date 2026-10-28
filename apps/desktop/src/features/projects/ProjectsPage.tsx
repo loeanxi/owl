@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { isReservedDir, isValidationDir, loadAndScrubProjects, normPath, samePath } from "../../utils/paths.ts";
+import { islandSessionTitle } from "../../components/dynamic-island-model.ts";
+import { IconChevron, IconCompose, IconFolder, IconMore, IconPlus, IconSearch } from "../../components/icons.tsx";
+import { NewProjectDialog } from "../../components/NewProjectDialog.tsx";
+import { ProjectActionsMenu } from "../../components/ProjectActionsMenu.tsx";
+import { ProjectSidebarDialog } from "../../components/ProjectSidebarDialog.tsx";
+import { useProjectSidebarText } from "../../components/project-sidebar-copy.ts";
+import { matchesSessionScope } from "../../components/sidebar-scope.ts";
+import { getUiLanguage, t, useT } from "../../i18n/index.ts";
 import {
-	getProjectDisplayName as projectLabel,
 	getProjectSidebarPreferences,
 	hideProject,
 	isSessionUnread,
 	markSessionsRead,
 	moveProjectToSection,
+	type ProjectSidebarPreferences,
+	getProjectDisplayName as projectLabel,
 	saveProjectSidebarPreferences,
 	useProjectSidebarRevision,
-	type ProjectSidebarPreferences,
 } from "../../project-sidebar-model.ts";
-import { matchesSessionScope } from "../../components/sidebar-scope.ts";
-import { getUiLanguage, t, useT } from "../../i18n/index.ts";
-import { islandSessionTitle } from "../../components/dynamic-island-model.ts";
-import { NewProjectDialog } from "../../components/NewProjectDialog.tsx";
-import { ProjectActionsMenu } from "../../components/ProjectActionsMenu.tsx";
-import { ProjectSidebarDialog } from "../../components/ProjectSidebarDialog.tsx";
-import { useProjectSidebarText } from "../../components/project-sidebar-copy.ts";
-import { IconChevron, IconCompose, IconFolder, IconMore, IconPlus, IconSearch } from "../../components/icons.tsx";
+import { isReservedDir, isValidationDir, loadAndScrubProjects, normPath, samePath } from "../../utils/paths.ts";
 
 /**
  * 「项目」页（rail 一等视图，Codex 式一览表）：
@@ -74,7 +74,10 @@ function relativeTime(iso: string): string {
 	if (diff < day) return t("sidebar.relativeHours", { n: Math.floor(diff / hour) });
 	if (diff < 2 * day) return t("sidebar.yesterday");
 	if (diff < 7 * day) return t("sidebar.relativeDays", { n: Math.floor(diff / day) });
-	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit" });
+	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", {
+		month: "2-digit",
+		day: "2-digit",
+	});
 }
 
 function sessionTitle(row: SessionRow): string {
@@ -125,7 +128,9 @@ export function ProjectsPage({
 	const [sort, setSort] = useState<ProjectSort>(loadSort);
 	/** 手动展开的项目（normalized path）；搜索时全部按展开处理。 */
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY));
+	const [knownProjects, setKnownProjects] = useState<string[]>(() =>
+		loadAndScrubProjects(localStorage, KNOWN_PROJECTS_KEY),
+	);
 	/** ⋯ 菜单目标（ProjectActionsMenu 需要锚点按钮定位）。 */
 	const [menu, setMenu] = useState<{ path: string; anchor: HTMLButtonElement } | null>(null);
 	const menuId = useId();
@@ -193,11 +198,14 @@ export function ProjectsPage({
 		const visible = projects.filter((agg) => {
 			if (preferences.hidden.includes(normPath(agg.path))) return false;
 			if (!search) return true;
-			return projectLabel(agg.path).toLowerCase().includes(search)
-				|| agg.path.toLowerCase().includes(search)
-				|| agg.rows.some(titleMatches);
+			return (
+				projectLabel(agg.path).toLowerCase().includes(search) ||
+				agg.path.toLowerCase().includes(search) ||
+				agg.rows.some(titleMatches)
+			);
 		});
-		const byLatest = (a: ProjectAgg, b: ProjectAgg): number => (a.latest !== b.latest ? (a.latest > b.latest ? -1 : 1) : 0);
+		const byLatest = (a: ProjectAgg, b: ProjectAgg): number =>
+			a.latest !== b.latest ? (a.latest > b.latest ? -1 : 1) : 0;
 		const sorted = [...visible].sort((a, b) => {
 			if (sort === "name") return projectLabel(a.path).localeCompare(projectLabel(b.path), getUiLanguage());
 			if (sort === "oldest") return byLatest(b, a);
@@ -233,7 +241,9 @@ export function ProjectsPage({
 				const next = current.filter((p) => !samePath(p, target.path));
 				try {
 					localStorage.setItem(KNOWN_PROJECTS_KEY, JSON.stringify(next));
-				} catch { /* 存储不可用退化为内存态 */ }
+				} catch {
+					/* 存储不可用退化为内存态 */
+				}
 				return next;
 			});
 			setConfirm(null);
@@ -260,7 +270,12 @@ export function ProjectsPage({
 				}
 			}
 			await refresh();
-			setNotice(pt("archiveResult").replace("{done}", String(done)).replace("{failed}", String(failed)).replace("{running}", String(kept)));
+			setNotice(
+				pt("archiveResult")
+					.replace("{done}", String(done))
+					.replace("{failed}", String(failed))
+					.replace("{running}", String(kept)),
+			);
 			setConfirm(null);
 		} finally {
 			busyRef.current = false;
@@ -292,7 +307,9 @@ export function ProjectsPage({
 		const rows = open ? expandedRows(agg) : [];
 		return (
 			<div key={key} data-project-path={key}>
-				<div className={`${gridCols} group h-[52px] border-b border-owl-border/70 px-3 transition-colors hover:bg-owl-hover/40`}>
+				<div
+					className={`${gridCols} group h-[52px] border-b border-owl-border/70 px-3 transition-colors hover:bg-owl-hover/40`}
+				>
 					<button
 						type="button"
 						className="flex min-w-0 items-center gap-2.5 text-left"
@@ -300,10 +317,16 @@ export function ProjectsPage({
 						aria-label={t(open ? "projects.collapseAria" : "projects.expandAria", { name })}
 						onClick={() => toggleExpand(agg.path)}
 					>
-						<IconChevron className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`} />
+						<IconChevron
+							className={`h-3 w-3 shrink-0 text-owl-faint transition-transform ${open ? "rotate-90" : ""}`}
+						/>
 						<IconFolder className="h-4 w-4 shrink-0 text-owl-faint" />
 						<span className="truncate text-[13px] font-medium text-owl-text">{name}</span>
-						{isCurrent && <span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[9.5px] text-owl-faint">{t("projects.current")}</span>}
+						{isCurrent && (
+							<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[9.5px] text-owl-faint">
+								{t("projects.current")}
+							</span>
+						)}
 					</button>
 					<span className="text-right text-xs text-owl-muted">{agg.rows.length}</span>
 					<span className="text-right text-xs text-owl-muted">{agg.latest ? relativeTime(agg.latest) : "—"}</span>
@@ -315,7 +338,9 @@ export function ProjectsPage({
 							aria-label={t("projects.projectActions")}
 							aria-haspopup="menu"
 							aria-expanded={menu?.path === agg.path}
-							onClick={(event) => setMenu(menu?.path === agg.path ? null : { path: agg.path, anchor: event.currentTarget })}
+							onClick={(event) =>
+								setMenu(menu?.path === agg.path ? null : { path: agg.path, anchor: event.currentTarget })
+							}
 						>
 							<IconMore className="h-3.5 w-3.5" />
 						</button>
@@ -333,7 +358,9 @@ export function ProjectsPage({
 				{open && (
 					<div className="border-b border-owl-border/70 bg-owl-bubble/40 px-3 py-2">
 						<div className="flex items-center gap-3 pb-1 pl-8 pr-1">
-							<span className="truncate font-mono text-[10.5px] text-owl-faint" title={agg.path}>{agg.path}</span>
+							<span className="truncate font-mono text-[10.5px] text-owl-faint" title={agg.path}>
+								{agg.path}
+							</span>
 							<button
 								type="button"
 								className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-owl-accent hover:bg-owl-hover"
@@ -363,11 +390,17 @@ export function ProjectsPage({
 										title={isRunning ? t("sidebar.runningTip") : undefined}
 									/>
 									<span className="truncate text-xs text-owl-text">{sessionTitle(row)}</span>
-									<span className="ml-auto shrink-0 text-[10.5px] text-owl-faint">{relativeTime(sessionTime(row))}</span>
+									<span className="ml-auto shrink-0 text-[10.5px] text-owl-faint">
+										{relativeTime(sessionTime(row))}
+									</span>
 								</button>
 							);
 						})}
-						{rows.length === 0 && <p className="py-1.5 pl-8 text-xs text-owl-faint">{search ? t("projects.noMatch") : t("projects.noSessions")}</p>}
+						{rows.length === 0 && (
+							<p className="py-1.5 pl-8 text-xs text-owl-faint">
+								{search ? t("projects.noMatch") : t("projects.noSessions")}
+							</p>
+						)}
 					</div>
 				)}
 			</div>
@@ -379,7 +412,9 @@ export function ProjectsPage({
 			<header className="flex items-end gap-3 px-7 pb-4 pt-7">
 				<div>
 					<h1 className="text-xl font-semibold tracking-tight text-owl-text">{t("projects.title")}</h1>
-					<p className="mt-0.5 text-[11.5px] text-owl-faint">{t("projects.count", { n: sortedProjects.length })}</p>
+					<p className="mt-0.5 text-[11.5px] text-owl-faint">
+						{t("projects.count", { n: sortedProjects.length })}
+					</p>
 				</div>
 				<div className="ml-auto flex items-center gap-2.5">
 					<label className="flex h-8 w-56 items-center gap-2 rounded-full border border-owl-border bg-owl-panel px-3">
@@ -396,7 +431,12 @@ export function ProjectsPage({
 							}}
 						/>
 						{query && (
-							<button type="button" className="shrink-0 text-owl-faint hover:text-owl-text" aria-label={t("sidebar.clearSearch")} onClick={() => setQuery("")}>
+							<button
+								type="button"
+								className="shrink-0 text-owl-faint hover:text-owl-text"
+								aria-label={t("sidebar.clearSearch")}
+								onClick={() => setQuery("")}
+							>
 								<span aria-hidden="true">×</span>
 							</button>
 						)}
@@ -455,7 +495,11 @@ export function ProjectsPage({
 						</button>
 					</div>
 				)}
-				{notice && <p className="px-3 pt-3 text-xs text-owl-faint" role="status">{notice}</p>}
+				{notice && (
+					<p className="px-3 pt-3 text-xs text-owl-faint" role="status">
+						{notice}
+					</p>
+				)}
 			</div>
 
 			{menu !== null && (
@@ -467,14 +511,19 @@ export function ProjectsPage({
 					sectionId={preferences.assignments[normPath(menu.path)] ?? null}
 					onClose={() => setMenu(null)}
 					onEdit={() => setEditing(menu.path)}
-					onSection={(id) => saveProjectSidebarPreferences("chat", moveProjectToSection(preferences, menu.path, id))}
+					onSection={(id) =>
+						saveProjectSidebarPreferences("chat", moveProjectToSection(preferences, menu.path, id))
+					}
 					onNewSection={() => {
 						setSectionError("");
 						setSectionDialog({ path: menu.path });
 					}}
 					onReveal={() => void revealProject(menu.path)}
 					onMarkRead={() => {
-						markSessionsRead("chat", sessions.filter((row) => samePath(row.cwd, menu.path)));
+						markSessionsRead(
+							"chat",
+							sessions.filter((row) => samePath(row.cwd, menu.path)),
+						);
 						setNotice(pt("allRead"));
 					}}
 					onArchive={() => setConfirm({ type: "archive", path: menu.path })}
@@ -499,7 +548,12 @@ export function ProjectsPage({
 					confirmLabel={pt("save")}
 					onClose={() => setSectionDialog(null)}
 					onSubmit={(name) => {
-						if (preferences.sections.some((section) => section.id !== sectionDialog.id && section.name.toLowerCase() === name.toLowerCase())) {
+						if (
+							preferences.sections.some(
+								(section) =>
+									section.id !== sectionDialog.id && section.name.toLowerCase() === name.toLowerCase(),
+							)
+						) {
 							setSectionError(pt("sectionDuplicate"));
 							return;
 						}
@@ -507,7 +561,9 @@ export function ProjectsPage({
 						let next: ProjectSidebarPreferences = {
 							...preferences,
 							sections: sectionDialog.id
-								? preferences.sections.map((section) => (section.id === sectionDialog.id ? { ...section, name } : section))
+								? preferences.sections.map((section) =>
+										section.id === sectionDialog.id ? { ...section, name } : section,
+									)
 								: [...preferences.sections, { id, name }],
 						};
 						if (sectionDialog.path) next = moveProjectToSection(next, sectionDialog.path, id);

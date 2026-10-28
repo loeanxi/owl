@@ -14,16 +14,26 @@ export function parseExecutionSelection(path: string | undefined): ExecutionSele
 		const raw: unknown = JSON.parse(path ?? "null");
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 		const item = raw as Record<string, unknown>;
-		if (typeof item.sessionId !== "string" || !item.sessionId || (item.mode !== "tasks" && item.mode !== "tool")) return undefined;
-		return { sessionId: item.sessionId, mode: item.mode,
+		if (typeof item.sessionId !== "string" || !item.sessionId || (item.mode !== "tasks" && item.mode !== "tool"))
+			return undefined;
+		return {
+			sessionId: item.sessionId,
+			mode: item.mode,
 			...(typeof item.toolId === "string" ? { toolId: item.toolId } : {}),
-			...(typeof item.ownerIndex === "number" && Number.isSafeInteger(item.ownerIndex) && item.ownerIndex >= 0 ? { ownerIndex: item.ownerIndex } : {}),
+			...(typeof item.ownerIndex === "number" && Number.isSafeInteger(item.ownerIndex) && item.ownerIndex >= 0
+				? { ownerIndex: item.ownerIndex }
+				: {}),
 			...(typeof item.profile === "string" ? { profile: item.profile } : {}),
 		};
-	} catch { return undefined; }
+	} catch {
+		return undefined;
+	}
 }
 
-export function selectedExecutionTool(entries: readonly ChatEntry[], selection: ExecutionSelection): ToolCard | undefined {
+export function selectedExecutionTool(
+	entries: readonly ChatEntry[],
+	selection: ExecutionSelection,
+): ToolCard | undefined {
 	if (!selection.toolId) return undefined;
 	if (selection.ownerIndex !== undefined) {
 		const owner = entries[selection.ownerIndex];

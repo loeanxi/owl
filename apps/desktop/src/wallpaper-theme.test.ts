@@ -6,17 +6,29 @@ function glassDocument(t: TestContext) {
 	const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
 	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 	const values = new Map<string, string>();
-	const events: { type: string; theme: string | undefined; accent: string | undefined; text: string | undefined }[] = [];
+	const events: { type: string; theme: string | undefined; accent: string | undefined; text: string | undefined }[] =
+		[];
 	const root = {
 		dataset: { owlTheme: "dark" } as Record<string, string>,
-		style: { setProperty: (name: string, value: string) => values.set(name, value), removeProperty: (name: string) => values.delete(name) },
+		style: {
+			setProperty: (name: string, value: string) => values.set(name, value),
+			removeProperty: (name: string) => values.delete(name),
+		},
 	};
 	Object.defineProperty(globalThis, "document", { configurable: true, value: { documentElement: root } });
-	Object.defineProperty(globalThis, "window", { configurable: true, value: {
-		dispatchEvent: (event: Event) => {
-			events.push({ type: event.type, theme: root.dataset.owlGlassTheme, accent: values.get("--owl-glass-accent"), text: values.get("--owl-glass-text") });
+	Object.defineProperty(globalThis, "window", {
+		configurable: true,
+		value: {
+			dispatchEvent: (event: Event) => {
+				events.push({
+					type: event.type,
+					theme: root.dataset.owlGlassTheme,
+					accent: values.get("--owl-glass-accent"),
+					text: values.get("--owl-glass-text"),
+				});
+			},
 		},
-	} });
+	});
 	t.after(() => {
 		if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
 		else Reflect.deleteProperty(globalThis, "document");
@@ -34,8 +46,10 @@ test("wallpaper palette publishes its actual mode before notifying and restores 
 	assert.equal(root.dataset.owlGlassTheme, "light");
 	assert.equal(values.get("--owl-glass-dark"), "0");
 	assert.deepEqual(events[0], {
-		type: "owl-appearance-change", theme: "light",
-		accent: values.get("--owl-glass-accent"), text: values.get("--owl-glass-text"),
+		type: "owl-appearance-change",
+		theme: "light",
+		accent: values.get("--owl-glass-accent"),
+		text: values.get("--owl-glass-text"),
 	});
 	assert.ok(events[0].accent);
 	assert.ok(events[0].text);
@@ -70,17 +84,29 @@ test("wallpaper metadata stays readable across hue, saturation and lightness on 
 	const hslRgb = (h: number, s: number, l: number): number[] => {
 		const c = (1 - Math.abs(2 * l - 1)) * s;
 		const hp = h / 60;
-		const x = c * (1 - Math.abs(hp % 2 - 1));
+		const x = c * (1 - Math.abs((hp % 2) - 1));
 		const m = l - c / 2;
-		const channels = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+		const channels =
+			hp < 1
+				? [c, x, 0]
+				: hp < 2
+					? [x, c, 0]
+					: hp < 3
+						? [0, c, x]
+						: hp < 4
+							? [0, x, c]
+							: hp < 5
+								? [x, 0, c]
+								: [c, 0, x];
 		return channels.map((value) => value + m);
 	};
 	const luminance = (name: string): number => {
 		const value = values.get(name) ?? "";
 		const match = /^hsl\(([\d.]+) ([\d.]+)% ([\d.]+)%\)$/.exec(value);
 		assert.ok(match, value);
-		const channels = hslRgb(Number(match[1]), Number(match[2]) / 100, Number(match[3]) / 100)
-			.map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+		const channels = hslRgb(Number(match[1]), Number(match[2]) / 100, Number(match[3]) / 100).map((channel) =>
+			channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+		);
 		return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 	};
 	for (let hue = 0; hue < 360; hue += 1) {

@@ -64,7 +64,7 @@ function spanOf(cell: TrajectoryCell, start: number, end: number): TrajectoryTim
 		recordId: cell.recordId,
 		cell,
 		kind: cell.kind,
-		label: cell.kind === "user" || cell.kind === "message" ? cell.title : cell.summary ?? cell.title,
+		label: cell.kind === "user" || cell.kind === "message" ? cell.title : (cell.summary ?? cell.title),
 		lane: laneFor(cell.kind),
 		start,
 		end,

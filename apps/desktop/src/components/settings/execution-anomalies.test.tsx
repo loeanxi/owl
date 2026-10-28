@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { ExecutionAnomalyListResult, ExecutionAnomalyRecord } from "../../bridge/protocol.ts";
@@ -11,7 +11,24 @@ import { ExecutionAnomaliesSection } from "./ExecutionAnomaliesSection.tsx";
 const createdAt = Date.UTC(2026, 9, 15, 8, 30);
 
 function record(patch: Partial<ExecutionAnomalyRecord> = {}): ExecutionAnomalyRecord {
-	return { id: "anomaly-1", sessionId: "session-1", sessionName: "修复执行链路", sessionFile: "D:/profile/sessions/session-1.jsonl", cwd: "D:/owl", provider: "example", model: "test-model", toolCallId: "call-1", toolName: "bash", kind: "tool_error", summary: "命令执行失败", details: "Permission denied\n<script>alert('error')</script>", createdAt, updatedAt: createdAt, status: "pending", ...patch };
+	return {
+		id: "anomaly-1",
+		sessionId: "session-1",
+		sessionName: "修复执行链路",
+		sessionFile: "D:/profile/sessions/session-1.jsonl",
+		cwd: "D:/owl",
+		provider: "example",
+		model: "test-model",
+		toolCallId: "call-1",
+		toolName: "bash",
+		kind: "tool_error",
+		summary: "命令执行失败",
+		details: "Permission denied\n<script>alert('error')</script>",
+		createdAt,
+		updatedAt: createdAt,
+		status: "pending",
+		...patch,
+	};
 }
 
 let root: Root;
@@ -30,18 +47,34 @@ beforeEach(() => {
 	vi.stubGlobal("document", dom.document);
 	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-	for (const element of [dom.window.HTMLInputElement, dom.window.HTMLTextAreaElement]) Object.assign(element.prototype, {
-		attachEvent(this: HTMLElement, name: string, listener: EventListener) { this.addEventListener(name.replace(/^on/, ""), listener); },
-		detachEvent(this: HTMLElement, name: string, listener: EventListener) { this.removeEventListener(name.replace(/^on/, ""), listener); },
-	});
+	for (const element of [dom.window.HTMLInputElement, dom.window.HTMLTextAreaElement])
+		Object.assign(element.prototype, {
+			attachEvent(this: HTMLElement, name: string, listener: EventListener) {
+				this.addEventListener(name.replace(/^on/, ""), listener);
+			},
+			detachEvent(this: HTMLElement, name: string, listener: EventListener) {
+				this.removeEventListener(name.replace(/^on/, ""), listener);
+			},
+		});
 	setUiLanguage("zh");
 	changed = undefined;
 	unsubscribe = vi.fn();
 	onOpenSession = vi.fn();
 	list = vi.fn(async () => ({ ok: true, result: { records: [record()], total: 1 } }));
-	processAnomaly = vi.fn(async ({ kind, note, verification }) => ({ ok: true, result: record({ processing: { kind, note, verification, processedAt: createdAt + 4_000 } }) }));
+	processAnomaly = vi.fn(async ({ kind, note, verification }) => ({
+		ok: true,
+		result: record({ processing: { kind, note, verification, processedAt: createdAt + 4_000 } }),
+	}));
 	restoreAnomaly = vi.fn(async () => ({ ok: true, result: record() }));
-	client = { listExecutionAnomalies: list, processExecutionAnomaly: processAnomaly, restoreExecutionAnomaly: restoreAnomaly, onExecutionAnomaliesChanged: (handler: () => void) => { changed = handler; return unsubscribe; } } as unknown as BridgeClient;
+	client = {
+		listExecutionAnomalies: list,
+		processExecutionAnomaly: processAnomaly,
+		restoreExecutionAnomaly: restoreAnomaly,
+		onExecutionAnomaliesChanged: (handler: () => void) => {
+			changed = handler;
+			return unsubscribe;
+		},
+	} as unknown as BridgeClient;
 	host = document.getElementById("root")!;
 	root = createRoot(host);
 });
@@ -52,7 +85,13 @@ afterEach(async () => {
 });
 
 async function render(open = true): Promise<void> {
-	await act(async () => root.render(<div className="owl-settings-page"><ExecutionAnomaliesSection client={client} onOpenSession={open ? onOpenSession : undefined} /></div>));
+	await act(async () =>
+		root.render(
+			<div className="owl-settings-page">
+				<ExecutionAnomaliesSection client={client} onOpenSession={open ? onOpenSession : undefined} />
+			</div>,
+		),
+	);
 }
 
 function button(label: string): HTMLButtonElement {
@@ -70,23 +109,34 @@ async function processingView(value: "active" | "optimized" | "dismissed" | "all
 
 async function submitProcessing(): Promise<void> {
 	// Linkedom does not synthesize a form submit from a submit button click.
-	await act(async () => host.querySelector(".owl-execution-anomaly-processing form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+	await act(async () =>
+		host
+			.querySelector(".owl-execution-anomaly-processing form")!
+			.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })),
+	);
 }
 
 async function fillProcessing(note: string, verification: string): Promise<void> {
-	for (const [index, value] of [note, verification].entries()) await act(async () => {
-		const field = host.querySelectorAll("textarea")[index];
-		field.dispatchEvent(new window.Event("focusin", { bubbles: true }));
-		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!.call(field, value);
-		field.dispatchEvent(new window.Event("keyup", { bubbles: true }));
-		field.dispatchEvent(new window.Event("focusout", { bubbles: true }));
-	});
+	for (const [index, value] of [note, verification].entries())
+		await act(async () => {
+			const field = host.querySelectorAll("textarea")[index];
+			field.dispatchEvent(new window.Event("focusin", { bubbles: true }));
+			Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!.call(field, value);
+			field.dispatchEvent(new window.Event("keyup", { bubbles: true }));
+			field.dispatchEvent(new window.Event("focusout", { bubbles: true }));
+		});
 }
 
 describe("Settings execution anomalies", () => {
 	it("shows captured evidence and pending model reporting separately, with safe text and session navigation", async () => {
 		await render();
-		expect(list).toHaveBeenCalledExactlyOnceWith({ query: undefined, status: undefined, processing: "active", limit: 40, offset: 0 });
+		expect(list).toHaveBeenCalledExactlyOnceWith({
+			query: undefined,
+			status: undefined,
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 		expect(host.textContent).toContain("待模型上报");
 		expect(host.textContent).toContain("修复执行链路");
 		expect(host.textContent).toContain("example / test-model");
@@ -102,7 +152,23 @@ describe("Settings execution anomalies", () => {
 	});
 
 	it("shows the model's cause, action and assessment without replacing original evidence", async () => {
-		list.mockResolvedValueOnce({ ok: true, result: { records: [record({ status: "reported", report: { cause: "路径错误", action: "已改为绝对路径并重试", outcome: "resolved", reportedAt: createdAt + 2_000 } })], total: 1 } });
+		list.mockResolvedValueOnce({
+			ok: true,
+			result: {
+				records: [
+					record({
+						status: "reported",
+						report: {
+							cause: "路径错误",
+							action: "已改为绝对路径并重试",
+							outcome: "resolved",
+							reportedAt: createdAt + 2_000,
+						},
+					}),
+				],
+				total: 1,
+			},
+		});
 		await render(false);
 		expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain("模型上报说明");
 		expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain("路径错误");
@@ -122,20 +188,51 @@ describe("Settings execution anomalies", () => {
 			input.dispatchEvent(new window.Event("keyup", { bubbles: true }));
 		});
 		expect(list).toHaveBeenCalledTimes(1);
-		await act(async () => host.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-		expect(list).toHaveBeenLastCalledWith({ query: "bash", status: undefined, processing: "active", limit: 40, offset: 0 });
+		await act(async () =>
+			host.querySelector("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })),
+		);
+		expect(list).toHaveBeenLastCalledWith({
+			query: "bash",
+			status: undefined,
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 		await act(async () => button("待模型上报").click());
-		expect(list).toHaveBeenLastCalledWith({ query: "bash", status: "pending", processing: "active", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: "bash",
+			status: "pending",
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 		expect(button("待模型上报").getAttribute("aria-pressed")).toBe("true");
 		await act(async () => button("已上报").click());
-		expect(list).toHaveBeenLastCalledWith({ query: "bash", status: "reported", processing: "active", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: "bash",
+			status: "reported",
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 		await processingView("optimized");
-		expect(list).toHaveBeenLastCalledWith({ query: "bash", status: "reported", processing: "optimized", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: "bash",
+			status: "reported",
+			processing: "optimized",
+			limit: 40,
+			offset: 0,
+		});
 	});
 
 	it("renders loading, failure recovery and a genuine empty state", async () => {
 		let finish!: (value: { ok: boolean; result?: ExecutionAnomalyListResult; error?: string }) => void;
-		list.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+		list.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				}),
+		);
 		await render();
 		expect(host.querySelector('[aria-busy="true"]')?.textContent).toContain("正在加载");
 		expect(button("刷新").disabled).toBe(true);
@@ -150,9 +247,17 @@ describe("Settings execution anomalies", () => {
 
 	it("ignores stale requests and automatically refreshes on log changes", async () => {
 		let finish!: (value: { ok: boolean; result: ExecutionAnomalyListResult }) => void;
-		list.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+		list.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				}),
+		);
 		await render();
-		list.mockResolvedValueOnce({ ok: true, result: { records: [record({ id: "new", summary: "新的异常" })], total: 1 } });
+		list.mockResolvedValueOnce({
+			ok: true,
+			result: { records: [record({ id: "new", summary: "新的异常" })], total: 1 },
+		});
 		await act(async () => button("已上报").click());
 		await act(async () => finish({ ok: true, result: { records: [record()], total: 1 } }));
 		expect(host.querySelector("article h3")?.textContent).toBe("新的异常");
@@ -165,15 +270,30 @@ describe("Settings execution anomalies", () => {
 	});
 
 	it("paginates and returns to the first page after changing filters", async () => {
-		list.mockImplementation(async (filter) => ({ ok: true, result: { records: [record({ id: `anomaly-${filter?.offset ?? 0}` })], total: 41 } }));
+		list.mockImplementation(async (filter) => ({
+			ok: true,
+			result: { records: [record({ id: `anomaly-${filter?.offset ?? 0}` })], total: 41 },
+		}));
 		await render();
 		expect(button("上一页").disabled).toBe(true);
 		await act(async () => button("下一页").click());
-		expect(list).toHaveBeenLastCalledWith({ query: undefined, status: undefined, processing: "active", limit: 40, offset: 40 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: undefined,
+			status: undefined,
+			processing: "active",
+			limit: 40,
+			offset: 40,
+		});
 		expect(host.textContent).toContain("第 2 / 2 页");
 		expect(button("下一页").disabled).toBe(true);
 		await act(async () => button("待模型上报").click());
-		expect(list).toHaveBeenLastCalledWith({ query: undefined, status: "pending", processing: "active", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: undefined,
+			status: "pending",
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 	});
 
 	it("preserves expanded evidence during a refresh and retains it if that refresh fails", async () => {
@@ -181,7 +301,12 @@ describe("Settings execution anomalies", () => {
 		const evidence = host.querySelector("details")!;
 		evidence.open = true;
 		let finish!: (value: { ok: boolean; error?: string }) => void;
-		list.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+		list.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				}),
+		);
 		await act(async () => changed?.());
 		expect(host.querySelector("details")).toBe(evidence);
 		expect(host.querySelector("details")?.open).toBe(true);
@@ -198,7 +323,13 @@ describe("Settings execution anomalies", () => {
 		await act(async () => button("下一页").click());
 		list.mockResolvedValue({ ok: true, result: { records: [], total: 0 } });
 		await act(async () => changed?.());
-		expect(list).toHaveBeenLastCalledWith({ query: undefined, status: undefined, processing: "active", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: undefined,
+			status: undefined,
+			processing: "active",
+			limit: 40,
+			offset: 0,
+		});
 		expect(host.textContent).toContain("暂无未处理的执行异常");
 		expect(host.querySelector(".owl-execution-anomalies-pagination")).toBeNull();
 	});
@@ -229,47 +360,81 @@ describe("Settings execution anomalies", () => {
 		expect(restoreAnomaly).not.toHaveBeenCalled();
 	});
 
-	it.each(["optimized", "dismissed"] as const)("hides %s records from the default view, keeps evidence searchable and restores reversibly", async (kind) => {
-		const original = record({ status: "reported", report: { cause: "路径错误", action: "读取实际路径", outcome: "resolved", reportedAt: createdAt + 2_000 } });
-		let stored = original;
-		list.mockImplementation(async (filter) => {
-			const visible = filter?.processing === "all" || (filter?.processing === "active" ? !stored.processing : stored.processing?.kind === filter?.processing);
-			return { ok: true, result: { records: visible ? [stored] : [], total: visible ? 1 : 0 } };
-		});
-		processAnomaly.mockImplementation(async (input) => {
-			stored = { ...stored, processing: { kind: input.kind, note: input.note, verification: input.verification, processedAt: createdAt + 4_000 } };
-			return { ok: true, result: stored };
-		});
-		restoreAnomaly.mockImplementation(async () => { stored = original; return { ok: true, result: stored }; });
-		await render();
-		await act(async () => button(kind === "optimized" ? "标记已优化" : "无需优化").click());
-		await fillProcessing("  修正了目录路径  ", "  针对同一路径的 read 回放成功  ");
-		expect(button("保存处理标记").disabled).toBe(false);
-		await submitProcessing();
-		expect(processAnomaly).toHaveBeenCalledExactlyOnceWith({ id: original.id, kind, note: "修正了目录路径", verification: "针对同一路径的 read 回放成功" });
-		expect(host.querySelectorAll("article")).toHaveLength(0);
-		expect(host.textContent).toContain("暂无未处理的执行异常");
-		await processingView(kind);
-		expect(list).toHaveBeenLastCalledWith({ query: undefined, status: undefined, processing: kind, limit: 40, offset: 0 });
-		expect(host.querySelectorAll("article")).toHaveLength(1);
-		expect(host.querySelector(".owl-execution-anomaly-processing h4")?.textContent).toBe(kind === "optimized" ? "已优化" : "无需优化");
-		expect(host.querySelector(".owl-execution-anomaly-processing dl")?.textContent).toContain("修正了目录路径");
-		expect(host.querySelector(".owl-execution-anomaly-processing dl")?.textContent).toContain("针对同一路径的 read 回放成功");
-		expect(host.querySelector("details pre")?.textContent).toBe(original.details);
-		expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain(original.report!.cause);
-		await processingView("all");
-		expect(host.querySelectorAll("article")).toHaveLength(1);
-		await processingView(kind);
-		await act(async () => button("恢复为未处理").click());
-		expect(restoreAnomaly).toHaveBeenCalledExactlyOnceWith(original.id);
-		expect(host.querySelectorAll("article")).toHaveLength(0);
-		expect(host.textContent).toContain("没有匹配的执行异常");
-		await processingView("active");
-		expect(host.querySelectorAll("article")).toHaveLength(1);
-		expect(host.querySelector("details pre")?.textContent).toBe(original.details);
-		expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain(original.report!.cause);
-		expect(button("标记已优化")).toBeDefined();
-	});
+	it.each(["optimized", "dismissed"] as const)(
+		"hides %s records from the default view, keeps evidence searchable and restores reversibly",
+		async (kind) => {
+			const original = record({
+				status: "reported",
+				report: { cause: "路径错误", action: "读取实际路径", outcome: "resolved", reportedAt: createdAt + 2_000 },
+			});
+			let stored = original;
+			list.mockImplementation(async (filter) => {
+				const visible =
+					filter?.processing === "all" ||
+					(filter?.processing === "active" ? !stored.processing : stored.processing?.kind === filter?.processing);
+				return { ok: true, result: { records: visible ? [stored] : [], total: visible ? 1 : 0 } };
+			});
+			processAnomaly.mockImplementation(async (input) => {
+				stored = {
+					...stored,
+					processing: {
+						kind: input.kind,
+						note: input.note,
+						verification: input.verification,
+						processedAt: createdAt + 4_000,
+					},
+				};
+				return { ok: true, result: stored };
+			});
+			restoreAnomaly.mockImplementation(async () => {
+				stored = original;
+				return { ok: true, result: stored };
+			});
+			await render();
+			await act(async () => button(kind === "optimized" ? "标记已优化" : "无需优化").click());
+			await fillProcessing("  修正了目录路径  ", "  针对同一路径的 read 回放成功  ");
+			expect(button("保存处理标记").disabled).toBe(false);
+			await submitProcessing();
+			expect(processAnomaly).toHaveBeenCalledExactlyOnceWith({
+				id: original.id,
+				kind,
+				note: "修正了目录路径",
+				verification: "针对同一路径的 read 回放成功",
+			});
+			expect(host.querySelectorAll("article")).toHaveLength(0);
+			expect(host.textContent).toContain("暂无未处理的执行异常");
+			await processingView(kind);
+			expect(list).toHaveBeenLastCalledWith({
+				query: undefined,
+				status: undefined,
+				processing: kind,
+				limit: 40,
+				offset: 0,
+			});
+			expect(host.querySelectorAll("article")).toHaveLength(1);
+			expect(host.querySelector(".owl-execution-anomaly-processing h4")?.textContent).toBe(
+				kind === "optimized" ? "已优化" : "无需优化",
+			);
+			expect(host.querySelector(".owl-execution-anomaly-processing dl")?.textContent).toContain("修正了目录路径");
+			expect(host.querySelector(".owl-execution-anomaly-processing dl")?.textContent).toContain(
+				"针对同一路径的 read 回放成功",
+			);
+			expect(host.querySelector("details pre")?.textContent).toBe(original.details);
+			expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain(original.report!.cause);
+			await processingView("all");
+			expect(host.querySelectorAll("article")).toHaveLength(1);
+			await processingView(kind);
+			await act(async () => button("恢复为未处理").click());
+			expect(restoreAnomaly).toHaveBeenCalledExactlyOnceWith(original.id);
+			expect(host.querySelectorAll("article")).toHaveLength(0);
+			expect(host.textContent).toContain("没有匹配的执行异常");
+			await processingView("active");
+			expect(host.querySelectorAll("article")).toHaveLength(1);
+			expect(host.querySelector("details pre")?.textContent).toBe(original.details);
+			expect(host.querySelector(".owl-execution-anomaly-report")?.textContent).toContain(original.report!.cause);
+			expect(button("标记已优化")).toBeDefined();
+		},
+	);
 
 	it("keeps the inline draft on save failure and allows an explicit retry", async () => {
 		await render();
@@ -292,12 +457,26 @@ describe("Settings execution anomalies", () => {
 		await act(async () => button("已上报").click());
 		await act(async () => button("下一页").click());
 		await processingView("optimized");
-		expect(list).toHaveBeenLastCalledWith({ query: undefined, status: "reported", processing: "optimized", limit: 40, offset: 0 });
+		expect(list).toHaveBeenLastCalledWith({
+			query: undefined,
+			status: "reported",
+			processing: "optimized",
+			limit: 40,
+			offset: 0,
+		});
 	});
 
 	it("keeps a processed record and its evidence intact if restoring fails", async () => {
-		const processed = record({ processing: { kind: "optimized", note: "修正路径", verification: "回放通过", processedAt: createdAt + 4_000 } });
-		list.mockImplementation(async (filter) => ({ ok: true, result: { records: filter?.processing === "all" ? [processed] : [], total: filter?.processing === "all" ? 1 : 0 } }));
+		const processed = record({
+			processing: { kind: "optimized", note: "修正路径", verification: "回放通过", processedAt: createdAt + 4_000 },
+		});
+		list.mockImplementation(async (filter) => ({
+			ok: true,
+			result: {
+				records: filter?.processing === "all" ? [processed] : [],
+				total: filter?.processing === "all" ? 1 : 0,
+			},
+		}));
 		restoreAnomaly.mockRejectedValueOnce(new Error("Restore failed"));
 		await render();
 		await processingView("all");

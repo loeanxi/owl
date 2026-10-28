@@ -1,6 +1,6 @@
+import { parseHTML } from "linkedom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerEventMessage } from "../bridge/protocol.ts";
 import { applyEvent, type ChatEntry, type ToolCard } from "../hooks/transcript.ts";
@@ -22,7 +22,12 @@ afterEach(() => {
 });
 
 const tool = (id: string, status: ToolCard["status"], finishedAt?: number): ToolCard => ({
-	id, name: "computer_observe", args: "{}", summary: id, status, startedAt: 2000,
+	id,
+	name: "computer_observe",
+	args: "{}",
+	summary: id,
+	status,
+	startedAt: 2000,
 	...(finishedAt === undefined ? {} : { finishedAt }),
 });
 
@@ -37,9 +42,11 @@ function render(entries: ChatEntry[], activity: "idle" | "working" | "waiting" =
 		const primary = summary.querySelector(".owl-work-primary");
 		const metadata = summary.querySelector(".owl-work-metadata")?.textContent ?? "";
 		const elapsed = metadata.match(/^\d+(?:h(?: \d+m)?|m(?: \d+s)?|s)/)?.[0];
-		return elapsed ? `${primary?.getAttribute("role") === "status" ? "正在工作" : "工作了"} ${elapsed}` : `${primary?.textContent ?? ""} ${metadata}`;
+		return elapsed
+			? `${primary?.getAttribute("role") === "status" ? "正在工作" : "工作了"} ${elapsed}`
+			: `${primary?.textContent ?? ""} ${metadata}`;
 	});
-	return { html, labels, live: labels.filter(label => label.startsWith("正在工作")) };
+	return { html, labels, live: labels.filter((label) => label.startsWith("正在工作")) };
 }
 
 describe("chat work segment status", () => {
@@ -70,35 +77,52 @@ describe("chat work segment status", () => {
 		expect(document.querySelector(".owl-response-activity")).toBeNull();
 		const footer = document.querySelector(".owl-msg-actions");
 		const details = footer?.querySelector("details.owl-response-details");
-		expect(details?.querySelector("summary")?.getAttribute("aria-label")).toBe("本轮累计 200 tok（含缓存） · 1 次调用");
+		expect(details?.querySelector("summary")?.getAttribute("aria-label")).toBe(
+			"本轮累计 200 tok（含缓存） · 1 次调用",
+		);
 		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("输出 40 / 总 200 tokens");
 		expect(details?.querySelector(".owl-response-metrics")?.textContent).toContain("10 tok/s");
-		expect(details?.querySelector(".owl-response-usage")?.textContent).toContain("未缓存输入 100 · 输出 40 · 缓存读 60 · 缓存写 0");
+		expect(details?.querySelector(".owl-response-usage")?.textContent).toContain(
+			"未缓存输入 100 · 输出 40 · 缓存读 60 · 缓存写 0",
+		);
 		expect(footer?.lastElementChild).toBe(details);
 	});
 
-	it.each(["working", "waiting"] as const)("keeps one live timer for the turn when public progress sits inside the work process during %s", (activity) => {
-		const entries: ChatEntry[] = [
-			{ kind: "user", text: "test", timestamp: 1000 },
-			assistant([tool("first", "ok", 5000), tool("second", "running")], {
-				text: "重新观察当前窗口", endedAt: 6000,
-				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "重新观察当前窗口" }, { kind: "tool", toolId: "second" }],
-			}),
-		];
-		const { labels, live } = render(entries, activity);
-		// 公开进展并进工作过程后，一轮只有一个折叠行，也只有一个计时器：
-		// 已完成的 5s 与仍在跑的 24s 合起来是本轮连续工作的 29s。
-		expect(labels).toHaveLength(1);
-		expect(live).toHaveLength(1);
-		expect(labels).toEqual(["正在工作 29s"]);
-	});
+	it.each(["working", "waiting"] as const)(
+		"keeps one live timer for the turn when public progress sits inside the work process during %s",
+		(activity) => {
+			const entries: ChatEntry[] = [
+				{ kind: "user", text: "test", timestamp: 1000 },
+				assistant([tool("first", "ok", 5000), tool("second", "running")], {
+					text: "重新观察当前窗口",
+					endedAt: 6000,
+					segments: [
+						{ kind: "tool", toolId: "first" },
+						{ kind: "text", text: "重新观察当前窗口" },
+						{ kind: "tool", toolId: "second" },
+					],
+				}),
+			];
+			const { labels, live } = render(entries, activity);
+			// 公开进展并进工作过程后，一轮只有一个折叠行，也只有一个计时器：
+			// 已完成的 5s 与仍在跑的 24s 合起来是本轮连续工作的 29s。
+			expect(labels).toHaveLength(1);
+			expect(live).toHaveLength(1);
+			expect(labels).toEqual(["正在工作 29s"]);
+		},
+	);
 
 	it("does not revive a sealed segment even when its tool has a stale running status", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "running", 5000), tool("second", "running")], {
-				text: "继续", endedAt: 6000,
-				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
+				text: "继续",
+				endedAt: 6000,
+				segments: [
+					{ kind: "tool", toolId: "first" },
+					{ kind: "text", text: "继续" },
+					{ kind: "tool", toolId: "second" },
+				],
 			}),
 		];
 		expect(render(entries).live).toHaveLength(1);
@@ -152,8 +176,13 @@ describe("chat work segment status", () => {
 		const entries: ChatEntry[] = [
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("first", "ok", 5000), tool("second", "ok", 9000)], {
-				text: "继续", endedAt: 6000,
-				segments: [{ kind: "tool", toolId: "first" }, { kind: "text", text: "继续" }, { kind: "tool", toolId: "second" }],
+				text: "继续",
+				endedAt: 6000,
+				segments: [
+					{ kind: "tool", toolId: "first" },
+					{ kind: "text", text: "继续" },
+					{ kind: "tool", toolId: "second" },
+				],
 			}),
 		];
 		// 一轮只有一个折叠行，耗时按本轮连续工作时间合并（5s + 3s = 8s）。
@@ -165,14 +194,28 @@ describe("chat work segment status", () => {
 			{ kind: "user", text: "test", timestamp: 1000 },
 			assistant([tool("old", "ok", 5000)], { endedAt: 5000 }),
 		];
-		let entries = applyEvent(history, { type: "event", sessionId: "test", event: { type: "agent_start" } } as ServerEventMessage);
+		let entries = applyEvent(history, {
+			type: "event",
+			sessionId: "test",
+			event: { type: "agent_start" },
+		} as ServerEventMessage);
 		expect(render(entries).live).toHaveLength(0);
-		entries = applyEvent(entries, { type: "event", sessionId: "test", event: {
-			type: "message_start", message: { role: "assistant", timestamp: 20_000, content: [] },
-		} } as ServerEventMessage);
-		entries = applyEvent(entries, { type: "event", sessionId: "test", event: {
-			type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "继续处理" },
-		} } as ServerEventMessage);
+		entries = applyEvent(entries, {
+			type: "event",
+			sessionId: "test",
+			event: {
+				type: "message_start",
+				message: { role: "assistant", timestamp: 20_000, content: [] },
+			},
+		} as ServerEventMessage);
+		entries = applyEvent(entries, {
+			type: "event",
+			sessionId: "test",
+			event: {
+				type: "message_update",
+				assistantMessageEvent: { type: "thinking_delta", delta: "继续处理" },
+			},
+		} as ServerEventMessage);
 		expect(render(entries).labels).toEqual(["正在工作 14s"]);
 	});
 });

@@ -1,5 +1,6 @@
 import type { InlineExtension } from "../core/extensions/types.ts";
 import codemodeExtension from "./codemode/index.ts";
+import offerNextStepsExtension from "./offer-next-steps/index.ts";
 import { owlMemoryExtension } from "./owl-memory/index.ts";
 import { owlRewindExtension } from "./owl-rewind/index.ts";
 import skillSearchExtension from "./skill-search/index.ts";
@@ -16,6 +17,9 @@ export const builtInExtensions: InlineExtension[] = [
 	{ name: "tool-search", factory: toolSearchExtension, replaceable: true, builtin: true },
 	{ name: "skill-search", factory: skillSearchExtension, replaceable: true, builtin: true },
 	taskCheckExtension,
+	// Replaceable: 下一步建议（模型提议后续动作，回答流里渲染成一排可点的芯片）。
+	// 默认不激活 —— 用 defaultTools 的 "+offer_next_steps" 打开。
+	{ name: "offer-next-steps", factory: offerNextStepsExtension, replaceable: true, builtin: true },
 	// Replaceable: 跨会话记忆（remember 工具 + 历史会话自动抽取 + 提示词注入 + /memory）。
 	owlMemoryExtension,
 	// Replaceable: 会话回退（写前备份 + 边界重扫 + /rewind；桌面 ↶ 按钮走桥协议 rewind.*）。

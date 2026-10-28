@@ -8,9 +8,10 @@
  * 名匹配。
  */
 import { createContext, useSyncExternalStore } from "react";
-import type { SidebarApi } from "./api.ts";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { GitStatusResult } from "../bridge/protocol.ts";
+import type { Product } from "../hooks/products.ts";
+import type { SidebarApi } from "./api.ts";
 import type { SidebarStore, SidebarTab } from "./store.ts";
 
 /** 当前主聊天的资源归属；工作台跨聊天保留，具体页面仍保留自己的归属。 */
@@ -34,6 +35,8 @@ export interface TabComponentProps {
 	onGitRefresh: () => void;
 	/** 把一段文字填进对话输入框（不直接发送）；终端底栏也提供（终端里的「问 Owl」）。 */
 	onToChat?: (text: string) => void;
+	/** 当前会话的产物清单（产物页按 productId 找自己的那件产物）。 */
+	products?: readonly Product[];
 }
 
 export interface TabDefinition {

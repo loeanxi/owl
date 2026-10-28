@@ -15,8 +15,19 @@ import type {
 } from "../../bridge/protocol.ts";
 import { renderMarkdown } from "../ChatStream.tsx";
 import { StackedBar } from "./ContextCharts.tsx";
-import { CAT_COLOR, CAT_LABEL, CATS, fmtPct, fmtSigned, fmtTime, fmtTokens, measuredOf, promptTokensOf, stamp } from "./context-model.ts";
 import type { LocateTarget } from "./ContextTrend.tsx";
+import {
+	CAT_COLOR,
+	CAT_LABEL,
+	CATS,
+	fmtPct,
+	fmtSigned,
+	fmtTime,
+	fmtTokens,
+	measuredOf,
+	promptTokensOf,
+	stamp,
+} from "./context-model.ts";
 
 type BrowserPick = number | "live";
 type AssistantKind = "think" | "tool" | "answer";
@@ -113,7 +124,8 @@ export function BrowserCard({
 						setDetails((current) => {
 							const next = new Map(current);
 							// 「当前」只留最新一版
-							if (key.startsWith("live:")) for (const stale of next.keys()) if (stale.startsWith("live:")) next.delete(stale);
+							if (key.startsWith("live:"))
+								for (const stale of next.keys()) if (stale.startsWith("live:")) next.delete(stale);
 							next.set(key, result);
 							return next;
 						});
@@ -145,7 +157,8 @@ export function BrowserCard({
 		pendingFocus.current = null;
 		const category = detail.categories.find((candidate) => candidate.key === target.cat);
 		const item = category?.items.find(
-			(candidate) => (target.key && candidate.key === target.key) || (target.callId && candidate.callId === target.callId),
+			(candidate) =>
+				(target.key && candidate.key === target.key) || (target.callId && candidate.callId === target.callId),
 		);
 		const expandKey = item ? `${shownKey}|${item.key}` : undefined;
 		if (expandKey) setExpanded((current) => new Set(current).add(expandKey));
@@ -220,7 +233,9 @@ export function BrowserCard({
 			{failed && !detail && <div className="ctx-br-note ctx-br-err">{failed}</div>}
 			{!detail && !failed && <div className="ctx-br-note">正在读取上下文明细…</div>}
 			{detail && !detail.available && (
-				<div className="ctx-br-note">该步骤的转录快照不在保留范围内（早于本进程的记录或已被淘汰），只有趋势图里的 token 估算。</div>
+				<div className="ctx-br-note">
+					该步骤的转录快照不在保留范围内（早于本进程的记录或已被淘汰），只有趋势图里的 token 估算。
+				</div>
 			)}
 			{detail?.approximate && <div className="ctx-br-note">该步骤之后上下文被改写，以下为近似构成。</div>}
 
@@ -252,14 +267,18 @@ export function BrowserCard({
 										<span className="ctx-br-cat-label">{cat.label}</span>
 										<span className="ctx-br-cat-count">{category.items.length} 项</span>
 										{countDelta !== 0 && (
-											<span className={`ctx-br-delta ${countDelta > 0 ? "ctx-br-delta-up" : "ctx-br-delta-down"}`}>
+											<span
+												className={`ctx-br-delta ${countDelta > 0 ? "ctx-br-delta-up" : "ctx-br-delta-down"}`}
+											>
 												{countDelta > 0 ? `+${countDelta}` : `−${-countDelta}`}
 											</span>
 										)}
 									</span>
 									<span className="ctx-br-tokens-grp">
 										{tokenDelta !== 0 && (
-											<span className={`ctx-br-delta ${tokenDelta > 0 ? "ctx-br-delta-up" : "ctx-br-delta-down"}`}>
+											<span
+												className={`ctx-br-delta ${tokenDelta > 0 ? "ctx-br-delta-up" : "ctx-br-delta-down"}`}
+											>
 												{fmtSigned(tokenDelta)}
 											</span>
 										)}
@@ -339,7 +358,8 @@ function CategoryBody({
 			(item) =>
 				!query || item.label.toLowerCase().includes(query) || (item.chip ?? "").toLowerCase().includes(query),
 		);
-		if (category === "assistant" && kinds.size > 0) list = list.filter((item) => item.kinds?.some((kind) => kinds.has(kind)));
+		if (category === "assistant" && kinds.size > 0)
+			list = list.filter((item) => item.kinds?.some((kind) => kinds.has(kind)));
 		if (category === "toolSchemas") {
 			list = [...list].sort((a, b) =>
 				toolSort === "name"
@@ -475,7 +495,9 @@ function ItemContent({
 	// 步骤的前缀不可变，可按会话缓存；「当前」随时在长，每次展开都重新取
 	const cacheKey = seq === undefined ? undefined : `${sessionId ?? cwd}|${seq}|${itemKey}`;
 	const [state, setState] = useState<{ content?: ContextItemContent | null; error?: string; loading: boolean }>(() =>
-		cacheKey && contentCache.has(cacheKey) ? { content: contentCache.get(cacheKey), loading: false } : { loading: true },
+		cacheKey && contentCache.has(cacheKey)
+			? { content: contentCache.get(cacheKey), loading: false }
+			: { loading: true },
 	);
 	const [attempt, setAttempt] = useState(0);
 
@@ -523,7 +545,9 @@ function ItemContent({
 	return (
 		<>
 			{content.tool && <ToolSchemaView tool={content.tool} />}
-			{content.call && <CallCard direction="←" name={content.call.name} args={content.call.args} ok={content.call.ok} />}
+			{content.call && (
+				<CallCard direction="←" name={content.call.name} args={content.call.args} ok={content.call.ok} />
+			)}
 			{content.thinking && <RichBlock title="思考" text={content.thinking} defaultMarkdown={false} />}
 			{content.text !== undefined && content.text !== "" && (
 				<RichBlock
@@ -548,8 +572,19 @@ function argText(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
-function CallCard({ direction, name, args, ok }: { direction: string; name: string; args: unknown; ok?: boolean }): React.JSX.Element {
-	const entries = args && typeof args === "object" && !Array.isArray(args) ? Object.entries(args as Record<string, unknown>) : [];
+function CallCard({
+	direction,
+	name,
+	args,
+	ok,
+}: {
+	direction: string;
+	name: string;
+	args: unknown;
+	ok?: boolean;
+}): React.JSX.Element {
+	const entries =
+		args && typeof args === "object" && !Array.isArray(args) ? Object.entries(args as Record<string, unknown>) : [];
 	return (
 		<div className="ctx-ts-card">
 			<div className="ctx-ts-card-head">
@@ -571,13 +606,23 @@ function CallCard({ direction, name, args, ok }: { direction: string; name: stri
 					</div>
 				))
 			) : (
-				<div className="ctx-ts-params-empty">{entries.length === 0 && args !== undefined && typeof args !== "object" ? argText(args) : "（无参数）"}</div>
+				<div className="ctx-ts-params-empty">
+					{entries.length === 0 && args !== undefined && typeof args !== "object" ? argText(args) : "（无参数）"}
+				</div>
 			)}
 		</div>
 	);
 }
 
-function RichBlock({ title, text, defaultMarkdown }: { title: string; text: string; defaultMarkdown: boolean }): React.JSX.Element {
+function RichBlock({
+	title,
+	text,
+	defaultMarkdown,
+}: {
+	title: string;
+	text: string;
+	defaultMarkdown: boolean;
+}): React.JSX.Element {
 	const [markdown, setMarkdown] = useState(defaultMarkdown);
 	const [copied, setCopied] = useState(false);
 	const lines = text.split("\n").length;
@@ -600,10 +645,18 @@ function RichBlock({ title, text, defaultMarkdown }: { title: string; text: stri
 						{copied ? "已复制" : "复制"}
 					</button>
 					<span className="ctx-gran">
-						<button type="button" className={`ctx-gran-btn${!markdown ? " ctx-gran-on" : ""}`} onClick={() => setMarkdown(false)}>
+						<button
+							type="button"
+							className={`ctx-gran-btn${!markdown ? " ctx-gran-on" : ""}`}
+							onClick={() => setMarkdown(false)}
+						>
 							原文
 						</button>
-						<button type="button" className={`ctx-gran-btn${markdown ? " ctx-gran-on" : ""}`} onClick={() => setMarkdown(true)}>
+						<button
+							type="button"
+							className={`ctx-gran-btn${markdown ? " ctx-gran-on" : ""}`}
+							onClick={() => setMarkdown(true)}
+						>
 							Markdown
 						</button>
 					</span>

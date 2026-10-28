@@ -17,7 +17,10 @@ export function fitPaneSize(preferred: number, minimum: number, available: numbe
 /** Leave room for both chat and tools whenever three columns can fit. */
 export function sidebarWidthLimit(available: number, toolsVisible = true): number {
 	const reserve = toolsVisible
-		? Math.min(CONVERSATION_MIN_WIDTH + WORKBENCH_MIN_WIDTH, Math.max(CONVERSATION_MIN_WIDTH, available - SIDEBAR_MIN_WIDTH))
+		? Math.min(
+				CONVERSATION_MIN_WIDTH + WORKBENCH_MIN_WIDTH,
+				Math.max(CONVERSATION_MIN_WIDTH, available - SIDEBAR_MIN_WIDTH),
+			)
 		: CONVERSATION_MIN_WIDTH;
 	return fitPaneSize(SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, available, reserve);
 }

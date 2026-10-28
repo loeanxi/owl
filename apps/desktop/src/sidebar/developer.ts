@@ -1,5 +1,5 @@
-import type { SidebarStore } from "./store.ts";
 import { t } from "../i18n/index.ts";
+import type { SidebarStore } from "./store.ts";
 
 /**
  * Opens a developer layout in the tools workbench without replacing tabs or

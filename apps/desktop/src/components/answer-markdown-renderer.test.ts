@@ -11,7 +11,8 @@ function answer(source: string): HTMLElement {
 }
 
 test("raw HTML and malicious fence information remain literal text without executable attributes", () => {
-	const source = '<script>bad()</script>\n<img src=x onerror="bad()">\n\n```js\" onmouseover=\"bad()\n<tag attr="value">中文 & 引号\n```\n\n[x](javascript:alert(1))';
+	const source =
+		'<script>bad()</script>\n<img src=x onerror="bad()">\n\n```js\" onmouseover=\"bad()\n<tag attr="value">中文 & 引号\n```\n\n[x](javascript:alert(1))';
 	const element = answer(source);
 	assert.equal(element.querySelector("script, img, [onmouseover], [onerror], [onclick]"), null);
 	assert.equal(element.querySelector('a[href^="javascript:"]'), null);
@@ -24,7 +25,7 @@ test("raw HTML and malicious fence information remain literal text without execu
 });
 
 test("fenced code retains angle brackets, quotes, UTF-8, blank lines and all trailing newlines", () => {
-	const payload = 'const 中文 = "<tag attr=\'value\'>";\n\nconsole.log(中文, \'单引号\', "双引号");\n\n';
+	const payload = "const 中文 = \"<tag attr='value'>\";\n\nconsole.log(中文, '单引号', \"双引号\");\n\n";
 	const element = answer(`\`\`\`typescript\n${payload}\`\`\`\n`);
 	assert.equal(element.querySelector("pre > code")?.textContent, payload);
 	assert.equal(element.querySelectorAll('[data-answer-action="copy-code"]').length, 1);
@@ -37,8 +38,8 @@ test("fenced code retains angle brackets, quotes, UTF-8, blank lines and all tra
 });
 
 test("indented code receives the same safe toolbar while retaining its parsed payload", () => {
-	const element = answer('    第一行 <tag attr="x">\n    \n    第二行 \'引号\'\n');
-	assert.equal(element.querySelector("pre > code")?.textContent, '第一行 <tag attr="x">\n\n第二行 \'引号\'\n');
+	const element = answer("    第一行 <tag attr=\"x\">\n    \n    第二行 '引号'\n");
+	assert.equal(element.querySelector("pre > code")?.textContent, "第一行 <tag attr=\"x\">\n\n第二行 '引号'\n");
 	assert.equal(element.querySelectorAll("[data-answer-code]").length, 1);
 	assert.equal(element.querySelectorAll('[data-answer-action="copy-code"]').length, 1);
 });
@@ -59,10 +60,13 @@ test("streaming an unclosed fence preserves every received line and does not dup
 });
 
 test("multiple code blocks remain independent rather than nesting or sharing their payload", () => {
-	const element = answer('```sql\nSELECT \'第一块\';\n```\n\n说明段落\n\n```sh\necho "第二块"\n```');
+	const element = answer("```sql\nSELECT '第一块';\n```\n\n说明段落\n\n```sh\necho \"第二块\"\n```");
 	const blocks = [...element.querySelectorAll("[data-answer-code]")];
 	assert.equal(blocks.length, 2);
-	assert.deepEqual(blocks.map((block) => block.querySelector("pre > code")?.textContent), ["SELECT '第一块';\n", 'echo "第二块"\n']);
+	assert.deepEqual(
+		blocks.map((block) => block.querySelector("pre > code")?.textContent),
+		["SELECT '第一块';\n", 'echo "第二块"\n'],
+	);
 	for (const block of blocks) {
 		assert.equal(block.querySelectorAll("[data-answer-code]").length, 0);
 		assert.equal(block.querySelectorAll('[data-answer-action="copy-code"]').length, 1);
@@ -70,7 +74,9 @@ test("multiple code blocks remain independent rather than nesting or sharing the
 });
 
 test("table wrapping retains every cell, URL and clickable inline code path", () => {
-	const element = answer('| 名称 | 依据 | 路径 |\n| --- | --- | --- |\n| 中文 <示例> | [原文](https://example.test/item?a=1&b=2) | `D:/项目/source.ts:42` |\n| 第二行 | **强调** | `ordinary` |');
+	const element = answer(
+		"| 名称 | 依据 | 路径 |\n| --- | --- | --- |\n| 中文 <示例> | [原文](https://example.test/item?a=1&b=2) | `D:/项目/source.ts:42` |\n| 第二行 | **强调** | `ordinary` |",
+	);
 	const table = element.querySelector("table")!;
 	assert.notEqual(table, null);
 	assert.equal(element.querySelectorAll("[data-answer-table]").length, 1);

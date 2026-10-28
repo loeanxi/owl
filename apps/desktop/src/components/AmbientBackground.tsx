@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import {
+	type AmbientEngine,
+	type AmbientMood,
+	type AmbientPulseKind,
+	createAmbientEngine,
+} from "../ambient-background.ts";
 import { isGlassPreset, systemPrefersReducedMotion, useOwlAnimation } from "../animation-settings.ts";
-import { createAmbientEngine, type AmbientEngine, type AmbientMood, type AmbientPulseKind } from "../ambient-background.ts";
 import { resolveSurfaceTheme } from "../owl-appearance.ts";
 
 /** 渲染分辨率封顶 1.25：背景以柔光为主，肉眼无差别，像素量少三分之一以上。 */
@@ -55,7 +60,10 @@ export function AmbientBackground({
 		const root = document.documentElement;
 		if (typeof MutationObserver !== "function") return; // 非浏览器环境（测试桩）
 		const observer = new MutationObserver(() => setThemeOk(themeSupportsAmbient()));
-		observer.observe(root, { attributes: true, attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme"] });
+		observer.observe(root, {
+			attributes: true,
+			attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme"],
+		});
 		return () => observer.disconnect();
 	}, []);
 

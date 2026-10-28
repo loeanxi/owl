@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { DEFAULT_FILE_ICON_THEME, parseFileIconTheme } from "./file-icon-theme.ts";
-import { fontGlyph, iconFileName, type IconThemeManifest, languageIdOf, resolveIconId } from "./resolve.ts";
+import { fontGlyph, type IconThemeManifest, iconFileName, languageIdOf, resolveIconId } from "./resolve.ts";
 
-const seti = JSON.parse(readFileSync(new URL("./seti/vs-seti-icon-theme.json", import.meta.url), "utf8")) as IconThemeManifest;
-const material = JSON.parse(readFileSync(createRequire(import.meta.url).resolve("material-icon-theme/dist/material-icons.json"), "utf8")) as IconThemeManifest;
+const seti = JSON.parse(
+	readFileSync(new URL("./seti/vs-seti-icon-theme.json", import.meta.url), "utf8"),
+) as IconThemeManifest;
+const material = JSON.parse(
+	readFileSync(createRequire(import.meta.url).resolve("material-icon-theme/dist/material-icons.json"), "utf8"),
+) as IconThemeManifest;
 
 test("file names win over extensions, longer extensions over shorter, then language ids", () => {
 	assert.equal(resolveIconId(seti, "tsconfig.json", "file", false), "_tsconfig");
@@ -54,5 +58,6 @@ test("Seti font characters decode from their CSS escapes", () => {
 
 test("unknown saved theme values fall back to the default", () => {
 	for (const id of ["none", "minimal", "seti", "material"]) assert.equal(parseFileIconTheme(id), id);
-	for (const bad of [undefined, null, "vs-seti", "Material", 1]) assert.equal(parseFileIconTheme(bad), DEFAULT_FILE_ICON_THEME);
+	for (const bad of [undefined, null, "vs-seti", "Material", 1])
+		assert.equal(parseFileIconTheme(bad), DEFAULT_FILE_ICON_THEME);
 });

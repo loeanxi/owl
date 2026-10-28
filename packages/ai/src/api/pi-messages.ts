@@ -13,6 +13,7 @@ import type {
 	AssistantMessage,
 	AssistantMessageEvent,
 	CacheRetention,
+	Citation,
 	JsonObject,
 	JsonValue,
 	Model,
@@ -53,9 +54,9 @@ export type PiMessagesRewriteImpact = {
 /** Serialized assistant-message event as sent by a pi-messages backend. */
 export type PiMessagesEvent =
 	| { type: "start" }
-	| { type: "text_start"; contentIndex: number }
+	| { type: "text_start"; contentIndex: number; citations?: Citation[] }
 	| { type: "text_delta"; contentIndex: number; delta: string }
-	| { type: "text_end"; contentIndex: number; content: string; contentSignature?: string }
+	| { type: "text_end"; contentIndex: number; content: string; contentSignature?: string; citations?: Citation[] }
 	| { type: "thinking_start"; contentIndex: number; summaries?: string[] }
 	| { type: "thinking_delta"; contentIndex: number; delta: string }
 	| {
@@ -220,7 +221,13 @@ function createEventConverter(model: Model<"pi-messages">) {
 			case "start":
 				break;
 			case "text_start":
-				partial.content[event.contentIndex] = { type: "text", text: "" };
+				partial.content[event.contentIndex] = {
+					type: "text",
+					text: "",
+					...(event.citations !== undefined && event.citations.length > 0
+						? { citations: [...event.citations] }
+						: {}),
+				};
 				break;
 			case "text_delta":
 				(partial.content[event.contentIndex] as { text: string }).text += event.delta;
@@ -229,6 +236,9 @@ function createEventConverter(model: Model<"pi-messages">) {
 				Object.assign(partial.content[event.contentIndex]!, {
 					text: event.content,
 					textSignature: event.contentSignature,
+					...(event.citations !== undefined && event.citations.length > 0
+						? { citations: [...event.citations] }
+						: {}),
 				});
 				break;
 			case "thinking_start":
@@ -269,8 +279,13 @@ function createEventConverter(model: Model<"pi-messages">) {
 					parseStreamingJson<ToolCall["arguments"]>(json);
 				break;
 			}
-			case "toolcall_end":
-				Object.assign(partial.content[event.contentIndex]!, event.toolCall);
+			case "toolcall_end": {
+				const call = event.toolCall as ToolCall & { hidden_in_chat?: unknown };
+				Object.assign(partial.content[event.contentIndex]!, call);
+				// 网关用 Claude 的字段名标记「内部工具，不进回答流」（hidden_in_chat）。
+				if (call.hidden_in_chat === true) {
+					(partial.content[event.contentIndex] as ToolCall).hiddenInChat = true;
+				}
 				toolJson.delete(event.contentIndex);
 				return {
 					type: "toolcall_end",
@@ -278,6 +293,7 @@ function createEventConverter(model: Model<"pi-messages">) {
 					toolCall: partial.content[event.contentIndex] as ToolCall,
 					partial,
 				};
+			}
 		}
 
 		return { ...event, partial } as AssistantMessageEvent;

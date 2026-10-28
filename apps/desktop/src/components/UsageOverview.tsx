@@ -89,15 +89,32 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 		<section className="owl-usage" aria-label={t("usage.aria")}>
 			<header className="owl-usage-bar">
 				<div className="owl-usage-tabs" role="tablist" aria-label={t("usage.viewsAria")}>
-					<button type="button" role="tab" aria-selected={tab === "overview"} className={"owl-usage-tab" + (tab === "overview" ? " is-active" : "")} onClick={() => setTab("overview")}>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === "overview"}
+						className={"owl-usage-tab" + (tab === "overview" ? " is-active" : "")}
+						onClick={() => setTab("overview")}
+					>
 						{t("usage.tabOverview")}
 					</button>
-					<button type="button" role="tab" aria-selected={tab === "models"} className={"owl-usage-tab" + (tab === "models" ? " is-active" : "")} onClick={() => setTab("models")}>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === "models"}
+						className={"owl-usage-tab" + (tab === "models" ? " is-active" : "")}
+						onClick={() => setTab("models")}
+					>
 						{t("usage.tabModels")}
 					</button>
 				</div>
 				<div className="owl-usage-controls">
-					<select className="owl-usage-project" aria-label={t("usage.projectAria")} value={project} onChange={(event) => setProject(event.target.value)}>
+					<select
+						className="owl-usage-project"
+						aria-label={t("usage.projectAria")}
+						value={project}
+						onChange={(event) => setProject(event.target.value)}
+					>
 						<option value="">{t("usage.projectAll")}</option>
 						{(data?.allProjects ?? []).map((entry) => (
 							<option key={entry.cwd} value={entry.cwd}>
@@ -107,7 +124,14 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 					</select>
 					<div className="owl-usage-ranges" role="radiogroup" aria-label={t("usage.rangeAria")}>
 						{(["all", "30d", "7d"] as const).map((key) => (
-							<button key={key} type="button" role="radio" aria-checked={range === key} className={"owl-usage-range" + (range === key ? " is-active" : "")} onClick={() => setRange(key)}>
+							<button
+								key={key}
+								type="button"
+								role="radio"
+								aria-checked={range === key}
+								className={"owl-usage-range" + (range === key ? " is-active" : "")}
+								onClick={() => setRange(key)}
+							>
 								{key === "all" ? t("usage.rangeAll") : key === "30d" ? t("usage.range30d") : t("usage.range7d")}
 							</button>
 						))}
@@ -138,16 +162,25 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 						</div>
 						<div className="owl-usage-tile">
 							<span className="owl-usage-tile-label">{t("usage.tilesPeakHour")}</span>
-							<span className="owl-usage-tile-value">{data.peakHour !== undefined ? `${data.peakHour}:00` : "—"}</span>
+							<span className="owl-usage-tile-value">
+								{data.peakHour !== undefined ? `${data.peakHour}:00` : "—"}
+							</span>
 						</div>
 						<div className="owl-usage-tile">
 							<span className="owl-usage-tile-label">{t("usage.tilesFavoriteModel")}</span>
-							<span className="owl-usage-tile-value owl-usage-tile-model" title={data.favoriteModel ?? undefined}>
+							<span
+								className="owl-usage-tile-value owl-usage-tile-model"
+								title={data.favoriteModel ?? undefined}
+							>
 								{data.favoriteModel ? modelShortName(data.favoriteModel) : "—"}
 							</span>
 						</div>
 					</div>
-					<div className={"owl-usage-heatmap" + (heat.fill ? " is-fill" : "")} role="img" aria-label={t("usage.heatmapAria")}>
+					<div
+						className={"owl-usage-heatmap" + (heat.fill ? " is-fill" : "")}
+						role="img"
+						aria-label={t("usage.heatmapAria")}
+					>
 						{heat.cells.map((week, weekIndex) => (
 							<div key={weekIndex} className="owl-usage-heatmap-col">
 								{week.map((cell, dayIndex) => (
@@ -164,7 +197,13 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 				</>
 			) : (
 				<div className="owl-usage-models">
-					<svg className="owl-usage-chart" viewBox={`0 0 ${Math.max(chartDays.length, 1) * 14} 100`} preserveAspectRatio="none" role="img" aria-label={t("usage.chartAria")}>
+					<svg
+						className="owl-usage-chart"
+						viewBox={`0 0 ${Math.max(chartDays.length, 1) * 14} 100`}
+						preserveAspectRatio="none"
+						role="img"
+						aria-label={t("usage.chartAria")}
+					>
 						{chartDays.map((day, dayIndex) => {
 							let offset = 0;
 							const bars = chartOrder
@@ -194,10 +233,16 @@ export function UsageOverview({ client }: { client: BridgeClient }): React.JSX.E
 					<ul className="owl-usage-model-list">
 						{models.slice(0, 6).map((model) => (
 							<li key={model.key} className="owl-usage-model-row" title={model.key}>
-								<span className="owl-usage-model-dot" style={{ background: chartPalette.get(model.key) ?? "#5a5a5a" }} />
+								<span
+									className="owl-usage-model-dot"
+									style={{ background: chartPalette.get(model.key) ?? "#5a5a5a" }}
+								/>
 								<span className="owl-usage-model-name">{modelShortName(model.key)}</span>
 								<span className="owl-usage-model-io">
-									{t("usage.modelIo", { input: formatTokens(model.input ?? 0), output: formatTokens(model.output ?? 0) })}
+									{t("usage.modelIo", {
+										input: formatTokens(model.input ?? 0),
+										output: formatTokens(model.output ?? 0),
+									})}
 								</span>
 								<span className="owl-usage-model-pct">
 									{modelTotal > 0 ? `${Math.round((model.totalTokens / modelTotal) * 100)}%` : "0%"}

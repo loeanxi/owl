@@ -17,6 +17,8 @@
  */
 
 import type { ToolCard } from "../hooks/transcript.ts";
+import { trimClaudeLabel } from "./claude-label-trim.ts";
+import { type ClaudeToolCategory, claudeGroupPhrase, claudeToolCategory } from "./claude-tool-phrases.ts";
 
 /**
  * Claude 的动作动词。前端兜底用；模型自己写了标题时优先用模型的。
@@ -26,6 +28,7 @@ import type { ToolCard } from "../hooks/transcript.ts";
  *  - Read / Created / Edited —— Claude Desktop 渲染层 `Pg()` 对本地工具名的兜底映射
  *    （read/view/open_file → Read，write/create_file → Created，edit/multi_edit → Edited）。
  *  - Listed —— claude-code CLI bundle 里的目录列举措辞（"Listing"/"Listed"）。
+ *  - Ran（task）—— Claude 的工具汇总表里 task 是 "Ran an agent" / "Ran N agents"。
  * 全部是过去时，和 Claude 标题的语法一致。
  */
 export const CLAUDE_VERBS = {
@@ -38,7 +41,7 @@ export const CLAUDE_VERBS = {
 	bash: "Ran",
 	powershell: "Ran",
 	web_search: "Searched",
-	task: "Delegated",
+	task: "Ran",
 	glob: "Found",
 } as const;
 
@@ -69,7 +72,9 @@ export type ClaudeActionLine = {
 function argsOf(args: string): Record<string, unknown> {
 	try {
 		const parsed: unknown = JSON.parse(args);
-		return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+		return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
 	} catch {
 		return {};
 	}
@@ -131,51 +136,56 @@ export function claudeVerbOf(card: ToolCard): string | undefined {
  *  - 搜索 → 搜索模式（Searched loean-{mark|word}）
  *  - 命令 → 命令首段（Ran npm run check）
  *
- * 模型自己写了标题（`card.output.title`）时用它 —— Claude Desktop 的工具行标题
- * 就是模型写的，前端只做兜底合成。
+ * 动词表优先，模型自己写的标题（`card.output.title`）只做兜底：
+ * Claude Desktop 的工具行标题是服务端给的 `title_parts`，但网关型 provider
+ * 给的是一整句流水账（"Write live-state.mjs, ran a command, wrote live-hit-test.mjs"），
+ * 直接上屏就是一串读不懂的流水账。客户端的动词短语更整齐，也和 Claude 的行形态一致。
  */
 export function claudeActionLine(card: ToolCard): ClaudeActionLine | undefined {
-	const authored = card.output?.title?.trim();
-	if (authored !== undefined && authored !== "") return { verb: "", object: authored };
 	const args = argsOf(card.args);
 	switch (card.name) {
 		case "read":
 		case "write":
 		case "edit": {
 			const path = str(args.path);
-			if (path === undefined) return undefined;
+			if (path === undefined) break;
 			return { verb: claudeVerbOf(card)!, object: baseName(path) };
 		}
 		case "grep": {
 			const pattern = str(args.pattern);
-			if (pattern === undefined) return undefined;
+			if (pattern === undefined) break;
 			return { verb: CLAUDE_VERBS.grep, object: pattern };
 		}
 		case "find":
 		case "glob": {
 			const pattern = str(args.pattern);
-			if (pattern === undefined) return undefined;
+			if (pattern === undefined) break;
 			return { verb: CLAUDE_VERBS.find, object: pattern };
 		}
 		case "ls": {
 			const path = str(args.path);
-			if (path === undefined) return undefined;
+			if (path === undefined) break;
 			return { verb: CLAUDE_VERBS.ls, object: baseName(path) };
 		}
 		case "bash":
 		case "powershell": {
 			const command = str(args.command);
-			if (command === undefined) return undefined;
+			if (command === undefined) break;
 			return { verb: CLAUDE_VERBS.bash, object: commandHead(command) };
 		}
 		case "web_search": {
 			const query = str(args.query);
-			if (query === undefined) return undefined;
+			if (query === undefined) break;
 			return { verb: CLAUDE_VERBS.web_search, object: query };
 		}
 		default:
-			return undefined;
+			break;
 	}
+	// 兜底：模型自己写的标题（Claude 的 title_parts）。
+	const authored = card.output?.title?.trim();
+	// 末尾的省略号/句点串剪掉（Claude 的 Qp()）。
+	if (authored !== undefined && authored !== "") return { verb: "", object: trimClaudeLabel(authored) };
+	return undefined;
 }
 
 /** 动作短语的整行文本：`Searched loean-{mark|word}`。 */
@@ -185,48 +195,59 @@ export function claudeActionText(line: ClaudeActionLine): string {
 	return `${line.verb} ${line.object}`;
 }
 
+/** 需要 meta 对象的工具：Claude 的兜底标签对这些工具不带对象。 */
+const META_OBJECT_TOOLS = new Set(["grep", "find", "glob", "ls", "bash", "powershell", "web_search"]);
+
 /**
- * 组标题：模型为这批工具写的标题。
+ * 工具行的行内对象（Claude 的 Step 行 meta）。
  *
- * Claude 的组头（"Searched code"）是**模型写的**，来源是服务端在批次结束后
- * 另起的一次无工具模型请求（Claude 的 `tool_use_summary`）。owl 用同样的
- * 机制：服务端把标签随事件下发，落在组内每张工具卡的 `batchLabel` 上。
+ * Claude 的行是「泛指标签 + 对象」两段：标签（"Ran a command"）次级色，
+ * 对象（命令/模式/查询）跟在后面，悬停/展开转主色。文件类工具的兜底标签
+ * 自带短路径（"Reading admin/index.html"），不再补 meta。
+ * 模型自己写了标题时对象已在标题里，也没有 meta。
+ */
+export function claudeRowObject(card: ToolCard): string | undefined {
+	// 模型写了标题 → 标题里已经有对象，再补一遍 meta 就重复了。
+	if ((card.output?.title?.trim() ?? "") !== "") return undefined;
+	if (!META_OBJECT_TOOLS.has(card.name)) return undefined;
+	const line = claudeActionLine(card);
+	if (line === undefined || line.verb === "") return undefined;
+	return line.object;
+}
+
+/**
+ * 组标题：先按 Claude 的「工具类别 + 次数」表合成，模型写的组标题做兜底。
  *
- * 模型没写（或那次调用失败）时，按组内**主动词**合成一个可读的组名：
- * 搜索 → "Searched code"；读文件 → "Read files"；其余 → "Ran N commands"。
+ * Claude 的组头（"Searched code"）是**服务端**为这批工具生成的标签
+ * （Claude 的 `tool_use_summary`）；owl 用同样的机制：服务端把标签随事件下发，
+ * 落在组内每张工具卡的 `batchLabel` 上。
+ *
+ * 动词表优先是有意的：网关型 provider 的批次标签常是一整句流水账
+ * （"Write live-state.mjs, ran a command, wrote live-hit-test.mjs"），
+ * 当组头上屏就是一行读不懂的句子。客户端合成的 "Read 3 files" / "Ran 2 commands"
+ * 更短更整齐；模型没写标签（或那次调用失败）时也正好落回这张表。
  *
  * 注意：单条工具的标题（`output.title`）**不**拿来当组标题 —— Claude 的
  * 组头说的是这批工具整体在干什么，不是第一条工具的细节。
  */
 export function claudeGroupTitle(cards: ToolCard[]): string {
 	if (cards.length === 0) return "";
-	// 模型写的组标题（服务端为这批工具生成的标签）。
-	const batchLabel = cards.find((card) => card.batchLabel?.trim() !== undefined && card.batchLabel.trim() !== "")?.batchLabel?.trim();
-	if (batchLabel !== undefined && batchLabel !== "") return batchLabel;
-	const verbs = cards.map((card) => claudeVerbOf(card)).filter((verb): verb is string => verb !== undefined);
-	if (verbs.length === 0) return cards.length === 1 ? "Ran 1 command" : `Ran ${cards.length} commands`;
-	const verb = verbs[0]!;
-	const noun = groupNoun(verb);
-	if (noun !== undefined) return `${verb} ${noun}`;
-	return cards.length === 1 ? "Ran 1 command" : `Ran ${cards.length} commands`;
-}
-
-function groupNoun(verb: string): string | undefined {
-	switch (verb) {
-		case CLAUDE_VERBS.grep:
-		case CLAUDE_VERBS.web_search:
-			return "code";
-		case CLAUDE_VERBS.read:
-			return "files";
-		case CLAUDE_VERBS.find:
-		case CLAUDE_VERBS.glob:
-			return "files";
-		case CLAUDE_VERBS.write:
-		case CLAUDE_VERBS.edit:
-			return "files";
-		default:
-			return undefined;
+	// 兜底：按 Claude 的类别 + 次数表合成（不要自拟组名）。
+	const category = cards
+		.map((card) => claudeToolCategory(card.name))
+		.find((value): value is ClaudeToolCategory => value !== undefined);
+	if (category !== undefined) {
+		// 次数只数同类的 —— Claude 的分组统计也是按类别来的。
+		const count = cards.filter((card) => claudeToolCategory(card.name) === category).length;
+		return claudeGroupPhrase(category, count);
 	}
+	// 模型写的组标题（服务端为这批工具生成的标签）。
+	const batchLabel = cards
+		.find((card) => card.batchLabel?.trim() !== undefined && card.batchLabel.trim() !== "")
+		?.batchLabel?.trim();
+	// 末尾的省略号/句点串剪掉（Claude 的 Qp()）。
+	if (batchLabel !== undefined && batchLabel !== "") return trimClaudeLabel(batchLabel);
+	return cards.length === 1 ? "Ran 1 command" : `Ran ${cards.length} commands`;
 }
 
 /**
@@ -279,8 +300,7 @@ function summaryItemText(item: SummaryItem): string {
 	if (item.label !== undefined) return item.label;
 	const verbs = item.verbs ?? [];
 	if (verbs.length === 0 || item.file === undefined) return "";
-	const joined =
-		verbs.length === 1 ? verbs[0]! : `${verbs.slice(0, -1).join(", ")} and ${verbs.at(-1)!}`;
+	const joined = verbs.length === 1 ? verbs[0]! : `${verbs.slice(0, -1).join(", ")} and ${verbs.at(-1)!}`;
 	return `${joined} ${item.file}`;
 }
 
@@ -288,7 +308,7 @@ function summaryItemText(item: SummaryItem): string {
  * 从本轮工具里归纳一句「做过什么」。
  *
  * 拼法照着 Claude 的截图：
- *  - 搜索类用模型写的组标题（"Searched code"），没有就用动作短语；
+ *  - 搜索类用动作短语（"Searched brand"），模型写的批次标签做兜底；
  *  - 同一个文件上的读和改合并成一句（"read and edited style.css"）；
  *  - 命令统一说 "ran a command"；
  *  - 首项大写，其余小写并列。
@@ -314,15 +334,17 @@ export function claudeTurnSummaryText(cards: ToolCard[]): string {
 			items.push({ label: "ran a command" });
 			continue;
 		}
-		// 搜索类：模型为这批写的组标题优先。
+		// 动作短语优先（动词 + 对象），模型写的批次标签做兜底。
+		const line = claudeActionLine(card);
+		if (line !== undefined) {
+			items.push({ label: line.verb === "" ? line.object : `${line.verb} ${line.object}` });
+			continue;
+		}
 		const batch = card.batchLabel?.trim();
 		if (batch !== undefined && batch !== "") {
 			items.push({ label: batch });
 			continue;
 		}
-		const line = claudeActionLine(card);
-		if (line === undefined) continue;
-		items.push({ label: line.verb === "" ? line.object : `${line.verb} ${line.object}` });
 	}
 
 	const texts: string[] = [];

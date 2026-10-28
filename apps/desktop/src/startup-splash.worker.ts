@@ -1,7 +1,15 @@
 import { createStars, drawSplashFrame, SPLASH_DURATION, SPLASH_FADE_START } from "./startup-splash-scene.ts";
 
 export type SplashWorkerRequest =
-	| { type: "init"; canvas: OffscreenCanvas; width: number; height: number; dpr: number; speed: number; meteors: boolean }
+	| {
+			type: "init";
+			canvas: OffscreenCanvas;
+			width: number;
+			height: number;
+			dpr: number;
+			speed: number;
+			meteors: boolean;
+	  }
 	| { type: "start" }
 	| { type: "resize"; width: number; height: number; dpr: number }
 	| { type: "skip" }

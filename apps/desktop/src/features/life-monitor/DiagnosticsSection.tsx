@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { LIFE_CHANNELS, LIFE_GROUPS, type LifeChannelDef } from "../../../../../packages/owl-life-monitor/src/life-channels.ts";
+import {
+	LIFE_CHANNELS,
+	LIFE_GROUPS,
+	type LifeChannelDef,
+} from "../../../../../packages/owl-life-monitor/src/life-channels.ts";
 import type { LifeChannel } from "../../bridge/protocol.ts";
 import { SectionHeader } from "../../components/settings/settings-widgets.tsx";
 import { lifeFact, lifeGroup, lifeLevel, lifeName, lifeShell, useLifeCopy } from "./life-copy.ts";
@@ -17,7 +21,13 @@ function isProblem(item: LifeChannel): boolean {
 }
 
 /** 设置 →「诊断」：按需跑一轮 life.probe，异常置顶并给去处，其余折叠。 */
-export function DiagnosticsSection({ probe, onFix }: { probe: LifeProbe; onFix: (target: FixTarget) => void }): React.JSX.Element {
+export function DiagnosticsSection({
+	probe,
+	onFix,
+}: {
+	probe: LifeProbe;
+	onFix: (target: FixTarget) => void;
+}): React.JSX.Element {
 	useLifeCopy();
 	const { refresh } = probe;
 	const [checking, setChecking] = useState(false);
@@ -36,35 +46,53 @@ export function DiagnosticsSection({ probe, onFix }: { probe: LifeProbe; onFix: 
 	}, [refresh]);
 
 	const copyReport = (): void => {
-		void navigator.clipboard.writeText(report(view.shown, probe.checkedAt)).then(() => {
-			setCopied(true);
-			window.setTimeout(() => setCopied(false), 1500);
-		}).catch(() => {});
+		void navigator.clipboard
+			.writeText(report(view.shown, probe.checkedAt))
+			.then(() => {
+				setCopied(true);
+				window.setTimeout(() => setCopied(false), 1500);
+			})
+			.catch(() => {});
 	};
 
-	const status = probe.round === "down" ? lifeShell("down")
-		: probe.round === "failed" && probe.checkedAt !== undefined ? lifeShell("failed")
-		: problems.length > 0 ? lifeShell("issues", { n: problems.length })
-		: probe.checkedAt !== undefined ? lifeShell("allClear", { n: view.shown.length })
-		: "";
+	const status =
+		probe.round === "down"
+			? lifeShell("down")
+			: probe.round === "failed" && probe.checkedAt !== undefined
+				? lifeShell("failed")
+				: problems.length > 0
+					? lifeShell("issues", { n: problems.length })
+					: probe.checkedAt !== undefined
+						? lifeShell("allClear", { n: view.shown.length })
+						: "";
 
 	return (
 		<>
 			<SectionHeader title={lifeShell("title")} desc={lifeShell("desc")} />
 			<div className="owl-diag-bar">
 				<div className="owl-diag-status">
-					<span className={`owl-diag-lamp ${problems.length > 0 ? view.summary.dot : probe.round === "ok" ? "ok" : "idle"}`} aria-hidden="true" />
+					<span
+						className={`owl-diag-lamp ${problems.length > 0 ? view.summary.dot : probe.round === "ok" ? "ok" : "idle"}`}
+						aria-hidden="true"
+					/>
 					<div className="min-w-0">
 						<div className="owl-diag-status-text">{status || lifeShell("checking")}</div>
 						<div className="owl-diag-stamp">
-							{probe.checkedAt === undefined ? lifeShell("never") : lifeShell("checkedAt", { time: new Date(probe.checkedAt).toLocaleTimeString() })}
+							{probe.checkedAt === undefined
+								? lifeShell("never")
+								: lifeShell("checkedAt", { time: new Date(probe.checkedAt).toLocaleTimeString() })}
 						</div>
 					</div>
 				</div>
 				<button type="button" className="owl-settings-button" disabled={checking} onClick={recheck}>
 					{checking ? lifeShell("checking") : lifeShell("recheck")}
 				</button>
-				<button type="button" className="owl-settings-button" disabled={view.shown.length === 0} onClick={copyReport}>
+				<button
+					type="button"
+					className="owl-settings-button"
+					disabled={view.shown.length === 0}
+					onClick={copyReport}
+				>
 					{copied ? lifeShell("copied") : lifeShell("copy")}
 				</button>
 			</div>
@@ -109,7 +137,9 @@ export function DiagnosticsSection({ probe, onFix }: { probe: LifeProbe; onFix: 
 										<li key={item.id} title={lifeFact(item.id, item.note, item.level)}>
 											<span className={`owl-diag-lamp ${item.level}`} aria-hidden="true" />
 											<span className="owl-diag-name">{lifeName(item.id)}</span>
-											{item.level !== "ok" && <span className="owl-diag-level">{lifeLevel(item.level, item.note)}</span>}
+											{item.level !== "ok" && (
+												<span className="owl-diag-level">{lifeLevel(item.level, item.note)}</span>
+											)}
 										</li>
 									))}
 								</ul>
@@ -123,7 +153,10 @@ export function DiagnosticsSection({ probe, onFix }: { probe: LifeProbe; onFix: 
 }
 
 function report(shown: readonly LifeChannel[], checkedAt: number | undefined): string {
-	const lines = [`${lifeShell("reportTitle")} · ${checkedAt === undefined ? lifeShell("never") : new Date(checkedAt).toLocaleString()}`, ""];
+	const lines = [
+		`${lifeShell("reportTitle")} · ${checkedAt === undefined ? lifeShell("never") : new Date(checkedAt).toLocaleString()}`,
+		"",
+	];
 	const passing: string[] = [];
 	for (const item of shown) {
 		if (item.level === "ok") {
@@ -131,7 +164,9 @@ function report(shown: readonly LifeChannel[], checkedAt: number | undefined): s
 			continue;
 		}
 		const evidence = item.evidence ? ` (${item.evidence})` : "";
-		lines.push(`[${lifeLevel(item.level, item.note)}] ${lifeName(item.id)}: ${lifeFact(item.id, item.note, item.level)}${evidence}`);
+		lines.push(
+			`[${lifeLevel(item.level, item.note)}] ${lifeName(item.id)}: ${lifeFact(item.id, item.note, item.level)}${evidence}`,
+		);
 	}
 	lines.push("", `${lifeShell("reportRest")} (${passing.length}): ${passing.join(", ")}`);
 	return lines.join("\n");

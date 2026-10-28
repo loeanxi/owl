@@ -6,12 +6,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { ScheduleListResult } from "../../bridge/protocol.ts";
-import { useT, type TextKey } from "../../i18n/index.ts";
+import { type TextKey, useT } from "../../i18n/index.ts";
 import { formatClock, untilLabel } from "./schedule-delivery.ts";
 
 const EMPTY: ScheduleListResult = { tasks: [], runs: {} };
 
-export function SchedulePin({ client, sessionId, active = true, onOpenAutomation }: {
+export function SchedulePin({
+	client,
+	sessionId,
+	active = true,
+	onOpenAutomation,
+}: {
 	client: BridgeClient;
 	/** 当前会话；空（开始页）不显示。 */
 	sessionId?: string;
@@ -47,19 +52,39 @@ export function SchedulePin({ client, sessionId, active = true, onOpenAutomation
 	}, [client, active]);
 
 	const next = useMemo(() => {
-		return data.tasks
-			.filter((task) => task.enabled && task.sessionId === sessionId && task.nextRunAt !== null)
-			.sort((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0))[0] ?? null;
+		return (
+			data.tasks
+				.filter((task) => task.enabled && task.sessionId === sessionId && task.nextRunAt !== null)
+				.sort((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0))[0] ?? null
+		);
 	}, [data, sessionId]);
 
 	if (sessionId === undefined || next === null) return null;
 	return (
-		<button type="button" className="owl-schedule-pin" onClick={onOpenAutomation} title={t("automation.pinTitle" as TextKey)}>
+		<button
+			type="button"
+			className="owl-schedule-pin"
+			onClick={onOpenAutomation}
+			title={t("automation.pinTitle" as TextKey)}
+		>
 			<span className="owl-schedule-pin-icon">⏱</span>
 			<b>{next.name}</b>
-			<span className="owl-schedule-pin-repeat">{next.repeat.kind === "daily" ? `每天 ${next.repeat.time}` : next.repeat.kind === "weekly" ? `周${"日一二三四五六"[next.repeat.weekday] ?? ""} ${next.repeat.time}` : next.repeat.kind === "interval" ? `每 ${next.repeat.minutes} 分钟` : next.repeat.kind === "cron" ? `cron ${next.repeat.expr}` : "一次性"}</span>
+			<span className="owl-schedule-pin-repeat">
+				{next.repeat.kind === "daily"
+					? `每天 ${next.repeat.time}`
+					: next.repeat.kind === "weekly"
+						? `周${"日一二三四五六"[next.repeat.weekday] ?? ""} ${next.repeat.time}`
+						: next.repeat.kind === "interval"
+							? `每 ${next.repeat.minutes} 分钟`
+							: next.repeat.kind === "cron"
+								? `cron ${next.repeat.expr}`
+								: "一次性"}
+			</span>
 			<span className="owl-schedule-pin-next">
-				{t("automation.pinNext" as TextKey, { time: formatClock(next.nextRunAt ?? 0), until: untilLabel(next.nextRunAt, now) })}
+				{t("automation.pinNext" as TextKey, {
+					time: formatClock(next.nextRunAt ?? 0),
+					until: untilLabel(next.nextRunAt, now),
+				})}
 			</span>
 		</button>
 	);

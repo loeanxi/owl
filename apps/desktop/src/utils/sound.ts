@@ -100,14 +100,26 @@ export function playChime(sound: NotificationSound, volumePercent: number, criti
 				break;
 			case "marimba":
 				// 三连上行，三角波更"木"
-				tail = Math.max(tail, beep(audio, master, { frequency: 523.25, start: 0, duration: 0.12, type: "triangle" }));
-				tail = Math.max(tail, beep(audio, master, { frequency: 659.25, start: 0.1, duration: 0.12, type: "triangle" }));
-				tail = Math.max(tail, beep(audio, master, { frequency: 783.99, start: 0.2, duration: 0.18, type: "triangle" }));
+				tail = Math.max(
+					tail,
+					beep(audio, master, { frequency: 523.25, start: 0, duration: 0.12, type: "triangle" }),
+				);
+				tail = Math.max(
+					tail,
+					beep(audio, master, { frequency: 659.25, start: 0.1, duration: 0.12, type: "triangle" }),
+				);
+				tail = Math.max(
+					tail,
+					beep(audio, master, { frequency: 783.99, start: 0.2, duration: 0.18, type: "triangle" }),
+				);
 				break;
 			case "pulse":
 				// 两记短促脉冲，适合强提醒
 				tail = Math.max(tail, beep(audio, master, { frequency: 660, start: 0, duration: 0.08, type: "triangle" }));
-				tail = Math.max(tail, beep(audio, master, { frequency: 660, start: 0.14, duration: 0.08, type: "triangle" }));
+				tail = Math.max(
+					tail,
+					beep(audio, master, { frequency: 660, start: 0.14, duration: 0.08, type: "triangle" }),
+				);
 				break;
 			case "drop":
 				// 下行双音：与上行 chime 反向，区分度高
@@ -116,13 +128,16 @@ export function playChime(sound: NotificationSound, volumePercent: number, criti
 				break;
 		}
 		// 音符放完就断开 master：长期运行不往扬声器累积哑节点。
-		setTimeout(() => {
-			try {
-				master.disconnect();
-			} catch {
-				// 已断开
-			}
-		}, Math.ceil(tail * 1000) + 120);
+		setTimeout(
+			() => {
+				try {
+					master.disconnect();
+				} catch {
+					// 已断开
+				}
+			},
+			Math.ceil(tail * 1000) + 120,
+		);
 	} catch {
 		// 静默降级
 	}

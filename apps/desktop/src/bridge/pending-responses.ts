@@ -7,7 +7,14 @@ export interface PendingResponseFeedback {
 }
 
 export interface QuestionDraft {
-	states: Array<{ picked: Set<string>; custom: string; customOpen: boolean; note: string; noteOpen: boolean; previewOpen: Set<string> }>;
+	states: Array<{
+		picked: Set<string>;
+		custom: string;
+		customOpen: boolean;
+		note: string;
+		noteOpen: boolean;
+		previewOpen: Set<string>;
+	}>;
 	current: number;
 	missing: Set<number>;
 	collapsed: boolean;
@@ -29,13 +36,19 @@ export class PendingResponses {
 	private readonly terminal = new Set<string>();
 	private active = true;
 	readonly questionDrafts = new Map<string, QuestionDraft>();
-	saveQuestionDraft(id: string, draft: QuestionDraft): void { if (this.active && !this.terminal.has(id)) this.questionDrafts.set(id, draft); }
+	saveQuestionDraft(id: string, draft: QuestionDraft): void {
+		if (this.active && !this.terminal.has(id)) this.questionDrafts.set(id, draft);
+	}
 	getSnapshot = (): ReadonlyMap<string, PendingResponseFeedback> => this.state;
-	subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
+	subscribe = (listener: () => void): (() => void) => {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	};
 
 	private publish(id: string, feedback?: PendingResponseFeedback): void {
 		const next = new Map(this.state);
-		if (feedback) next.set(id, feedback); else next.delete(id);
+		if (feedback) next.set(id, feedback);
+		else next.delete(id);
 		this.state = next;
 		for (const notify of this.listeners) notify();
 	}
@@ -59,14 +72,24 @@ export class PendingResponses {
 				this.publish(id, { phase: "error", error: error instanceof Error ? error.message : String(error) });
 			}
 			return false;
-		} finally { if (this.pending.get(id) === attempt) this.pending.delete(id); }
+		} finally {
+			if (this.pending.get(id) === attempt) this.pending.delete(id);
+		}
 	}
 
-	retry = (id: string): void => { const action = this.actions.get(id); if (action) void this.submit(action); };
-	activate(): void { this.active = true; }
+	retry = (id: string): void => {
+		const action = this.actions.get(id);
+		if (action) void this.submit(action);
+	};
+	activate(): void {
+		this.active = true;
+	}
 	retire(id: string): void {
 		this.terminal.add(id);
-		if (this.terminal.size > 512) { const oldest = this.terminal.values().next().value; if (oldest !== undefined) this.terminal.delete(oldest); }
+		if (this.terminal.size > 512) {
+			const oldest = this.terminal.values().next().value;
+			if (oldest !== undefined) this.terminal.delete(oldest);
+		}
 		this.actions.delete(id);
 		this.questionDrafts.delete(id);
 		this.publish(id);
@@ -91,7 +114,10 @@ const empty = new Map<string, PendingResponseFeedback>();
 const subscribeEmpty = (): (() => void) => () => {};
 const readEmpty = (): ReadonlyMap<string, PendingResponseFeedback> => empty;
 
-export function usePendingResponses(): { controller: PendingResponses | undefined; feedback: ReadonlyMap<string, PendingResponseFeedback> } {
+export function usePendingResponses(): {
+	controller: PendingResponses | undefined;
+	feedback: ReadonlyMap<string, PendingResponseFeedback>;
+} {
 	const controller = useContext(PendingResponsesContext);
 	const feedback = useSyncExternalStore(controller?.subscribe ?? subscribeEmpty, controller?.getSnapshot ?? readEmpty);
 	return { controller, feedback };

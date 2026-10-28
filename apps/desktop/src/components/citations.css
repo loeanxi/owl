@@ -1,0 +1,108 @@
+/**
+ * 引用的行内角标与来源面板。
+ *
+ * Claude Desktop 的引用是锚点级 UI：正文里一个上标数字，答案末尾一块来源列表。
+ * 这里对齐它的形态 —— 角标小、颜色弱（不抢正文），来源面板走脚注那一档。
+ */
+
+.owl-answer-cite {
+	margin-left: 1px;
+	font-size: 0.75em;
+	line-height: 0;
+	vertical-align: super;
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-answer-cite a {
+	color: var(--owl-reading-link, var(--color-owl-accent));
+	text-decoration: none;
+}
+
+.owl-answer-cite a:hover {
+	text-decoration: underline;
+}
+
+.owl-answer-sources {
+	margin-top: 10px;
+	padding-top: 8px;
+	border-top: 1px solid color-mix(in srgb, var(--owl-reading-text) 8%, transparent);
+}
+
+.owl-answer-sources-title {
+	color: var(--owl-reading-muted);
+	font-size: 11px;
+	line-height: 17px;
+}
+
+.owl-answer-sources-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* Claude 的来源是紧凑行（不是卡片）：单行标题 + 域名，无框无底。 */
+.owl-answer-source {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr);
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 3px 0;
+}
+
+.owl-answer-source-badge {
+	display: inline-flex;
+	width: 16px;
+	height: 16px;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--owl-reading-text) 8%, transparent);
+	color: var(--owl-reading-muted);
+	font-size: 10px;
+	line-height: 1;
+}
+
+.owl-answer-source-body {
+	display: flex;
+	min-width: 0;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px;
+	color: var(--owl-reading-text);
+	font-size: 12px;
+	line-height: 17px;
+}
+
+.owl-answer-source-body a {
+	color: inherit;
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.owl-answer-source-body a:hover {
+	color: var(--owl-reading-link, var(--color-owl-accent));
+	text-decoration: underline;
+}
+
+.owl-answer-source-host {
+	color: var(--owl-reading-faint, var(--owl-reading-muted));
+	font-size: 11px;
+	overflow-wrap: anywhere;
+}
+
+.owl-answer-source-snippet {
+	grid-column: 2;
+	min-width: 0;
+	margin: 2px 0 0;
+	color: var(--owl-reading-muted);
+	font-size: 11px;
+	line-height: 16px;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}

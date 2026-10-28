@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeClient } from "../../bridge/client.ts";
 import type { DiffApprovalFileSummary } from "../../bridge/protocol.ts";
@@ -98,10 +98,14 @@ describe("改动审批的跨会话隔离", () => {
 
 	it("「显示全部」后能看到工作区里的全部改动，再点回到本次对话", async () => {
 		await renderReview("session-a", [entry("mine", "session-a"), entry("other", "session-b")]);
-		const showAll = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("另有 1 条"))!;
+		const showAll = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+			button.textContent?.includes("另有 1 条"),
+		)!;
 		await act(async () => showAll.click());
 		expect(container.textContent ?? "").toContain("other.ts");
-		const back = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "只看本次对话")!;
+		const back = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+			(button) => button.textContent?.trim() === "只看本次对话",
+		)!;
 		await act(async () => back.click());
 		expect(container.textContent ?? "").not.toContain("other.ts");
 	});

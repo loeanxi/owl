@@ -16,12 +16,13 @@
  * 边框时主线程要处理整页重排，帧的解码与缩放都挤在主线程上，面板就会一直抖。
  */
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { t, useT, type TextKey } from "../../i18n/index.ts";
 import type { IabInputPayload, IabPageInfo } from "../../bridge/protocol.ts";
-import { BrowserSessionContext, type TabComponentProps } from "../registry.ts";
-import { useSidebarState } from "../store.ts";
+import { toExternalUrl } from "../../external-url.ts";
+import { type TextKey, t, useT } from "../../i18n/index.ts";
 import { bindIabPage, encodeIabPath, parseIabPath, unbindIabPage } from "../iab-bound.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
+import { BrowserSessionContext, type TabComponentProps } from "../registry.ts";
+import { useSidebarState } from "../store.ts";
 import "./browser.css";
 
 /** 起始页的快捷目标（开发预览是浏览器 tab 的主场景）。 */
@@ -47,20 +48,46 @@ const ANDROID_PHONE_UA =
 	"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
 
 /** 设备的 CSS 视口尺寸；预设只改尺寸与设备档案（UA / 触控），不改真实浏览器。 */
-const VIEWPORT_PRESETS: { label: string; labelKey?: TextKey; width: number; height: number; device?: DeviceProfile }[] = [
-	{ label: "4K", width: 3840, height: 2160 },
-	{ label: "Laptop L", width: 1440, height: 900 },
-	{ label: "笔记本电脑", labelKey: "browser.presetLaptop", width: 1280, height: 860 },
-	{ label: "Surface Pro 7", width: 912, height: 1368, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
-	{ label: "iPad Air", width: 820, height: 1180, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
-	{ label: "iPad Mini", width: 768, height: 1024, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
-	{ label: "Surface Duo", width: 540, height: 720, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
-	{ label: "iPhone 15 Pro Max", width: 430, height: 932, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
-	{ label: "Pixel 8", width: 412, height: 915, device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA } },
-	{ label: "iPhone 15 Pro", width: 393, height: 852, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
-	{ label: "Samsung Galaxy S24 Ultra", width: 412, height: 915, device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA } },
-	{ label: "iPhone SE", width: 375, height: 667, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
-];
+const VIEWPORT_PRESETS: { label: string; labelKey?: TextKey; width: number; height: number; device?: DeviceProfile }[] =
+	[
+		{ label: "4K", width: 3840, height: 2160 },
+		{ label: "Laptop L", width: 1440, height: 900 },
+		{ label: "笔记本电脑", labelKey: "browser.presetLaptop", width: 1280, height: 860 },
+		{
+			label: "Surface Pro 7",
+			width: 912,
+			height: 1368,
+			device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA },
+		},
+		{ label: "iPad Air", width: 820, height: 1180, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+		{ label: "iPad Mini", width: 768, height: 1024, device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA } },
+		{
+			label: "Surface Duo",
+			width: 540,
+			height: 720,
+			device: { mobile: true, touch: true, userAgent: IOS_TABLET_UA },
+		},
+		{
+			label: "iPhone 15 Pro Max",
+			width: 430,
+			height: 932,
+			device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA },
+		},
+		{ label: "Pixel 8", width: 412, height: 915, device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA } },
+		{
+			label: "iPhone 15 Pro",
+			width: 393,
+			height: 852,
+			device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA },
+		},
+		{
+			label: "Samsung Galaxy S24 Ultra",
+			width: 412,
+			height: 915,
+			device: { mobile: true, touch: true, userAgent: ANDROID_PHONE_UA },
+		},
+		{ label: "iPhone SE", width: 375, height: 667, device: { mobile: true, touch: true, userAgent: IOS_PHONE_UA } },
+	];
 
 const ZOOM_LEVELS = [0.25, 0.5, 0.75, 1, 1.25, 1.5];
 
@@ -306,7 +333,11 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			const request =
 				initialPageId && !fellBack
 					? { type: "iab.open" as const, pageId: initialPageId }
-					: { type: "iab.open" as const, url: initialUrl ?? "about:blank", ...(ownerSessionId ? { sessionId: ownerSessionId } : {}) };
+					: {
+							type: "iab.open" as const,
+							url: initialUrl ?? "about:blank",
+							...(ownerSessionId ? { sessionId: ownerSessionId } : {}),
+						};
 			void client
 				.request<{ page: IabPageInfo }>(request)
 				.then((response) => {
@@ -345,10 +376,15 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	useEffect(() => {
 		if (!sessionId || !page || page.sessionId || sidebarState.activeId !== tab.id) return;
 		let cancelled = false;
-		void client.request<{ page: IabPageInfo }>({ type: "iab.open", pageId: page.pageId, sessionId }).then((response) => {
-			if (!cancelled && response.ok && response.result) applyPage(response.result.page);
-		}).catch(() => {});
-		return () => { cancelled = true; };
+		void client
+			.request<{ page: IabPageInfo }>({ type: "iab.open", pageId: page.pageId, sessionId })
+			.then((response) => {
+				if (!cancelled && response.ok && response.result) applyPage(response.result.page);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
 	}, [client, sessionId, page?.pageId, page?.sessionId, sidebarState.activeId, tab.id, applyPage]);
 
 	// 页面就位：登记 + 订阅帧流；卸载/换页时退订。绑定 3 秒后仍无一帧
@@ -376,7 +412,12 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		return client.onIabMessage((message) => {
 			if (message.type === "iab.frame") {
 				if (message.pageId === pageRef.current?.pageId) {
-					const next = { data: message.data, format: message.format, width: message.width, height: message.height };
+					const next = {
+						data: message.data,
+						format: message.format,
+						width: message.width,
+						height: message.height,
+					};
 					frameRef.current = next;
 					// 尺寸变化（视口切换）才进 state；普通帧只重绘 canvas
 					setFrameSize((prev) =>
@@ -407,7 +448,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			}
 			if (message.type === "iab.pages") {
 				setPages(
-					message.pages.filter((candidate) => !sessionId || !candidate.sessionId || candidate.sessionId === sessionId),
+					message.pages.filter(
+						(candidate) => !sessionId || !candidate.sessionId || candidate.sessionId === sessionId,
+					),
 				);
 				if (!pageRef.current) return;
 				const current = pageRef.current;
@@ -443,7 +486,8 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		setViewportPreset((selected) => {
 			const preset = VIEWPORT_PRESETS.find((candidate) => candidate.label === selected);
 			return preset &&
-				((preset.width === width && preset.height === height) || (preset.height === width && preset.width === height))
+				((preset.width === width && preset.height === height) ||
+					(preset.height === width && preset.width === height))
 				? selected
 				: "responsive";
 		});
@@ -460,13 +504,17 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 	// 舞台尺寸 → 适应窗口缩放。立即量一次 + ResizeObserver + 1s 兜底轮询：
 	// 嵌在桌面壳里的页面 ResizeObserver/rAF 可能被永久饿死（实测连初始回调
 	// 都不触发），不能只依赖它们；尺寸没变时 measure 返回原对象，不会重渲染。
+	// 必须量 getBoundingClientRect（小数）而不是 clientWidth/clientHeight（四舍五入
+	// 的整数）：缩放按整数算会把画布撑得比真实内容盒宽零点几像素，overflow-auto
+	// 就冒出滚动条，拖动时小数部分反复扫过取整边界，滚动条不停出现消失，画面抖。
 	useEffect(() => {
 		const element = stageRef.current;
 		if (!element) return;
 		const measure = (): void => {
 			setStageSize((current) => {
-				const width = element.clientWidth;
-				const height = element.clientHeight;
+				const rect = element.getBoundingClientRect();
+				const width = rect.width;
+				const height = rect.height;
 				if (current.width === width && current.height === height) return current;
 				return { width, height };
 			});
@@ -504,9 +552,12 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		const current = pageRef.current;
 		const ownerSessionId = current?.sessionId ?? sessionIdRef.current;
 		void client
-			.request<{ page: IabPageInfo }>(
-				{ type: "iab.open", ...(current ? { pageId: current.pageId } : {}), url: next, ...(ownerSessionId ? { sessionId: ownerSessionId } : {}) },
-			)
+			.request<{ page: IabPageInfo }>({
+				type: "iab.open",
+				...(current ? { pageId: current.pageId } : {}),
+				url: next,
+				...(ownerSessionId ? { sessionId: ownerSessionId } : {}),
+			})
 			.then((response) => {
 				if (response.ok && response.result) {
 					applyPage(response.result.page);
@@ -598,11 +649,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		if (!sessionId) return;
 		const next = !agentControl;
 		setAgentControl(next);
-		void client
-			.request({ type: "session.setBrowserControl", sessionId, enabled: next })
-			.catch(() => {
-				setAgentControl(!next);
-			});
+		void client.request({ type: "session.setBrowserControl", sessionId, enabled: next }).catch(() => {
+			setAgentControl(!next);
+		});
 	};
 
 	const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => readBookmarks());
@@ -622,12 +671,15 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 		setBookmarks(list);
 	};
 
-	// 独立窗口打开：桌面壳里弹新窗口，普通浏览器里是新标签页；被壳拦截时退回系统浏览器
+	// 独立窗口打开：桌面壳里弹新窗口，普通浏览器里是新标签页；被壳拦截时退回系统浏览器。
+	// 页面地址由被访问站点自己决定（可能落到 file:、javascript: 等 scheme），
+	// 交给壳之前统一过白名单，只放行 http(s)。
 	const popout = (): void => {
-		const url = pageRef.current?.url;
-		if (!url) return;
-		const win = window.open(url, "_blank", "noopener");
-		if (!win) void api.openExternal("url", url).catch(() => {});
+		const target = toExternalUrl(pageRef.current?.url ?? "");
+		if (!target) return;
+		// target 已由 toExternalUrl 限定为 http(s)。
+		const win = window.open(target, "_blank", "noopener");
+		if (!win) void api.openExternal("url", target).catch(() => {});
 	};
 
 	// 键盘：画布聚焦时全部转发给页面（含 Ctrl+T 等组合键——那是页面的快捷键，
@@ -681,7 +733,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			) : null}
 			{/* 导航工具条；响应式控制单独一行，侧栏收窄时自然换行。 */}
 			<div className="flex shrink-0 select-none flex-wrap items-center gap-1.5 border-b border-owl-border/40 px-2 py-1.5">
-				<button type="button" title={t("browser.back")} className={toolbarButton} disabled={!page} onClick={() => runNav("back")}>
+				<button
+					type="button"
+					title={t("browser.back")}
+					className={toolbarButton}
+					disabled={!page}
+					onClick={() => runNav("back")}
+				>
 					<svg
 						viewBox="0 0 16 16"
 						fill="none"
@@ -693,7 +751,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="M10 3 5 8l5 5" />
 					</svg>
 				</button>
-				<button type="button" title={t("browser.forward")} className={toolbarButton} disabled={!page} onClick={() => runNav("forward")}>
+				<button
+					type="button"
+					title={t("browser.forward")}
+					className={toolbarButton}
+					disabled={!page}
+					onClick={() => runNav("forward")}
+				>
 					<svg
 						viewBox="0 0 16 16"
 						fill="none"
@@ -705,7 +769,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						<path d="m6 3 5 5-5 5" />
 					</svg>
 				</button>
-				<button type="button" title={t("common.refresh")} className={toolbarButton} disabled={!page} onClick={() => runNav("reload")}>
+				<button
+					type="button"
+					title={t("common.refresh")}
+					className={toolbarButton}
+					disabled={!page}
+					onClick={() => runNav("reload")}
+				>
 					<IconRefresh size={11} />
 				</button>
 				<button
@@ -742,7 +812,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					}}
 					className="h-6.5 min-w-0 flex-1 rounded-md border border-owl-border/50 bg-owl-panel px-2.5 text-xs text-owl-text outline-none placeholder:text-owl-faint focus:border-owl-accent/60"
 				/>
-				<button type="button" title={t("browser.popout")} className={toolbarButton} disabled={!page?.url} onClick={popout}>
+				<button
+					type="button"
+					title={t("browser.popout")}
+					className={toolbarButton}
+					disabled={!page?.url}
+					onClick={popout}
+				>
 					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
 						<rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
 						<rect x="8" y="7.5" width="5" height="4" rx="0.5" fill="currentColor" stroke="none" />
@@ -774,13 +850,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					disabled={!sessionId}
 					onClick={toggleAgentControl}
 				>
-					<svg
-						viewBox="0 0 16 16"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="1.3"
-						className="h-3 w-3"
-					>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" className="h-3 w-3">
 						<path d="M8 4.5a3.5 3.5 0 0 1 3.5 3.5v1.2l1.3 1.8H3.2l1.3-1.8V8A3.5 3.5 0 0 1 8 4.5Z" />
 						<path d="M6.6 12.2a1.5 1.5 0 0 0 2.8 0" />
 					</svg>
@@ -797,7 +867,11 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			</div>
 
 			{page && responsive && (
-				<div className="owl-browser-responsive-toolbar" aria-label={t("browser.responsiveToolbar")} aria-busy={viewportPending}>
+				<div
+					className="owl-browser-responsive-toolbar"
+					aria-label={t("browser.responsiveToolbar")}
+					aria-busy={viewportPending}
+				>
 					<label className="owl-browser-device">
 						<span>{t("browser.size")}</span>
 						<select
@@ -832,7 +906,9 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 									step={1}
 									value={viewportDraft[dimension]}
 									disabled={viewportPending}
-									onChange={(event) => setViewportDraft((current) => ({ ...current, [dimension]: event.target.value }))}
+									onChange={(event) =>
+										setViewportDraft((current) => ({ ...current, [dimension]: event.target.value }))
+									}
 									onBlur={submitViewport}
 									onKeyDown={(event) => {
 										if (event.key === "Enter") {
@@ -851,13 +927,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						title={page.viewport.width > 2160 ? t("browser.rotateBlocked") : t("browser.rotate")}
 						disabled={viewportPending || page.viewport.width > 2160}
 						onClick={() =>
-								applyViewport(
-									page.viewport.height,
-									page.viewport.width,
-									viewportPreset,
-									VIEWPORT_PRESETS.find((candidate) => candidate.label === viewportPreset)?.device,
-								)
-							}
+							applyViewport(
+								page.viewport.height,
+								page.viewport.width,
+								viewportPreset,
+								VIEWPORT_PRESETS.find((candidate) => candidate.label === viewportPreset)?.device,
+							)
+						}
 					>
 						<svg
 							viewBox="0 0 16 16"
@@ -878,7 +954,10 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 						value={String(zoom)}
 						onChange={(event) => setZoom(event.target.value === "auto" ? "auto" : Number(event.target.value))}
 					>
-						<option value="auto">{t("browser.fit")}{scale ? ` ${Math.round(scale * 100)}%` : ""}</option>
+						<option value="auto">
+							{t("browser.fit")}
+							{scale ? ` ${Math.round(scale * 100)}%` : ""}
+						</option>
 						{ZOOM_LEVELS.map((level) => (
 							<option key={level} value={String(level)}>
 								{Math.round(level * 100)}%
@@ -918,9 +997,7 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 			{!page ? (
 				<div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
 					<p className="text-sm text-owl-muted">{t("browser.embeddedTitle")}</p>
-					<p className="max-w-sm text-xs leading-relaxed text-owl-faint">
-						{t("browser.embeddedDesc")}
-					</p>
+					<p className="max-w-sm text-xs leading-relaxed text-owl-faint">{t("browser.embeddedDesc")}</p>
 					<div className="mt-1 flex flex-wrap justify-center gap-2">
 						{QUICK_URLS.map((candidate) => (
 							<button
@@ -965,14 +1042,20 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 					)}
 				</div>
 			) : (
-				<div ref={stageRef} className="owl-browser-stage relative min-h-0 flex-1 overflow-auto bg-black/40">
+				// 适应缩放下内容永远贴合舞台，overflow-hidden 把拖动窗口时 state 慢一拍
+				// 的瞬时溢出直接裁掉：不冒滚动条，画面就没有可震荡的东西。固定缩放才
+				// 真的需要滚动（overflow-auto），且那时内容尺寸不随舞台变，滚动条稳定。
+				<div
+					ref={stageRef}
+					className={`owl-browser-stage relative min-h-0 flex-1 bg-black/40 ${zoom === "auto" ? "overflow-hidden" : "overflow-auto"}`}
+				>
 					{frameSize && scale ? (
+						// 填满舞台交给 CSS（width/height:100%）：内容超了用 min-* 撑出滚动区。
+						// 早先用 JS 量的 clientWidth 定宽，整数与亚像素布局差出的零点几像素
+						// 会反复触发滚动条出现/消失，拖动窗口时画面跟着抖。
 						<div
-							style={{
-								position: "relative",
-								width: Math.max(stageSize.width, frameSize.width * scale),
-								height: Math.max(stageSize.height, frameSize.height * scale),
-							}}
+							className="owl-browser-fit"
+							style={{ minWidth: frameSize.width * scale, minHeight: frameSize.height * scale }}
 						>
 							<div
 								ref={surfaceRef}
@@ -996,7 +1079,13 @@ export function BrowserTab({ api, tab, store, client }: TabComponentProps): Reac
 								onMouseUp={(e) => {
 									const coords = toPageCoords(e.clientX, e.clientY);
 									if (!coords) return;
-									sendInput({ kind: "mouse", action: "up", x: coords.x, y: coords.y, button: mouseButtonOf(e.button) });
+									sendInput({
+										kind: "mouse",
+										action: "up",
+										x: coords.x,
+										y: coords.y,
+										button: mouseButtonOf(e.button),
+									});
 								}}
 								onMouseMove={(e) => {
 									const now = Date.now();

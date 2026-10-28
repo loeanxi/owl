@@ -27,7 +27,10 @@ const PAD_TOP = 18;
 const BAR_W = 14;
 const GAP = 2;
 const SLOT = BAR_W + GAP;
-const TURN_FILLS = ["color-mix(in srgb, var(--color-owl-faint) 22%, transparent)", "color-mix(in srgb, var(--color-owl-faint) 12%, transparent)"];
+const TURN_FILLS = [
+	"color-mix(in srgb, var(--color-owl-faint) 22%, transparent)",
+	"color-mix(in srgb, var(--color-owl-faint) 12%, transparent)",
+];
 
 export type Granularity = "step" | "turn";
 export type TrendMode = "total" | "delta";
@@ -120,7 +123,8 @@ export function TrendCard({
 		if (scroller && pinnedToEnd.current) scroller.scrollLeft = scroller.scrollWidth;
 	}, [bars.length, granularity]);
 
-	const indexOfSeq = (seq: number | null): number => (seq === null ? -1 : bars.findIndex((bar) => bar.row.seq === seq));
+	const indexOfSeq = (seq: number | null): number =>
+		seq === null ? -1 : bars.findIndex((bar) => bar.row.seq === seq);
 	const hoveredIndex = indexOfSeq(hoveredSeq);
 	const pinnedIndex = indexOfSeq(selectedSeq);
 	const activeIndex = hoveredIndex >= 0 ? hoveredIndex : pinnedIndex >= 0 ? pinnedIndex : bars.length - 1;
@@ -171,7 +175,10 @@ export function TrendCard({
 
 	const axisLabels =
 		mode === "total"
-			? [1, 0.75, 0.5, 0.25, 0].map((frac) => ({ top: PAD_TOP + PLOT * (1 - frac), text: fmtTokens(scale.max * frac) }))
+			? [1, 0.75, 0.5, 0.25, 0].map((frac) => ({
+					top: PAD_TOP + PLOT * (1 - frac),
+					text: fmtTokens(scale.max * frac),
+				}))
 			: [
 					{ top: PAD_TOP, text: scale.up > 0 ? `+${fmtTokens(scale.up)}` : "" },
 					{ top: PAD_TOP + zeroFromTop, text: "0" },
@@ -292,7 +299,10 @@ export function TrendCard({
 																		key={cat.key}
 																		className="ctx-cat-seg"
 																		data-cat={cat.key}
-																		style={{ height: (value / scale.max) * PLOT, background: cat.color }}
+																		style={{
+																			height: (value / scale.max) * PLOT,
+																			background: cat.color,
+																		}}
 																	/>
 																);
 															})}
@@ -306,7 +316,10 @@ export function TrendCard({
 																		key={cat.key}
 																		className="ctx-cat-seg"
 																		data-cat={cat.key}
-																		style={{ height: (-value / scale.max) * PLOT, background: cat.color }}
+																		style={{
+																			height: (-value / scale.max) * PLOT,
+																			background: cat.color,
+																		}}
 																	/>
 																);
 															})}
@@ -314,7 +327,10 @@ export function TrendCard({
 													</>
 												)}
 												{marker && (
-													<span className="ctx-bar-marker" title={marker.map((event) => event.label).join("\n")}>
+													<span
+														className="ctx-bar-marker"
+														title={marker.map((event) => event.label).join("\n")}
+													>
 														✂
 													</span>
 												)}
@@ -490,31 +506,60 @@ function RequestDetail({
 							Δ {fmtSigned(row.totalTokens - (prev?.row.totalTokens ?? 0))}
 						</span>
 					)}
-					{bar.duration !== undefined && <span className="ctx-detail-metric">耗时 {fmtDuration(bar.duration)}</span>}
+					{bar.duration !== undefined && (
+						<span className="ctx-detail-metric">耗时 {fmtDuration(bar.duration)}</span>
+					)}
 				</div>
 			</div>
 
 			<div className="ctx-brief">
-				<button type="button" className="ctx-brief-row ctx-brief-row-link" onClick={() => onLocate({ seq: row.seq, cat: "user" })}>
+				<button
+					type="button"
+					className="ctx-brief-row ctx-brief-row-link"
+					onClick={() => onLocate({ seq: row.seq, cat: "user" })}
+				>
 					<span className="ctx-brief-tag" title="这一轮开场时用户发送的消息；回合内的每一步都会回显同一条">
 						本轮
 					</span>
-					{brief?.user ? <span className="ctx-brief-text">{brief.user}</span> : <span className="ctx-brief-empty">—</span>}
+					{brief?.user ? (
+						<span className="ctx-brief-text">{brief.user}</span>
+					) : (
+						<span className="ctx-brief-empty">—</span>
+					)}
 				</button>
-				<button type="button" className="ctx-brief-row ctx-brief-row-link" onClick={() => onLocate({ seq: row.seq, cat: "toolResult" })}>
+				<button
+					type="button"
+					className="ctx-brief-row ctx-brief-row-link"
+					onClick={() => onLocate({ seq: row.seq, cat: "toolResult" })}
+				>
 					<span
 						className="ctx-brief-tag"
 						title="上一步回复之后、本次请求发出前新进入上下文的内容——通常是上一步所调工具的结果；每轮的第一步无新增"
 					>
 						输入
 					</span>
-					{brief && brief.inbound.length > 0 ? <BriefChips items={brief.inbound} /> : <span className="ctx-brief-empty">（无新增）</span>}
+					{brief && brief.inbound.length > 0 ? (
+						<BriefChips items={brief.inbound} />
+					) : (
+						<span className="ctx-brief-empty">（无新增）</span>
+					)}
 				</button>
-				<button type="button" className="ctx-brief-row ctx-brief-row-link" onClick={() => onLocate({ seq: nextSeq, cat: "assistant" })}>
-					<span className="ctx-brief-tag" title="这一步模型返回的内容（文本回复或工具调用）；此步发起的调用，其结果会出现在下一柱的「输入」行">
+				<button
+					type="button"
+					className="ctx-brief-row ctx-brief-row-link"
+					onClick={() => onLocate({ seq: nextSeq, cat: "assistant" })}
+				>
+					<span
+						className="ctx-brief-tag"
+						title="这一步模型返回的内容（文本回复或工具调用）；此步发起的调用，其结果会出现在下一柱的「输入」行"
+					>
 						回复
 					</span>
-					{brief && brief.response.length > 0 ? <BriefChips items={brief.response} /> : <span className="ctx-brief-empty">—</span>}
+					{brief && brief.response.length > 0 ? (
+						<BriefChips items={brief.response} />
+					) : (
+						<span className="ctx-brief-empty">—</span>
+					)}
 				</button>
 			</div>
 
@@ -533,7 +578,10 @@ function RequestDetail({
 							<span className="ctx-detail-label">{cat.label}</span>
 							<span className="ctx-bar-track">
 								{delta === undefined ? (
-									<span className="ctx-bar-fill" style={{ width: `${(value / total) * 100}%`, background: cat.color }} />
+									<span
+										className="ctx-bar-fill"
+										style={{ width: `${(value / total) * 100}%`, background: cat.color }}
+									/>
 								) : (
 									<>
 										<span className="ctx-bar-zero" />
@@ -551,7 +599,9 @@ function RequestDetail({
 								</>
 							) : (
 								<>
-									<span className={`ctx-detail-num ${delta > 0 ? "ctx-detail-num-up" : delta < 0 ? "ctx-detail-num-down" : ""}`}>
+									<span
+										className={`ctx-detail-num ${delta > 0 ? "ctx-detail-num-up" : delta < 0 ? "ctx-detail-num-down" : ""}`}
+									>
 										{fmtSigned(delta)}
 									</span>
 									<span className="ctx-detail-pct">≈{fmtTokens(value)}</span>

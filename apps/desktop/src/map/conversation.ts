@@ -1,5 +1,4 @@
 import type { BridgeClient } from "../bridge/client.ts";
-import { SessionWatch } from "../bridge/session-watch.ts";
 import type {
 	ApprovalMode,
 	DesktopClientRequestWithoutId,
@@ -10,6 +9,7 @@ import type {
 	ServerEventMessage,
 	SessionRunningResult,
 } from "../bridge/protocol.ts";
+import { SessionWatch } from "../bridge/session-watch.ts";
 import { applyEvent, type ChatEntry, rebuild } from "../hooks/transcript.ts";
 import type { DeviceLocation } from "./device-location.ts";
 import type { ConfiguredMapLocation } from "./live-model.ts";

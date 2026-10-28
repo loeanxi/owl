@@ -1,14 +1,14 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { setUiLanguage, t } from "../i18n/index.ts";
 import { ChatStream } from "./ChatStream.tsx";
+import { messageElement, messageMatchRanges } from "./chat-message-navigation.ts";
 import { MessageCopyButton, MessageMoreMenu } from "./MessageActions.tsx";
 import { messageActionsText as copy } from "./message-actions-copy.ts";
-import { messageElement, messageMatchRanges } from "./chat-message-navigation.ts";
 
 vi.mock("./OwlMascot.tsx", () => ({ OwlMascot: () => null, useSessionOwlPose: () => "idle" }));
 
@@ -21,9 +21,16 @@ class MessageRange {
 	startContainer?: Node;
 	startOffset = 0;
 	endOffset = 0;
-	setStart(node: Node, offset: number): void { this.startContainer = node; this.startOffset = offset; }
-	setEnd(_node: Node, offset: number): void { this.endOffset = offset; }
-	toString(): string { return this.startContainer?.textContent?.slice(this.startOffset, this.endOffset) ?? ""; }
+	setStart(node: Node, offset: number): void {
+		this.startContainer = node;
+		this.startOffset = offset;
+	}
+	setEnd(_node: Node, offset: number): void {
+		this.endOffset = offset;
+	}
+	toString(): string {
+		return this.startContainer?.textContent?.slice(this.startOffset, this.endOffset) ?? "";
+	}
 }
 
 beforeEach(() => {
@@ -37,23 +44,55 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	vi.stubGlobal("requestAnimationFrame", (callback: () => void) => setTimeout(callback, 0));
 	vi.stubGlobal("cancelAnimationFrame", (id: ReturnType<typeof setTimeout>) => clearTimeout(id));
 	writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
 	vi.stubGlobal("navigator", { clipboard: { writeText } });
 	active = null;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
-	dom.window.HTMLElement.prototype.focus = function (): void { active = this; };
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 32, top: 0, left: 0, right: 800, bottom: 32, toJSON: () => ({}) });
-	dom.window.HTMLElement.prototype.getClientRects = function (): DOMRectList { return [this.getBoundingClientRect()] as unknown as DOMRectList; };
+	dom.window.HTMLElement.prototype.focus = function (): void {
+		active = this;
+	};
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 800,
+		height: 32,
+		top: 0,
+		left: 0,
+		right: 800,
+		bottom: 32,
+		toJSON: () => ({}),
+	});
+	dom.window.HTMLElement.prototype.getClientRects = function (): DOMRectList {
+		return [this.getBoundingClientRect()] as unknown as DOMRectList;
+	};
 	dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-	dom.window.getSelection = () => ({ anchorNode: null, anchorOffset: 0, focusNode: null, focusOffset: 0, rangeCount: 0, toString: () => "" }) as unknown as Selection;
+	dom.window.getSelection = () =>
+		({
+			anchorNode: null,
+			anchorOffset: 0,
+			focusNode: null,
+			focusOffset: 0,
+			rangeCount: 0,
+			toString: () => "",
+		}) as unknown as Selection;
 	vi.spyOn(document, "createRange").mockImplementation(() => new MessageRange() as unknown as Range);
 	// The Node React renderer uses its input polyfill because it loaded before the DOM.
 	Object.assign(dom.window.HTMLTextAreaElement.prototype, {
-		attachEvent(this: HTMLElement, name: string, listener: EventListener) { this.addEventListener(name.replace(/^on/, ""), listener); },
-		detachEvent(this: HTMLElement, name: string, listener: EventListener) { this.removeEventListener(name.replace(/^on/, ""), listener); },
+		attachEvent(this: HTMLElement, name: string, listener: EventListener) {
+			this.addEventListener(name.replace(/^on/, ""), listener);
+		},
+		detachEvent(this: HTMLElement, name: string, listener: EventListener) {
+			this.removeEventListener(name.replace(/^on/, ""), listener);
+		},
 	});
 	setUiLanguage("zh");
 	host = dom.document.getElementById("root")!;
@@ -77,7 +116,11 @@ async function click(button: HTMLElement): Promise<void> {
 
 async function key(target: HTMLElement, value: string, shiftKey = false, isComposing = false): Promise<Event> {
 	const event = new window.Event("keydown", { bubbles: true, cancelable: true });
-	Object.defineProperties(event, { key: { value }, shiftKey: { value: shiftKey }, isComposing: { value: isComposing } });
+	Object.defineProperties(event, {
+		key: { value },
+		shiftKey: { value: shiftKey },
+		isComposing: { value: isComposing },
+	});
 	await act(async () => {
 		if (target.tagName === "TEXTAREA") {
 			target.focus();
@@ -89,7 +132,9 @@ async function key(target: HTMLElement, value: string, shiftKey = false, isCompo
 }
 
 function buttonWithin(element: ParentNode, label: string): HTMLButtonElement {
-	const button = [...element.querySelectorAll<HTMLButtonElement>("button")].find((candidate) => candidate.getAttribute("aria-label") === label || candidate.textContent === label);
+	const button = [...element.querySelectorAll<HTMLButtonElement>("button")].find(
+		(candidate) => candidate.getAttribute("aria-label") === label || candidate.textContent === label,
+	);
 	if (!button) throw new Error(`Missing button: ${label}`);
 	return button;
 }
@@ -104,7 +149,10 @@ describe("Acknowledged message copy", () => {
 		writeText.mockReturnValueOnce(pending.promise);
 		const text = '  **中文**\n\n`src/main.ts` <tag attr="value">\n\t原样保留\n';
 		await render(<MessageCopyButton text={text} label="复制消息" identity="message-one" />);
-		await act(async () => { copyButton().click(); copyButton().click(); });
+		await act(async () => {
+			copyButton().click();
+			copyButton().click();
+		});
 		expect(writeText).toHaveBeenCalledExactlyOnceWith(text);
 		expect(copyButton().getAttribute("aria-busy")).toBe("true");
 		expect(copyButton().disabled).toBe(true);
@@ -184,11 +232,16 @@ describe("Message action menu keyboard and dismissal", () => {
 	it("skips disabled items with arrows, supports Home/End and restores trigger focus on Escape", async () => {
 		const branch = vi.fn();
 		const blocked = vi.fn();
-		await render(<MessageMoreMenu label="更多消息操作" items={[
-			{ id: "branch", label: "分支", onSelect: branch },
-			{ id: "blocked", label: "不可用", onSelect: blocked, disabled: true },
-			{ id: "another", label: "另一项", onSelect: vi.fn() },
-		]} />);
+		await render(
+			<MessageMoreMenu
+				label="更多消息操作"
+				items={[
+					{ id: "branch", label: "分支", onSelect: branch },
+					{ id: "blocked", label: "不可用", onSelect: blocked, disabled: true },
+					{ id: "another", label: "另一项", onSelect: vi.fn() },
+				]}
+			/>,
+		);
 		const trigger = moreTrigger();
 		trigger.focus();
 		await key(trigger, "ArrowDown");
@@ -211,7 +264,15 @@ describe("Message action menu keyboard and dismissal", () => {
 	it("selects exactly one action with Enter or Space and closes back to the trigger", async () => {
 		const branch = vi.fn();
 		const regenerate = vi.fn();
-		await render(<MessageMoreMenu label="更多消息操作" items={[{ id: "branch", label: "分支", onSelect: branch }, { id: "regen", label: "重新生成", onSelect: regenerate }]} />);
+		await render(
+			<MessageMoreMenu
+				label="更多消息操作"
+				items={[
+					{ id: "branch", label: "分支", onSelect: branch },
+					{ id: "regen", label: "重新生成", onSelect: regenerate },
+				]}
+			/>,
+		);
 		const trigger = moreTrigger();
 		await click(trigger);
 		await key(buttonWithin(host, "分支"), "Enter");
@@ -229,7 +290,9 @@ describe("Message action menu keyboard and dismissal", () => {
 
 	it("dismisses on an outside pointer action without stealing focus from the clicked control", async () => {
 		const branch = vi.fn();
-		await render(<MessageMoreMenu label="更多消息操作" items={[{ id: "branch", label: "分支", onSelect: branch }]} />);
+		await render(
+			<MessageMoreMenu label="更多消息操作" items={[{ id: "branch", label: "分支", onSelect: branch }]} />,
+		);
 		const trigger = moreTrigger();
 		await click(trigger);
 		expect(host.querySelector('[role="menu"]')).not.toBeNull();
@@ -244,7 +307,9 @@ describe("Message action menu keyboard and dismissal", () => {
 
 	it("lets Tab leave the menu and Shift+Tab return to its trigger using real focus transitions", async () => {
 		const branch = vi.fn();
-		await render(<MessageMoreMenu label="更多消息操作" items={[{ id: "branch", label: "分支", onSelect: branch }]} />);
+		await render(
+			<MessageMoreMenu label="更多消息操作" items={[{ id: "branch", label: "分支", onSelect: branch }]} />,
+		);
 		const trigger = moreTrigger();
 		const outside = document.createElement("button");
 		document.body.append(outside);
@@ -292,7 +357,13 @@ describe("Message action menu keyboard and dismissal", () => {
 type ChatProps = React.ComponentProps<typeof ChatStream>;
 function entries(): ChatEntry[] {
 	return [
-		{ kind: "user", entryId: "user-entry", text: "查看 D:/project/source.ts 与原始材料", attachedPaths: ["D:/project/material.md"], images: [{ mimeType: "image/png", data: "original-image" }] },
+		{
+			kind: "user",
+			entryId: "user-entry",
+			text: "查看 D:/project/source.ts 与原始材料",
+			attachedPaths: ["D:/project/material.md"],
+			images: [{ mimeType: "image/png", data: "original-image" }],
+		},
 		{ kind: "assistant", entryId: "answer-entry", text: "**原始答案**\n\n下一行", thinking: "", tools: [] },
 	];
 }
@@ -307,14 +378,14 @@ async function changeDraft(input: HTMLTextAreaElement, value: string): Promise<v
 }
 
 describe("Message actions in the real chat timeline", () => {
-	it("keeps copy and regenerate direct while selecting a branch only through More", async () => {
+	it("keeps copy, the thumbs, regenerate, and branch direct on the message footer", async () => {
 		const messages = entries();
 		messages[1]!.timestamp = Date.now();
 		const props: ChatProps = { entries: messages, sessionId: "session", onRegenerate: vi.fn(), onBranch: vi.fn() };
 		await render(<ChatStream {...props} />);
 		const footer = host.querySelector<HTMLElement>(".owl-msg-actions")!;
 		const actions = [...footer.querySelectorAll<HTMLButtonElement>("button")];
-		expect(actions).toHaveLength(3);
+		expect(actions).toHaveLength(5);
 		for (const action of actions) {
 			expect(action.textContent).toBe("");
 			expect(action.querySelector("svg")).not.toBeNull();
@@ -325,11 +396,18 @@ describe("Message actions in the real chat timeline", () => {
 		expect(footer.title).toBe(t("chat.justNow"));
 		expect(buttonWithin(footer, t("chat.msgCopy"))).toBeDefined();
 		expect(buttonWithin(footer, t("chat.msgRegenerate"))).toBeDefined();
-		expect([...footer.querySelectorAll("button")].some((button) => button.getAttribute("aria-label") === t("chat.msgBranch"))).toBe(false);
+		expect(buttonWithin(footer, t("chat.msgBranch"))).toBeDefined();
+		// 赞/跌排在复制之后、重新生成之前 —— Claude 的操作栏顺序。
+		expect(actions.map((action) => action.getAttribute("aria-label"))).toEqual([
+			t("chat.msgCopy"),
+			t("chat.msgLike"),
+			t("chat.msgDislike"),
+			t("chat.msgRegenerate"),
+			t("chat.msgBranch"),
+		]);
 		await click(buttonWithin(footer, t("chat.msgCopy")));
 		expect(writeText).toHaveBeenCalledExactlyOnceWith("**原始答案**\n\n下一行");
-		await click(footer.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!);
-		await click(buttonWithin(host, t("chat.msgBranch")));
+		await click(buttonWithin(footer, t("chat.msgBranch")));
 		expect(props.onBranch).toHaveBeenCalledExactlyOnceWith("answer-entry");
 		expect(props.onRegenerate).not.toHaveBeenCalled();
 		await click(buttonWithin(footer, t("chat.msgRegenerate")));
@@ -350,7 +428,9 @@ describe("Message actions in the real chat timeline", () => {
 		await changeDraft(input, "修改后的任务\n保留第二行");
 		const enter = await key(input, "Enter");
 		expect(enter.defaultPrevented).toBe(true);
-		expect(props.onEditMessage).toHaveBeenCalledExactlyOnceWith("user-entry", "修改后的任务\n保留第二行", [{ mimeType: "image/png", data: "original-image" }]);
+		expect(props.onEditMessage).toHaveBeenCalledExactlyOnceWith("user-entry", "修改后的任务\n保留第二行", [
+			{ mimeType: "image/png", data: "original-image" },
+		]);
 		expect(host.querySelector("textarea")).toBeNull();
 		await click(buttonWithin(host, t("chat.msgEdit")));
 		input = host.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -369,10 +449,26 @@ describe("Message actions in the real chat timeline", () => {
 	});
 
 	it("keeps busy restrictions and places user actions after an intact body with attachment controls", async () => {
-		const props: ChatProps = { entries: entries(), sessionId: "session", cwd: "D:/project", activity: "working", onEditMessage: vi.fn(), onRegenerate: vi.fn(), onRewind: vi.fn() };
+		const props: ChatProps = {
+			entries: entries(),
+			sessionId: "session",
+			cwd: "D:/project",
+			activity: "working",
+			onEditMessage: vi.fn(),
+			onRegenerate: vi.fn(),
+			onRewind: vi.fn(),
+		};
 		await render(<ChatStream {...props} />);
-		expect([...host.querySelectorAll("button")].some((button) => button.getAttribute("aria-label") === t("chat.msgEdit") && !button.disabled)).toBe(false);
-		expect([...host.querySelectorAll("button")].some((button) => button.getAttribute("aria-label") === t("chat.msgRegenerate") && !button.disabled)).toBe(false);
+		expect(
+			[...host.querySelectorAll("button")].some(
+				(button) => button.getAttribute("aria-label") === t("chat.msgEdit") && !button.disabled,
+			),
+		).toBe(false);
+		expect(
+			[...host.querySelectorAll("button")].some(
+				(button) => button.getAttribute("aria-label") === t("chat.msgRegenerate") && !button.disabled,
+			),
+		).toBe(false);
 		const user = host.querySelector<HTMLElement>(".owl-user-row")!;
 		const bubble = user.querySelector<HTMLElement>(".owl-user-bubble")!;
 		const toolbar = user.querySelector<HTMLElement>(".owl-user-actions")!;
@@ -409,7 +505,9 @@ describe("Message actions in the real chat timeline", () => {
 		expect(host.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("保留这份编辑草稿");
 		await render(<ChatStream {...props} activity="idle" />);
 		await key(host.querySelector<HTMLTextAreaElement>("textarea")!, "Enter");
-		expect(props.onEditMessage).toHaveBeenCalledExactlyOnceWith("user-entry", "保留这份编辑草稿", [{ mimeType: "image/png", data: "original-image" }]);
+		expect(props.onEditMessage).toHaveBeenCalledExactlyOnceWith("user-entry", "保留这份编辑草稿", [
+			{ mimeType: "image/png", data: "original-image" },
+		]);
 	});
 
 	it("keeps copy feedback and edit impact out of literal message search without losing body matches", async () => {

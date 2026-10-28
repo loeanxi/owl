@@ -4,8 +4,8 @@
  * JSON，8MB 内的 base64 本地回环传输成本可接受。）
  */
 import { useEffect, useRef, useState } from "react";
-import type { TabComponentProps } from "../registry.ts";
 import { IconLoader } from "../icons.tsx";
+import type { TabComponentProps } from "../registry.ts";
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
 
@@ -81,7 +81,10 @@ export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JS
 	// 缩放走布局尺寸（width/height = 适配基准 × zoom），不能用 transform: scale——
 	// transform 的向上/向左溢出进不了滚动区，放大后图片顶部/左侧永远看不到。
 	const usable =
-		natural !== undefined && stage !== undefined && stage.width > STAGE_PADDING * 2 && stage.height > STAGE_PADDING * 2
+		natural !== undefined &&
+		stage !== undefined &&
+		stage.width > STAGE_PADDING * 2 &&
+		stage.height > STAGE_PADDING * 2
 			? Math.min(
 					(stage.width - STAGE_PADDING * 2) / natural.width,
 					(stage.height - STAGE_PADDING * 2) / natural.height,
@@ -115,14 +118,28 @@ export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JS
 				<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-owl-faint" title={path}>
 					{path}
 				</span>
-				<button type="button" className="rounded px-1.5 py-0.5 text-xs text-owl-muted hover:bg-owl-hover" onClick={() => setZoom(ZOOM_STEPS[Math.max(0, step - 1)] ?? 0.25)} disabled={step <= 0}>
+				<button
+					type="button"
+					className="rounded px-1.5 py-0.5 text-xs text-owl-muted hover:bg-owl-hover"
+					onClick={() => setZoom(ZOOM_STEPS[Math.max(0, step - 1)] ?? 0.25)}
+					disabled={step <= 0}
+				>
 					−
 				</button>
 				<span className="w-10 text-center text-[11px] text-owl-faint">{Math.round(zoom * 100)}%</span>
-				<button type="button" className="rounded px-1.5 py-0.5 text-xs text-owl-muted hover:bg-owl-hover" onClick={() => setZoom(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, step + 1)] ?? 3)} disabled={step >= ZOOM_STEPS.length - 1}>
+				<button
+					type="button"
+					className="rounded px-1.5 py-0.5 text-xs text-owl-muted hover:bg-owl-hover"
+					onClick={() => setZoom(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, step + 1)] ?? 3)}
+					disabled={step >= ZOOM_STEPS.length - 1}
+				>
 					+
 				</button>
-				<button type="button" className="rounded px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover" onClick={() => setZoom(1)}>
+				<button
+					type="button"
+					className="rounded px-1.5 py-0.5 text-[11px] text-owl-muted hover:bg-owl-hover"
+					onClick={() => setZoom(1)}
+				>
 					适应
 				</button>
 			</div>
@@ -133,7 +150,9 @@ export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JS
 				ref={stageRef}
 				className="flex min-h-0 flex-1 overflow-auto bg-[repeating-conic-gradient(#2f2e2b_0%_25%,#262624_0%_50%)] bg-[length:16px_16px]"
 			>
-				{src === undefined && error === undefined && <IconLoader size={20} className="m-auto animate-spin text-owl-faint" />}
+				{src === undefined && error === undefined && (
+					<IconLoader size={20} className="m-auto animate-spin text-owl-faint" />
+				)}
 				{src !== undefined && (
 					// display 依赖图片原始尺寸：尺寸未就绪时先隐藏渲染（display:none 也照常解码触发 onLoad）
 					<div className="m-auto p-4" style={display === undefined ? { display: "none" } : undefined}>
@@ -144,7 +163,11 @@ export function ImageTab({ api, client, cwd, tab }: TabComponentProps): React.JS
 							onLoad={(event) => syncNatural(event.currentTarget)}
 							// 内联尺寸并关掉 max-width：Tailwind Preflight 给 img 的
 							// max-width:100%/height:auto 会把放大尺寸压回容器宽
-							style={display === undefined ? undefined : { width: display.width, height: display.height, maxWidth: "none" }}
+							style={
+								display === undefined
+									? undefined
+									: { width: display.width, height: display.height, maxWidth: "none" }
+							}
 							className="block select-none"
 						/>
 					</div>

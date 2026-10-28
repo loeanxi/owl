@@ -17,8 +17,9 @@ it("keeps startup waiting until the native glass backing is ready", async () => 
 	const backing = Promise.withResolvers<void>();
 	vi.mocked(invoke).mockReturnValueOnce(backing.promise);
 	let ready = false;
-	const prepared = Promise.resolve(syncWindowGlass({ preset: "liquid-glass", glass: "acrylic" }))
-		.then(() => { ready = true; });
+	const prepared = Promise.resolve(syncWindowGlass({ preset: "liquid-glass", glass: "acrylic" })).then(() => {
+		ready = true;
+	});
 	await Promise.resolve();
 	expect(ready).toBe(false);
 	backing.resolve();
@@ -31,8 +32,9 @@ it("shares the native readiness wait when startup effects request the same glass
 	vi.mocked(invoke).mockReturnValueOnce(backing.promise);
 	const first = syncWindowGlass({ preset: "liquid-glass", glass: "blur" });
 	let repeatedReady = false;
-	const repeated = syncWindowGlass({ preset: "liquid-glass", glass: "blur" })
-		.then(() => { repeatedReady = true; });
+	const repeated = syncWindowGlass({ preset: "liquid-glass", glass: "blur" }).then(() => {
+		repeatedReady = true;
+	});
 	await Promise.resolve();
 	expect(repeatedReady).toBe(false);
 	backing.resolve();

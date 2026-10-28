@@ -45,22 +45,26 @@ export function attachManagerTheme(options: {
 		const frame = options.frameWindow();
 		if (!frame) return;
 		const style = options.host.getComputedStyle(options.surface);
-		const color = (name: string, fallback: string): string => style.getPropertyValue(name).trim() || style.getPropertyValue(fallback).trim();
-		frame.postMessage({
-			type: "owl:theme",
-			theme: resolveSurfaceTheme(options.root.dataset),
-			colors: {
-				canvas: color("--owl-ui-canvas", "--color-owl-bg"),
-				panel: color("--owl-ui-panel", "--color-owl-panel"),
-				sidebar: color("--owl-ui-sidebar", "--color-owl-sidebar"),
-				hover: color("--owl-ui-hover", "--color-owl-hover"),
-				border: color("--owl-ui-border", "--color-owl-border"),
-				text: color("--owl-ui-text", "--color-owl-text"),
-				muted: color("--owl-ui-muted", "--color-owl-muted"),
-				accent: style.getPropertyValue("--color-owl-accent").trim(),
-				accentHover: style.getPropertyValue("--color-owl-accent-hover").trim(),
+		const color = (name: string, fallback: string): string =>
+			style.getPropertyValue(name).trim() || style.getPropertyValue(fallback).trim();
+		frame.postMessage(
+			{
+				type: "owl:theme",
+				theme: resolveSurfaceTheme(options.root.dataset),
+				colors: {
+					canvas: color("--owl-ui-canvas", "--color-owl-bg"),
+					panel: color("--owl-ui-panel", "--color-owl-panel"),
+					sidebar: color("--owl-ui-sidebar", "--color-owl-sidebar"),
+					hover: color("--owl-ui-hover", "--color-owl-hover"),
+					border: color("--owl-ui-border", "--color-owl-border"),
+					text: color("--owl-ui-text", "--color-owl-text"),
+					muted: color("--owl-ui-muted", "--color-owl-muted"),
+					accent: style.getPropertyValue("--color-owl-accent").trim(),
+					accentHover: style.getPropertyValue("--color-owl-accent-hover").trim(),
+				},
 			},
-		}, origin);
+			origin,
+		);
 	};
 	const scheduleSync = (): void => {
 		if (!active || scheduled) return;
@@ -79,13 +83,21 @@ export function attachManagerTheme(options: {
 			sync();
 		} else if (data.type === "owl:theme:set" && (data.theme === "dark" || data.theme === "light")) {
 			const theme = data.theme;
-			void Promise.resolve().then(() => { if (active) return options.onThemeChange(theme); }).then(sync, sync);
+			void Promise.resolve()
+				.then(() => {
+					if (active) return options.onThemeChange(theme);
+				})
+				.then(sync, sync);
 		}
 	};
 	const observer = new MutationObserver(scheduleSync);
-	observer.observe(options.root, { attributes: true, attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme", "style"] });
+	observer.observe(options.root, {
+		attributes: true,
+		attributeFilter: ["data-owl-theme", "data-owl-preset", "data-owl-wallpaper", "data-owl-glass-theme", "style"],
+	});
 	const shell = options.surface.closest(".owl-desktop-shell");
-	if (shell && shell !== options.root) observer.observe(shell, { attributes: true, attributeFilter: ["class", "style"] });
+	if (shell && shell !== options.root)
+		observer.observe(shell, { attributes: true, attributeFilter: ["class", "style"] });
 	options.host.addEventListener("message", listener);
 	options.host.addEventListener("owl-theme-change", scheduleSync);
 	sync();

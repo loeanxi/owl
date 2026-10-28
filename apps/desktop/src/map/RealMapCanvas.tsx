@@ -140,11 +140,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 			});
 			tiles.addTo(map);
 			const resize = new ResizeObserver(() => {
-				if (
-					!propsRef.current.active ||
-					!containerRef.current?.clientWidth ||
-					!containerRef.current.clientHeight
-				)
+				if (!propsRef.current.active || !containerRef.current?.clientWidth || !containerRef.current.clientHeight)
 					return;
 				const preservedCenter = map.getCenter();
 				map.invalidateSize({ pan: false, debounceMoveend: true });
@@ -172,11 +168,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 		const map = mapRef.current;
 		if (!map || map !== mapInstance) return;
 		const animationFrame = window.requestAnimationFrame(() => {
-			if (
-				!propsRef.current.active ||
-				!containerRef.current?.clientWidth ||
-				!containerRef.current.clientHeight
-			)
+			if (!propsRef.current.active || !containerRef.current?.clientWidth || !containerRef.current.clientHeight)
 				return;
 			const preservedCenter = map.getCenter();
 			map.invalidateSize({ pan: false, debounceMoveend: true });
@@ -189,10 +181,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 		const map = mapRef.current;
 		if (!map || map !== mapInstance) return;
 		const current = map.getCenter();
-		if (
-			Math.abs(current.lat - props.center.lat) > 0.000001 ||
-			Math.abs(current.lng - props.center.lng) > 0.000001
-		)
+		if (Math.abs(current.lat - props.center.lat) > 0.000001 || Math.abs(current.lng - props.center.lng) > 0.000001)
 			map.setView([props.center.lat, props.center.lng], map.getZoom(), { animate: false });
 	}, [props.center.lat, props.center.lng, mapInstance]);
 
@@ -287,11 +276,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 		)
 			return;
 		const animationFrame = window.requestAnimationFrame(() => {
-			if (
-				!propsRef.current.active ||
-				!containerRef.current?.clientWidth ||
-				!containerRef.current.clientHeight
-			)
+			if (!propsRef.current.active || !containerRef.current?.clientWidth || !containerRef.current.clientHeight)
 				return;
 			// Revealing the same selection preserves a user's pan; only a new target brings it into view.
 			visibleSelectionRef.current = { map, id: selected.id, lat: selected.lat, lng: selected.lng };
@@ -306,10 +291,7 @@ export function RealMapCanvas(props: RealMapCanvasProps): JSX.Element {
 
 	const labels = props.labels;
 	return (
-		<section
-			className={`owl-real-map-canvas${props.detailOpen ? " has-detail" : ""}`}
-			aria-label={labels.mapLabel}
-		>
+		<section className={`owl-real-map-canvas${props.detailOpen ? " has-detail" : ""}`} aria-label={labels.mapLabel}>
 			<div className="owl-real-map-viewport" ref={containerRef} />
 			<div className="real-map-search-control">
 				<button

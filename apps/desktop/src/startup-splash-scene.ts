@@ -673,7 +673,7 @@ function drawEyes(ctx: SplashContext, t: number): void {
 					ctx.fill();
 
 					// 2) 一道亮光斜扫过眼窝，周期约 1.5 秒
-					const phase = (((t - EYE_FLOW_AT) / 1.5) % 1 + 1) % 1;
+					const phase = ((((t - EYE_FLOW_AT) / 1.5) % 1) + 1) % 1;
 					const sx = -170 + phase * 340;
 					ctx.rotate(-0.5);
 					const sheen = ctx.createLinearGradient(sx - 42, 0, sx + 42, 0);
@@ -708,4 +708,3 @@ function drawEyes(ctx: SplashContext, t: number): void {
 		ctx.restore();
 	}
 }
-

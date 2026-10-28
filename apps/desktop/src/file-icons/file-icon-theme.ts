@@ -12,7 +12,9 @@ export type FileIconThemeId = (typeof FILE_ICON_THEMES)[number];
 export const DEFAULT_FILE_ICON_THEME: FileIconThemeId = "minimal";
 
 export function parseFileIconTheme(value: unknown): FileIconThemeId {
-	return (FILE_ICON_THEMES as readonly string[]).includes(value as string) ? (value as FileIconThemeId) : DEFAULT_FILE_ICON_THEME;
+	return (FILE_ICON_THEMES as readonly string[]).includes(value as string)
+		? (value as FileIconThemeId)
+		: DEFAULT_FILE_ICON_THEME;
 }
 
 let current: FileIconThemeId = DEFAULT_FILE_ICON_THEME;

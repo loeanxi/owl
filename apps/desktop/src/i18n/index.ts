@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { zh } from "./zh.ts";
 import { en } from "./en.ts";
+import { zh } from "./zh.ts";
 
 /** 界面语言。只影响桌面端 UI 文案；对话回复语言由模型按用户输入自行决定。 */
 export type UiLanguage = "zh" | "en";

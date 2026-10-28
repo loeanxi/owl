@@ -138,9 +138,9 @@ test("highlighting never becomes an injection surface", () => {
 });
 
 test("indented code without a language is left uncolored but still escaped", () => {
-	const element = answer('    第一行 <tag attr="x">\n    \n    第二行 \'引号\'\n');
+	const element = answer("    第一行 <tag attr=\"x\">\n    \n    第二行 '引号'\n");
 	assert.deepEqual(scopes(element), []);
-	assert.equal(tokenize(element), '第一行 <tag attr="x">\n\n第二行 \'引号\'\n');
+	assert.equal(tokenize(element), "第一行 <tag attr=\"x\">\n\n第二行 '引号'\n");
 });
 
 test("blank lines and trailing newlines survive highlighting byte for byte", () => {

@@ -27,7 +27,10 @@ function renderManager() {
 		return { type, props };
 	};
 	const react = {
-		useState: (initial: unknown) => [initial === "checking" ? "up" : typeof initial === "function" ? initial() : initial, () => {}],
+		useState: (initial: unknown) => [
+			initial === "checking" ? "up" : typeof initial === "function" ? initial() : initial,
+			() => {},
+		],
 		useRef: (initial: unknown) => ({ current: initial }),
 		useMemo: (factory: () => unknown) => factory(),
 		useCallback: (callback: unknown) => callback,
@@ -48,30 +51,49 @@ function renderManager() {
 		loader: { ".css": "empty" },
 		external: ["react", "react/jsx-runtime"],
 	});
-	const module = { exports: {} as { ManagerTab?: (props: {
-		onOpenExternal: (url: string) => Promise<void>;
-		onThemeChange: (theme: "dark" | "light") => Promise<void>;
-	}) => unknown } };
+	const module = {
+		exports: {} as {
+			ManagerTab?: (props: {
+				onOpenExternal: (url: string) => Promise<void>;
+				onThemeChange: (theme: "dark" | "light") => Promise<void>;
+			}) => unknown;
+		},
+	};
 	runInNewContext(built.outputFiles[0].text, {
 		module,
 		exports: module.exports,
-		require: (name: string) => name === "react" ? react : { jsx, jsxs: jsx },
+		require: (name: string) => (name === "react" ? react : { jsx, jsxs: jsx }),
 		URL,
 		AbortSignal,
 		fetch: () => Promise.resolve({ ok: true }),
 		document: { documentElement: { dataset: { owlTheme: "dark" } } },
 		window: {
 			location: { origin: "http://127.0.0.1:18901" },
-			addEventListener: (type: string, listener: (event: MessageEventFixture) => void) => { if (type === "message") listeners.add(listener); },
-			removeEventListener: (type: string, listener: (event: MessageEventFixture) => void) => { if (type === "message") listeners.delete(listener); },
+			addEventListener: (type: string, listener: (event: MessageEventFixture) => void) => {
+				if (type === "message") listeners.add(listener);
+			},
+			removeEventListener: (type: string, listener: (event: MessageEventFixture) => void) => {
+				if (type === "message") listeners.delete(listener);
+			},
 		},
 	});
 	assert.ok(module.exports.ManagerTab);
-	module.exports.ManagerTab({ onOpenExternal: async (url) => { opened.push(url); }, onThemeChange: async () => {} });
+	module.exports.ManagerTab({
+		onOpenExternal: async (url) => {
+			opened.push(url);
+		},
+		onThemeChange: async () => {},
+	});
 	return {
-		frame, opened, replies,
-		emit: (data: unknown) => { for (const listener of listeners) listener({ source: frame, origin: "http://127.0.0.1:8790", data }); },
-		dispose: () => { for (const callback of cleanup) callback(); },
+		frame,
+		opened,
+		replies,
+		emit: (data: unknown) => {
+			for (const listener of listeners) listener({ source: frame, origin: "http://127.0.0.1:8790", data });
+		},
+		dispose: () => {
+			for (const callback of cleanup) callback();
+		},
 	};
 }
 
@@ -82,8 +104,15 @@ test("ManagerTab routes an account authorization click to the system browser wit
 		f.emit({ type: "owl:account-auth:open", requestId: "auth-fixture-1", platform: "CURSOR", url });
 		await setImmediate();
 		assert.deepEqual(f.opened, [url]);
-		assert.deepEqual(JSON.parse(JSON.stringify(f.replies)), [{ data: { type: "owl:account-auth:opened", requestId: "auth-fixture-1", opened: true }, origin: "http://127.0.0.1:8790" }]);
-	} finally { f.dispose(); }
+		assert.deepEqual(JSON.parse(JSON.stringify(f.replies)), [
+			{
+				data: { type: "owl:account-auth:opened", requestId: "auth-fixture-1", opened: true },
+				origin: "http://127.0.0.1:8790",
+			},
+		]);
+	} finally {
+		f.dispose();
+	}
 });
 
 test("ManagerTab opens the Cursor spending dashboard through the quota operation", async () => {
@@ -93,8 +122,15 @@ test("ManagerTab opens the Cursor spending dashboard through the quota operation
 		f.emit({ type: "owl:account-quota:open", requestId: "quota-fixture-1", platform: "CURSOR", url });
 		await setImmediate();
 		assert.deepEqual(f.opened, [url]);
-		assert.deepEqual(JSON.parse(JSON.stringify(f.replies)), [{ data: { type: "owl:account-quota:opened", requestId: "quota-fixture-1", opened: true }, origin: "http://127.0.0.1:8790" }]);
-	} finally { f.dispose(); }
+		assert.deepEqual(JSON.parse(JSON.stringify(f.replies)), [
+			{
+				data: { type: "owl:account-quota:opened", requestId: "quota-fixture-1", opened: true },
+				origin: "http://127.0.0.1:8790",
+			},
+		]);
+	} finally {
+		f.dispose();
+	}
 });
 
 function authFixture(openExternal?: (url: string) => Promise<void>) {
@@ -105,23 +141,39 @@ function authFixture(openExternal?: (url: string) => Promise<void>) {
 	const opened: string[] = [];
 	const dispose = attachManagerAccountAuth({
 		host: {
-			addEventListener: (_type, listener) => { listeners.add(listener); },
-			removeEventListener: (_type, listener) => { listeners.delete(listener); },
+			addEventListener: (_type, listener) => {
+				listeners.add(listener);
+			},
+			removeEventListener: (_type, listener) => {
+				listeners.delete(listener);
+			},
 		},
 		managerUrl: "http://127.0.0.1:8790",
 		frameWindow: () => currentFrame,
-		openExternal: async (url) => { opened.push(url); await openExternal?.(url); },
+		openExternal: async (url) => {
+			opened.push(url);
+			await openExternal?.(url);
+		},
 	});
 	return {
-		frame, opened, replies, dispose,
+		frame,
+		opened,
+		replies,
+		dispose,
 		emit: (data: unknown, source: unknown = frame, origin = "http://127.0.0.1:8790") => {
 			for (const listener of listeners) listener({ data, source, origin });
 		},
-		replaceFrame: () => { currentFrame = { postMessage: () => {} }; },
+		replaceFrame: () => {
+			currentFrame = { postMessage: () => {} };
+		},
 	};
 }
 
-const request = (platform = "CURSOR", url = "https://cursor.com/loginDeepControl?challenge=fixture", requestId = "fixture-1") => ({ type: "owl:account-auth:open", platform, url, requestId });
+const request = (
+	platform = "CURSOR",
+	url = "https://cursor.com/loginDeepControl?challenge=fixture",
+	requestId = "fixture-1",
+) => ({ type: "owl:account-auth:open", platform, url, requestId });
 
 test("only the current manager frame and configured origin can request authorization opening", async () => {
 	const f = authFixture();
@@ -146,7 +198,10 @@ test("official authorization destinations remain scoped to their matching platfo
 	];
 	for (const [index, [platform, url]] of destinations.entries()) f.emit(request(platform, url, `fixture-${index}`));
 	await setImmediate();
-	assert.deepEqual(f.opened, destinations.map(([, url]) => url));
+	assert.deepEqual(
+		f.opened,
+		destinations.map(([, url]) => url),
+	);
 	assert.equal(f.replies.length, 4);
 	f.dispose();
 });
@@ -154,34 +209,73 @@ test("official authorization destinations remain scoped to their matching platfo
 test("unsafe schemes, lookalike hosts, unrelated paths, credentials and ports never reach the system opener", async () => {
 	const f = authFixture();
 	const urls = [
-		"cursor://settings", "file:///C:/Windows/System32/cmd.exe", "javascript:alert(1)",
-		"http://cursor.com/loginDeepControl", "https://cursor.com.evil.test/loginDeepControl",
-		"https://evil.test/loginDeepControl", "https://cursor.com/dashboard", "https://github.com/login/device",
-		"https://user:password@cursor.com/loginDeepControl", "https://cursor.com:444/loginDeepControl",
-		"https://cursor.com/loginDeepControl\n", "https://cursor.com/redirect?url=https://evil.test",
+		"cursor://settings",
+		"file:///C:/Windows/System32/cmd.exe",
+		"javascript:alert(1)",
+		"http://cursor.com/loginDeepControl",
+		"https://cursor.com.evil.test/loginDeepControl",
+		"https://evil.test/loginDeepControl",
+		"https://cursor.com/dashboard",
+		"https://github.com/login/device",
+		"https://user:password@cursor.com/loginDeepControl",
+		"https://cursor.com:444/loginDeepControl",
+		"https://cursor.com/loginDeepControl\n",
+		"https://cursor.com/redirect?url=https://evil.test",
 	];
 	for (const [index, url] of urls.entries()) f.emit(request("CURSOR", url, `unsafe-${index}`));
 	await setImmediate();
 	assert.deepEqual(f.opened, []);
 	assert.equal(f.replies.length, urls.length);
-	for (const reply of f.replies) assert.deepEqual(reply.data, { type: "owl:account-auth:opened", requestId: `unsafe-${f.replies.indexOf(reply)}`, opened: false, error: "invalid_auth_url" });
+	for (const reply of f.replies)
+		assert.deepEqual(reply.data, {
+			type: "owl:account-auth:opened",
+			requestId: `unsafe-${f.replies.indexOf(reply)}`,
+			opened: false,
+			error: "invalid_auth_url",
+		});
 	f.dispose();
 });
 
 test("malformed messages are ignored and open failures do not expose challenge URLs", async () => {
-	const f = authFixture(async (url) => { throw new Error(`Failure opening ${url}`); });
-	for (const data of [null, [], {}, { ...request(), requestId: "" }, { ...request(), platform: "UNKNOWN" }, { ...request(), url: 1 }, { ...request(), type: "open.external" }]) f.emit(data);
+	const f = authFixture(async (url) => {
+		throw new Error(`Failure opening ${url}`);
+	});
+	for (const data of [
+		null,
+		[],
+		{},
+		{ ...request(), requestId: "" },
+		{ ...request(), platform: "UNKNOWN" },
+		{ ...request(), url: 1 },
+		{ ...request(), type: "open.external" },
+	])
+		f.emit(data);
 	await setImmediate();
 	assert.deepEqual(f.opened, []);
 	f.emit(request());
 	await setImmediate();
-	assert.deepEqual(f.replies, [{ data: { type: "owl:account-auth:opened", requestId: "fixture-1", opened: false, error: "external_open_failed" }, origin: "http://127.0.0.1:8790" }]);
+	assert.deepEqual(f.replies, [
+		{
+			data: {
+				type: "owl:account-auth:opened",
+				requestId: "fixture-1",
+				opened: false,
+				error: "external_open_failed",
+			},
+			origin: "http://127.0.0.1:8790",
+		},
+	]);
 	f.dispose();
 });
 
 test("duplicate pending clicks and stale completions cannot open twice or update a replaced frame", async () => {
 	let finish: (() => void) | undefined;
-	const f = authFixture(() => new Promise((resolve) => { finish = resolve; }));
+	const f = authFixture(
+		() =>
+			new Promise((resolve) => {
+				finish = resolve;
+			}),
+	);
 	f.emit(request());
 	f.emit(request());
 	await setImmediate();
@@ -198,26 +292,48 @@ test("duplicate pending clicks and stale completions cannot open twice or update
 
 test("quota opening permits only the exact Cursor spending destination from the manager frame", async () => {
 	const f = authFixture();
-	const quotaRequest = (platform: string, url: string, requestId: string) => ({ type: "owl:account-quota:open", platform, url, requestId });
+	const quotaRequest = (platform: string, url: string, requestId: string) => ({
+		type: "owl:account-quota:open",
+		platform,
+		url,
+		requestId,
+	});
 	const url = "https://cursor.com/dashboard/spending";
 	f.emit(quotaRequest("CURSOR", url, "other-frame"), {});
 	f.emit(quotaRequest("CURSOR", url, "other-origin"), f.frame, "https://cursor.com");
 	const denied = [
-		["COPILOT", url], ["QODER", url], ["CLAUDE", url],
-		["CURSOR", "https://cursor.com/dashboard"], ["CURSOR", "https://cursor.com/loginDeepControl"],
-		["CURSOR", "https://evil.test/dashboard/spending"], ["CURSOR", "https://cursor.com.evil.test/dashboard/spending"],
-		["CURSOR", "http://cursor.com/dashboard/spending"], ["CURSOR", "cursor://dashboard/spending"],
-		["CURSOR", "https://cursor.com:444/dashboard/spending"], ["CURSOR", "https://user@cursor.com/dashboard/spending"],
-		["CURSOR", "https://cursor.com/dashboard/spending?redirect=https://evil.test"], ["CURSOR", "https://cursor.com/dashboard/spending#redirect"],
+		["COPILOT", url],
+		["QODER", url],
+		["CLAUDE", url],
+		["CURSOR", "https://cursor.com/dashboard"],
+		["CURSOR", "https://cursor.com/loginDeepControl"],
+		["CURSOR", "https://evil.test/dashboard/spending"],
+		["CURSOR", "https://cursor.com.evil.test/dashboard/spending"],
+		["CURSOR", "http://cursor.com/dashboard/spending"],
+		["CURSOR", "cursor://dashboard/spending"],
+		["CURSOR", "https://cursor.com:444/dashboard/spending"],
+		["CURSOR", "https://user@cursor.com/dashboard/spending"],
+		["CURSOR", "https://cursor.com/dashboard/spending?redirect=https://evil.test"],
+		["CURSOR", "https://cursor.com/dashboard/spending#redirect"],
 	];
-	for (const [index, [platform, target]] of denied.entries()) f.emit(quotaRequest(platform, target, `denied-${index}`));
+	for (const [index, [platform, target]] of denied.entries())
+		f.emit(quotaRequest(platform, target, `denied-${index}`));
 	await setImmediate();
 	assert.deepEqual(f.opened, []);
 	assert.equal(f.replies.length, denied.length);
-	for (const [index, reply] of f.replies.entries()) assert.deepEqual(reply.data, { type: "owl:account-quota:opened", requestId: `denied-${index}`, opened: false, error: "invalid_quota_url" });
+	for (const [index, reply] of f.replies.entries())
+		assert.deepEqual(reply.data, {
+			type: "owl:account-quota:opened",
+			requestId: `denied-${index}`,
+			opened: false,
+			error: "invalid_quota_url",
+		});
 	f.emit(quotaRequest("CURSOR", url, "quota-allowed"));
 	await setImmediate();
 	assert.deepEqual(f.opened, [url]);
-	assert.deepEqual(f.replies.at(-1), { data: { type: "owl:account-quota:opened", requestId: "quota-allowed", opened: true }, origin: "http://127.0.0.1:8790" });
+	assert.deepEqual(f.replies.at(-1), {
+		data: { type: "owl:account-quota:opened", requestId: "quota-allowed", opened: true },
+		origin: "http://127.0.0.1:8790",
+	});
 	f.dispose();
 });

@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatEntry, ToolCard } from "../hooks/transcript.ts";
 import { setUiLanguage } from "../i18n/index.ts";
@@ -27,13 +27,33 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
-	vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
+	vi.stubGlobal(
+		"requestAnimationFrame",
+		vi.fn(() => 1),
+	);
 	vi.stubGlobal("cancelAnimationFrame", vi.fn());
 	vi.stubGlobal("navigator", { clipboard: { writeText: async () => {} } });
 	dom.window.getSelection = () => null;
-	dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 40, top: 0, left: 0, right: 800, bottom: 40, toJSON: () => ({}) });
+	dom.window.matchMedia = () =>
+		({ matches: false, addEventListener() {}, removeEventListener() {} }) as MediaQueryList;
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 800,
+		height: 40,
+		top: 0,
+		left: 0,
+		right: 800,
+		bottom: 40,
+		toJSON: () => ({}),
+	});
 	setUiLanguage("zh");
 	// 动效开关是模块级订阅存储，每个用例先复位到默认全开。
 	applyWorkEffects(DEFAULT_WORK_EFFECTS);
@@ -50,7 +70,12 @@ afterEach(async () => {
 
 function readTool(id: string, path: string, status: ToolCard["status"] = "ok"): ToolCard {
 	return {
-		id, name: "read", args: JSON.stringify({ path }), summary: `读取 \`${path}\``, detail: path, status,
+		id,
+		name: "read",
+		args: JSON.stringify({ path }),
+		summary: `读取 \`${path}\``,
+		detail: path,
+		status,
 		startedAt: 2000,
 		...(status === "running" || status === "pending" ? {} : { finishedAt: 3000 }),
 		output: { text: `已读取 ${path}`, totalLines: 1 },
@@ -95,13 +120,24 @@ describe("work process motion wiring", () => {
 	});
 
 	it("drops every token when the user turns all effects off", async () => {
-		applyWorkEffects({ ...DEFAULT_WORK_EFFECTS, rail: false, enter: false, morph: false, count: false, spine: false, breathe: false, nudge: false });
+		applyWorkEffects({
+			...DEFAULT_WORK_EFFECTS,
+			rail: false,
+			enter: false,
+			morph: false,
+			count: false,
+			spine: false,
+			breathe: false,
+			nudge: false,
+		});
 		await render({ entries: turn(assistant("work-entry", [readTool("only", "src/only.ts")])) });
 		expect(workProcess().dataset.fx).toBe("");
 	});
 
 	it("does not replay entry motion for the rows restored with the session", async () => {
-		await render({ entries: turn(assistant("work-entry", [readTool("old", "src/old.ts"), readTool("older", "src/older.ts")])) });
+		await render({
+			entries: turn(assistant("work-entry", [readTool("old", "src/old.ts"), readTool("older", "src/older.ts")])),
+		});
 		await openProcess();
 		expect(host.querySelectorAll('.owl-tool-row[data-fresh="true"]')).toHaveLength(0);
 		expect(host.querySelectorAll('.owl-tool-row[data-fresh="false"]')).toHaveLength(2);
@@ -113,10 +149,9 @@ describe("work process motion wiring", () => {
 		await openProcess();
 		expect(host.querySelectorAll('.owl-tool-row[data-fresh="true"]')).toHaveLength(0);
 
-		await render({ entries: turn(
-			assistant("work-entry", [first]),
-			assistant("next-entry", [readTool("later", "src/later.ts")]),
-		) });
+		await render({
+			entries: turn(assistant("work-entry", [first]), assistant("next-entry", [readTool("later", "src/later.ts")])),
+		});
 		const fresh = [...host.querySelectorAll<HTMLElement>('.owl-tool-row[data-fresh="true"]')];
 		expect(fresh).toHaveLength(1);
 		expect(fresh[0]!.dataset.toolId).toBe("later");

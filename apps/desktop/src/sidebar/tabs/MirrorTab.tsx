@@ -8,7 +8,7 @@ import type {
 import { useT } from "../../i18n/index.ts";
 import { IconExternal, IconRefresh } from "../icons.tsx";
 import type { TabComponentProps } from "../registry.ts";
-import { mirrorContentPoint, type MirrorPoint, validMirrorCrop } from "./mirror-geometry.ts";
+import { type MirrorPoint, mirrorContentPoint, validMirrorCrop } from "./mirror-geometry.ts";
 
 interface Frame {
 	windowId: string;
@@ -373,12 +373,25 @@ export function MirrorTab({ tab, store, client }: TabComponentProps): React.JSX.
 					// before its first frame. Reuse the ordered lifecycle instead of
 					// repeatedly attaching to the server's existing subscription claim.
 					firstFrameTimer = window.setTimeout(() => {
-						if (!alive || frameShown.current || !visibleRef.current || restoringRef.current || activeStream.current !== windowId) return;
+						if (
+							!alive ||
+							frameShown.current ||
+							!visibleRef.current ||
+							restoringRef.current ||
+							activeStream.current !== windowId
+						)
+							return;
 						const delay = FIRST_FRAME_RETRY_DELAYS[recoveryAttempts.current];
 						if (delay === undefined) return;
 						recoveryAttempts.current += 1;
 						recoveryTimer = window.setTimeout(() => {
-							if (alive && !frameShown.current && visibleRef.current && !restoringRef.current && activeStream.current === windowId) {
+							if (
+								alive &&
+								!frameShown.current &&
+								visibleRef.current &&
+								!restoringRef.current &&
+								activeStream.current === windowId
+							) {
 								setRetry((value) => value + 1);
 							}
 						}, delay);

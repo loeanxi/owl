@@ -4,10 +4,17 @@ import { readWorkbenchPalette } from "../theme-observer.ts";
 import { terminalTheme } from "./terminal-theme.ts";
 
 test("terminal foreground, cursor and selection use the actual scoped custom palette", () => {
-	const values: Record<string, string> = { "--workbench-canvas": "#101820", "--workbench-text": "#ddeeff", "--color-owl-accent": "#ffaa22" };
+	const values: Record<string, string> = {
+		"--workbench-canvas": "#101820",
+		"--workbench-text": "#ddeeff",
+		"--color-owl-accent": "#ffaa22",
+	};
 	const palette = readWorkbenchPalette({ getPropertyValue: (name) => values[name] ?? "" }, "dark");
 	const resolved: string[] = [];
-	const theme = terminalTheme(palette, (color) => { resolved.push(color); return `resolved:${color}`; });
+	const theme = terminalTheme(palette, (color) => {
+		resolved.push(color);
+		return `resolved:${color}`;
+	});
 	assert.equal(theme.background, "resolved:#101820");
 	assert.equal(theme.foreground, "resolved:#ddeeff");
 	assert.equal(theme.cursor, "resolved:#ffaa22");

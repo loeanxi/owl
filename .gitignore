@@ -70,3 +70,15 @@ dbg-*.mjs
 debug-*.png
 apps/desktop/debug-*.html
 apps/desktop/src/debug-*/
+# The debug-* directories under apps/desktop/src that were committed before this
+# ignore rule stay tracked: a blanket ignore makes `git add` refuse them, and
+# pre-commit's restage loop then aborts every commit that touches them.
+!apps/desktop/src/debug-automation/
+!apps/desktop/src/debug-genui/
+!apps/desktop/src/debug-msg-actions/
+!apps/desktop/src/debug-myself/
+!apps/desktop/src/debug-trajectory/
+# Same story one level up: these prototype/debug pages are tracked, so the
+# blanket ignores below must not swallow them.
+!apps/desktop/prototype-*.html
+!apps/desktop/debug-*.html

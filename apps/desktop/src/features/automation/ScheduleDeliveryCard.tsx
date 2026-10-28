@@ -1,14 +1,18 @@
 import { useState } from "react";
 import type { BridgeClient } from "../../bridge/client.ts";
-import { useT, type TextKey } from "../../i18n/index.ts";
-import { type ScheduleDeliveryInfo, parseScheduleDelivery } from "./schedule-delivery.ts";
+import { type TextKey, useT } from "../../i18n/index.ts";
+import { parseScheduleDelivery, type ScheduleDeliveryInfo } from "./schedule-delivery.ts";
 
 export { parseScheduleDelivery };
 /**
  * 会话内任务卡：到点投递在对话流里的样子（替代普通用户气泡）。
  * 有 taskId 且给了 client 时可暂停任务；onOpenAutomation 跳任务页。
  */
-export function ScheduleDeliveryCard({ info, client, onOpenAutomation }: {
+export function ScheduleDeliveryCard({
+	info,
+	client,
+	onOpenAutomation,
+}: {
 	info: ScheduleDeliveryInfo;
 	client?: BridgeClient;
 	onOpenAutomation?: () => void;
@@ -41,10 +45,14 @@ export function ScheduleDeliveryCard({ info, client, onOpenAutomation }: {
 				{paused ? (
 					<span className="owl-schedule-card-paused">{t("automation.cardPaused" as TextKey)}</span>
 				) : info.taskId !== null && client !== undefined ? (
-					<button type="button" disabled={busy} onClick={() => void pause()}>{t("automation.cardPause" as TextKey)}</button>
+					<button type="button" disabled={busy} onClick={() => void pause()}>
+						{t("automation.cardPause" as TextKey)}
+					</button>
 				) : null}
 				{onOpenAutomation && (
-					<button type="button" onClick={onOpenAutomation}>{t("automation.cardOpen" as TextKey)}</button>
+					<button type="button" onClick={onOpenAutomation}>
+						{t("automation.cardOpen" as TextKey)}
+					</button>
 				)}
 			</div>
 		</div>

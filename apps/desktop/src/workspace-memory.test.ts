@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultWorkspaceMemory, readWorkspaceMemory, resolveWorkspaceMemory, sanitizeWorkspaceMemory, WorkspaceRestoreGate, workspaceMemoryKey, workspaceScrollKey, writeWorkspaceMemory, type WorkspaceMemory } from "./workspace-memory.ts";
+import {
+	defaultWorkspaceMemory,
+	readWorkspaceMemory,
+	resolveWorkspaceMemory,
+	sanitizeWorkspaceMemory,
+	type WorkspaceMemory,
+	WorkspaceRestoreGate,
+	workspaceMemoryKey,
+	workspaceScrollKey,
+	writeWorkspaceMemory,
+} from "./workspace-memory.ts";
 
 function memory(patch: Partial<WorkspaceMemory> = {}): WorkspaceMemory {
 	return {
@@ -17,7 +27,9 @@ function storage(): Pick<Storage, "getItem" | "setItem"> {
 	const values = new Map<string, string>();
 	return {
 		getItem: (key) => values.get(key) ?? null,
-		setItem: (key, value) => { values.set(key, value); },
+		setItem: (key, value) => {
+			values.set(key, value);
+		},
 	};
 }
 
@@ -54,7 +66,27 @@ test("profiles do not share locations and Windows path variations use one profil
 
 test("every real settings section survives reload, including appearance and changelog", () => {
 	const saved = storage();
-	for (const section of ["general", "accounts", "models", "plugins", "skills", "presets", "sidebar", "prompts", "memory", "image", "appearance", "notifications", "usage", "archived", "json", "diagnostics", "execution-anomalies", "changelog", "about"] as const) {
+	for (const section of [
+		"general",
+		"accounts",
+		"models",
+		"plugins",
+		"skills",
+		"presets",
+		"sidebar",
+		"prompts",
+		"memory",
+		"image",
+		"appearance",
+		"notifications",
+		"usage",
+		"archived",
+		"json",
+		"diagnostics",
+		"execution-anomalies",
+		"changelog",
+		"about",
+	] as const) {
 		writeWorkspaceMemory(saved, "profile", memory({ settings: true, settingsTab: section }));
 		assert.equal(readWorkspaceMemory(saved, "profile")?.settingsTab, section);
 	}
@@ -68,30 +100,54 @@ test("corrupt JSON, unsupported versions and unavailable storage safely return n
 	assert.equal(readWorkspaceMemory(saved, "profile"), undefined);
 	saved.setItem(workspaceMemoryKey("profile"), JSON.stringify([]));
 	assert.equal(readWorkspaceMemory(saved, "profile"), undefined);
-	assert.equal(readWorkspaceMemory({ getItem: () => { throw new Error("blocked"); } }, "profile"), undefined);
-	assert.equal(writeWorkspaceMemory({ setItem: () => { throw new Error("quota"); } }, "profile", memory()), false);
+	assert.equal(
+		readWorkspaceMemory(
+			{
+				getItem: () => {
+					throw new Error("blocked");
+				},
+			},
+			"profile",
+		),
+		undefined,
+	);
+	assert.equal(
+		writeWorkspaceMemory(
+			{
+				setItem: () => {
+					throw new Error("quota");
+				},
+			},
+			"profile",
+			memory(),
+		),
+		false,
+	);
 });
 
 test("malformed fields fall back without losing valid view preferences", () => {
-	const state = sanitizeWorkspaceMemory({
-		version: 1,
-		rail: "removed-screen",
-		settingsTab: "removed-section",
-		workspace: "",
-		researchWorkspace: 77,
-		conversationView: "trajectory",
-		researchConversationView: "unknown-view",
-		sidebarMinimized: "false",
-		chatSession: { id: "wrong-shape" },
-		settings: true,
-		scroll: {
-			valid: { top: 9, left: 2, atBottom: true },
-			negative: { top: -1, left: 0 },
-			nan: { top: Number.NaN, left: 0 },
-			infinity: { top: Number.POSITIVE_INFINITY, left: 0 },
-			wrongShape: "123",
+	const state = sanitizeWorkspaceMemory(
+		{
+			version: 1,
+			rail: "removed-screen",
+			settingsTab: "removed-section",
+			workspace: "",
+			researchWorkspace: 77,
+			conversationView: "trajectory",
+			researchConversationView: "unknown-view",
+			sidebarMinimized: "false",
+			chatSession: { id: "wrong-shape" },
+			settings: true,
+			scroll: {
+				valid: { top: 9, left: 2, atBottom: true },
+				negative: { top: -1, left: 0 },
+				nan: { top: Number.NaN, left: 0 },
+				infinity: { top: Number.POSITIVE_INFINITY, left: 0 },
+				wrongShape: "123",
+			},
 		},
-	}, memory({ rail: "projects", settingsTab: "appearance" }));
+		memory({ rail: "projects", settingsTab: "appearance" }),
+	);
 	assert.ok(state);
 	assert.equal(state.rail, "projects");
 	assert.equal(state.settingsTab, "appearance");
@@ -105,7 +161,10 @@ test("malformed fields fall back without losing valid view preferences", () => {
 });
 
 test("temporary workspace paths explicitly selected by the user remain exact", () => {
-	const state = memory({ workspace: "D:/owl/.validation/a/workspace", researchWorkspace: "D:/owl/.validation/research/workspace" });
+	const state = memory({
+		workspace: "D:/owl/.validation/a/workspace",
+		researchWorkspace: "D:/owl/.validation/research/workspace",
+	});
 	assert.equal(sanitizeWorkspaceMemory(state)?.workspace, state.workspace);
 	assert.equal(sanitizeWorkspaceMemory(state)?.researchWorkspace, state.researchWorkspace);
 });
@@ -124,11 +183,23 @@ test("validation chooses saved IDs instead of the newest session and uses author
 });
 
 test("missing, archived and wrong-scope sessions fall back to the saved page without opening another session", () => {
-	const state = memory({ rail: "research", settings: true, settingsTab: "memory", chatSession: "chat-gone", researchSession: "research-gone" });
+	const state = memory({
+		rail: "research",
+		settings: true,
+		settingsTab: "memory",
+		chatSession: "chat-gone",
+		researchSession: "research-gone",
+	});
 	for (const rows of [
 		[{ id: "other", cwd: "D:/owl/project", scope: "chat" }],
-		[{ id: "chat-gone", archivedAt: "2026-10-14", scope: "chat" }, { id: "research-gone", archivedAt: "2026-10-14", scope: "research" }],
-		[{ id: "chat-gone", scope: "research" }, { id: "research-gone", scope: "chat" }],
+		[
+			{ id: "chat-gone", archivedAt: "2026-10-14", scope: "chat" },
+			{ id: "research-gone", archivedAt: "2026-10-14", scope: "research" },
+		],
+		[
+			{ id: "chat-gone", scope: "research" },
+			{ id: "research-gone", scope: "chat" },
+		],
 	]) {
 		const resolved = resolveWorkspaceMemory(state, rows);
 		assert.equal(resolved.chatSession, undefined);
@@ -147,7 +218,10 @@ test("scroll locations distinguish sessions, projects, settings sections and con
 	assert.notEqual(key, workspaceScrollKey({ ...state, workspace: "D:/another" }, "chat"));
 	assert.notEqual(key, workspaceScrollKey({ ...state, conversationView: "trajectory" }, "chat"));
 	assert.equal(key, workspaceScrollKey({ ...state, workspace: "d:\\OWL\\project\\" }, "chat"));
-	assert.notEqual(workspaceScrollKey({ ...state, settings: true, settingsTab: "appearance" }, "settings"), workspaceScrollKey({ ...state, settings: true, settingsTab: "models" }, "settings"));
+	assert.notEqual(
+		workspaceScrollKey({ ...state, settings: true, settingsTab: "appearance" }, "settings"),
+		workspaceScrollKey({ ...state, settings: true, settingsTab: "models" }, "settings"),
+	);
 });
 
 test("startup empty state cannot overwrite the snapshot while hydration is pending", () => {

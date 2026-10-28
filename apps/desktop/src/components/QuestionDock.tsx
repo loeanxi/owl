@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 import type { QuestionAnswerPayload, QuestionRequest } from "../bridge/protocol.ts";
 import { QuestionDialog } from "./QuestionDialog.tsx";
 import "./question-dock.css";
@@ -25,15 +25,21 @@ export function QuestionDock({
 		const content = conversation?.parentElement;
 		const composer = dock?.querySelector<HTMLElement>(".owl-composer-surface");
 		if (!dock || !conversation || !content || !composer || !activeRequest) return;
-		const fixedSiblings = Array.from(conversation.children).filter((child) =>
-			child !== dock && getComputedStyle(child).flexGrow === "0",
+		const fixedSiblings = Array.from(conversation.children).filter(
+			(child) => child !== dock && getComputedStyle(child).flexGrow === "0",
 		);
 		const measure = (): void => {
 			// Budget from the full content area, independently of the card's own height.
 			const contentHeight = content.getBoundingClientRect().height;
 			const historyHeight = Math.min(160, contentHeight * 0.2);
-			const fixedHeight = fixedSiblings.reduce((height, sibling) => height + sibling.getBoundingClientRect().height, 0);
-			const available = Math.max(0, contentHeight - composer.getBoundingClientRect().height - fixedHeight - historyHeight);
+			const fixedHeight = fixedSiblings.reduce(
+				(height, sibling) => height + sibling.getBoundingClientRect().height,
+				0,
+			);
+			const available = Math.max(
+				0,
+				contentHeight - composer.getBoundingClientRect().height - fixedHeight - historyHeight,
+			);
 			dock.style.setProperty("--owl-question-available-height", `${Math.floor(available)}px`);
 			const minHeight = dock.getBoundingClientRect().height + fixedHeight + historyHeight;
 			content.style.setProperty("--owl-question-chat-min-height", `${Math.ceil(minHeight)}px`);
@@ -57,8 +63,16 @@ export function QuestionDock({
 				<div className="owl-question-anchor" hidden={!activeRequest}>
 					{/* Keep drafts mounted while another session or queued request is active. */}
 					{requests.map((request) => (
-						<div key={request.requestId} className="owl-question-anchor__column" hidden={request.requestId !== activeRequest?.requestId}>
-							<QuestionDialog request={request} onAnswer={(answers, cancelled) => onAnswer(request.requestId, answers, cancelled)} onAnsweredChange={request.requestId === activeRequest?.requestId ? onAnsweredChange : undefined} />
+						<div
+							key={request.requestId}
+							className="owl-question-anchor__column"
+							hidden={request.requestId !== activeRequest?.requestId}
+						>
+							<QuestionDialog
+								request={request}
+								onAnswer={(answers, cancelled) => onAnswer(request.requestId, answers, cancelled)}
+								onAnsweredChange={request.requestId === activeRequest?.requestId ? onAnsweredChange : undefined}
+							/>
 						</div>
 					))}
 				</div>

@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { applyOwlAnimation } from "../animation-settings.ts";
 import type { BridgeClient } from "../bridge/client.ts";
+import { pickFile, pickFolder } from "../bridge/native.ts";
 import type {
 	AgentPresetDefinition,
 	DiscoveredModel,
@@ -7,6 +9,8 @@ import type {
 	ImageConfigGetResult,
 	MemoryListResult,
 	ModelsDiscoverResult,
+	OwlImageConfigPublic,
+	OwlImageProvider,
 	ProviderModelsMessage,
 	SkillCenterEntry,
 	SkillCenterTab,
@@ -15,25 +19,45 @@ import type {
 	SkillsReadResult,
 	SystemPromptPreviewResult,
 	UsageGetResult,
-	OwlImageConfigPublic,
-	OwlImageProvider,
 } from "../bridge/protocol.ts";
-import { applyChatAppearance, DEFAULT_CHAT_APPEARANCE, parseChatAppearance, type ChatAppearance } from "../chat-appearance.ts";
-import { applyOwlAppearance, DEFAULT_ACCENTS, DEFAULT_OWL_APPEARANCE, isGlassPreset, OWL_GLASS_MODES, parseOwlAppearance, presetThemeLock, type OwlAppearanceColors } from "../owl-appearance.ts";
-import { syncWindowGlass } from "../window-glass.ts";
-import { DEFAULT_OWL_WALLPAPER, parseOwlWallpaper, type OwlWallpaperSettings, type WallpaperContentRating } from "../wallpaper.ts";
-import { entryDirPrefix, parseUserPropDefs, weEvalCondition, type WallpaperPropDef } from "../we-props.ts";
-import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
-import { pickFile, pickFolder } from "../bridge/native.ts";
-import { getResolvedTheme, isThemePreference, setThemeLock, setThemePreference } from "../theme.ts";
-import { getUiLanguageSetting, parseUiLanguageSetting, setUiLanguageSetting, useT, type TextKey } from "../i18n/index.ts";
-import { isTabKindEnabled, parseSidebarSettings, setSidebarConfig, type SidebarConfig } from "../sidebar/config.ts";
-import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
+import {
+	applyChatAppearance,
+	type ChatAppearance,
+	DEFAULT_CHAT_APPEARANCE,
+	parseChatAppearance,
+} from "../chat-appearance.ts";
+import { DiagnosticsSection } from "../features/life-monitor/DiagnosticsSection.tsx";
+import { lifeShell } from "../features/life-monitor/life-copy.ts";
+import type { LifeProbe } from "../features/life-monitor/use-life-probe.ts";
+import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
+import {
+	FILE_ICON_THEMES,
+	type FileIconThemeId,
+	parseFileIconTheme,
+	setFileIconTheme,
+} from "../file-icons/file-icon-theme.ts";
+import {
+	getUiLanguageSetting,
+	parseUiLanguageSetting,
+	setUiLanguageSetting,
+	type TextKey,
+	useT,
+} from "../i18n/index.ts";
+import {
+	applyOwlAppearance,
+	DEFAULT_ACCENTS,
+	DEFAULT_OWL_APPEARANCE,
+	isGlassPreset,
+	OWL_GLASS_MODES,
+	type OwlAppearanceColors,
+	parseOwlAppearance,
+	presetThemeLock,
+} from "../owl-appearance.ts";
+import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
+import { isTabKindEnabled, parseSidebarSettings, type SidebarConfig, setSidebarConfig } from "../sidebar/config.ts";
 import { IconPanelRight } from "../sidebar/icons.tsx";
-import { IconActivity, IconAlert, IconArchive, IconBell, IconClock, IconCode, IconCompose, IconImage, IconInfo, IconLightbulb, IconList, IconPlug, IconSelf, IconSettings, IconSliders, IconSparkles, IconSun, IconTrash } from "./icons.tsx";
-import { AnimationSettings } from "./settings/AnimationSettings.tsx";
-import { applyOwlAnimation } from "../animation-settings.ts";
-import { DEFAULT_NOTIFICATION_PREFS, parseNotificationPrefs, setNotificationPrefs, type NotificationPrefs } from "../utils/notification-prefs.ts";
+import { QUICK_ACTIONS } from "../sidebar/quick.tsx";
+import { getResolvedTheme, isThemePreference, setThemeLock, setThemePreference } from "../theme.ts";
 import {
 	isModelMarkedInUse,
 	modelRef,
@@ -41,32 +65,108 @@ import {
 	nextEnabledModelsAfterToggle,
 	parseEnabledModels,
 } from "../utils/enabled-models.ts";
-import { NOTIFICATION_SOUNDS, previewChime, type NotificationSound } from "../utils/sound.ts";
-import { getProjectDisplayName, useProjectSidebarRevision } from "../project-sidebar-model.ts";
-import { FILE_ICON_THEMES, parseFileIconTheme, setFileIconTheme, type FileIconThemeId } from "../file-icons/file-icon-theme.ts";
-import { useFileIconTheme } from "../file-icons/FileIcon.tsx";
-import { API_OPTIONS, CHAT_READING_FIELDS, WORK_EFFECT_FIELDS, ACCENT_PRESETS, WALLPAPER_TYPE_LABEL, OWL_THEME_PRESETS, GLASS_MODE_LABEL_KEYS, FILE_ICON_THEME_LABEL_KEYS, presetDefaultColors, OWL_IMAGE_PROVIDERS, OWL_IMAGE_BYOK, OWL_IMAGE_PROVIDER_LABEL_KEYS, SKILL_TABS, BUILTIN_SECTION_TITLES } from "./settings/settings-constants.ts";
-import { type PluginEntry, type ArchiveConfigResult, type SessionListRow, sessionDisplayName, formatDateTime, formatTokens, formatCost, formatClock, pluginSourceLabel, pluginType, pluginTypeLabel, pluginBadgeClass, togglePluginEntry } from "./settings/settings-helpers.ts";
-import { NavItem, SectionHeader, SettingRow, WallpaperPropRow, Switch, ColorField } from "./settings/settings-widgets.tsx";
-import { matchSettingsSections } from "./settings/settings-search.ts";
-import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
+import {
+	DEFAULT_NOTIFICATION_PREFS,
+	type NotificationPrefs,
+	parseNotificationPrefs,
+	setNotificationPrefs,
+} from "../utils/notification-prefs.ts";
+import { NOTIFICATION_SOUNDS, type NotificationSound, previewChime } from "../utils/sound.ts";
+import {
+	DEFAULT_OWL_WALLPAPER,
+	type OwlWallpaperSettings,
+	parseOwlWallpaper,
+	type WallpaperContentRating,
+} from "../wallpaper.ts";
+import { entryDirPrefix, parseUserPropDefs, type WallpaperPropDef, weEvalCondition } from "../we-props.ts";
+import { syncWindowGlass } from "../window-glass.ts";
+import type { WorkspaceSettingsSection } from "../workspace-memory.ts";
+import {
+	IconActivity,
+	IconAlert,
+	IconArchive,
+	IconBell,
+	IconClock,
+	IconCode,
+	IconCompose,
+	IconImage,
+	IconInfo,
+	IconLightbulb,
+	IconList,
+	IconPlug,
+	IconSelf,
+	IconSettings,
+	IconSliders,
+	IconSparkles,
+	IconSun,
+	IconTrash,
+} from "./icons.tsx";
 import { AccountsSection } from "./settings/AccountsSection.tsx";
-import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
+import { AgentPresetsSection } from "./settings/AgentPresetsSection.tsx";
+import { AnimationSettings } from "./settings/AnimationSettings.tsx";
+import { AppearanceNavigation } from "./settings/AppearanceNavigation.tsx";
+import {
+	appearanceReadingFieldDescription,
+	useAppearanceNavigationText,
+} from "./settings/appearance-navigation-copy.ts";
 import { ChangelogSection, useChangelogCopy } from "./settings/ChangelogSection.tsx";
+import { CodexThemePicker } from "./settings/CodexThemePicker.tsx";
 import { ExecutionAnomaliesSection } from "./settings/ExecutionAnomaliesSection.tsx";
 import { useExecutionAnomaliesCopy } from "./settings/execution-anomalies-copy.ts";
-import { AppearanceNavigation } from "./settings/AppearanceNavigation.tsx";
-import { CodexThemePicker } from "./settings/CodexThemePicker.tsx";
-import { appearanceReadingFieldDescription, useAppearanceNavigationText } from "./settings/appearance-navigation-copy.ts";
-import { DiagnosticsSection } from "../features/life-monitor/DiagnosticsSection.tsx";
-import { lifeShell } from "../features/life-monitor/life-copy.ts";
-import type { LifeProbe } from "../features/life-monitor/use-life-probe.ts";
-import type { WorkspaceSettingsSection } from "../workspace-memory.ts";
+import { RequestBudgetSetting } from "./settings/RequestBudgetSetting.tsx";
+import {
+	ACCENT_PRESETS,
+	API_OPTIONS,
+	BUILTIN_SECTION_TITLES,
+	CHAT_READING_FIELDS,
+	FILE_ICON_THEME_LABEL_KEYS,
+	GLASS_MODE_LABEL_KEYS,
+	OWL_IMAGE_BYOK,
+	OWL_IMAGE_PROVIDER_LABEL_KEYS,
+	OWL_IMAGE_PROVIDERS,
+	OWL_THEME_PRESETS,
+	presetDefaultColors,
+	SKILL_TABS,
+	WALLPAPER_TYPE_LABEL,
+	WORK_EFFECT_FIELDS,
+} from "./settings/settings-constants.ts";
+import {
+	type ArchiveConfigResult,
+	formatClock,
+	formatCost,
+	formatDateTime,
+	formatTokens,
+	type PluginEntry,
+	pluginBadgeClass,
+	pluginSourceLabel,
+	pluginType,
+	pluginTypeLabel,
+	type SessionListRow,
+	sessionDisplayName,
+	togglePluginEntry,
+} from "./settings/settings-helpers.ts";
+import { matchSettingsSections } from "./settings/settings-search.ts";
+import {
+	ColorField,
+	NavItem,
+	SectionHeader,
+	SettingRow,
+	Switch,
+	WallpaperPropRow,
+} from "./settings/settings-widgets.tsx";
+import { fetchInventory, passesRating, resolveActiveEntry, type WallpaperEntry } from "./WallpaperLayer.tsx";
 import "./settings-redesign.css";
 
 type SettingsSection = WorkspaceSettingsSection;
 
-export type SettingsInitialTab = "general" | "accounts" | "usage" | "models" | "diagnostics" | "execution-anomalies" | "about";
+export type SettingsInitialTab =
+	| "general"
+	| "accounts"
+	| "usage"
+	| "models"
+	| "diagnostics"
+	| "execution-anomalies"
+	| "about";
 
 /** 独立设置工作区，保留桌面窗口顶栏和原有配置接口。 */
 export function SettingsPage({
@@ -123,7 +223,13 @@ export function SettingsPage({
 		if (!needle) return label;
 		const at = label.toLowerCase().indexOf(needle.toLowerCase());
 		if (at < 0) return label;
-		return <>{label.slice(0, at)}<mark className="owl-settings-nav-mark">{label.slice(at, at + needle.length)}</mark>{label.slice(at + needle.length)}</>;
+		return (
+			<>
+				{label.slice(0, at)}
+				<mark className="owl-settings-nav-mark">{label.slice(at, at + needle.length)}</mark>
+				{label.slice(at + needle.length)}
+			</>
+		);
 	};
 	const selectSection = (next: SettingsSection): void => {
 		setSection(next);
@@ -134,7 +240,9 @@ export function SettingsPage({
 	const [chatAppearance, setChatAppearance] = useState<ChatAppearance>(() => ({ ...DEFAULT_CHAT_APPEARANCE }));
 	const [chatAppearanceLoaded, setChatAppearanceLoaded] = useState(false);
 	// 外观自定义颜色（owlAppearance）：accent 全局、背景/前景按深浅档分开
-	const [owlAppearance, setOwlAppearance] = useState<OwlAppearanceColors>(() => parseOwlAppearance(DEFAULT_OWL_APPEARANCE));
+	const [owlAppearance, setOwlAppearance] = useState<OwlAppearanceColors>(() =>
+		parseOwlAppearance(DEFAULT_OWL_APPEARANCE),
+	);
 	const [owlAppearanceLoaded, setOwlAppearanceLoaded] = useState(false);
 	const fileIconTheme = useFileIconTheme();
 	// 当前实际生效的深浅档（system 已解析）：决定背景/前景两行正在编辑哪一套颜色
@@ -175,7 +283,9 @@ export function SettingsPage({
 				}
 				const overrides = wallpaper.props[selectedWallpaper.id] ?? {};
 				setWallpaperPropDefs(
-					parseUserPropDefs(project, overrides, { filePrefix: entryDirPrefix((project as { file?: unknown }).file) }),
+					parseUserPropDefs(project, overrides, {
+						filePrefix: entryDirPrefix((project as { file?: unknown }).file),
+					}),
 				);
 			})
 			.catch(() => {
@@ -233,7 +343,12 @@ export function SettingsPage({
 	const [quickProvider, setQuickProvider] = useState("");
 	const [quickKey, setQuickKey] = useState("");
 	const [quickHint, setQuickHint] = useState("");
-	const [loginAsk, setLoginAsk] = useState<{ type: string; message?: string; placeholder?: string; options?: { id: string; label: string }[] } | null>(null);
+	const [loginAsk, setLoginAsk] = useState<{
+		type: string;
+		message?: string;
+		placeholder?: string;
+		options?: { id: string; label: string }[];
+	} | null>(null);
 	const [askAnswer, setAskAnswer] = useState("");
 	// 登录 / 保存 Key 成功的弹窗内容（null = 不显示）
 	const [authSuccess, setAuthSuccess] = useState<{ title: string; message: string } | null>(null);
@@ -271,7 +386,11 @@ export function SettingsPage({
 	const [imageKeyClear, setImageKeyClear] = useState<Partial<Record<string, boolean>>>({});
 	const [imageSaved, setImageSaved] = useState(false);
 	const [imageSubHint, setImageSubHint] = useState("");
-	const [comfyForm, setComfyForm] = useState<{ name: string; json: string; preset: string }>({ name: "", json: "", preset: "" });
+	const [comfyForm, setComfyForm] = useState<{ name: string; json: string; preset: string }>({
+		name: "",
+		json: "",
+		preset: "",
+	});
 	// 拉取模型：按 provider 缓存候选列表（datalist 供模型输入框选择）；note 是一行结果/错误提示。
 	const [imageModels, setImageModels] = useState<Record<string, string[]>>({});
 	const [imageModelsNote, setImageModelsNote] = useState("");
@@ -293,7 +412,9 @@ export function SettingsPage({
 	const [skillsTab, setSkillsTab] = useState<SkillCenterTab | "groups">("personal");
 	const [skillsQuery, setSkillsQuery] = useState("");
 	const [skillsLoading, setSkillsLoading] = useState(false);
-	const [skillForm, setSkillForm] = useState<{ mode: "create" } | { mode: "edit"; entry: SkillCenterEntry } | null>(null);
+	const [skillForm, setSkillForm] = useState<{ mode: "create" } | { mode: "edit"; entry: SkillCenterEntry } | null>(
+		null,
+	);
 	const [skName, setSkName] = useState("");
 	const [skDesc, setSkDesc] = useState("");
 	const [skBody, setSkBody] = useState("");
@@ -406,15 +527,15 @@ export function SettingsPage({
 				}),
 			]);
 			if (cursorAccts.ok && Array.isArray(cursorAccts.result)) setCursorAccounts(cursorAccts.result);
-				if (settings.ok && settings.result) {
-					const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
-					setAgentDir(settings.result.agentDir);
-					setSettingsObj(obj);
-					setChatAppearance(parseChatAppearance(obj.desktopChatAppearance));
-					setChatAppearanceLoaded(true);
-					setOwlAppearance(parseOwlAppearance(obj.owlAppearance));
-					setOwlAppearanceLoaded(true);
-					setFileIconTheme(parseFileIconTheme(obj.fileIconTheme));
+			if (settings.ok && settings.result) {
+				const obj = (settings.result.settings ?? {}) as Record<string, unknown>;
+				setAgentDir(settings.result.agentDir);
+				setSettingsObj(obj);
+				setChatAppearance(parseChatAppearance(obj.desktopChatAppearance));
+				setChatAppearanceLoaded(true);
+				setOwlAppearance(parseOwlAppearance(obj.owlAppearance));
+				setOwlAppearanceLoaded(true);
+				setFileIconTheme(parseFileIconTheme(obj.fileIconTheme));
 				setRaw(JSON.stringify(obj, null, 2));
 				if (typeof obj.shellPath === "string") setShellPath(obj.shellPath);
 				if (typeof obj.owlCustomPrompt === "string") setCustomPrompt(obj.owlCustomPrompt);
@@ -563,7 +684,9 @@ export function SettingsPage({
 		try {
 			const response = await client.request<{ ok: boolean; url?: string }>({ type: "imageSub.login" });
 			if (response.ok) {
-				setImageSubHint(`${t("settings.image.subLoginStarted")}${response.result?.url ? `\n${response.result.url}` : ""}`);
+				setImageSubHint(
+					`${t("settings.image.subLoginStarted")}${response.result?.url ? `\n${response.result.url}` : ""}`,
+				);
 			} else {
 				setError(response.error ?? t("common.operationFailed"));
 			}
@@ -609,7 +732,11 @@ export function SettingsPage({
 		}
 		const preset = comfyForm.preset.trim();
 		workflows.push(preset.length > 0 ? { name, json, presetPrompt: preset } : { name, json });
-		setImageCfg((prev) => ({ ...prev, comfyuiWorkflows: workflows, ...(prev.comfyuiActiveWorkflow ? {} : { comfyuiActiveWorkflow: name }) }));
+		setImageCfg((prev) => ({
+			...prev,
+			comfyuiWorkflows: workflows,
+			...(prev.comfyuiActiveWorkflow ? {} : { comfyuiActiveWorkflow: name }),
+		}));
 		setComfyForm({ name: "", json: "", preset: "" });
 		setError("");
 	}
@@ -619,23 +746,31 @@ export function SettingsPage({
 		setFetchingModels(true);
 		setImageModelsNote("");
 		try {
-			const response = await client.request<{ models: string[]; error?: string }>({ type: "imageModels.list", provider });
+			const response = await client.request<{ models: string[]; error?: string }>({
+				type: "imageModels.list",
+				provider,
+			});
 			if (response.ok && response.result) {
 				setImageModels((prev) => ({ ...prev, [provider]: response.result?.models ?? [] }));
 				const error = response.result.error;
 				if (error) {
 					// 报错带上 provider 名，避免“登录了订阅却拉 Google Gemini 的模型”这种错位误会；
 					// Gemini 缺 key 且订阅已登录时，顺带提示切 provider 即可免 key 生图。
-					const label = t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider as OwlImageProvider] ?? "settings.image.p.google");
-					const subHint = provider === "google" && /API key/i.test(error) && imageData?.subscription.loggedIn === true
-						? t("settings.image.tryGoogleSub")
-						: "";
+					const label = t(
+						OWL_IMAGE_PROVIDER_LABEL_KEYS[provider as OwlImageProvider] ?? "settings.image.p.google",
+					);
+					const subHint =
+						provider === "google" && /API key/i.test(error) && imageData?.subscription.loggedIn === true
+							? t("settings.image.tryGoogleSub")
+							: "";
 					setImageModelsNote(t("settings.image.modelsFailed", { error: `${label} — ${error}` }) + subHint);
 				} else {
 					setImageModelsNote(t("settings.image.modelsFetched", { n: response.result.models.length }));
 				}
 			} else {
-				setImageModelsNote(t("settings.image.modelsFailed", { error: response.error ?? t("common.operationFailed") }));
+				setImageModelsNote(
+					t("settings.image.modelsFailed", { error: response.error ?? t("common.operationFailed") }),
+				);
 			}
 		} finally {
 			setFetchingModels(false);
@@ -1133,10 +1268,15 @@ export function SettingsPage({
 			}
 			const models = response.result?.models ?? [];
 			setDiscoveredModels((prev) => ({ ...prev, [providerKey]: models }));
-			const note = models.length > 0 ? t("settings.models.discoverOk", { n: models.length }) : t("settings.models.discoverEmpty");
+			const note =
+				models.length > 0
+					? t("settings.models.discoverOk", { n: models.length })
+					: t("settings.models.discoverEmpty");
 			setDiscoverNote(response.result?.error ? `${note} · ${response.result.error}` : note);
 		} catch (error) {
-			setDiscoverNote(`${t("settings.models.discoverFailed")}: ${error instanceof Error ? error.message : String(error)}`);
+			setDiscoverNote(
+				`${t("settings.models.discoverFailed")}: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		} finally {
 			setDiscovering(false);
 		}
@@ -1214,8 +1354,7 @@ export function SettingsPage({
 	 * 自定义目录/路径变化时让渲染层与清单重扫（refreshKey 递增触发 force fetch）。
 	 */
 	function saveWallpaper(next: OwlWallpaperSettings, options: { rescan?: boolean } = {}): void {
-		const changedScanSource =
-			next.customDir !== wallpaper.customDir || next.customPath !== wallpaper.customPath;
+		const changedScanSource = next.customDir !== wallpaper.customDir || next.customPath !== wallpaper.customPath;
 		onWallpaperChange(next);
 		void saveSettings({ owlWallpaper: next });
 		if (options.rescan || changedScanSource) {
@@ -1256,7 +1395,11 @@ export function SettingsPage({
 	function openSidebarConfigFile(): void {
 		if (!agentDir) return;
 		void client
-			.request({ type: "open.external", action: "url", target: encodeURI(`file:///${agentDir.replace(/\\/g, "/").replace(/^\/+/, "")}/settings.json`) })
+			.request({
+				type: "open.external",
+				action: "url",
+				target: encodeURI(`file:///${agentDir.replace(/\\/g, "/").replace(/^\/+/, "")}/settings.json`),
+			})
 			.catch(() => {});
 	}
 
@@ -1312,14 +1455,19 @@ export function SettingsPage({
 				}
 				if (event.key !== "Tab") return;
 				const scope = pageRef.current?.querySelector<HTMLElement>(".owl-settings-modal") ?? pageRef.current;
-				const items = scope?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]');
+				const items = scope?.querySelectorAll<HTMLElement>(
+					'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
+				);
 				if (!items?.length) return;
 				const first = items[0];
 				const last = items[items.length - 1];
 				if (event.shiftKey && (document.activeElement === first || !scope?.contains(document.activeElement))) {
 					event.preventDefault();
 					last.focus();
-				} else if (!event.shiftKey && (document.activeElement === last || !scope?.contains(document.activeElement))) {
+				} else if (
+					!event.shiftKey &&
+					(document.activeElement === last || !scope?.contains(document.activeElement))
+				) {
 					event.preventDefault();
 					first.focus();
 				}
@@ -1348,62 +1496,223 @@ export function SettingsPage({
 								aria-label={t("settings.searchPlaceholder")}
 								onChange={(event) => setNavQuery(event.target.value)}
 							/>
-							{navQuery && <button type="button" aria-label={t("common.cancel")} onClick={() => setNavQuery("")}>×</button>}
+							{navQuery && (
+								<button type="button" aria-label={t("common.cancel")} onClick={() => setNavQuery("")}>
+									×
+								</button>
+							)}
 						</div>
-						{navFilter && navFilter.size === 0 && <p className="owl-settings-nav-empty">{t("settings.searchEmpty")}</p>}
+						{navFilter && navFilter.size === 0 && (
+							<p className="owl-settings-nav-empty">{t("settings.searchEmpty")}</p>
+						)}
 						{!navFilter && <div className="owl-settings-nav-label">{t("settings.navGroupEnv")}</div>}
-						{navShow("general") && <NavItem icon={<IconSettings />} label={navHighlight(t("settings.navGeneral"))} active={section === "general"} onClick={() => selectSection("general")} />}
-						{navShow("accounts") && <NavItem icon={<IconSelf />} label={navHighlight(t("settings.navAccounts"))} active={section === "accounts"} onClick={() => selectSection("accounts")} />}
-						{navShow("models") && <NavItem icon={<IconSliders />} label={navHighlight(t("settings.navModels"))} active={section === "models"} onClick={() => selectSection("models")} />}
-						{navShow("plugins") && <NavItem icon={<IconPlug />} label={navHighlight(t("settings.navPlugins"))} active={section === "plugins"} onClick={() => selectSection("plugins")} />}
-						{navShow("skills") && <NavItem icon={<IconList />} label={navHighlight(t("settings.navSkills"))} active={section === "skills"} onClick={() => selectSection("skills")} />}
-						{navShow("presets") && <NavItem
-							icon={
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
-									<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
-								</svg>
-							}
-							label={navHighlight(t("settings.presets.nav"))}
-							active={section === "presets"}
-							onClick={() => selectSection("presets")}
-						/>}
-						{navShow("sidebar") && <NavItem icon={<IconPanelRight size={14} />} label={navHighlight(t("settings.navSidebar"))} active={section === "sidebar"} onClick={() => selectSection("sidebar")} />}
-						{navShow("appearance") && <NavItem icon={<IconSun />} label={navHighlight(t("settings.navAppearance"))} active={section === "appearance"} onClick={() => selectSection("appearance")} />}
-						{navShow("animation") && <NavItem icon={<IconSparkles />} label={navHighlight(t("settings.navAnimation"))} active={section === "animation"} onClick={() => selectSection("animation")} />}
-						{navShow("notifications") && <NavItem icon={<IconBell />} label={navHighlight(t("settings.navNotifications"))} active={section === "notifications"} onClick={() => selectSection("notifications")} />}
-						{navShow("prompts") && <NavItem icon={<IconCompose />} label={navHighlight(t("settings.navPrompts"))} active={section === "prompts"} onClick={() => selectSection("prompts")} />}
-					{navShow("memory") && <NavItem icon={<IconLightbulb />} label={navHighlight(t("settings.navMemory"))} active={section === "memory"} onClick={() => selectSection("memory")} />}
-						{navShow("image") && <NavItem icon={<IconImage />} label={navHighlight(t("settings.navImage"))} active={section === "image"} onClick={() => selectSection("image")} />}
+						{navShow("general") && (
+							<NavItem
+								icon={<IconSettings />}
+								label={navHighlight(t("settings.navGeneral"))}
+								active={section === "general"}
+								onClick={() => selectSection("general")}
+							/>
+						)}
+						{navShow("accounts") && (
+							<NavItem
+								icon={<IconSelf />}
+								label={navHighlight(t("settings.navAccounts"))}
+								active={section === "accounts"}
+								onClick={() => selectSection("accounts")}
+							/>
+						)}
+						{navShow("models") && (
+							<NavItem
+								icon={<IconSliders />}
+								label={navHighlight(t("settings.navModels"))}
+								active={section === "models"}
+								onClick={() => selectSection("models")}
+							/>
+						)}
+						{navShow("plugins") && (
+							<NavItem
+								icon={<IconPlug />}
+								label={navHighlight(t("settings.navPlugins"))}
+								active={section === "plugins"}
+								onClick={() => selectSection("plugins")}
+							/>
+						)}
+						{navShow("skills") && (
+							<NavItem
+								icon={<IconList />}
+								label={navHighlight(t("settings.navSkills"))}
+								active={section === "skills"}
+								onClick={() => selectSection("skills")}
+							/>
+						)}
+						{navShow("presets") && (
+							<NavItem
+								icon={
+									<svg
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="1.8"
+										className="h-3.5 w-3.5"
+									>
+										<path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z" />
+									</svg>
+								}
+								label={navHighlight(t("settings.presets.nav"))}
+								active={section === "presets"}
+								onClick={() => selectSection("presets")}
+							/>
+						)}
+						{navShow("sidebar") && (
+							<NavItem
+								icon={<IconPanelRight size={14} />}
+								label={navHighlight(t("settings.navSidebar"))}
+								active={section === "sidebar"}
+								onClick={() => selectSection("sidebar")}
+							/>
+						)}
+						{navShow("appearance") && (
+							<NavItem
+								icon={<IconSun />}
+								label={navHighlight(t("settings.navAppearance"))}
+								active={section === "appearance"}
+								onClick={() => selectSection("appearance")}
+							/>
+						)}
+						{navShow("animation") && (
+							<NavItem
+								icon={<IconSparkles />}
+								label={navHighlight(t("settings.navAnimation"))}
+								active={section === "animation"}
+								onClick={() => selectSection("animation")}
+							/>
+						)}
+						{navShow("notifications") && (
+							<NavItem
+								icon={<IconBell />}
+								label={navHighlight(t("settings.navNotifications"))}
+								active={section === "notifications"}
+								onClick={() => selectSection("notifications")}
+							/>
+						)}
+						{navShow("prompts") && (
+							<NavItem
+								icon={<IconCompose />}
+								label={navHighlight(t("settings.navPrompts"))}
+								active={section === "prompts"}
+								onClick={() => selectSection("prompts")}
+							/>
+						)}
+						{navShow("memory") && (
+							<NavItem
+								icon={<IconLightbulb />}
+								label={navHighlight(t("settings.navMemory"))}
+								active={section === "memory"}
+								onClick={() => selectSection("memory")}
+							/>
+						)}
+						{navShow("image") && (
+							<NavItem
+								icon={<IconImage />}
+								label={navHighlight(t("settings.navImage"))}
+								active={section === "image"}
+								onClick={() => selectSection("image")}
+							/>
+						)}
 						{!navFilter && <div className="owl-settings-nav-label">{t("settings.navGroupData")}</div>}
-						{navShow("usage") && <NavItem icon={<IconActivity />} label={navHighlight(t("settings.navUsage"))} active={section === "usage"} onClick={() => selectSection("usage")} />}
-						{navShow("archived") && <NavItem icon={<IconArchive />} label={navHighlight(t("settings.navArchive"))} active={section === "archived"} onClick={() => selectSection("archived")} />}
-						{navShow("execution-anomalies") && <NavItem icon={<IconAlert />} label={navHighlight(executionAnomaliesCopy.nav)} active={section === "execution-anomalies"} onClick={() => selectSection("execution-anomalies")} />}
-						{navShow("json") && <NavItem icon={<IconCode />} label={navHighlight("settings.json")} active={section === "json"} onClick={() => selectSection("json")} />}
-						{navShow("diagnostics") && <NavItem
-							icon={
-								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
-									<path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
-								</svg>
-							}
-							label={navHighlight(lifeShell("title"))}
-							active={section === "diagnostics"}
-							onClick={() => selectSection("diagnostics")}
-						/>}
-						{navShow("changelog") && <NavItem icon={<IconClock />} label={navHighlight(changelogCopy.nav)} active={section === "changelog"} onClick={() => selectSection("changelog")} />}
-						{navShow("about") && <NavItem icon={<IconInfo />} label={navHighlight(t("settings.navAbout"))} active={section === "about"} onClick={() => selectSection("about")} />}
+						{navShow("usage") && (
+							<NavItem
+								icon={<IconActivity />}
+								label={navHighlight(t("settings.navUsage"))}
+								active={section === "usage"}
+								onClick={() => selectSection("usage")}
+							/>
+						)}
+						{navShow("archived") && (
+							<NavItem
+								icon={<IconArchive />}
+								label={navHighlight(t("settings.navArchive"))}
+								active={section === "archived"}
+								onClick={() => selectSection("archived")}
+							/>
+						)}
+						{navShow("execution-anomalies") && (
+							<NavItem
+								icon={<IconAlert />}
+								label={navHighlight(executionAnomaliesCopy.nav)}
+								active={section === "execution-anomalies"}
+								onClick={() => selectSection("execution-anomalies")}
+							/>
+						)}
+						{navShow("json") && (
+							<NavItem
+								icon={<IconCode />}
+								label={navHighlight("settings.json")}
+								active={section === "json"}
+								onClick={() => selectSection("json")}
+							/>
+						)}
+						{navShow("diagnostics") && (
+							<NavItem
+								icon={
+									<svg
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="1.8"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="h-3.5 w-3.5"
+									>
+										<path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
+									</svg>
+								}
+								label={navHighlight(lifeShell("title"))}
+								active={section === "diagnostics"}
+								onClick={() => selectSection("diagnostics")}
+							/>
+						)}
+						{navShow("changelog") && (
+							<NavItem
+								icon={<IconClock />}
+								label={navHighlight(changelogCopy.nav)}
+								active={section === "changelog"}
+								onClick={() => selectSection("changelog")}
+							/>
+						)}
+						{navShow("about") && (
+							<NavItem
+								icon={<IconInfo />}
+								label={navHighlight(t("settings.navAbout"))}
+								active={section === "about"}
+								onClick={() => selectSection("about")}
+							/>
+						)}
 					</nav>
 
 					{/* ============ 右侧内容区 ============ */}
 					<div className="owl-settings-content" key={section} data-owl-settings-section={section}>
-						{error && <div className="owl-settings-notice is-error" role="alert">{error}</div>}
+						{error && (
+							<div className="owl-settings-notice is-error" role="alert">
+								{error}
+							</div>
+						)}
 
 						{/* -------- 常规 -------- */}
 						{section === "accounts" && <AccountsSection client={client} />}
 						{section === "general" && (
 							<>
 								<SectionHeader title={t("settings.general.title")} desc={t("settings.general.desc")} />
-								<SettingRow title={t("settings.general.workspaceDir")} desc={t("settings.general.workspaceDirDesc")}>
-									<input className={input} value={workspaceDir} onChange={(event) => onWorkspaceDir(event.target.value)} />
+								<SettingRow
+									title={t("settings.general.workspaceDir")}
+									desc={t("settings.general.workspaceDirDesc")}
+								>
+									<input
+										className={input}
+										value={workspaceDir}
+										onChange={(event) => onWorkspaceDir(event.target.value)}
+									/>
 								</SettingRow>
 								<SettingRow title={t("settings.general.agentDir")} desc={t("settings.general.agentDirDesc")}>
 									<input
@@ -1416,14 +1725,27 @@ export function SettingsPage({
 									title={t("settings.general.shellPath")}
 									desc={t("settings.general.shellPathDesc")}
 									control={
-										<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveSettings({ shellPath })}>
+										<button
+											type="button"
+											className={btnAccent}
+											disabled={busy}
+											onClick={() => void saveSettings({ shellPath })}
+										>
 											{t("common.save")}
 										</button>
 									}
 								>
-									<input className={smallInput} value={shellPath} onChange={(event) => setShellPath(event.target.value)} placeholder={t("settings.general.shellPathPlaceholder")} />
+									<input
+										className={smallInput}
+										value={shellPath}
+										onChange={(event) => setShellPath(event.target.value)}
+										placeholder={t("settings.general.shellPathPlaceholder")}
+									/>
 								</SettingRow>
-								<SettingRow title={t("settings.general.uiLanguage")} desc={t("settings.general.uiLanguageDesc")}>
+								<SettingRow
+									title={t("settings.general.uiLanguage")}
+									desc={t("settings.general.uiLanguageDesc")}
+								>
 									<select
 										aria-label={t("settings.general.uiLanguage")}
 										className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
@@ -1436,10 +1758,10 @@ export function SettingsPage({
 											void saveSettings({ uiLanguage: next });
 										}}
 									>
-									<option value="system">{t("settings.general.uiLanguageSystem")}</option>
-									<option value="zh">{t("settings.general.uiLanguageZh")}</option>
-									<option value="en">{t("settings.general.uiLanguageEn")}</option>
-								</select>
+										<option value="system">{t("settings.general.uiLanguageSystem")}</option>
+										<option value="zh">{t("settings.general.uiLanguageZh")}</option>
+										<option value="en">{t("settings.general.uiLanguageEn")}</option>
+									</select>
 								</SettingRow>
 								<RequestBudgetSetting
 									value={settingsObj.requestMaxTokens}
@@ -1453,10 +1775,7 @@ export function SettingsPage({
 						{/* -------- 模型与供应商 -------- */}
 						{section === "models" && (
 							<>
-								<SectionHeader
-									title={t("settings.models.title")}
-										desc={t("settings.models.desc")}
-								/>
+								<SectionHeader title={t("settings.models.title")} desc={t("settings.models.desc")} />
 
 								{/* 快捷接入：像 /login 一样选厂商 */}
 								<div className="owl-settings-card">
@@ -1496,10 +1815,19 @@ export function SettingsPage({
 													onClick={() => {
 														setQuickHint(t("settings.models.savingKey"));
 														void client
-															.request({ type: "auth.login", provider: quickProvider, authType: "api_key", apiKey: quickKey.trim() })
+															.request({
+																type: "auth.login",
+																provider: quickProvider,
+																authType: "api_key",
+																apiKey: quickKey.trim(),
+															})
 															.then((response) => {
 																if (response.ok) setQuickKey("");
-																finishAuthLogin(response, quickProvider, t("settings.models.apiKeySavedTitle"));
+																finishAuthLogin(
+																	response,
+																	quickProvider,
+																	t("settings.models.apiKeySavedTitle"),
+																);
 															});
 													}}
 												>
@@ -1515,8 +1843,19 @@ export function SettingsPage({
 														onClick={() => {
 															setQuickHint(t("settings.models.oauthStarting"));
 															void client
-																.request({ type: "auth.login", provider: quickProvider, authType: "oauth", enterprise: enterpriseLogin })
-																.then((response) => finishAuthLogin(response, quickProvider, t("settings.models.oauthLoginSuccessTitle")));
+																.request({
+																	type: "auth.login",
+																	provider: quickProvider,
+																	authType: "oauth",
+																	enterprise: enterpriseLogin,
+																})
+																.then((response) =>
+																	finishAuthLogin(
+																		response,
+																		quickProvider,
+																		t("settings.models.oauthLoginSuccessTitle"),
+																	),
+																);
 														}}
 													>
 														{t("settings.models.oauthLogin")}
@@ -1531,103 +1870,155 @@ export function SettingsPage({
 													</label>
 												</div>
 											)}
-									{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
-									{/* Cursor 多账号：继续浏览器登录会追加账号，可在此切换/删除 */}
-									{(quickProvider === "cursor" || cursorAccounts.length > 0) && (
-										<div className="mt-3 space-y-2 rounded-lg border border-owl-border px-3 py-2">
-											<div className="flex items-center justify-between gap-2">
-												<div className="text-[11px] font-medium text-owl-text">{t("settings.models.cursorAccountsTitle")}</div>
-												<button
-													type="button"
-													className={btn}
-													disabled={busy}
-													onClick={() => {
-														setBusy(true);
-														setQuickProvider("cursor");
-														setQuickHint(t("settings.models.oauthStarting"));
-														void client
-															.request({ type: "auth.login", provider: "cursor", authType: "oauth" })
-															.then((response) => finishAuthLogin(response, "cursor", t("settings.models.oauthLoginSuccessTitle")))
-															.finally(() => setBusy(false));
-													}}
-												>
-													{t("settings.models.cursorAddAccount")}
-												</button>
-											</div>
-											<p className="text-[11px] text-owl-muted">{t("settings.models.cursorAccountsDesc")}</p>
-											{cursorAccounts.length === 0 ? (
-												<div className="text-[11px] text-owl-faint">{t("settings.models.cursorAccountsEmpty")}</div>
-											) : (
-												<ul className="space-y-1">
-													{cursorAccounts.map((account) => (
-														<li key={account.id} className="flex items-center justify-between gap-2 text-[12px]">
-															<div className="min-w-0">
-																<div className="truncate text-owl-text">
-																	{account.label}
-																	{account.active ? (
-																		<span className="ml-1 text-[10px] text-owl-accent">{t("settings.models.cursorAccountActive")}</span>
-																	) : null}
-																</div>
-																{account.email && account.email !== account.label ? (
-																	<div className="truncate text-[10px] text-owl-muted">{account.email}</div>
-																) : null}
-															</div>
-															<div className="flex shrink-0 gap-2">
-																{!account.active && (
-																	<button
-																		type="button"
-																		className="owl-settings-link"
-																		disabled={busy}
-																		onClick={() => {
-																			setBusy(true);
-																			void client
-																				.request({ type: "cursor.accounts.switch", accountId: account.id })
-																				.then((response) => {
-																					if (!response.ok) {
-																						setError(response.error ?? t("common.operationFailed"));
-																						return;
-																					}
-																					if (Array.isArray(response.result)) setCursorAccounts(response.result as typeof cursorAccounts);
-																					return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
-																				})
-																				.finally(() => setBusy(false));
-																		}}
-																	>
-																		{t("settings.models.cursorAccountSwitch")}
-																	</button>
-																)}
-																<button
-																	type="button"
-																	className="owl-settings-link is-danger"
-																	disabled={busy}
-																	onClick={() => {
-																		setBusy(true);
-																		void client
-																			.request({ type: "cursor.accounts.remove", accountId: account.id })
-																			.then((response) => {
-																				if (!response.ok) {
-																					setError(response.error ?? t("common.operationFailed"));
-																					return;
-																				}
-																				if (Array.isArray(response.result)) setCursorAccounts(response.result as typeof cursorAccounts);
-																				return client.request<ProviderModelsMessage[]>({ type: "models.list" }).then(apply);
-																			})
-																			.finally(() => setBusy(false));
-																	}}
+											{quickHint && <div className="text-[11px] text-owl-muted">{quickHint}</div>}
+											{/* Cursor 多账号：继续浏览器登录会追加账号，可在此切换/删除 */}
+											{(quickProvider === "cursor" || cursorAccounts.length > 0) && (
+												<div className="mt-3 space-y-2 rounded-lg border border-owl-border px-3 py-2">
+													<div className="flex items-center justify-between gap-2">
+														<div className="text-[11px] font-medium text-owl-text">
+															{t("settings.models.cursorAccountsTitle")}
+														</div>
+														<button
+															type="button"
+															className={btn}
+															disabled={busy}
+															onClick={() => {
+																setBusy(true);
+																setQuickProvider("cursor");
+																setQuickHint(t("settings.models.oauthStarting"));
+																void client
+																	.request({
+																		type: "auth.login",
+																		provider: "cursor",
+																		authType: "oauth",
+																	})
+																	.then((response) =>
+																		finishAuthLogin(
+																			response,
+																			"cursor",
+																			t("settings.models.oauthLoginSuccessTitle"),
+																		),
+																	)
+																	.finally(() => setBusy(false));
+															}}
+														>
+															{t("settings.models.cursorAddAccount")}
+														</button>
+													</div>
+													<p className="text-[11px] text-owl-muted">
+														{t("settings.models.cursorAccountsDesc")}
+													</p>
+													{cursorAccounts.length === 0 ? (
+														<div className="text-[11px] text-owl-faint">
+															{t("settings.models.cursorAccountsEmpty")}
+														</div>
+													) : (
+														<ul className="space-y-1">
+															{cursorAccounts.map((account) => (
+																<li
+																	key={account.id}
+																	className="flex items-center justify-between gap-2 text-[12px]"
 																>
-																	{t("common.delete")}
-																</button>
-															</div>
-														</li>
-													))}
-												</ul>
+																	<div className="min-w-0">
+																		<div className="truncate text-owl-text">
+																			{account.label}
+																			{account.active ? (
+																				<span className="ml-1 text-[10px] text-owl-accent">
+																					{t("settings.models.cursorAccountActive")}
+																				</span>
+																			) : null}
+																		</div>
+																		{account.email && account.email !== account.label ? (
+																			<div className="truncate text-[10px] text-owl-muted">
+																				{account.email}
+																			</div>
+																		) : null}
+																	</div>
+																	<div className="flex shrink-0 gap-2">
+																		{!account.active && (
+																			<button
+																				type="button"
+																				className="owl-settings-link"
+																				disabled={busy}
+																				onClick={() => {
+																					setBusy(true);
+																					void client
+																						.request({
+																							type: "cursor.accounts.switch",
+																							accountId: account.id,
+																						})
+																						.then((response) => {
+																							if (!response.ok) {
+																								setError(
+																									response.error ??
+																										t("common.operationFailed"),
+																								);
+																								return;
+																							}
+																							if (Array.isArray(response.result))
+																								setCursorAccounts(
+																									response.result as typeof cursorAccounts,
+																								);
+																							return client
+																								.request<ProviderModelsMessage[]>({
+																									type: "models.list",
+																								})
+																								.then(apply);
+																						})
+																						.finally(() => setBusy(false));
+																				}}
+																			>
+																				{t("settings.models.cursorAccountSwitch")}
+																			</button>
+																		)}
+																		<button
+																			type="button"
+																			className="owl-settings-link is-danger"
+																			disabled={busy}
+																			onClick={() => {
+																				setBusy(true);
+																				void client
+																					.request({
+																						type: "cursor.accounts.remove",
+																						accountId: account.id,
+																					})
+																					.then((response) => {
+																						if (!response.ok) {
+																							setError(
+																								response.error ?? t("common.operationFailed"),
+																							);
+																							return;
+																						}
+																						if (Array.isArray(response.result))
+																							setCursorAccounts(
+																								response.result as typeof cursorAccounts,
+																							);
+																						return client
+																							.request<ProviderModelsMessage[]>({
+																								type: "models.list",
+																							})
+																							.then(apply);
+																					})
+																					.finally(() => setBusy(false));
+																			}}
+																		>
+																			{t("common.delete")}
+																		</button>
+																	</div>
+																</li>
+															))}
+														</ul>
+													)}
+												</div>
 											)}
-										</div>
-									)}
-									{loginAsk && (
+											{loginAsk && (
 												<div className="owl-settings-notice is-warning">
-													<div className="text-[11px] text-owl-warning">{loginAsk.message ?? t("settings.models.loginNeedsInput")}</div>
-													{(loginAsk.type === "text" || loginAsk.type === "secret" || loginAsk.type === "manual_code") && (
+													<div className="text-[11px] text-owl-warning">
+														{loginAsk.message ?? t("settings.models.loginNeedsInput")}
+													</div>
+													{(loginAsk.type === "text" ||
+														loginAsk.type === "secret" ||
+														loginAsk.type === "manual_code") && (
 														<div className="mt-1.5 flex gap-2">
 															<input
 																autoFocus
@@ -1637,10 +2028,15 @@ export function SettingsPage({
 																placeholder={loginAsk.placeholder}
 																onChange={(e) => setAskAnswer(e.target.value)}
 																onKeyDown={(e) => {
-																	if (e.key === "Enter" && askAnswer.trim()) respondPrompt(askAnswer.trim());
+																	if (e.key === "Enter" && askAnswer.trim())
+																		respondPrompt(askAnswer.trim());
 																}}
 															/>
-															<button type="button" className={btnAccent} onClick={() => respondPrompt(askAnswer.trim())}>
+															<button
+																type="button"
+																className={btnAccent}
+																onClick={() => respondPrompt(askAnswer.trim())}
+															>
 																{t("common.submit")}
 															</button>
 														</div>
@@ -1648,7 +2044,12 @@ export function SettingsPage({
 													{loginAsk.type === "select" && (
 														<div className="mt-1.5 flex flex-wrap gap-1">
 															{(loginAsk.options ?? []).map((o) => (
-																<button key={o.id} type="button" className={btn} onClick={() => respondPrompt(o.id)}>
+																<button
+																	key={o.id}
+																	type="button"
+																	className={btn}
+																	onClick={() => respondPrompt(o.id)}
+																>
 																	{o.label}
 																</button>
 															))}
@@ -1660,7 +2061,9 @@ export function SettingsPage({
 															className="text-[11px] text-owl-faint transition-colors hover:text-owl-danger"
 															onClick={() => {
 																setLoginAsk(null);
-																void client.request({ type: "auth.cancel" }).then(() => setQuickHint(t("settings.models.loginCanceled")));
+																void client
+																	.request({ type: "auth.cancel" })
+																	.then(() => setQuickHint(t("settings.models.loginCanceled")));
 															}}
 														>
 															{t("settings.models.cancelLogin")}
@@ -1681,17 +2084,31 @@ export function SettingsPage({
 										</div>
 										{modelCount > 0 && (
 											<div className="flex shrink-0 items-center gap-2">
-												<button type="button" className="owl-settings-link" disabled={busy || inUseScopeCount === inUseScopeTotal} onClick={() => setAllInUse(true)}>
+												<button
+													type="button"
+													className="owl-settings-link"
+													disabled={busy || inUseScopeCount === inUseScopeTotal}
+													onClick={() => setAllInUse(true)}
+												>
 													{t("settings.models.inUseSelectAll")}
 												</button>
-												<button type="button" className="owl-settings-link" disabled={busy || inUseScopeCount === 0} onClick={() => setAllInUse(false)}>
+												<button
+													type="button"
+													className="owl-settings-link"
+													disabled={busy || inUseScopeCount === 0}
+													onClick={() => setAllInUse(false)}
+												>
 													{t("settings.models.inUseSelectNone")}
 												</button>
 											</div>
 										)}
 									</div>
 									{groups.length > 1 && (
-										<div className="owl-settings-filter-chips mt-3" role="group" aria-label={t("settings.models.inUseFilterAria")}>
+										<div
+											className="owl-settings-filter-chips mt-3"
+											role="group"
+											aria-label={t("settings.models.inUseFilterAria")}
+										>
 											<button
 												type="button"
 												className={`owl-settings-filter-chip ${inUseFilterGroup ? "" : "is-active"}`}
@@ -1724,7 +2141,12 @@ export function SettingsPage({
 									)}
 									<div className="mt-2 text-[11px] text-owl-faint">
 										{inUseFilterGroup
-											? t("settings.models.inUseCountScoped", { n: inUseScopeCount, total: inUseScopeTotal, all: inUseCount, allTotal: modelCount })
+											? t("settings.models.inUseCountScoped", {
+													n: inUseScopeCount,
+													total: inUseScopeTotal,
+													all: inUseCount,
+													allTotal: modelCount,
+												})
 											: t("settings.models.inUseCount", { n: inUseCount, total: modelCount })}
 									</div>
 									{modelCount === 0 ? (
@@ -1736,18 +2158,33 @@ export function SettingsPage({
 													const checked = isModelMarkedInUse(group.id, model.id, enabledModels);
 													const label = model.name || model.id;
 													return (
-														<div key={`${group.id}/${model.id}`} className={`owl-settings-plugin-row ${checked ? "" : "opacity-55"}`}>
+														<div
+															key={`${group.id}/${model.id}`}
+															className={`owl-settings-plugin-row ${checked ? "" : "opacity-55"}`}
+														>
 															<input
 																type="checkbox"
 																checked={checked}
 																disabled={busy}
-																aria-label={checked ? t("settings.models.inUseDisableAria", { name: label }) : t("settings.models.inUseEnableAria", { name: label })}
-																onChange={(event) => toggleInUseModel(group.id, model.id, event.target.checked)}
+																aria-label={
+																	checked
+																		? t("settings.models.inUseDisableAria", { name: label })
+																		: t("settings.models.inUseEnableAria", { name: label })
+																}
+																onChange={(event) =>
+																	toggleInUseModel(group.id, model.id, event.target.checked)
+																}
 															/>
-															<span className="min-w-0 flex-1 truncate text-sm text-owl-text">{label}</span>
-															<span className="shrink-0 text-[10px] text-owl-faint">{group.name ?? group.id}</span>
+															<span className="min-w-0 flex-1 truncate text-sm text-owl-text">
+																{label}
+															</span>
+															<span className="shrink-0 text-[10px] text-owl-faint">
+																{group.name ?? group.id}
+															</span>
 															{model.reasoning ? (
-																<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-muted">{t("settings.models.reasoning")}</span>
+																<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-muted">
+																	{t("settings.models.reasoning")}
+																</span>
 															) : null}
 														</div>
 													);
@@ -1758,7 +2195,12 @@ export function SettingsPage({
 								</div>
 
 								<div className="flex items-center justify-between">
-									<div className="text-xs font-semibold text-owl-muted">{t("settings.models.providerModelCount", { providers: groups.length, models: modelCount })}</div>
+									<div className="text-xs font-semibold text-owl-muted">
+										{t("settings.models.providerModelCount", {
+											providers: groups.length,
+											models: modelCount,
+										})}
+									</div>
 									<button
 										type="button"
 										className={btn}
@@ -1778,15 +2220,30 @@ export function SettingsPage({
 										<div className="grid grid-cols-2 gap-4">
 											<label className="block text-[11px] text-owl-muted">
 												{t("settings.models.providerIdLabel")}
-												<input className={input} value={pKey} onChange={(e) => setPKey(e.target.value)} placeholder={t("settings.models.providerIdPlaceholder")} />
+												<input
+													className={input}
+													value={pKey}
+													onChange={(e) => setPKey(e.target.value)}
+													placeholder={t("settings.models.providerIdPlaceholder")}
+												/>
 											</label>
 											<label className="block text-[11px] text-owl-muted">
 												{t("settings.models.displayName")}
-												<input className={input} value={pName} onChange={(e) => setPName(e.target.value)} placeholder={t("settings.models.displayNamePlaceholder")} />
+												<input
+													className={input}
+													value={pName}
+													onChange={(e) => setPName(e.target.value)}
+													placeholder={t("settings.models.displayNamePlaceholder")}
+												/>
 											</label>
 											<label className="block text-[11px] text-owl-muted">
 												{t("settings.models.baseUrlLabel")}
-												<input className={input} value={pUrl} onChange={(e) => setPUrl(e.target.value)} placeholder="https://..." />
+												<input
+													className={input}
+													value={pUrl}
+													onChange={(e) => setPUrl(e.target.value)}
+													placeholder="https://..."
+												/>
 											</label>
 											<label className="block text-[11px] text-owl-muted">
 												{t("settings.models.apiLabel")}
@@ -1803,7 +2260,14 @@ export function SettingsPage({
 											{t("settings.models.apiKeyEnvLabelPre")}
 											<code>{t("settings.models.apiKeyEnvLabelCode")}</code>
 											{t("settings.models.apiKeyEnvLabelPost")}
-											<input type="password" autoComplete="off" className={input} value={pApiKey} onChange={(e) => setPApiKey(e.target.value)} placeholder="sk-..." />
+											<input
+												type="password"
+												autoComplete="off"
+												className={input}
+												value={pApiKey}
+												onChange={(e) => setPApiKey(e.target.value)}
+												placeholder="sk-..."
+											/>
 										</label>
 										<div className="flex justify-end gap-2">
 											<button type="button" className={btn} onClick={resetProviderForm}>
@@ -1857,7 +2321,8 @@ export function SettingsPage({
 											>
 												{groups.map((group) => (
 													<option key={group.id} value={group.id}>
-														{group.name ?? group.id} · {t("settings.models.modelCountSuffix", { n: group.models.length })}
+														{group.name ?? group.id} ·{" "}
+														{t("settings.models.modelCountSuffix", { n: group.models.length })}
 													</option>
 												))}
 											</select>
@@ -1867,10 +2332,15 @@ export function SettingsPage({
 										<div key={group.id} className="owl-settings-provider">
 											<div className="owl-settings-provider-header">
 												<div className="owl-settings-provider-identity">
-													<span className="owl-settings-provider-mark" aria-hidden="true">{(group.name ?? group.id).slice(0, 1).toUpperCase()}</span>
+													<span className="owl-settings-provider-mark" aria-hidden="true">
+														{(group.name ?? group.id).slice(0, 1).toUpperCase()}
+													</span>
 													<div className="min-w-0">
 														<div className="owl-settings-provider-name">{group.name ?? group.id}</div>
-														<div className="owl-settings-provider-subtitle">{group.id} · {t("settings.models.modelCountSuffix", { n: group.models.length })}</div>
+														<div className="owl-settings-provider-subtitle">
+															{group.id} ·{" "}
+															{t("settings.models.modelCountSuffix", { n: group.models.length })}
+														</div>
 													</div>
 												</div>
 												<button
@@ -1884,22 +2354,62 @@ export function SettingsPage({
 											</div>
 											{group.models.length > 0 ? (
 												<table className="owl-settings-model-table">
-													<thead><tr><th scope="col">{t("settings.models.colModel")}</th><th scope="col">{t("settings.models.colContext")}</th><th scope="col">{t("settings.models.colCapabilities")}</th><th scope="col"><span className="sr-only">{t("settings.models.colActions")}</span></th></tr></thead>
+													<thead>
+														<tr>
+															<th scope="col">{t("settings.models.colModel")}</th>
+															<th scope="col">{t("settings.models.colContext")}</th>
+															<th scope="col">{t("settings.models.colCapabilities")}</th>
+															<th scope="col">
+																<span className="sr-only">{t("settings.models.colActions")}</span>
+															</th>
+														</tr>
+													</thead>
 													<tbody>
 														{group.models.map((model) => (
 															<tr key={model.id}>
-																<td><div>{model.name || model.id}</div><div className="owl-settings-model-id">{model.id}</div></td>
-																<td className="whitespace-nowrap">{model.contextWindow ? `${Math.round(model.contextWindow / 1000)}k` : "—"}</td>
-																<td className="whitespace-nowrap text-owl-muted">
-																	{model.reasoning ? t("settings.models.reasoning") : t("settings.models.general")}
-																	{model.input?.includes("image") ? ` · ${t("settings.models.vision")}` : ""}
+																<td>
+																	<div>{model.name || model.id}</div>
+																	<div className="owl-settings-model-id">{model.id}</div>
 																</td>
-																<td><button type="button" className="owl-settings-link is-danger" disabled={busy} aria-label={t("settings.models.deleteModelAria", { name: model.name || model.id })} onClick={() => void run({ type: "models.removeModel", providerKey: group.id, modelId: model.id })}>{t("common.delete")}</button></td>
+																<td className="whitespace-nowrap">
+																	{model.contextWindow
+																		? `${Math.round(model.contextWindow / 1000)}k`
+																		: "—"}
+																</td>
+																<td className="whitespace-nowrap text-owl-muted">
+																	{model.reasoning
+																		? t("settings.models.reasoning")
+																		: t("settings.models.general")}
+																	{model.input?.includes("image")
+																		? ` · ${t("settings.models.vision")}`
+																		: ""}
+																</td>
+																<td>
+																	<button
+																		type="button"
+																		className="owl-settings-link is-danger"
+																		disabled={busy}
+																		aria-label={t("settings.models.deleteModelAria", {
+																			name: model.name || model.id,
+																		})}
+																		onClick={() =>
+																			void run({
+																				type: "models.removeModel",
+																				providerKey: group.id,
+																				modelId: model.id,
+																			})
+																		}
+																	>
+																		{t("common.delete")}
+																	</button>
+																</td>
 															</tr>
 														))}
 													</tbody>
 												</table>
-											) : <div className="owl-settings-notice mt-4">{t("settings.models.noModels")}</div>}
+											) : (
+												<div className="owl-settings-notice mt-4">{t("settings.models.noModels")}</div>
+											)}
 
 											{modelFormFor === group.id ? (
 												<div className="owl-settings-form mt-4 space-y-4">
@@ -1909,10 +2419,20 @@ export function SettingsPage({
 																{t("settings.models.discoverLabel")}
 																<select
 																	className={`${smallInput} mt-0.5`}
-																	value={discoveredModels[group.id]?.some((model) => model.id === mId) ? mId : ""}
-																	disabled={busy || discovering || (discoveredModels[group.id]?.length ?? 0) === 0}
+																	value={
+																		discoveredModels[group.id]?.some((model) => model.id === mId)
+																			? mId
+																			: ""
+																	}
+																	disabled={
+																		busy ||
+																		discovering ||
+																		(discoveredModels[group.id]?.length ?? 0) === 0
+																	}
 																	onChange={(event) => {
-																		const model = discoveredModels[group.id]?.find((entry) => entry.id === event.target.value);
+																		const model = discoveredModels[group.id]?.find(
+																			(entry) => entry.id === event.target.value,
+																		);
 																		if (model) applyDiscoveredModel(model);
 																	}}
 																>
@@ -1923,10 +2443,16 @@ export function SettingsPage({
 																	</option>
 																	{(discoveredModels[group.id] ?? []).map((model) => (
 																		<option key={model.id} value={model.id}>
-																			{model.name && model.name !== model.id ? `${model.name} (${model.id})` : model.id}
-																			{model.contextWindow ? ` · ${Math.round(model.contextWindow / 1000)}k` : ""}
+																			{model.name && model.name !== model.id
+																				? `${model.name} (${model.id})`
+																				: model.id}
+																			{model.contextWindow
+																				? ` · ${Math.round(model.contextWindow / 1000)}k`
+																				: ""}
 																			{model.reasoning ? ` · ${t("settings.models.reasoning")}` : ""}
-																			{model.input?.includes("image") ? ` · ${t("settings.models.vision")}` : ""}
+																			{model.input?.includes("image")
+																				? ` · ${t("settings.models.vision")}`
+																				: ""}
 																		</option>
 																	))}
 																</select>
@@ -1937,35 +2463,66 @@ export function SettingsPage({
 																disabled={busy || discovering}
 																onClick={() => void discoverUpstreamModels(group.id)}
 															>
-																{discovering ? t("settings.models.discovering") : t("settings.models.discover")}
+																{discovering
+																	? t("settings.models.discovering")
+																	: t("settings.models.discover")}
 															</button>
 														</div>
-														{discoverNote && <div className="text-[10px] text-owl-faint">{discoverNote}</div>}
+														{discoverNote && (
+															<div className="text-[10px] text-owl-faint">{discoverNote}</div>
+														)}
 													</div>
 													<div className="grid grid-cols-2 gap-4">
 														<label className="block text-[11px] text-owl-muted">
 															{t("settings.models.modelIdLabel")}
-															<input className={smallInput} value={mId} onChange={(e) => setMId(e.target.value)} placeholder={t("settings.models.modelIdPlaceholder")} />
+															<input
+																className={smallInput}
+																value={mId}
+																onChange={(e) => setMId(e.target.value)}
+																placeholder={t("settings.models.modelIdPlaceholder")}
+															/>
 														</label>
 														<label className="block text-[11px] text-owl-muted">
 															{t("settings.models.displayName")}
-															<input className={smallInput} value={mName} onChange={(e) => setMName(e.target.value)} />
+															<input
+																className={smallInput}
+																value={mName}
+																onChange={(e) => setMName(e.target.value)}
+															/>
 														</label>
 														<label className="block text-[11px] text-owl-muted">
 															{t("settings.models.contextWindowLabel")}
-															<input className={smallInput} value={mCtx} onChange={(e) => setMCtx(e.target.value)} placeholder="128000" />
+															<input
+																className={smallInput}
+																value={mCtx}
+																onChange={(e) => setMCtx(e.target.value)}
+																placeholder="128000"
+															/>
 														</label>
 														<label className="block text-[11px] text-owl-muted">
 															{t("settings.models.maxOutputLabel")}
-															<input className={smallInput} value={mMax} onChange={(e) => setMMax(e.target.value)} placeholder="8192" />
+															<input
+																className={smallInput}
+																value={mMax}
+																onChange={(e) => setMMax(e.target.value)}
+																placeholder="8192"
+															/>
 														</label>
 													</div>
 													<label className="flex items-center gap-1.5 text-[11px] text-owl-muted">
-														<input type="checkbox" checked={mReasoning} onChange={(e) => setMReasoning(e.target.checked)} />
+														<input
+															type="checkbox"
+															checked={mReasoning}
+															onChange={(e) => setMReasoning(e.target.checked)}
+														/>
 														{t("settings.models.reasoningModel")}
 													</label>
 													<label className="flex items-center gap-1.5 text-[11px] text-owl-muted">
-														<input type="checkbox" checked={mImage} onChange={(e) => setMImage(e.target.checked)} />
+														<input
+															type="checkbox"
+															checked={mImage}
+															onChange={(e) => setMImage(e.target.checked)}
+														/>
 														{t("settings.models.imageInput")}
 													</label>
 													<div className="flex justify-end gap-2">
@@ -1993,7 +2550,9 @@ export function SettingsPage({
 																		...(Number(mCtx) > 0 ? { contextWindow: Number(mCtx) } : {}),
 																		...(Number(mMax) > 0 ? { maxTokens: Number(mMax) } : {}),
 																		reasoning: mReasoning,
-																		...(mImage ? { input: ["text", "image"] as ("text" | "image")[] } : {}),
+																		...(mImage
+																			? { input: ["text", "image"] as ("text" | "image")[] }
+																			: {}),
 																	},
 																}).then(() => {
 																	setMId("");
@@ -2062,7 +2621,10 @@ export function SettingsPage({
 										</button>
 									</div>
 								)}
-								<SettingRow title={t("settings.plugins.rowTitle", { n: plugins.length })} desc={t("settings.plugins.rowDesc")}>
+								<SettingRow
+									title={t("settings.plugins.rowTitle", { n: plugins.length })}
+									desc={t("settings.plugins.rowDesc")}
+								>
 									<div className="flex gap-2">
 										<input
 											className={`${smallInput} min-w-0 flex-1`}
@@ -2107,16 +2669,24 @@ export function SettingsPage({
 												className={`owl-settings-plugin-row ${disabled ? "opacity-55" : ""}`}
 											>
 												<div className="flex min-w-0 items-center gap-2">
-													<span className={`shrink-0 rounded border px-1.5 py-px text-[10px] ${pluginBadgeClass(type)}`}>
+													<span
+														className={`shrink-0 rounded border px-1.5 py-px text-[10px] ${pluginBadgeClass(type)}`}
+													>
 														{pluginTypeLabel(type)}
 													</span>
 													<div className="min-w-0">
-														<span className="block truncate font-mono text-xs text-owl-text">{label}</span>
-														{typeof entry === "object" && entry.extensions && entry.extensions.length > 0 && (
-															<span className="mt-0.5 block text-[10px] text-owl-faint">
-																{t("settings.plugins.extEntries", { list: entry.extensions.join(", ") })}
-															</span>
-														)}
+														<span className="block truncate font-mono text-xs text-owl-text">
+															{label}
+														</span>
+														{typeof entry === "object" &&
+															entry.extensions &&
+															entry.extensions.length > 0 && (
+																<span className="mt-0.5 block text-[10px] text-owl-faint">
+																	{t("settings.plugins.extEntries", {
+																		list: entry.extensions.join(", "),
+																	})}
+																</span>
+															)}
 													</div>
 												</div>
 												<div className="ml-2 flex shrink-0 items-center gap-2.5">
@@ -2124,20 +2694,28 @@ export function SettingsPage({
 														type="button"
 														className={`text-[11px] transition-colors disabled:opacity-40 ${disabled ? "text-owl-faint hover:text-owl-text" : "text-owl-success hover:text-owl-success"}`}
 														disabled={busy}
-														title={disabled ? t("settings.plugins.enableTitle") : t("settings.plugins.disableTitle")}
+														title={
+															disabled
+																? t("settings.plugins.enableTitle")
+																: t("settings.plugins.disableTitle")
+														}
 														onClick={() => {
 															const next = [...plugins];
 															next[index] = togglePluginEntry(entry);
 															void saveSettings({ plugins: next });
 														}}
 													>
-														{disabled ? t("settings.plugins.disabledLabel") : t("settings.plugins.enabledLabel")}
+														{disabled
+															? t("settings.plugins.disabledLabel")
+															: t("settings.plugins.enabledLabel")}
 													</button>
 													<button
 														type="button"
 														className="text-[11px] text-owl-faint transition-colors hover:text-owl-danger disabled:opacity-40"
 														disabled={busy}
-														onClick={() => void saveSettings({ plugins: plugins.filter((_, i) => i !== index) })}
+														onClick={() =>
+															void saveSettings({ plugins: plugins.filter((_, i) => i !== index) })
+														}
 													>
 														{t("common.delete")}
 													</button>
@@ -2150,527 +2728,733 @@ export function SettingsPage({
 						)}
 
 						{/* -------- 技能 -------- */}
-						{section === "skills" && (() => {
-							const skillsInTab = skillsData.skills.filter((s) => s.tab === skillsTab);
-							const query = skillsQuery.trim().toLowerCase();
-							const nameHits = query ? skillsInTab.filter((s) => s.name.toLowerCase().includes(query)) : skillsInTab;
-							const visibleSkills = query
-								? [...nameHits, ...skillsInTab.filter((s) => !s.name.toLowerCase().includes(query) && s.description.toLowerCase().includes(query))]
-								: skillsInTab;
-							const activeRoot = skillsTab === "groups" ? "" : skillsData.roots[skillsTab];
-							const projectLocked = skillsTab === "project" && !skillsData.projectTrusted;
-							return (
-								<>
-									<SectionHeader title={t("settings.skills.title")} desc={t("settings.skills.desc")} />
+						{section === "skills" &&
+							(() => {
+								const skillsInTab = skillsData.skills.filter((s) => s.tab === skillsTab);
+								const query = skillsQuery.trim().toLowerCase();
+								const nameHits = query
+									? skillsInTab.filter((s) => s.name.toLowerCase().includes(query))
+									: skillsInTab;
+								const visibleSkills = query
+									? [
+											...nameHits,
+											...skillsInTab.filter(
+												(s) =>
+													!s.name.toLowerCase().includes(query) &&
+													s.description.toLowerCase().includes(query),
+											),
+										]
+									: skillsInTab;
+								const activeRoot = skillsTab === "groups" ? "" : skillsData.roots[skillsTab];
+								const projectLocked = skillsTab === "project" && !skillsData.projectTrusted;
+								return (
+									<>
+										<SectionHeader title={t("settings.skills.title")} desc={t("settings.skills.desc")} />
 
-									{/* tab：个人 / 全局 / 项目 / 分组 */}
-									<div className="mb-1 flex items-center gap-2">
-										{SKILL_TABS.map(({ tab, labelKey }) => (
-											<button
-												key={tab}
-												type="button"
-												className={`${skillsTab === tab ? "owl-settings-button is-primary" : "owl-settings-button"} px-3 py-1 text-[11px]`}
-												onClick={() => {
-													setSkillsTab(tab);
-													setSkillForm(null);
-													setSoloPickerOpen(false);
-												}}
-											>
-												{t(labelKey)}
-												<span className="ml-1.5 text-[10px] opacity-70">
-													{tab === "groups"
-														? skillsData.skillGroups.length
-														: skillsData.skills.filter((s) => s.tab === tab).length}
-												</span>
-											</button>
-										))}
-									</div>
-									{skillsTab !== "groups" && (
-										<div className="mb-3 truncate font-mono text-[10px] text-owl-faint">{activeRoot || "—"}</div>
-									)}
-
-									{projectLocked && (
-										<div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
-											{t("settings.skills.projectLocked")}
-										</div>
-									)}
-
-									{/* 分组 tab：组是全局集合 —— 成员 + 关联项目；项目 tab 只消费 */}
-									{skillsTab === "groups" && (
-										<>
-											<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">{t("settings.skills.groupsManageHint")}</div>
-											<div className="mb-3 flex items-center justify-end">
-												<button type="button" className={btnAccent} disabled={busy} onClick={() => openGroupEditor(null)}>
-													{t("settings.skills.newGroupBtn")}
+										{/* tab：个人 / 全局 / 项目 / 分组 */}
+										<div className="mb-1 flex items-center gap-2">
+											{SKILL_TABS.map(({ tab, labelKey }) => (
+												<button
+													key={tab}
+													type="button"
+													className={`${skillsTab === tab ? "owl-settings-button is-primary" : "owl-settings-button"} px-3 py-1 text-[11px]`}
+													onClick={() => {
+														setSkillsTab(tab);
+														setSkillForm(null);
+														setSoloPickerOpen(false);
+													}}
+												>
+													{t(labelKey)}
+													<span className="ml-1.5 text-[10px] opacity-70">
+														{tab === "groups"
+															? skillsData.skillGroups.length
+															: skillsData.skills.filter((s) => s.tab === tab).length}
+													</span>
 												</button>
+											))}
+										</div>
+										{skillsTab !== "groups" && (
+											<div className="mb-3 truncate font-mono text-[10px] text-owl-faint">
+												{activeRoot || "—"}
 											</div>
-											<div className="owl-settings-plugin-list">
-												{skillsData.skillGroups.length === 0 && (
-													<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-														{t("settings.skills.noGroups")}
-													</div>
-												)}
-												{skillsData.skillGroups.map((group) => (
-													<div key={group.name} className="owl-settings-plugin-row !items-start flex-col !gap-1.5">
-														<div className="flex w-full items-center gap-2">
-															<span className="shrink-0 rounded border border-violet-400/30 px-1.5 py-px text-[10px] text-violet-300">
-																{t("settings.skills.groupBadge")}
-															</span>
-															<span className="text-xs font-semibold text-owl-text">{group.name}</span>
-															<span className="text-[10px] text-owl-faint">
-																{t("settings.skills.groupSkillCount", { count: group.skills.length })} ·{" "}
+										)}
+
+										{projectLocked && (
+											<div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] leading-relaxed text-owl-muted">
+												{t("settings.skills.projectLocked")}
+											</div>
+										)}
+
+										{/* 分组 tab：组是全局集合 —— 成员 + 关联项目；项目 tab 只消费 */}
+										{skillsTab === "groups" && (
+											<>
+												<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">
+													{t("settings.skills.groupsManageHint")}
+												</div>
+												<div className="mb-3 flex items-center justify-end">
+													<button
+														type="button"
+														className={btnAccent}
+														disabled={busy}
+														onClick={() => openGroupEditor(null)}
+													>
+														{t("settings.skills.newGroupBtn")}
+													</button>
+												</div>
+												<div className="owl-settings-plugin-list">
+													{skillsData.skillGroups.length === 0 && (
+														<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+															{t("settings.skills.noGroups")}
+														</div>
+													)}
+													{skillsData.skillGroups.map((group) => (
+														<div
+															key={group.name}
+															className="owl-settings-plugin-row !items-start flex-col !gap-1.5"
+														>
+															<div className="flex w-full items-center gap-2">
+																<span className="shrink-0 rounded border border-violet-400/30 px-1.5 py-px text-[10px] text-violet-300">
+																	{t("settings.skills.groupBadge")}
+																</span>
+																<span className="text-xs font-semibold text-owl-text">
+																	{group.name}
+																</span>
+																<span className="text-[10px] text-owl-faint">
+																	{t("settings.skills.groupSkillCount", {
+																		count: group.skills.length,
+																	})}{" "}
+																	·{" "}
+																	{group.projects.length
+																		? t("settings.skills.groupAssociatedCount", {
+																				count: group.projects.length,
+																			})
+																		: t("settings.skills.groupNotAssociated")}
+																</span>
+																<span style={{ flex: 1 }} />
+																<button
+																	type="button"
+																	className="owl-settings-link"
+																	onClick={() => openGroupEditor(group)}
+																>
+																	{t("common.edit")}
+																</button>
+																<button
+																	type="button"
+																	className="owl-settings-link is-danger"
+																	disabled={busy}
+																	onClick={() => {
+																		if (
+																			window.confirm(
+																				t("settings.skills.deleteGroupConfirm", {
+																					name: group.name,
+																				}),
+																			)
+																		)
+																			void deleteGroup(group.name);
+																	}}
+																>
+																	{t("common.delete")}
+																</button>
+															</div>
+															<div className="flex w-full flex-wrap gap-1">
+																{group.skills.map((name) => (
+																	<span
+																		key={name}
+																		className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted"
+																	>
+																		{name}
+																	</span>
+																))}
+															</div>
+															<div className="flex w-full flex-wrap items-center gap-1 text-[10px] text-owl-faint">
+																{t("settings.skills.groupProjectsLabel")}
 																{group.projects.length
-																	? t("settings.skills.groupAssociatedCount", { count: group.projects.length })
-																	: t("settings.skills.groupNotAssociated")}
+																	? group.projects.map((p) => (
+																			<span
+																				key={p}
+																				className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted"
+																			>
+																				{p}
+																			</span>
+																		))
+																	: t("settings.skills.groupNoProjectsHint")}
+															</div>
+														</div>
+													))}
+												</div>
+											</>
+										)}
+
+										{/* 项目 tab：关联组 + 生效清单（组是组，项目是项目） */}
+										{skillsTab === "project" &&
+											!projectLocked &&
+											(() => {
+												const cwd = skillProject || workspaceDir;
+												const effective = effectiveProjectSkills();
+												const associatedGroups = skillsData.skillGroups.filter((g) =>
+													g.projects.includes(cwd),
+												);
+												const soloChoices = soloAddChoices();
+												return (
+													<>
+														<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">
+															{t("settings.skills.projectTabDesc")}
+														</div>
+
+														{/* 项目选择 + 添加项目 */}
+														<div className="mb-3 flex items-center gap-2">
+															<span className="shrink-0 text-[11px] text-owl-muted">
+																{t("settings.skills.projectPickerLabel")}
+															</span>
+															<select
+																className={`${smallInput} min-w-0 flex-1`}
+																value={skillProject}
+																onChange={(event) => switchSkillProject(event.target.value)}
+															>
+																<option value="">
+																	{t("settings.skills.projectCurrentWorkspace")}
+																	{workspaceDir ? `（${workspaceDir}）` : ""}
+																</option>
+																{skillProjects.map((project) => (
+																	<option key={project} value={project}>
+																		{project}
+																	</option>
+																))}
+															</select>
+															<input
+																className={`${smallInput} min-w-0 flex-1`}
+																value={skillAddProject}
+																onChange={(event) => setSkillAddProject(event.target.value)}
+																placeholder={t("settings.skills.addProjectPlaceholder")}
+																onKeyDown={(event) => {
+																	if (event.key === "Enter") addSkillProject();
+																}}
+															/>
+															<button
+																type="button"
+																className={`${btn} shrink-0`}
+																disabled={busy || !skillAddProject.trim()}
+																onClick={addSkillProject}
+															>
+																{t("settings.skills.addProjectBtn")}
+															</button>
+														</div>
+
+														{/* 已关联的组 */}
+														<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+															{t("settings.skills.associatedGroupsTitle")}
+															<span className="text-[10px] font-normal text-owl-faint">
+																{t("settings.skills.associatedGroupsHint")}
+															</span>
+														</div>
+														{associatedGroups.length === 0 ? (
+															<div className="mb-3 rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+																{t("settings.skills.emptyAssociatedGroups")}
+															</div>
+														) : (
+															associatedGroups.map((group) => (
+																<div key={group.name} className="owl-settings-plugin-row">
+																	<Switch
+																		checked
+																		disabled={busy}
+																		title={t("settings.skills.disconnectGroupTitle")}
+																		onChange={() => void toggleGroupProject(group, false)}
+																	/>
+																	<span className="text-xs font-semibold text-owl-text">
+																		{group.name}
+																	</span>
+																	<span className="text-[10px] text-owl-faint">
+																		{t("settings.skills.groupSkillCount", {
+																			count: group.skills.length,
+																		})}
+																	</span>
+																	<span style={{ flex: 1 }} />
+																	<button
+																		type="button"
+																		className="owl-settings-link"
+																		onClick={() => openGroupEditor(group)}
+																	>
+																		{t("settings.skills.editMembersBtn")}
+																	</button>
+																</div>
+															))
+														)}
+
+														{/* 生效技能清单 */}
+														<div className="mb-2 flex flex-wrap items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+															{t("settings.skills.effectiveListTitle")}
+															<span className="text-[10px] font-normal text-owl-faint">
+																{t("settings.skills.effectiveListHint")}
 															</span>
 															<span style={{ flex: 1 }} />
-															<button type="button" className="owl-settings-link" onClick={() => openGroupEditor(group)}>
-																{t("common.edit")}
+															<div className="relative">
+																<button
+																	type="button"
+																	className={btn}
+																	disabled={busy || soloChoices.length === 0}
+																	onClick={() => setSoloPickerOpen((open) => !open)}
+																>
+																	{t("settings.skills.addSoloBtn")}
+																</button>
+																{soloPickerOpen && (
+																	<div className="absolute right-0 z-20 mt-1 max-h-72 w-72 overflow-auto rounded-lg border border-owl-border bg-owl-panel shadow-lg">
+																		{soloChoices.map((entry) => (
+																			<button
+																				key={`${entry.tab}:${entry.name}`}
+																				type="button"
+																				className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-owl-border/20"
+																				onClick={() => {
+																					setSoloPickerOpen(false);
+																					void mutateProjectExtras([entry.name], true);
+																				}}
+																			>
+																				<span className="min-w-0 flex-1 truncate font-mono text-owl-text">
+																					{entry.name}
+																				</span>
+																				<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">
+																					{entry.tab === "personal"
+																						? t("settings.skills.tabPersonal")
+																						: t("settings.skills.tabGlobal")}
+																				</span>
+																			</button>
+																		))}
+																	</div>
+																)}
+															</div>
+														</div>
+														<div className="owl-settings-plugin-list">
+															{effective.length === 0 && (
+																<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+																	{t("settings.skills.emptyEffective")}
+																</div>
+															)}
+															{effective.map(({ entry, from, solo }) => (
+																<div
+																	key={`eff:${entry.name}`}
+																	className={`owl-settings-plugin-row ${entry.projectEnabled ? "" : "opacity-55"}`}
+																>
+																	<input
+																		type="checkbox"
+																		checked={entry.projectEnabled}
+																		disabled={busy}
+																		title={
+																			entry.projectEnabled
+																				? t("settings.skills.rowDisableTitle")
+																				: t("settings.skills.rowEnableTitle")
+																		}
+																		onChange={(event) =>
+																			void toggleProjectSkill(entry.name, event.target.checked)
+																		}
+																	/>
+																	<span className="min-w-0 flex-1 truncate font-mono text-xs text-owl-text">
+																		{entry.name}
+																	</span>
+																	{entry.tab !== "project" &&
+																		(entry.tab === "personal" ? (
+																			<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-300">
+																				{t("settings.skills.tabPersonal")}
+																			</span>
+																		) : (
+																			<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-300">
+																				{t("settings.skills.tabGlobal")}
+																			</span>
+																		))}
+																	{solo ? (
+																		<>
+																			<span className="shrink-0 text-[10px] text-owl-faint">
+																				{t("settings.skills.soloBadge")}
+																			</span>
+																			<button
+																				type="button"
+																				className="owl-settings-link is-danger"
+																				disabled={busy}
+																				onClick={() =>
+																					void mutateProjectExtras([entry.name], false)
+																				}
+																			>
+																				{t("settings.skills.removeSolo")}
+																			</button>
+																		</>
+																	) : (
+																		<span className="shrink-0 text-[10px] text-violet-300">
+																			{t("settings.skills.fromGroup", { name: from })}
+																		</span>
+																	)}
+																</div>
+															))}
+														</div>
+													</>
+												);
+											})()}
+
+										{/* 个人 / 全局 / 项目：目录技能 CRUD（分组 tab 没有目录概念，整段隐藏） */}
+										{skillsTab !== "groups" && (
+											<>
+												{skillsTab === "project" && (
+													<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
+														{t("settings.skills.projectDirSkillsTitle")}
+														<span className="text-[10px] font-normal text-owl-faint">
+															{t("settings.skills.projectDirSkillsHint")}
+														</span>
+													</div>
+												)}
+
+												{/* 搜索 + 新建 */}
+												<div className="mb-3 flex items-center gap-2">
+													<input
+														className={`${smallInput} min-w-0 flex-1`}
+														value={skillsQuery}
+														onChange={(event) => setSkillsQuery(event.target.value)}
+														placeholder={t("settings.skills.searchPlaceholder")}
+														onKeyDown={(event) => {
+															if (event.key === "Escape") setSkillsQuery("");
+														}}
+													/>
+													<button
+														type="button"
+														className={`${btnAccent} shrink-0`}
+														disabled={busy || projectLocked}
+														onClick={() => {
+															setSkName("");
+															setSkDesc("");
+															setSkBody("");
+															setSkillForm({ mode: "create" });
+														}}
+													>
+														{t("settings.skills.create")}
+													</button>
+												</div>
+
+												{/* 创建 / 编辑表单 */}
+												{skillForm && (
+													<div className="owl-settings-card mb-3 space-y-3">
+														{skillForm.mode === "create" ? (
+															<label className="block text-[11px] text-owl-muted">
+																{t("settings.skills.nameLabel")}
+																<input
+																	className={`${smallInput} mt-1`}
+																	value={skName}
+																	onChange={(event) => setSkName(event.target.value)}
+																	placeholder={t("settings.skills.namePlaceholder")}
+																/>
+															</label>
+														) : (
+															<div className="text-[11px] text-owl-muted">
+																{t("settings.skills.editingPrefix")}{" "}
+																<span className="font-mono text-owl-text">{skillForm.entry.name}</span>
+																<span className="ml-2 font-mono text-[10px] text-owl-faint">
+																	{skillForm.entry.path}
+																</span>
+															</div>
+														)}
+														<label className="block text-[11px] text-owl-muted">
+															{t("settings.skills.descLabel")}
+															<input
+																className={`${smallInput} mt-1`}
+																value={skDesc}
+																onChange={(event) => setSkDesc(event.target.value)}
+																placeholder={t("settings.skills.descPlaceholder")}
+															/>
+														</label>
+														<label className="block text-[11px] text-owl-muted">
+															{t("settings.skills.bodyLabel")}
+															<textarea
+																className={`${smallInput} mt-1 min-h-[180px] font-mono text-[11px]`}
+																value={skBody}
+																onChange={(event) => setSkBody(event.target.value)}
+																placeholder={t("settings.skills.bodyPlaceholder")}
+															/>
+														</label>
+														<div className="flex justify-end gap-2">
+															<button type="button" className={btn} onClick={() => setSkillForm(null)}>
+																{t("common.cancel")}
 															</button>
+															<button
+																type="button"
+																className={btnAccent}
+																disabled={
+																	busy ||
+																	(skillForm.mode === "create" ? !skName.trim() : false) ||
+																	!skDesc.trim()
+																}
+																onClick={() => void saveSkillForm()}
+															>
+																{skillForm.mode === "create"
+																	? t("settings.skills.createBtn")
+																	: t("settings.skills.saveBtn")}
+															</button>
+														</div>
+													</div>
+												)}
+
+												{/* 列表 */}
+												<div className="owl-settings-plugin-list">
+													{skillsLoading && visibleSkills.length === 0 && (
+														<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+															{t("settings.skills.loading")}
+														</div>
+													)}
+													{!skillsLoading && visibleSkills.length === 0 && (
+														<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
+															{query ? t("settings.skills.noMatch") : t("settings.skills.emptyDir")}
+														</div>
+													)}
+													{visibleSkills.map((entry) => (
+														<div
+															key={`${entry.tab}:${entry.path}`}
+															className={`owl-settings-plugin-row ${entry.disabled ? "opacity-55" : ""}`}
+														>
+															<div className="flex min-w-0 items-center gap-2">
+																{entry.isSymlink && (
+																	<span
+																		className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-400"
+																		title={t("settings.skills.symlinkTitle")}
+																	>
+																		{t("settings.skills.symlinkBadge")}
+																	</span>
+																)}
+																<div className="min-w-0">
+																	<span className="block truncate font-mono text-xs text-owl-text">
+																		{entry.name}
+																	</span>
+																	<span
+																		className="mt-0.5 block truncate text-[10px] text-owl-faint"
+																		title={entry.description}
+																	>
+																		{entry.description}
+																	</span>
+																</div>
+															</div>
+															<div className="ml-2 flex shrink-0 items-center gap-2.5">
+																<span
+																	className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-owl-success"}`}
+																>
+																	{entry.disabled
+																		? t("settings.skills.manualOnly")
+																		: t("settings.skills.modelAvailable")}
+																</span>
+																<Switch
+																	checked={!entry.disabled}
+																	disabled={busy}
+																	title={
+																		entry.disabled
+																			? t("settings.skills.enableAutoTitle")
+																			: t("settings.skills.disableAutoTitle")
+																	}
+																	onChange={(next) => void toggleSkill(entry, next)}
+																/>
+																<button
+																	type="button"
+																	className="owl-settings-link disabled:opacity-40"
+																	disabled={busy || entry.isSymlink}
+																	title={
+																		entry.isSymlink
+																			? t("settings.skills.symlinkEditTitle")
+																			: t("settings.skills.editTitle")
+																	}
+																	onClick={() => void openSkillEditor(entry)}
+																>
+																	{t("common.edit")}
+																</button>
+																<button
+																	type="button"
+																	className="owl-settings-link is-danger disabled:opacity-40"
+																	disabled={busy || entry.isSymlink}
+																	title={
+																		entry.isSymlink
+																			? t("settings.skills.symlinkDeleteTitle")
+																			: t("settings.skills.deleteRowTitle")
+																	}
+																	onClick={() => setConfirmDelSkill(entry)}
+																>
+																	{t("common.delete")}
+																</button>
+															</div>
+														</div>
+													))}
+												</div>
+
+												{/* 删除确认 */}
+												{confirmDelSkill && (
+													<div
+														className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+														role="dialog"
+														aria-modal="true"
+													>
+														<div className="owl-settings-card w-[min(420px,90vw)] space-y-3">
+															<div className="text-xs font-semibold text-owl-text">
+																{t("settings.skills.deleteConfirmTitle", {
+																	name: confirmDelSkill.name,
+																})}
+															</div>
+															<div className="text-[11px] leading-relaxed text-owl-muted">
+																{t("settings.skills.deleteConfirmPre")}
+																<span className="font-mono">
+																	{skillsData.roots[confirmDelSkill.tab]}/.trash
+																</span>
+																{t("settings.skills.deleteConfirmPost")}
+															</div>
+															<div className="flex justify-end gap-2">
+																<button
+																	type="button"
+																	className={btn}
+																	onClick={() => setConfirmDelSkill(null)}
+																>
+																	{t("common.cancel")}
+																</button>
+																<button
+																	type="button"
+																	className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`}
+																	disabled={busy}
+																	onClick={() => void deleteSkillEntry(confirmDelSkill)}
+																>
+																	{t("common.delete")}
+																</button>
+															</div>
+														</div>
+													</div>
+												)}
+											</>
+										)}
+
+										{/* 分组编辑弹窗（成员 + 关联项目，整体保存 owlSkillGroups） */}
+										{skillsTab === "groups" && groupEdit && (
+											<div
+												className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+												role="dialog"
+												aria-modal="true"
+											>
+												<div className="owl-settings-card max-h-[84vh] w-[min(680px,92vw)] space-y-3 overflow-auto">
+													<div className="text-xs font-semibold text-owl-text">
+														{groupEditOrigName
+															? t("settings.skills.editGroupTitle", { name: groupEditOrigName })
+															: t("settings.skills.newGroupTitle")}
+													</div>
+													<label className="flex items-center gap-2 text-[11px] text-owl-muted">
+														<span className="shrink-0">{t("settings.skills.groupNameLabel")}</span>
+														<input
+															className={`${smallInput} min-w-0 flex-1`}
+															value={groupEdit.name}
+															onChange={(event) =>
+																setGroupEdit({ ...groupEdit, name: event.target.value })
+															}
+															placeholder={t("settings.skills.groupNamePlaceholder")}
+														/>
+													</label>
+													<div>
+														<div className="mb-1 text-[11px] font-semibold text-owl-muted">
+															{t("settings.skills.groupMembersLabel")}
+															<span className="ml-2 font-normal text-owl-faint">
+																{t("settings.skills.groupMembersHint")}
+															</span>
+														</div>
+														<div className="grid max-h-64 grid-cols-2 gap-x-4 overflow-auto rounded-lg border border-owl-border p-2">
+															{skillsData.skills.map((entry) => (
+																<label
+																	key={`${entry.tab}:${entry.name}`}
+																	className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 text-xs hover:bg-owl-border/20"
+																>
+																	<input
+																		type="checkbox"
+																		checked={groupEdit.skills.includes(entry.name)}
+																		disabled={busy}
+																		onChange={(event) =>
+																			setGroupEdit({
+																				...groupEdit,
+																				skills: event.target.checked
+																					? [...new Set([...groupEdit.skills, entry.name])]
+																					: groupEdit.skills.filter((n) => n !== entry.name),
+																			})
+																		}
+																	/>
+																	<span className="min-w-0 flex-1 truncate font-mono text-owl-text">
+																		{entry.name}
+																	</span>
+																	<span className="shrink-0 rounded border border-owl-border px-1 py-px text-[10px] text-owl-faint">
+																		{entry.tab === "personal"
+																			? t("settings.skills.tabPersonal")
+																			: entry.tab === "global"
+																				? t("settings.skills.tabGlobal")
+																				: t("settings.skills.tabProject")}
+																	</span>
+																</label>
+															))}
+														</div>
+													</div>
+													<div>
+														<div className="mb-1 text-[11px] font-semibold text-owl-muted">
+															{t("settings.skills.groupProjectsLabel")}
+															<span className="ml-2 font-normal text-owl-faint">
+																{t("settings.skills.groupProjectsHint")}
+															</span>
+														</div>
+														<div className="flex flex-wrap gap-3 rounded-lg border border-owl-border p-2">
+															{[workspaceDir, ...skillProjects]
+																.filter((p, i, arr) => p && arr.indexOf(p) === i)
+																.map((project) => (
+																	<label
+																		key={project}
+																		className="flex cursor-pointer items-center gap-2 text-xs"
+																	>
+																		<input
+																			type="checkbox"
+																			checked={groupEdit.projects.includes(project)}
+																			disabled={busy}
+																			onChange={(event) =>
+																				setGroupEdit({
+																					...groupEdit,
+																					projects: event.target.checked
+																						? [...new Set([...groupEdit.projects, project])]
+																						: groupEdit.projects.filter((p) => p !== project),
+																				})
+																			}
+																		/>
+																		<span className="font-mono text-[11px] text-owl-muted">
+																			{project}
+																		</span>
+																	</label>
+																))}
+														</div>
+													</div>
+													<div className="flex items-center justify-end gap-2">
+														{groupEditOrigName && (
 															<button
 																type="button"
 																className="owl-settings-link is-danger"
 																disabled={busy}
 																onClick={() => {
-																	if (window.confirm(t("settings.skills.deleteGroupConfirm", { name: group.name }))) void deleteGroup(group.name);
+																	if (
+																		window.confirm(
+																			t("settings.skills.deleteGroupConfirm", {
+																				name: groupEditOrigName,
+																			}),
+																		)
+																	)
+																		void deleteGroup(groupEditOrigName);
 																}}
 															>
 																{t("common.delete")}
 															</button>
-														</div>
-														<div className="flex w-full flex-wrap gap-1">
-															{group.skills.map((name) => (
-																<span key={name} className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted">
-																	{name}
-																</span>
-															))}
-														</div>
-														<div className="flex w-full flex-wrap items-center gap-1 text-[10px] text-owl-faint">
-															{t("settings.skills.groupProjectsLabel")}
-															{group.projects.length
-																? group.projects.map((p) => (
-																		<span key={p} className="rounded bg-owl-border/30 px-1.5 py-px font-mono text-[10px] text-owl-muted">
-																			{p}
-																		</span>
-																	))
-																: t("settings.skills.groupNoProjectsHint")}
-														</div>
-													</div>
-												))}
-											</div>
-										</>
-									)}
-
-									{/* 项目 tab：关联组 + 生效清单（组是组，项目是项目） */}
-									{skillsTab === "project" && !projectLocked && (() => {
-										const cwd = skillProject || workspaceDir;
-										const effective = effectiveProjectSkills();
-										const associatedGroups = skillsData.skillGroups.filter((g) => g.projects.includes(cwd));
-										const soloChoices = soloAddChoices();
-										return (
-											<>
-												<div className="mb-3 text-[11px] leading-relaxed text-owl-muted">{t("settings.skills.projectTabDesc")}</div>
-
-												{/* 项目选择 + 添加项目 */}
-												<div className="mb-3 flex items-center gap-2">
-													<span className="shrink-0 text-[11px] text-owl-muted">{t("settings.skills.projectPickerLabel")}</span>
-													<select
-														className={`${smallInput} min-w-0 flex-1`}
-														value={skillProject}
-														onChange={(event) => switchSkillProject(event.target.value)}
-													>
-														<option value="">{t("settings.skills.projectCurrentWorkspace")}{workspaceDir ? `（${workspaceDir}）` : ""}</option>
-														{skillProjects.map((project) => (
-															<option key={project} value={project}>
-																{project}
-															</option>
-														))}
-													</select>
-													<input
-														className={`${smallInput} min-w-0 flex-1`}
-														value={skillAddProject}
-														onChange={(event) => setSkillAddProject(event.target.value)}
-														placeholder={t("settings.skills.addProjectPlaceholder")}
-														onKeyDown={(event) => {
-															if (event.key === "Enter") addSkillProject();
-														}}
-													/>
-													<button type="button" className={`${btn} shrink-0`} disabled={busy || !skillAddProject.trim()} onClick={addSkillProject}>
-														{t("settings.skills.addProjectBtn")}
-													</button>
-												</div>
-
-												{/* 已关联的组 */}
-												<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
-													{t("settings.skills.associatedGroupsTitle")}
-													<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.associatedGroupsHint")}</span>
-												</div>
-												{associatedGroups.length === 0 ? (
-													<div className="mb-3 rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-														{t("settings.skills.emptyAssociatedGroups")}
-													</div>
-												) : (
-													associatedGroups.map((group) => (
-														<div key={group.name} className="owl-settings-plugin-row">
-															<Switch checked disabled={busy} title={t("settings.skills.disconnectGroupTitle")} onChange={() => void toggleGroupProject(group, false)} />
-															<span className="text-xs font-semibold text-owl-text">{group.name}</span>
-															<span className="text-[10px] text-owl-faint">
-																{t("settings.skills.groupSkillCount", { count: group.skills.length })}
-															</span>
-															<span style={{ flex: 1 }} />
-															<button type="button" className="owl-settings-link" onClick={() => openGroupEditor(group)}>
-																{t("settings.skills.editMembersBtn")}
-															</button>
-														</div>
-													))
-												)}
-
-												{/* 生效技能清单 */}
-												<div className="mb-2 flex flex-wrap items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
-													{t("settings.skills.effectiveListTitle")}
-													<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.effectiveListHint")}</span>
-													<span style={{ flex: 1 }} />
-													<div className="relative">
-														<button type="button" className={btn} disabled={busy || soloChoices.length === 0} onClick={() => setSoloPickerOpen((open) => !open)}>
-															{t("settings.skills.addSoloBtn")}
-														</button>
-														{soloPickerOpen && (
-															<div className="absolute right-0 z-20 mt-1 max-h-72 w-72 overflow-auto rounded-lg border border-owl-border bg-owl-panel shadow-lg">
-																{soloChoices.map((entry) => (
-																	<button
-																		key={`${entry.tab}:${entry.name}`}
-																		type="button"
-																		className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-owl-border/20"
-																		onClick={() => {
-																			setSoloPickerOpen(false);
-																			void mutateProjectExtras([entry.name], true);
-																		}}
-																	>
-																		<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
-																		<span className="shrink-0 rounded border border-owl-border px-1.5 py-px text-[10px] text-owl-faint">
-																			{entry.tab === "personal" ? t("settings.skills.tabPersonal") : t("settings.skills.tabGlobal")}
-																		</span>
-																	</button>
-																))}
-															</div>
 														)}
-													</div>
-												</div>
-												<div className="owl-settings-plugin-list">
-													{effective.length === 0 && (
-														<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-															{t("settings.skills.emptyEffective")}
-														</div>
-													)}
-													{effective.map(({ entry, from, solo }) => (
-														<div key={`eff:${entry.name}`} className={`owl-settings-plugin-row ${entry.projectEnabled ? "" : "opacity-55"}`}>
-															<input
-																type="checkbox"
-																checked={entry.projectEnabled}
-																disabled={busy}
-																title={entry.projectEnabled ? t("settings.skills.rowDisableTitle") : t("settings.skills.rowEnableTitle")}
-																onChange={(event) => void toggleProjectSkill(entry.name, event.target.checked)}
-															/>
-															<span className="min-w-0 flex-1 truncate font-mono text-xs text-owl-text">{entry.name}</span>
-															{entry.tab !== "project" && (entry.tab === "personal" ? (
-																<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-300">{t("settings.skills.tabPersonal")}</span>
-															) : (
-																<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-300">{t("settings.skills.tabGlobal")}</span>
-															))}
-															{solo ? (
-																<>
-																	<span className="shrink-0 text-[10px] text-owl-faint">{t("settings.skills.soloBadge")}</span>
-																	<button type="button" className="owl-settings-link is-danger" disabled={busy} onClick={() => void mutateProjectExtras([entry.name], false)}>
-																		{t("settings.skills.removeSolo")}
-																	</button>
-																</>
-															) : (
-																<span className="shrink-0 text-[10px] text-violet-300">{t("settings.skills.fromGroup", { name: from })}</span>
-															)}
-														</div>
-													))}
-												</div>
-											</>
-										);
-									})()}
-
-									{/* 个人 / 全局 / 项目：目录技能 CRUD（分组 tab 没有目录概念，整段隐藏） */}
-									{skillsTab !== "groups" && (
-									<>
-									{skillsTab === "project" && (
-										<div className="mb-2 flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
-											{t("settings.skills.projectDirSkillsTitle")}
-											<span className="text-[10px] font-normal text-owl-faint">{t("settings.skills.projectDirSkillsHint")}</span>
-										</div>
-									)}
-
-									{/* 搜索 + 新建 */}
-									<div className="mb-3 flex items-center gap-2">
-										<input
-											className={`${smallInput} min-w-0 flex-1`}
-											value={skillsQuery}
-											onChange={(event) => setSkillsQuery(event.target.value)}
-											placeholder={t("settings.skills.searchPlaceholder")}
-											onKeyDown={(event) => {
-												if (event.key === "Escape") setSkillsQuery("");
-											}}
-										/>
-										<button
-											type="button"
-											className={`${btnAccent} shrink-0`}
-											disabled={busy || projectLocked}
-											onClick={() => {
-												setSkName("");
-												setSkDesc("");
-												setSkBody("");
-												setSkillForm({ mode: "create" });
-											}}
-										>
-											{t("settings.skills.create")}
-										</button>
-									</div>
-
-									{/* 创建 / 编辑表单 */}
-									{skillForm && (
-										<div className="owl-settings-card mb-3 space-y-3">
-											{skillForm.mode === "create" ? (
-												<label className="block text-[11px] text-owl-muted">
-													{t("settings.skills.nameLabel")}
-													<input
-														className={`${smallInput} mt-1`}
-														value={skName}
-														onChange={(event) => setSkName(event.target.value)}
-														placeholder={t("settings.skills.namePlaceholder")}
-													/>
-												</label>
-											) : (
-												<div className="text-[11px] text-owl-muted">
-													{t("settings.skills.editingPrefix")} <span className="font-mono text-owl-text">{skillForm.entry.name}</span>
-													<span className="ml-2 font-mono text-[10px] text-owl-faint">{skillForm.entry.path}</span>
-												</div>
-											)}
-											<label className="block text-[11px] text-owl-muted">
-												{t("settings.skills.descLabel")}
-												<input
-													className={`${smallInput} mt-1`}
-													value={skDesc}
-													onChange={(event) => setSkDesc(event.target.value)}
-													placeholder={t("settings.skills.descPlaceholder")}
-												/>
-											</label>
-											<label className="block text-[11px] text-owl-muted">
-												{t("settings.skills.bodyLabel")}
-												<textarea
-													className={`${smallInput} mt-1 min-h-[180px] font-mono text-[11px]`}
-													value={skBody}
-													onChange={(event) => setSkBody(event.target.value)}
-													placeholder={t("settings.skills.bodyPlaceholder")}
-												/>
-											</label>
-											<div className="flex justify-end gap-2">
-												<button type="button" className={btn} onClick={() => setSkillForm(null)}>
-													{t("common.cancel")}
-												</button>
-												<button
-													type="button"
-													className={btnAccent}
-													disabled={busy || (skillForm.mode === "create" ? !skName.trim() : false) || !skDesc.trim()}
-													onClick={() => void saveSkillForm()}
-												>
-													{skillForm.mode === "create" ? t("settings.skills.createBtn") : t("settings.skills.saveBtn")}
-												</button>
-											</div>
-										</div>
-									)}
-
-									{/* 列表 */}
-									<div className="owl-settings-plugin-list">
-										{skillsLoading && visibleSkills.length === 0 && (
-											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-												{t("settings.skills.loading")}
-											</div>
-										)}
-										{!skillsLoading && visibleSkills.length === 0 && (
-											<div className="rounded-xl border border-dashed border-owl-border px-3 py-3 text-center text-xs text-owl-faint">
-												{query ? t("settings.skills.noMatch") : t("settings.skills.emptyDir")}
-											</div>
-										)}
-										{visibleSkills.map((entry) => (
-											<div key={`${entry.tab}:${entry.path}`} className={`owl-settings-plugin-row ${entry.disabled ? "opacity-55" : ""}`}>
-												<div className="flex min-w-0 items-center gap-2">
-													{entry.isSymlink && (
-														<span className="shrink-0 rounded border border-sky-400/30 px-1.5 py-px text-[10px] text-sky-400" title={t("settings.skills.symlinkTitle")}>
-															{t("settings.skills.symlinkBadge")}
-														</span>
-													)}
-													<div className="min-w-0">
-														<span className="block truncate font-mono text-xs text-owl-text">{entry.name}</span>
-														<span className="mt-0.5 block truncate text-[10px] text-owl-faint" title={entry.description}>
-															{entry.description}
-														</span>
-													</div>
-												</div>
-												<div className="ml-2 flex shrink-0 items-center gap-2.5">
-													<span className={`text-[10px] ${entry.disabled ? "text-owl-faint" : "text-owl-success"}`}>
-														{entry.disabled ? t("settings.skills.manualOnly") : t("settings.skills.modelAvailable")}
-													</span>
-													<Switch
-														checked={!entry.disabled}
-														disabled={busy}
-														title={entry.disabled ? t("settings.skills.enableAutoTitle") : t("settings.skills.disableAutoTitle")}
-														onChange={(next) => void toggleSkill(entry, next)}
-													/>
-													<button
-														type="button"
-														className="owl-settings-link disabled:opacity-40"
-														disabled={busy || entry.isSymlink}
-														title={entry.isSymlink ? t("settings.skills.symlinkEditTitle") : t("settings.skills.editTitle")}
-														onClick={() => void openSkillEditor(entry)}
-													>
-														{t("common.edit")}
-													</button>
-													<button
-														type="button"
-														className="owl-settings-link is-danger disabled:opacity-40"
-														disabled={busy || entry.isSymlink}
-														title={entry.isSymlink ? t("settings.skills.symlinkDeleteTitle") : t("settings.skills.deleteRowTitle")}
-														onClick={() => setConfirmDelSkill(entry)}
-													>
-														{t("common.delete")}
-													</button>
-												</div>
-											</div>
-										))}
-									</div>
-
-									{/* 删除确认 */}
-									{confirmDelSkill && (
-										<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-											<div className="owl-settings-card w-[min(420px,90vw)] space-y-3">
-												<div className="text-xs font-semibold text-owl-text">{t("settings.skills.deleteConfirmTitle", { name: confirmDelSkill.name })}</div>
-												<div className="text-[11px] leading-relaxed text-owl-muted">
-													{t("settings.skills.deleteConfirmPre")}
-													<span className="font-mono">{skillsData.roots[confirmDelSkill.tab]}/.trash</span>
-													{t("settings.skills.deleteConfirmPost")}
-												</div>
-												<div className="flex justify-end gap-2">
-													<button type="button" className={btn} onClick={() => setConfirmDelSkill(null)}>
-														{t("common.cancel")}
-													</button>
-														<button type="button" className={`${btnAccent} !bg-red-500/90 hover:!bg-red-500`} disabled={busy} onClick={() => void deleteSkillEntry(confirmDelSkill)}>
-														{t("common.delete")}
-													</button>
-												</div>
-											</div>
-										</div>
-									)}
-
-									</>
-									)}
-
-									{/* 分组编辑弹窗（成员 + 关联项目，整体保存 owlSkillGroups） */}
-									{skillsTab === "groups" && groupEdit && (
-										<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-											<div className="owl-settings-card max-h-[84vh] w-[min(680px,92vw)] space-y-3 overflow-auto">
-												<div className="text-xs font-semibold text-owl-text">
-													{groupEditOrigName ? t("settings.skills.editGroupTitle", { name: groupEditOrigName }) : t("settings.skills.newGroupTitle")}
-												</div>
-												<label className="flex items-center gap-2 text-[11px] text-owl-muted">
-													<span className="shrink-0">{t("settings.skills.groupNameLabel")}</span>
-													<input
-														className={`${smallInput} min-w-0 flex-1`}
-														value={groupEdit.name}
-														onChange={(event) => setGroupEdit({ ...groupEdit, name: event.target.value })}
-														placeholder={t("settings.skills.groupNamePlaceholder")}
-													/>
-												</label>
-												<div>
-													<div className="mb-1 text-[11px] font-semibold text-owl-muted">
-														{t("settings.skills.groupMembersLabel")}
-														<span className="ml-2 font-normal text-owl-faint">{t("settings.skills.groupMembersHint")}</span>
-													</div>
-													<div className="grid max-h-64 grid-cols-2 gap-x-4 overflow-auto rounded-lg border border-owl-border p-2">
-														{skillsData.skills.map((entry) => (
-															<label
-																key={`${entry.tab}:${entry.name}`}
-																className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 text-xs hover:bg-owl-border/20"
-															>
-																<input
-																	type="checkbox"
-																	checked={groupEdit.skills.includes(entry.name)}
-																	disabled={busy}
-																	onChange={(event) =>
-																		setGroupEdit({
-																			...groupEdit,
-																			skills: event.target.checked
-																				? [...new Set([...groupEdit.skills, entry.name])]
-																				: groupEdit.skills.filter((n) => n !== entry.name),
-																		})
-																	}
-																/>
-																<span className="min-w-0 flex-1 truncate font-mono text-owl-text">{entry.name}</span>
-																<span className="shrink-0 rounded border border-owl-border px-1 py-px text-[10px] text-owl-faint">
-																	{entry.tab === "personal" ? t("settings.skills.tabPersonal") : entry.tab === "global" ? t("settings.skills.tabGlobal") : t("settings.skills.tabProject")}
-																</span>
-															</label>
-														))}
-													</div>
-												</div>
-												<div>
-													<div className="mb-1 text-[11px] font-semibold text-owl-muted">
-														{t("settings.skills.groupProjectsLabel")}
-														<span className="ml-2 font-normal text-owl-faint">{t("settings.skills.groupProjectsHint")}</span>
-													</div>
-													<div className="flex flex-wrap gap-3 rounded-lg border border-owl-border p-2">
-														{[workspaceDir, ...skillProjects]
-															.filter((p, i, arr) => p && arr.indexOf(p) === i)
-															.map((project) => (
-																<label key={project} className="flex cursor-pointer items-center gap-2 text-xs">
-																	<input
-																		type="checkbox"
-																		checked={groupEdit.projects.includes(project)}
-																		disabled={busy}
-																		onChange={(event) =>
-																			setGroupEdit({
-																				...groupEdit,
-																				projects: event.target.checked
-																					? [...new Set([...groupEdit.projects, project])]
-																					: groupEdit.projects.filter((p) => p !== project),
-																			})
-																		}
-																	/>
-																	<span className="font-mono text-[11px] text-owl-muted">{project}</span>
-																</label>
-															))}
-													</div>
-												</div>
-												<div className="flex items-center justify-end gap-2">
-													{groupEditOrigName && (
+														<span style={{ flex: 1 }} />
+														<button type="button" className={btn} onClick={() => setGroupEdit(null)}>
+															{t("common.cancel")}
+														</button>
 														<button
 															type="button"
-															className="owl-settings-link is-danger"
-															disabled={busy}
-															onClick={() => {
-																if (window.confirm(t("settings.skills.deleteGroupConfirm", { name: groupEditOrigName }))) void deleteGroup(groupEditOrigName);
-															}}
+															className={btnAccent}
+															disabled={busy || !groupEdit.name.trim()}
+															onClick={() => void saveGroup()}
 														>
-															{t("common.delete")}
+															{t("settings.skills.saveGroupBtn")}
 														</button>
-													)}
-													<span style={{ flex: 1 }} />
-													<button type="button" className={btn} onClick={() => setGroupEdit(null)}>
-														{t("common.cancel")}
-													</button>
-													<button type="button" className={btnAccent} disabled={busy || !groupEdit.name.trim()} onClick={() => void saveGroup()}>
-														{t("settings.skills.saveGroupBtn")}
-													</button>
+													</div>
 												</div>
 											</div>
-										</div>
-									)}
-								</>
-							);
-						})()}
+										)}
+									</>
+								);
+							})()}
 
 						{/* -------- 侧边卡片 -------- */}
 						{section === "sidebar" && (
@@ -2680,17 +3464,28 @@ export function SettingsPage({
 								{/* 插件身份行：内置侧边工作台 + 打开配置文件 */}
 								<div className="owl-settings-card flex items-center justify-between gap-4">
 									<div className="flex min-w-0 items-center gap-2">
-										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">{t("settings.sidecards.builtinBadge")}</span>
+										<span className="shrink-0 rounded border border-emerald-400/30 px-1.5 py-px text-[10px] text-emerald-400">
+											{t("settings.sidecards.builtinBadge")}
+										</span>
 										<span className="text-xs font-semibold text-owl-text">owl-workbench</span>
-										<span className="truncate text-[10px] text-owl-faint">{t("settings.sidecards.builtinSubtitle")}</span>
+										<span className="truncate text-[10px] text-owl-faint">
+											{t("settings.sidecards.builtinSubtitle")}
+										</span>
 									</div>
-									<button type="button" className={`${btn} shrink-0`} disabled={!agentDir} onClick={openSidebarConfigFile}>
+									<button
+										type="button"
+										className={`${btn} shrink-0`}
+										disabled={!agentDir}
+										onClick={openSidebarConfigFile}
+									>
 										{t("settings.sidecards.openConfig")}
 									</button>
 								</div>
 
 								{/* 常规 */}
-								<div className="pt-1 text-xs font-semibold text-owl-muted">{t("settings.sidecards.general")}</div>
+								<div className="pt-1 text-xs font-semibold text-owl-muted">
+									{t("settings.sidecards.general")}
+								</div>
 								<SettingRow
 									title={t("settings.sidecards.injectOpenTool")}
 									desc={t("settings.sidecards.injectOpenToolDesc")}
@@ -2728,11 +3523,16 @@ export function SettingsPage({
 															{action.icon(14)}
 														</span>
 														<div className="min-w-0">
-															<div className="truncate text-xs font-semibold text-owl-text">{action.label}</div>
+															<div className="truncate text-xs font-semibold text-owl-text">
+																{action.label}
+															</div>
 															<div className="truncate text-[10px] text-owl-faint">{action.desc}</div>
 														</div>
 													</div>
-													<Switch checked={enabled} onChange={(next) => toggleSidebarTab(action.kind, next)} />
+													<Switch
+														checked={enabled}
+														onChange={(next) => toggleSidebarTab(action.kind, next)}
+													/>
 												</div>
 											</div>
 										);
@@ -2744,9 +3544,12 @@ export function SettingsPage({
 										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
 									>
 										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
-											<span className="text-base leading-none text-owl-faint">+</span> {t("settings.sidecards.addTabPlugin")}
+											<span className="text-base leading-none text-owl-faint">+</span>{" "}
+											{t("settings.sidecards.addTabPlugin")}
 										</span>
-										<span className="text-[10px] text-owl-faint">{t("settings.sidecards.addTabPluginSub")}</span>
+										<span className="text-[10px] text-owl-faint">
+											{t("settings.sidecards.addTabPluginSub")}
+										</span>
 									</button>
 								</div>
 
@@ -2754,14 +3557,24 @@ export function SettingsPage({
 								<div className="flex items-center gap-2 pt-1 text-xs font-semibold text-owl-muted">
 									{t("settings.sidecards.filePreview")}
 									<span className="rounded-full border border-owl-border px-1.5 text-[10px] font-normal text-owl-faint">
-										{2 - sidebarCfg.disabledViewers.filter((kind) => kind === "image" || kind === "editor").length}
+										{2 -
+											sidebarCfg.disabledViewers.filter((kind) => kind === "image" || kind === "editor")
+												.length}
 									</span>
 								</div>
 								<div className="grid grid-cols-2 gap-3">
 									{(
 										[
-											{ kind: "image", label: t("settings.sidecards.viewerImage"), sub: t("settings.sidecards.viewerImageSub") },
-											{ kind: "editor", label: t("settings.sidecards.viewerCode"), sub: t("settings.sidecards.viewerCodeSub") },
+											{
+												kind: "image",
+												label: t("settings.sidecards.viewerImage"),
+												sub: t("settings.sidecards.viewerImageSub"),
+											},
+											{
+												kind: "editor",
+												label: t("settings.sidecards.viewerCode"),
+												sub: t("settings.sidecards.viewerCodeSub"),
+											},
 										] as const
 									).map((viewer) => {
 										const enabled = !sidebarCfg.disabledViewers.includes(viewer.kind);
@@ -2776,11 +3589,18 @@ export function SettingsPage({
 															{viewer.kind === "image" ? "🖼" : "#"}
 														</span>
 														<div className="min-w-0">
-															<div className="truncate text-xs font-semibold text-owl-text">{viewer.label}</div>
-															<div className="truncate font-mono text-[10px] text-owl-faint">{viewer.sub}</div>
+															<div className="truncate text-xs font-semibold text-owl-text">
+																{viewer.label}
+															</div>
+															<div className="truncate font-mono text-[10px] text-owl-faint">
+																{viewer.sub}
+															</div>
 														</div>
 													</div>
-													<Switch checked={enabled} onChange={(next) => toggleSidebarViewer(viewer.kind, next)} />
+													<Switch
+														checked={enabled}
+														onChange={(next) => toggleSidebarViewer(viewer.kind, next)}
+													/>
 												</div>
 											</div>
 										);
@@ -2792,15 +3612,16 @@ export function SettingsPage({
 										className="flex min-h-[58px] cursor-default flex-col justify-center gap-1 rounded-xl border border-dashed border-owl-border p-2.5 text-left opacity-60"
 									>
 										<span className="flex items-center gap-2 text-xs font-semibold text-owl-muted">
-											<span className="text-base leading-none text-owl-faint">+</span> {t("settings.sidecards.addPreviewPlugin")}
+											<span className="text-base leading-none text-owl-faint">+</span>{" "}
+											{t("settings.sidecards.addPreviewPlugin")}
 										</span>
-										<span className="text-[10px] text-owl-faint">{t("settings.sidecards.addPreviewPluginSub")}</span>
+										<span className="text-[10px] text-owl-faint">
+											{t("settings.sidecards.addPreviewPluginSub")}
+										</span>
 									</button>
 								</div>
 
-								<p className="text-[11px] leading-relaxed text-owl-faint">
-									{t("settings.sidecards.footnote")}
-								</p>
+								<p className="text-[11px] leading-relaxed text-owl-faint">{t("settings.sidecards.footnote")}</p>
 							</>
 						)}
 
@@ -2810,265 +3631,428 @@ export function SettingsPage({
 								<SectionHeader title={t("settings.appearance.title")} desc={t("settings.appearance.desc")} />
 								<AppearanceNavigation sections={appearanceSections} />
 
-								<section id={`${appearanceId}-interface`} className="owl-appearance-section" data-appearance-section="interface" tabIndex={-1} aria-labelledby={`${appearanceId}-interface-heading`}>
-								{/* 视觉风格：模式 / 强调色 / 背景 / 前景（模仿 ChatGPT 桌面端外观设置）。 */}
-								<h3 id={`${appearanceId}-interface-heading`} className="owl-settings-group-title">{t("settings.appearance.visualStyle")}</h3>
-								<div className="owl-settings-group">
-									<SettingRow title={t("settings.appearance.mode")} desc={t("settings.appearance.themeDesc")}>
-										<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.mode")}>
-											{([
-												{ value: "light", label: t("settings.appearance.light") },
-												{ value: "dark", label: t("settings.appearance.dark") },
-												{ value: "system", label: t("settings.appearance.system") },
-											] as const).map((option) => (
-												<button
-													key={option.value}
-													type="button"
-													role="radio"
-													aria-checked={theme === option.value}
-													className={`owl-settings-mode-thumb ${theme === option.value ? "is-active" : ""}`}
-													disabled={busy}
-													onClick={() => {
-														void saveSettings({ theme: option.value }).then((ok) => {
-															if (ok && isThemePreference(option.value)) setThemePreference(option.value);
-														});
-													}}
-												>
-													<span className={`owl-settings-mode-preview is-${option.value}`} aria-hidden="true">
-														<i className="is-accent" /><i /><i className="is-input" />
-													</span>
-													<span className="owl-settings-mode-label">{option.label}</span>
-												</button>
-											))}
-										</div>
-									</SettingRow>
-									<SettingRow title={t("settings.appearance.accent")} desc={t("settings.appearance.accentDesc")}>
-										<div className="owl-settings-swatches" role="radiogroup" aria-label={t("settings.appearance.accent")}>
-											{ACCENT_PRESETS.map((preset) => {
-												const active = owlAppearance.accent === preset.value;
-												const displayColor = preset.value || DEFAULT_ACCENTS[resolvedTheme];
-												return (
-													<button
-														key={preset.value}
-														type="button"
-														role="radio"
-														aria-checked={active}
-														title={t(preset.labelKey)}
-														className={`owl-settings-swatch ${active ? "is-active" : ""}`}
-														style={{ "--swatch": displayColor } as React.CSSProperties}
-														disabled={busy || !owlAppearanceLoaded}
-														onClick={() => saveAppearanceColors({ ...owlAppearance, accent: preset.value })}
-													/>
-												);
-											})}
-											<label
-												title={t("settings.appearance.accentCustom")}
-												className={`owl-settings-swatch is-custom ${owlAppearance.accent !== "" && !ACCENT_PRESETS.some((preset) => preset.value === owlAppearance.accent) ? "is-active" : ""}`}
-											>
-												<input
-													type="color"
-													aria-label={t("settings.appearance.accentCustom")}
-													disabled={busy || !owlAppearanceLoaded}
-													value={owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}
-													onChange={(event) => saveAppearanceColors({ ...owlAppearance, accent: event.currentTarget.value })}
-												/>
-											</label>
-											<span className="owl-settings-accent-hex">{owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}</span>
-										</div>
-									</SettingRow>
-									<SettingRow
-										title={t("settings.appearance.background")}
-										desc={t("settings.appearance.backgroundDesc", { mode: resolvedTheme === "dark" ? t("settings.appearance.dark") : t("settings.appearance.light") })}
-									>
-										<ColorField
-											value={owlAppearance[resolvedTheme].background}
-											fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).background}
-											disabled={busy || !owlAppearanceLoaded}
-											ariaLabel={t("settings.appearance.background")}
-											resetLabel={t("settings.appearance.colorDefault")}
-											onChange={(hex) => saveAppearanceColors({ ...owlAppearance, [resolvedTheme]: { ...owlAppearance[resolvedTheme], background: hex } })}
-										/>
-									</SettingRow>
-									<SettingRow
-										title={t("settings.appearance.foreground")}
-										desc={t("settings.appearance.foregroundDesc", { mode: resolvedTheme === "dark" ? t("settings.appearance.dark") : t("settings.appearance.light") })}
-									>
-										<ColorField
-											value={owlAppearance[resolvedTheme].foreground}
-											fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).foreground}
-											disabled={busy || !owlAppearanceLoaded}
-											ariaLabel={t("settings.appearance.foreground")}
-											resetLabel={t("settings.appearance.colorDefault")}
-											onChange={(hex) => saveAppearanceColors({ ...owlAppearance, [resolvedTheme]: { ...owlAppearance[resolvedTheme], foreground: hex } })}
-										/>
-									</SettingRow>
-								</div>
-								<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
-								</section>
-
-								<section id={`${appearanceId}-reading`} className="owl-appearance-section" data-appearance-section="reading" tabIndex={-1} aria-labelledby={`${appearanceId}-reading-heading`}>
-								{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
-								<h3 id={`${appearanceId}-reading-heading`} className="owl-settings-group-title">{t("settings.general.readingTitle")}</h3>
-								<p className="owl-settings-row-description">{appearanceCopy("readingDescription")}</p>
-								<div className="owl-settings-group">
-									{CHAT_READING_FIELDS.map((field) => (
+								<section
+									id={`${appearanceId}-interface`}
+									className="owl-appearance-section"
+									data-appearance-section="interface"
+									tabIndex={-1}
+									aria-labelledby={`${appearanceId}-interface-heading`}
+								>
+									{/* 视觉风格：模式 / 强调色 / 背景 / 前景（模仿 ChatGPT 桌面端外观设置）。 */}
+									<h3 id={`${appearanceId}-interface-heading`} className="owl-settings-group-title">
+										{t("settings.appearance.visualStyle")}
+									</h3>
+									<div className="owl-settings-group">
 										<SettingRow
-											key={field.key}
-											title={t(field.titleKey)}
-											desc={appearanceReadingFieldDescription(field.key)}
-											control={<span className="text-xs tabular-nums text-owl-text">{chatAppearance[field.key]} {"unitKey" in field ? t(field.unitKey) : field.unit}</span>}
+											title={t("settings.appearance.mode")}
+											desc={t("settings.appearance.themeDesc")}
 										>
-											<input
-												type="range"
-												aria-label={t(field.titleKey)}
-												className="w-full accent-owl-accent disabled:opacity-40"
-												min={field.min}
-												max={field.max}
-												step={field.step}
-												value={chatAppearance[field.key]}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(event) => {
-													const value = event.currentTarget.valueAsNumber;
-													setChatAppearance((current) => parseChatAppearance({ ...current, [field.key]: value }));
-												}}
-											/>
-										</SettingRow>
-									))}
-									<SettingRow
-										title={t("settings.general.toolRecords")}
-										desc={t("settings.general.toolRecordsDesc")}
-										control={
-											<select
-												aria-label={t("settings.general.toolRecords")}
-												className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
-												value={chatAppearance.toolRecords}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(event) => setChatAppearance((current) => ({
-													...current,
-													toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
-												}))}
+											<div
+												className="owl-settings-mode-row"
+												role="radiogroup"
+												aria-label={t("settings.appearance.mode")}
 											>
-												<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
-												<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
-											</select>
-										}
-									/>
-									<SettingRow
-										title={t("settings.general.motion")}
-										desc={t("settings.general.motionDesc")}
-										control={
-											<Switch
-												title={t("settings.general.motion")}
-												checked={chatAppearance.motion}
-												disabled={busy || !chatAppearanceLoaded}
-												onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
-											/>
-										}
-									/>
-									<SettingRow
-										title={t("settings.general.workEffects")}
-										desc={t("settings.general.workEffectsDesc")}
-									>
-										<div className="grid gap-1.5 sm:grid-cols-2">
-											{WORK_EFFECT_FIELDS.map((field) => (
-												<div key={field.id} className="flex items-start gap-2.5 rounded-lg border border-owl-border px-2.5 py-2">
-													<span className="min-w-0 flex-1">
-														<span className="block text-xs text-owl-text">{t(field.titleKey)}</span>
-														<span className="mt-0.5 block text-[11px] leading-relaxed text-owl-faint">{t(field.descKey)}</span>
-													</span>
-													<Switch
-														title={t(field.titleKey)}
-														checked={chatAppearance.workEffects[field.id]}
-														disabled={busy || !chatAppearanceLoaded}
-														onChange={(on) => setChatAppearance((current) => ({
-															...current,
-															workEffects: { ...current.workEffects, [field.id]: on },
-														}))}
-													/>
-												</div>
-											))}
-										</div>
-									</SettingRow>
-									<div className="owl-settings-group-actions">
-										<button
-											type="button"
-											className={btn}
-											disabled={busy || !chatAppearanceLoaded}
-											onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
-										>
-											{t("settings.general.resetDefaults")}
-										</button>
-										<button
-											type="button"
-											className={btnAccent}
-											disabled={busy || !chatAppearanceLoaded}
-											onClick={() => void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })}
-										>
-											{t("settings.general.saveReading")}
-										</button>
-									</div>
-								</div>
-								</section>
-
-								<section id={`${appearanceId}-theme`} className="owl-appearance-section" data-appearance-section="theme" tabIndex={-1} aria-labelledby={`${appearanceId}-theme-heading`}>
-								{/* 主题预设：整套深色配色；切换时清掉自定义背景/前景，让预设完整生效。 */}
-								<h3 id={`${appearanceId}-theme-heading`} className="owl-settings-group-title">{t("settings.appearance.themePresets")}</h3>
-								<div className="owl-settings-group">
-									<SettingRow title={t("settings.appearance.themePresets")} desc={t("settings.appearance.themePresetsDesc")}>
-										<div className="owl-settings-preset-grid" role="radiogroup" aria-label={t("settings.appearance.themePresets")}>
-											{OWL_THEME_PRESETS.map((preset) => {
-												const active = owlAppearance.preset === preset.id;
-												return (
+												{(
+													[
+														{ value: "light", label: t("settings.appearance.light") },
+														{ value: "dark", label: t("settings.appearance.dark") },
+														{ value: "system", label: t("settings.appearance.system") },
+													] as const
+												).map((option) => (
 													<button
-														key={preset.id || "default"}
+														key={option.value}
 														type="button"
 														role="radio"
-														aria-checked={active}
-														className={`owl-settings-preset-card ${active ? "is-active" : ""}`}
-														disabled={busy || !owlAppearanceLoaded}
-														onClick={() => saveAppearanceColors({
-															...owlAppearance,
-															preset: preset.id,
-															dark: { background: "", foreground: "" },
-															light: { background: "", foreground: "" },
-														})}
+														aria-checked={theme === option.value}
+														className={`owl-settings-mode-thumb ${theme === option.value ? "is-active" : ""}`}
+														disabled={busy}
+														onClick={() => {
+															void saveSettings({ theme: option.value }).then((ok) => {
+																if (ok && isThemePreference(option.value))
+																	setThemePreference(option.value);
+															});
+														}}
 													>
 														<span
-															className="owl-settings-preset-preview"
+															className={`owl-settings-mode-preview is-${option.value}`}
 															aria-hidden="true"
-															style={{
-																"--pv-bg": preset.preview.bg,
-																"--pv-rail": preset.preview.rail,
-																"--pv-line": preset.preview.line,
-																"--pv-panel": preset.preview.panel,
-															} as React.CSSProperties}
 														>
-															<span className="pv-rail"><i className="is-accent" /><i /><i /></span>
-															<span className="pv-main"><i /><i /><b /></span>
+															<i className="is-accent" />
+															<i />
+															<i className="is-input" />
 														</span>
-														<span className="owl-settings-preset-label">
-															<span>{t(preset.labelKey)}</span>
-															{active && <span className="owl-settings-preset-check" aria-hidden="true">✓</span>}
-														</span>
+														<span className="owl-settings-mode-label">{option.label}</span>
 													</button>
-												);
-											})}
-											<CodexThemePicker
-												preset={owlAppearance.preset}
-												mode={resolvedTheme}
-												disabled={busy || !owlAppearanceLoaded}
-												onSelect={(id) => saveAppearanceColors({
-													...owlAppearance,
-													preset: id,
-													dark: { background: "", foreground: "" },
-													light: { background: "", foreground: "" },
+												))}
+											</div>
+										</SettingRow>
+										<SettingRow
+											title={t("settings.appearance.accent")}
+											desc={t("settings.appearance.accentDesc")}
+										>
+											<div
+												className="owl-settings-swatches"
+												role="radiogroup"
+												aria-label={t("settings.appearance.accent")}
+											>
+												{ACCENT_PRESETS.map((preset) => {
+													const active = owlAppearance.accent === preset.value;
+													const displayColor = preset.value || DEFAULT_ACCENTS[resolvedTheme];
+													return (
+														<button
+															key={preset.value}
+															type="button"
+															role="radio"
+															aria-checked={active}
+															title={t(preset.labelKey)}
+															className={`owl-settings-swatch ${active ? "is-active" : ""}`}
+															style={{ "--swatch": displayColor } as React.CSSProperties}
+															disabled={busy || !owlAppearanceLoaded}
+															onClick={() =>
+																saveAppearanceColors({ ...owlAppearance, accent: preset.value })
+															}
+														/>
+													);
 												})}
+												<label
+													title={t("settings.appearance.accentCustom")}
+													className={`owl-settings-swatch is-custom ${owlAppearance.accent !== "" && !ACCENT_PRESETS.some((preset) => preset.value === owlAppearance.accent) ? "is-active" : ""}`}
+												>
+													<input
+														type="color"
+														aria-label={t("settings.appearance.accentCustom")}
+														disabled={busy || !owlAppearanceLoaded}
+														value={owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}
+														onChange={(event) =>
+															saveAppearanceColors({
+																...owlAppearance,
+																accent: event.currentTarget.value,
+															})
+														}
+													/>
+												</label>
+												<span className="owl-settings-accent-hex">
+													{owlAppearance.accent || DEFAULT_ACCENTS[resolvedTheme]}
+												</span>
+											</div>
+										</SettingRow>
+										<SettingRow
+											title={t("settings.appearance.background")}
+											desc={t("settings.appearance.backgroundDesc", {
+												mode:
+													resolvedTheme === "dark"
+														? t("settings.appearance.dark")
+														: t("settings.appearance.light"),
+											})}
+										>
+											<ColorField
+												value={owlAppearance[resolvedTheme].background}
+												fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).background}
+												disabled={busy || !owlAppearanceLoaded}
+												ariaLabel={t("settings.appearance.background")}
+												resetLabel={t("settings.appearance.colorDefault")}
+												onChange={(hex) =>
+													saveAppearanceColors({
+														...owlAppearance,
+														[resolvedTheme]: { ...owlAppearance[resolvedTheme], background: hex },
+													})
+												}
 											/>
+										</SettingRow>
+										<SettingRow
+											title={t("settings.appearance.foreground")}
+											desc={t("settings.appearance.foregroundDesc", {
+												mode:
+													resolvedTheme === "dark"
+														? t("settings.appearance.dark")
+														: t("settings.appearance.light"),
+											})}
+										>
+											<ColorField
+												value={owlAppearance[resolvedTheme].foreground}
+												fallback={presetDefaultColors(owlAppearance.preset, resolvedTheme).foreground}
+												disabled={busy || !owlAppearanceLoaded}
+												ariaLabel={t("settings.appearance.foreground")}
+												resetLabel={t("settings.appearance.colorDefault")}
+												onChange={(hex) =>
+													saveAppearanceColors({
+														...owlAppearance,
+														[resolvedTheme]: { ...owlAppearance[resolvedTheme], foreground: hex },
+													})
+												}
+											/>
+										</SettingRow>
+									</div>
+									<div className="owl-settings-notice">{t("settings.appearance.note")}</div>
+								</section>
+
+								<section
+									id={`${appearanceId}-reading`}
+									className="owl-appearance-section"
+									data-appearance-section="reading"
+									tabIndex={-1}
+									aria-labelledby={`${appearanceId}-reading-heading`}
+								>
+									{/* 阅读与排版：原「常规」分区里的聊天阅读偏好（对齐 ChatGPT/Claude 外观页布局）。 */}
+									<h3 id={`${appearanceId}-reading-heading`} className="owl-settings-group-title">
+										{t("settings.general.readingTitle")}
+									</h3>
+									<p className="owl-settings-row-description">{appearanceCopy("readingDescription")}</p>
+									<div className="owl-settings-group">
+										{CHAT_READING_FIELDS.map((field) => (
+											<SettingRow
+												key={field.key}
+												title={t(field.titleKey)}
+												desc={appearanceReadingFieldDescription(field.key)}
+												control={
+													<span className="text-xs tabular-nums text-owl-text">
+														{chatAppearance[field.key]}{" "}
+														{"unitKey" in field ? t(field.unitKey) : field.unit}
+													</span>
+												}
+											>
+												<input
+													type="range"
+													aria-label={t(field.titleKey)}
+													className="w-full accent-owl-accent disabled:opacity-40"
+													min={field.min}
+													max={field.max}
+													step={field.step}
+													value={chatAppearance[field.key]}
+													disabled={busy || !chatAppearanceLoaded}
+													onChange={(event) => {
+														const value = event.currentTarget.valueAsNumber;
+														setChatAppearance((current) =>
+															parseChatAppearance({ ...current, [field.key]: value }),
+														);
+													}}
+												/>
+											</SettingRow>
+										))}
+										<SettingRow
+											title={t("settings.general.toolRecords")}
+											desc={t("settings.general.toolRecordsDesc")}
+											control={
+												<select
+													aria-label={t("settings.general.toolRecords")}
+													className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+													value={chatAppearance.toolRecords}
+													disabled={busy || !chatAppearanceLoaded}
+													onChange={(event) =>
+														setChatAppearance((current) => ({
+															...current,
+															toolRecords: event.target.value === "expanded" ? "expanded" : "compact",
+														}))
+													}
+												>
+													<option value="compact">{t("settings.general.toolRecordsCompact")}</option>
+													<option value="expanded">{t("settings.general.toolRecordsExpanded")}</option>
+												</select>
+											}
+										/>
+										<SettingRow
+											title={t("settings.general.claudeFlow")}
+											desc={t("settings.general.claudeFlowDesc")}
+											control={
+												<Switch
+													title={t("settings.general.claudeFlow")}
+													checked={chatAppearance.claudeFlow}
+													disabled={busy || !chatAppearanceLoaded}
+													onChange={(claudeFlow) =>
+														setChatAppearance((current) => ({ ...current, claudeFlow }))
+													}
+												/>
+											}
+										/>
+										<SettingRow
+											title={t("settings.general.thinkingStyle")}
+											desc={t("settings.general.thinkingStyleDesc")}
+											control={
+												<select
+													aria-label={t("settings.general.thinkingStyle")}
+													className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
+													value={chatAppearance.thinkingStyle}
+													disabled={busy || !chatAppearanceLoaded}
+													onChange={(event) =>
+														setChatAppearance((current) => ({
+															...current,
+															thinkingStyle:
+																event.target.value === "expandable" ? "expandable" : "claude",
+														}))
+													}
+												>
+													<option value="claude">{t("settings.general.thinkingStyleClaude")}</option>
+													<option value="expandable">
+														{t("settings.general.thinkingStyleExpandable")}
+													</option>
+												</select>
+											}
+										/>
+										<SettingRow
+											title={t("settings.general.motion")}
+											desc={t("settings.general.motionDesc")}
+											control={
+												<Switch
+													title={t("settings.general.motion")}
+													checked={chatAppearance.motion}
+													disabled={busy || !chatAppearanceLoaded}
+													onChange={(motion) => setChatAppearance((current) => ({ ...current, motion }))}
+												/>
+											}
+										/>
+										<SettingRow
+											title={t("settings.general.workEffects")}
+											desc={t("settings.general.workEffectsDesc")}
+										>
+											<div className="grid gap-1.5 sm:grid-cols-2">
+												{WORK_EFFECT_FIELDS.map((field) => (
+													<div
+														key={field.id}
+														className="flex items-start gap-2.5 rounded-lg border border-owl-border px-2.5 py-2"
+													>
+														<span className="min-w-0 flex-1">
+															<span className="block text-xs text-owl-text">{t(field.titleKey)}</span>
+															<span className="mt-0.5 block text-[11px] leading-relaxed text-owl-faint">
+																{t(field.descKey)}
+															</span>
+														</span>
+														<Switch
+															title={t(field.titleKey)}
+															checked={chatAppearance.workEffects[field.id]}
+															disabled={busy || !chatAppearanceLoaded}
+															onChange={(on) =>
+																setChatAppearance((current) => ({
+																	...current,
+																	workEffects: { ...current.workEffects, [field.id]: on },
+																}))
+															}
+														/>
+													</div>
+												))}
+											</div>
+										</SettingRow>
+										<div className="owl-settings-group-actions">
+											<button
+												type="button"
+												className={btn}
+												disabled={busy || !chatAppearanceLoaded}
+												onClick={() => setChatAppearance({ ...DEFAULT_CHAT_APPEARANCE })}
+											>
+												{t("settings.general.resetDefaults")}
+											</button>
+											<button
+												type="button"
+												className={btnAccent}
+												disabled={busy || !chatAppearanceLoaded}
+												onClick={() =>
+													void saveSettings({ desktopChatAppearance: parseChatAppearance(chatAppearance) })
+												}
+											>
+												{t("settings.general.saveReading")}
+											</button>
+										</div>
+									</div>
+								</section>
+
+								<section
+									id={`${appearanceId}-theme`}
+									className="owl-appearance-section"
+									data-appearance-section="theme"
+									tabIndex={-1}
+									aria-labelledby={`${appearanceId}-theme-heading`}
+								>
+									{/* 主题预设：整套深色配色；切换时清掉自定义背景/前景，让预设完整生效。 */}
+									<h3 id={`${appearanceId}-theme-heading`} className="owl-settings-group-title">
+										{t("settings.appearance.themePresets")}
+									</h3>
+									<div className="owl-settings-group">
+										<SettingRow
+											title={t("settings.appearance.themePresets")}
+											desc={t("settings.appearance.themePresetsDesc")}
+										>
+											<div
+												className="owl-settings-preset-grid"
+												role="radiogroup"
+												aria-label={t("settings.appearance.themePresets")}
+											>
+												{OWL_THEME_PRESETS.map((preset) => {
+													const active = owlAppearance.preset === preset.id;
+													return (
+														<button
+															key={preset.id || "default"}
+															type="button"
+															role="radio"
+															aria-checked={active}
+															className={`owl-settings-preset-card ${active ? "is-active" : ""}`}
+															disabled={busy || !owlAppearanceLoaded}
+															onClick={() =>
+																saveAppearanceColors({
+																	...owlAppearance,
+																	preset: preset.id,
+																	dark: { background: "", foreground: "" },
+																	light: { background: "", foreground: "" },
+																})
+															}
+														>
+															<span
+																className="owl-settings-preset-preview"
+																aria-hidden="true"
+																style={
+																	{
+																		"--pv-bg": preset.preview.bg,
+																		"--pv-rail": preset.preview.rail,
+																		"--pv-line": preset.preview.line,
+																		"--pv-panel": preset.preview.panel,
+																	} as React.CSSProperties
+																}
+															>
+																<span className="pv-rail">
+																	<i className="is-accent" />
+																	<i />
+																	<i />
+																</span>
+																<span className="pv-main">
+																	<i />
+																	<i />
+																	<b />
+																</span>
+															</span>
+															<span className="owl-settings-preset-label">
+																<span>{t(preset.labelKey)}</span>
+																{active && (
+																	<span className="owl-settings-preset-check" aria-hidden="true">
+																		✓
+																	</span>
+																)}
+															</span>
+														</button>
+													);
+												})}
+												<CodexThemePicker
+													preset={owlAppearance.preset}
+													mode={resolvedTheme}
+													disabled={busy || !owlAppearanceLoaded}
+													onSelect={(id) =>
+														saveAppearanceColors({
+															...owlAppearance,
+															preset: id,
+															dark: { background: "", foreground: "" },
+															light: { background: "", foreground: "" },
+														})
+													}
+												/>
 											</div>
 										</SettingRow>
 										{isGlassPreset(owlAppearance.preset) && (
-											<SettingRow title={t("settings.appearance.glassMode")} desc={t("settings.appearance.glassModeDesc")}>
-												<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.glassMode")}>
+											<SettingRow
+												title={t("settings.appearance.glassMode")}
+												desc={t("settings.appearance.glassModeDesc")}
+											>
+												<div
+													className="owl-settings-mode-row"
+													role="radiogroup"
+													aria-label={t("settings.appearance.glassMode")}
+												>
 													{OWL_GLASS_MODES.map((mode) => (
 														<button
 															key={mode}
@@ -3079,14 +4063,23 @@ export function SettingsPage({
 															disabled={busy || !owlAppearanceLoaded}
 															onClick={() => saveAppearanceColors({ ...owlAppearance, glass: mode })}
 														>
-															<span className="owl-settings-mode-label">{t(GLASS_MODE_LABEL_KEYS[mode])}</span>
+															<span className="owl-settings-mode-label">
+																{t(GLASS_MODE_LABEL_KEYS[mode])}
+															</span>
 														</button>
 													))}
 												</div>
 											</SettingRow>
 										)}
-										<SettingRow title={t("settings.appearance.fileIconTheme")} desc={t("settings.appearance.fileIconThemeDesc")}>
-											<div className="owl-settings-mode-row" role="radiogroup" aria-label={t("settings.appearance.fileIconTheme")}>
+										<SettingRow
+											title={t("settings.appearance.fileIconTheme")}
+											desc={t("settings.appearance.fileIconThemeDesc")}
+										>
+											<div
+												className="owl-settings-mode-row"
+												role="radiogroup"
+												aria-label={t("settings.appearance.fileIconTheme")}
+											>
 												{FILE_ICON_THEMES.map((id) => (
 													<button
 														key={id}
@@ -3097,7 +4090,9 @@ export function SettingsPage({
 														disabled={busy}
 														onClick={() => saveFileIconTheme(id)}
 													>
-														<span className="owl-settings-mode-label">{t(FILE_ICON_THEME_LABEL_KEYS[id])}</span>
+														<span className="owl-settings-mode-label">
+															{t(FILE_ICON_THEME_LABEL_KEYS[id])}
+														</span>
 													</button>
 												))}
 											</div>
@@ -3105,11 +4100,22 @@ export function SettingsPage({
 									</div>
 								</section>
 
-								<section id={`${appearanceId}-wallpaper`} className="owl-appearance-section" data-appearance-section="wallpaper" tabIndex={-1} aria-labelledby={`${appearanceId}-wallpaper-heading`}>
+								<section
+									id={`${appearanceId}-wallpaper`}
+									className="owl-appearance-section"
+									data-appearance-section="wallpaper"
+									tabIndex={-1}
+									aria-labelledby={`${appearanceId}-wallpaper-heading`}
+								>
 									{/* 动态壁纸（Wallpaper Engine 适配）：video/web 直渲、scene 用预览图降级。 */}
-									<h3 id={`${appearanceId}-wallpaper-heading`} className="owl-settings-group-title">{t("settings.appearance.wallpaperTitle")}</h3>
+									<h3 id={`${appearanceId}-wallpaper-heading`} className="owl-settings-group-title">
+										{t("settings.appearance.wallpaperTitle")}
+									</h3>
 									<div className="owl-settings-group">
-										<SettingRow title={t("settings.appearance.wallpaperEnable")} desc={t("settings.appearance.wallpaperEnableDesc")}>
+										<SettingRow
+											title={t("settings.appearance.wallpaperEnable")}
+											desc={t("settings.appearance.wallpaperEnableDesc")}
+										>
 											<Switch
 												title={t("settings.appearance.wallpaperEnable")}
 												checked={wallpaper.enabled}
@@ -3117,7 +4123,10 @@ export function SettingsPage({
 												onChange={(enabled) => saveWallpaper({ ...wallpaper, enabled })}
 											/>
 										</SettingRow>
-										<SettingRow title={t("settings.appearance.wallpaperPick")} desc={t("settings.appearance.wallpaperPickDesc")}>
+										<SettingRow
+											title={t("settings.appearance.wallpaperPick")}
+											desc={t("settings.appearance.wallpaperPickDesc")}
+										>
 											<div className="owl-settings-group-actions">
 												<button
 													type="button"
@@ -3125,55 +4134,107 @@ export function SettingsPage({
 													disabled={busy || wallpaperScanning}
 													onClick={() => saveWallpaper(wallpaper, { rescan: true })}
 												>
-													{wallpaperScanning ? t("settings.appearance.wallpaperScanning") : t("settings.appearance.wallpaperRefresh")}
+													{wallpaperScanning
+														? t("settings.appearance.wallpaperScanning")
+														: t("settings.appearance.wallpaperRefresh")}
 												</button>
 											</div>
 										</SettingRow>
 										{wallpaper.enabled && (
 											<>
-												<SettingRow title={t("settings.appearance.wallpaperList")} desc={t("settings.appearance.wallpaperListDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperList")}
+													desc={t("settings.appearance.wallpaperListDesc")}
+												>
 													<span className="text-xs tabular-nums text-owl-muted">
-														{t("settings.appearance.wallpaperCount", { count: filteredWallpapers.length })}
+														{t("settings.appearance.wallpaperCount", {
+															count: filteredWallpapers.length,
+														})}
 													</span>
 												</SettingRow>
 												<div className="owl-settings-row">
 													<div className="owl-settings-row-body">
-												{filteredWallpapers.length === 0 ? (
-													<div className="owl-settings-notice">{t("settings.appearance.wallpaperEmpty")}</div>
-												) : (
-													<div className="owl-settings-preset-grid owl-wallpaper-grid" role="radiogroup" aria-label={t("settings.appearance.wallpaperPick")}>
-														{filteredWallpapers.slice(0, 60).map((entry) => {
-															const active = resolveActiveEntry(wallpaperEntries, wallpaper)?.id === entry.id;
-															return (
-																<button
-																	key={entry.id}
-																	type="button"
-																	role="radio"
-																	aria-checked={active}
-																	title={`${entry.title} · ${entry.type}`}
-																	className={`owl-settings-preset-card owl-wallpaper-card ${active ? "is-active" : ""}`}
-																	disabled={busy}
-																	onClick={() => saveWallpaper({ ...wallpaper, selectionId: entry.id, customPath: "" })}
-																>
-																	<span className="owl-wallpaper-thumb" style={entry.schemeColor ? { backgroundColor: entry.schemeColor } : undefined}>
-																		{entry.previewUrl && <img src={entry.previewUrl} alt="" loading="lazy" draggable={false} />}
-																		{!entry.previewUrl && <span className="owl-wallpaper-thumb-empty">{t("settings.appearance.wallpaperNoPreview")}</span>}
-																		<span
-																			className={`owl-wallpaper-badge ${entry.type === "scene" && !entry.sceneSrc ? "is-scene-static" : `is-${entry.type}`}`}
+														{filteredWallpapers.length === 0 ? (
+															<div className="owl-settings-notice">
+																{t("settings.appearance.wallpaperEmpty")}
+															</div>
+														) : (
+															<div
+																className="owl-settings-preset-grid owl-wallpaper-grid"
+																role="radiogroup"
+																aria-label={t("settings.appearance.wallpaperPick")}
+															>
+																{filteredWallpapers.slice(0, 60).map((entry) => {
+																	const active =
+																		resolveActiveEntry(wallpaperEntries, wallpaper)?.id === entry.id;
+																	return (
+																		<button
+																			key={entry.id}
+																			type="button"
+																			role="radio"
+																			aria-checked={active}
+																			title={`${entry.title} · ${entry.type}`}
+																			className={`owl-settings-preset-card owl-wallpaper-card ${active ? "is-active" : ""}`}
+																			disabled={busy}
+																			onClick={() =>
+																				saveWallpaper({
+																					...wallpaper,
+																					selectionId: entry.id,
+																					customPath: "",
+																				})
+																			}
 																		>
-																			{t(entry.type === "scene" && !entry.sceneSrc ? "settings.appearance.wallpaperTypeScenePreview" : WALLPAPER_TYPE_LABEL[entry.type])}
-																		</span>
-																	</span>
-																	<span className="owl-wallpaper-name">{entry.title}</span>
-																	{active && <span className="owl-settings-preset-check" aria-hidden="true">✓</span>}
-																</button>
-															);
-														})}
-													</div>
-												)}
+																			<span
+																				className="owl-wallpaper-thumb"
+																				style={
+																					entry.schemeColor
+																						? { backgroundColor: entry.schemeColor }
+																						: undefined
+																				}
+																			>
+																				{entry.previewUrl && (
+																					<img
+																						src={entry.previewUrl}
+																						alt=""
+																						loading="lazy"
+																						draggable={false}
+																					/>
+																				)}
+																				{!entry.previewUrl && (
+																					<span className="owl-wallpaper-thumb-empty">
+																						{t("settings.appearance.wallpaperNoPreview")}
+																					</span>
+																				)}
+																				<span
+																					className={`owl-wallpaper-badge ${entry.type === "scene" && !entry.sceneSrc ? "is-scene-static" : `is-${entry.type}`}`}
+																				>
+																					{t(
+																						entry.type === "scene" && !entry.sceneSrc
+																							? "settings.appearance.wallpaperTypeScenePreview"
+																							: WALLPAPER_TYPE_LABEL[entry.type],
+																					)}
+																				</span>
+																			</span>
+																			<span className="owl-wallpaper-name">{entry.title}</span>
+																			{active && (
+																				<span
+																					className="owl-settings-preset-check"
+																					aria-hidden="true"
+																				>
+																					✓
+																				</span>
+																			)}
+																		</button>
+																	);
+																})}
+															</div>
+														)}
 													</div>
 												</div>
-												<SettingRow title={t("settings.appearance.wallpaperLocal")} desc={t("settings.appearance.wallpaperLocalDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperLocal")}
+													desc={t("settings.appearance.wallpaperLocalDesc")}
+												>
 													<div className="owl-settings-group-actions">
 														<button
 															type="button"
@@ -3181,9 +4242,31 @@ export function SettingsPage({
 															disabled={busy}
 															onClick={() => {
 																void pickFile(t("settings.appearance.wallpaperLocal"), [
-																	{ name: "Media", extensions: ["mp4", "webm", "mkv", "mov", "avi", "m4v", "jpg", "jpeg", "png", "gif", "webp", "bmp", "html"] },
+																	{
+																		name: "Media",
+																		extensions: [
+																			"mp4",
+																			"webm",
+																			"mkv",
+																			"mov",
+																			"avi",
+																			"m4v",
+																			"jpg",
+																			"jpeg",
+																			"png",
+																			"gif",
+																			"webp",
+																			"bmp",
+																			"html",
+																		],
+																	},
 																]).then((path) => {
-																	if (path) saveWallpaper({ ...wallpaper, customPath: path, selectionId: "" });
+																	if (path)
+																		saveWallpaper({
+																			...wallpaper,
+																			customPath: path,
+																			selectionId: "",
+																		});
 																});
 															}}
 														>
@@ -3203,10 +4286,18 @@ export function SettingsPage({
 												</SettingRow>
 												{wallpaper.customPath && (
 													<SettingRow title={t("settings.appearance.wallpaperLocalCurrent")}>
-														<code className="owl-settings-accent-hex" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}>{wallpaper.customPath}</code>
+														<code
+															className="owl-settings-accent-hex"
+															style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis" }}
+														>
+															{wallpaper.customPath}
+														</code>
 													</SettingRow>
 												)}
-												<SettingRow title={t("settings.appearance.wallpaperCustomDir")} desc={t("settings.appearance.wallpaperCustomDirDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperCustomDir")}
+													desc={t("settings.appearance.wallpaperCustomDirDesc")}
+												>
 													<div className="owl-settings-group-actions">
 														<input
 															type="text"
@@ -3222,49 +4313,66 @@ export function SettingsPage({
 															type="button"
 															className={btnAccent}
 															disabled={busy}
-															onClick={() => saveWallpaper({ ...wallpaper, customDir: wallpaperCustomDir })}
+															onClick={() =>
+																saveWallpaper({ ...wallpaper, customDir: wallpaperCustomDir })
+															}
 														>
 															{t("settings.appearance.wallpaperCustomDirSave")}
 														</button>
 													</div>
 												</SettingRow>
-												{selectedWallpaper && selectedWallpaper.hasProps && wallpaperPropDefs.length > 0 && (
-													<>
-														<SettingRow
-															title={t("settings.appearance.wallpaperProps")}
-															desc={t("settings.appearance.wallpaperPropsDesc")}
-															control={
-																<span className="text-xs tabular-nums text-owl-muted">
-																	{t("settings.appearance.wallpaperPropsChanged", {
-																		count: wallpaperPropDefs.filter((p) => p.overridden).length,
-																	})}
-																</span>
-															}
-														/>
-														<div className="owl-settings-row">
-															<div className="owl-settings-row-body">
-																<div className="owl-settings-group owl-wallpaper-props">
-																	{wallpaperPropDefs
-																		.filter((prop) => weEvalCondition(prop.condition, Object.fromEntries(wallpaperPropDefs.map((d) => [d.name, d.value]))))
-																		.map((prop) => (
-																			<WallpaperPropRow
-																				key={prop.name}
-																				prop={prop}
-																				disabled={busy}
-																				onInput={(value) => saveWallpaperProp(prop.name, value)}
-																				onReset={() => resetWallpaperProp(prop.name)}
-																			/>
-																		))}
+												{selectedWallpaper &&
+													selectedWallpaper.hasProps &&
+													wallpaperPropDefs.length > 0 && (
+														<>
+															<SettingRow
+																title={t("settings.appearance.wallpaperProps")}
+																desc={t("settings.appearance.wallpaperPropsDesc")}
+																control={
+																	<span className="text-xs tabular-nums text-owl-muted">
+																		{t("settings.appearance.wallpaperPropsChanged", {
+																			count: wallpaperPropDefs.filter((p) => p.overridden).length,
+																		})}
+																	</span>
+																}
+															/>
+															<div className="owl-settings-row">
+																<div className="owl-settings-row-body">
+																	<div className="owl-settings-group owl-wallpaper-props">
+																		{wallpaperPropDefs
+																			.filter((prop) =>
+																				weEvalCondition(
+																					prop.condition,
+																					Object.fromEntries(
+																						wallpaperPropDefs.map((d) => [d.name, d.value]),
+																					),
+																				),
+																			)
+																			.map((prop) => (
+																				<WallpaperPropRow
+																					key={prop.name}
+																					prop={prop}
+																					disabled={busy}
+																					onInput={(value) => saveWallpaperProp(prop.name, value)}
+																					onReset={() => resetWallpaperProp(prop.name)}
+																				/>
+																			))}
+																	</div>
+																	<div className="owl-settings-notice">
+																		{t("settings.appearance.wallpaperPropsNotice")}
+																	</div>
 																</div>
-																<div className="owl-settings-notice">{t("settings.appearance.wallpaperPropsNotice")}</div>
 															</div>
-														</div>
-													</>
-												)}
+														</>
+													)}
 												<SettingRow
 													title={t("settings.appearance.wallpaperVolume")}
 													desc={t("settings.appearance.wallpaperVolumeDesc")}
-													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.volume * 100)}%</span>}
+													control={
+														<span className="text-xs tabular-nums text-owl-text">
+															{Math.round(wallpaper.volume * 100)}%
+														</span>
+													}
 												>
 													<input
 														type="range"
@@ -3275,13 +4383,22 @@ export function SettingsPage({
 														step={5}
 														value={Math.round(wallpaper.volume * 100)}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, volume: event.currentTarget.valueAsNumber / 100 })}
+														onChange={(event) =>
+															saveWallpaper({
+																...wallpaper,
+																volume: event.currentTarget.valueAsNumber / 100,
+															})
+														}
 													/>
 												</SettingRow>
 												<SettingRow
 													title={t("settings.appearance.wallpaperRate")}
 													desc={t("settings.appearance.wallpaperRateDesc")}
-													control={<span className="text-xs tabular-nums text-owl-text">{wallpaper.playbackRate.toFixed(1)}×</span>}
+													control={
+														<span className="text-xs tabular-nums text-owl-text">
+															{wallpaper.playbackRate.toFixed(1)}×
+														</span>
+													}
 												>
 													<input
 														type="range"
@@ -3292,13 +4409,22 @@ export function SettingsPage({
 														step={0.1}
 														value={wallpaper.playbackRate}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, playbackRate: event.currentTarget.valueAsNumber })}
+														onChange={(event) =>
+															saveWallpaper({
+																...wallpaper,
+																playbackRate: event.currentTarget.valueAsNumber,
+															})
+														}
 													/>
 												</SettingRow>
 												<SettingRow
 													title={t("settings.appearance.wallpaperDim")}
 													desc={t("settings.appearance.wallpaperDimDesc")}
-													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.dim)}%</span>}
+													control={
+														<span className="text-xs tabular-nums text-owl-text">
+															{Math.round(wallpaper.dim)}%
+														</span>
+													}
 												>
 													<input
 														type="range"
@@ -3309,13 +4435,19 @@ export function SettingsPage({
 														step={5}
 														value={Math.round(wallpaper.dim)}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, dim: event.currentTarget.valueAsNumber })}
+														onChange={(event) =>
+															saveWallpaper({ ...wallpaper, dim: event.currentTarget.valueAsNumber })
+														}
 													/>
 												</SettingRow>
 												<SettingRow
 													title={t("settings.appearance.wallpaperBlur")}
 													desc={t("settings.appearance.wallpaperBlurDesc")}
-													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.blur)} px</span>}
+													control={
+														<span className="text-xs tabular-nums text-owl-text">
+															{Math.round(wallpaper.blur)} px
+														</span>
+													}
 												>
 													<input
 														type="range"
@@ -3326,13 +4458,19 @@ export function SettingsPage({
 														step={1}
 														value={Math.round(wallpaper.blur)}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, blur: event.currentTarget.valueAsNumber })}
+														onChange={(event) =>
+															saveWallpaper({ ...wallpaper, blur: event.currentTarget.valueAsNumber })
+														}
 													/>
 												</SettingRow>
 												<SettingRow
 													title={t("settings.appearance.wallpaperPanel")}
 													desc={t("settings.appearance.wallpaperPanelDesc")}
-													control={<span className="text-xs tabular-nums text-owl-text">{Math.round(wallpaper.panelOpacity)}%</span>}
+													control={
+														<span className="text-xs tabular-nums text-owl-text">
+															{Math.round(wallpaper.panelOpacity)}%
+														</span>
+													}
 												>
 													<input
 														type="range"
@@ -3343,86 +4481,151 @@ export function SettingsPage({
 														step={2}
 														value={Math.round(wallpaper.panelOpacity)}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, panelOpacity: event.currentTarget.valueAsNumber })}
+														onChange={(event) =>
+															saveWallpaper({
+																...wallpaper,
+																panelOpacity: event.currentTarget.valueAsNumber,
+															})
+														}
 													/>
 												</SettingRow>
-												<SettingRow title={t("settings.appearance.wallpaperFit")} desc={t("settings.appearance.wallpaperFitDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperFit")}
+													desc={t("settings.appearance.wallpaperFitDesc")}
+												>
 													<select
 														aria-label={t("settings.appearance.wallpaperFit")}
 														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 														value={wallpaper.fit}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, fit: event.target.value === "contain" ? "contain" : "cover" })}
+														onChange={(event) =>
+															saveWallpaper({
+																...wallpaper,
+																fit: event.target.value === "contain" ? "contain" : "cover",
+															})
+														}
 													>
 														<option value="cover">{t("settings.appearance.wallpaperFitCover")}</option>
-														<option value="contain">{t("settings.appearance.wallpaperFitContain")}</option>
+														<option value="contain">
+															{t("settings.appearance.wallpaperFitContain")}
+														</option>
 													</select>
 												</SettingRow>
-												<SettingRow title={t("settings.appearance.wallpaperRating")} desc={t("settings.appearance.wallpaperRatingDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperRating")}
+													desc={t("settings.appearance.wallpaperRatingDesc")}
+												>
 													<select
 														aria-label={t("settings.appearance.wallpaperRating")}
 														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 														value={wallpaper.contentRating}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, contentRating: event.target.value as WallpaperContentRating })}
+														onChange={(event) =>
+															saveWallpaper({
+																...wallpaper,
+																contentRating: event.target.value as WallpaperContentRating,
+															})
+														}
 													>
 														<option value="all">{t("settings.appearance.wallpaperRatingAll")}</option>
-														<option value="everyone">{t("settings.appearance.wallpaperRatingEveryone")}</option>
+														<option value="everyone">
+															{t("settings.appearance.wallpaperRatingEveryone")}
+														</option>
 														<option value="pg13">{t("settings.appearance.wallpaperRatingPg13")}</option>
-														<option value="mature">{t("settings.appearance.wallpaperRatingMature")}</option>
+														<option value="mature">
+															{t("settings.appearance.wallpaperRatingMature")}
+														</option>
 													</select>
 												</SettingRow>
-												<SettingRow title={t("settings.appearance.wallpaperSceneFps")} desc={t("settings.appearance.wallpaperSceneFpsDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperSceneFps")}
+													desc={t("settings.appearance.wallpaperSceneFpsDesc")}
+												>
 													<select
 														aria-label={t("settings.appearance.wallpaperSceneFps")}
 														className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 														value={wallpaper.sceneFps}
 														disabled={busy}
-														onChange={(event) => saveWallpaper({ ...wallpaper, sceneFps: Number(event.target.value) })}
+														onChange={(event) =>
+															saveWallpaper({ ...wallpaper, sceneFps: Number(event.target.value) })
+														}
 													>
 														<option value="15">{t("settings.appearance.wallpaperSceneFps15")}</option>
 														<option value="30">{t("settings.appearance.wallpaperSceneFps30")}</option>
 														<option value="60">{t("settings.appearance.wallpaperSceneFps60")}</option>
 													</select>
 												</SettingRow>
-												<SettingRow title={t("settings.appearance.wallpaperRotation")} desc={t("settings.appearance.wallpaperRotationDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperRotation")}
+													desc={t("settings.appearance.wallpaperRotationDesc")}
+												>
 													<Switch
 														title={t("settings.appearance.wallpaperRotation")}
 														checked={wallpaper.rotationEnabled}
 														disabled={busy}
-														onChange={(rotationEnabled) => saveWallpaper({ ...wallpaper, rotationEnabled })}
+														onChange={(rotationEnabled) =>
+															saveWallpaper({ ...wallpaper, rotationEnabled })
+														}
 													/>
 												</SettingRow>
 												{wallpaper.rotationEnabled && (
 													<>
-														<SettingRow title={t("settings.appearance.wallpaperRotationInterval")} desc={t("settings.appearance.wallpaperRotationIntervalDesc")}>
+														<SettingRow
+															title={t("settings.appearance.wallpaperRotationInterval")}
+															desc={t("settings.appearance.wallpaperRotationIntervalDesc")}
+														>
 															<select
 																aria-label={t("settings.appearance.wallpaperRotationInterval")}
 																className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 																value={wallpaper.rotationInterval}
 																disabled={busy}
-																onChange={(event) => saveWallpaper({ ...wallpaper, rotationInterval: Number(event.target.value) })}
+																onChange={(event) =>
+																	saveWallpaper({
+																		...wallpaper,
+																		rotationInterval: Number(event.target.value),
+																	})
+																}
 															>
 																{[1, 5, 15, 30, 60, 120].map((minutes) => (
-																	<option key={minutes} value={minutes}>{t("settings.appearance.wallpaperRotationMinutes", { count: minutes })}</option>
+																	<option key={minutes} value={minutes}>
+																		{t("settings.appearance.wallpaperRotationMinutes", {
+																			count: minutes,
+																		})}
+																	</option>
 																))}
 															</select>
 														</SettingRow>
-														<SettingRow title={t("settings.appearance.wallpaperRotationOrder")} desc={t("settings.appearance.wallpaperRotationOrderDesc")}>
+														<SettingRow
+															title={t("settings.appearance.wallpaperRotationOrder")}
+															desc={t("settings.appearance.wallpaperRotationOrderDesc")}
+														>
 															<select
 																aria-label={t("settings.appearance.wallpaperRotationOrder")}
 																className="rounded-lg border border-owl-border bg-owl-sidebar px-2 py-1.5 text-xs text-owl-text outline-none focus:border-owl-accent"
 																value={wallpaper.rotationOrder}
 																disabled={busy}
-																onChange={(event) => saveWallpaper({ ...wallpaper, rotationOrder: event.target.value === "random" ? "random" : "sequence" })}
+																onChange={(event) =>
+																	saveWallpaper({
+																		...wallpaper,
+																		rotationOrder:
+																			event.target.value === "random" ? "random" : "sequence",
+																	})
+																}
 															>
-																<option value="sequence">{t("settings.appearance.wallpaperRotationSequence")}</option>
-																<option value="random">{t("settings.appearance.wallpaperRotationRandom")}</option>
+																<option value="sequence">
+																	{t("settings.appearance.wallpaperRotationSequence")}
+																</option>
+																<option value="random">
+																	{t("settings.appearance.wallpaperRotationRandom")}
+																</option>
 															</select>
 														</SettingRow>
 													</>
 												)}
-												<SettingRow title={t("settings.appearance.wallpaperPauseHidden")} desc={t("settings.appearance.wallpaperPauseHiddenDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperPauseHidden")}
+													desc={t("settings.appearance.wallpaperPauseHiddenDesc")}
+												>
 													<Switch
 														title={t("settings.appearance.wallpaperPauseHidden")}
 														checked={wallpaper.pauseOnHidden}
@@ -3430,7 +4633,10 @@ export function SettingsPage({
 														onChange={(pauseOnHidden) => saveWallpaper({ ...wallpaper, pauseOnHidden })}
 													/>
 												</SettingRow>
-												<SettingRow title={t("settings.appearance.wallpaperPauseBlur")} desc={t("settings.appearance.wallpaperPauseBlurDesc")}>
+												<SettingRow
+													title={t("settings.appearance.wallpaperPauseBlur")}
+													desc={t("settings.appearance.wallpaperPauseBlurDesc")}
+												>
 													<Switch
 														title={t("settings.appearance.wallpaperPauseBlur")}
 														checked={wallpaper.pauseOnBlur}
@@ -3457,30 +4663,50 @@ export function SettingsPage({
 
 						{/* -------- 通知与提醒 -------- */}
 						{section === "animation" && (
-							<AnimationSettings busy={busy} onSave={(next) => { void saveSettings({ owlAnimation: next }); }} />
+							<AnimationSettings
+								busy={busy}
+								onSave={(next) => {
+									void saveSettings({ owlAnimation: next });
+								}}
+							/>
 						)}
 						{section === "notifications" && (
 							<>
-								<SectionHeader title={t("settings.notifications.title")} desc={t("settings.notifications.desc")} />
-								<SettingRow title={t("settings.notifications.permission")} desc={t("settings.notifications.permissionDesc")}>
+								<SectionHeader
+									title={t("settings.notifications.title")}
+									desc={t("settings.notifications.desc")}
+								/>
+								<SettingRow
+									title={t("settings.notifications.permission")}
+									desc={t("settings.notifications.permissionDesc")}
+								>
 									<Switch
 										checked={notifPrefs.permission}
 										onChange={(next) => saveNotifications({ ...notifPrefs, permission: next })}
 									/>
 								</SettingRow>
-								<SettingRow title={t("settings.notifications.question")} desc={t("settings.notifications.questionDesc")}>
+								<SettingRow
+									title={t("settings.notifications.question")}
+									desc={t("settings.notifications.questionDesc")}
+								>
 									<Switch
 										checked={notifPrefs.question}
 										onChange={(next) => saveNotifications({ ...notifPrefs, question: next })}
 									/>
 								</SettingRow>
-								<SettingRow title={t("settings.notifications.done")} desc={t("settings.notifications.doneDesc")}>
+								<SettingRow
+									title={t("settings.notifications.done")}
+									desc={t("settings.notifications.doneDesc")}
+								>
 									<Switch
 										checked={notifPrefs.done}
 										onChange={(next) => saveNotifications({ ...notifPrefs, done: next })}
 									/>
 								</SettingRow>
-								<SettingRow title={t("settings.notifications.sound")} desc={t("settings.notifications.soundDesc")}>
+								<SettingRow
+									title={t("settings.notifications.sound")}
+									desc={t("settings.notifications.soundDesc")}
+								>
 									<Switch
 										checked={notifPrefs.sound}
 										onChange={(next) => saveNotifications({ ...notifPrefs, sound: next })}
@@ -3551,13 +4777,19 @@ export function SettingsPage({
 										onBlur={() => saveNotifications({ ...notifPrefsRef.current })}
 									/>
 								</SettingRow>
-								<SettingRow title={t("settings.notifications.flashTaskbar")} desc={t("settings.notifications.flashTaskbarDesc")}>
+								<SettingRow
+									title={t("settings.notifications.flashTaskbar")}
+									desc={t("settings.notifications.flashTaskbarDesc")}
+								>
 									<Switch
 										checked={notifPrefs.flashTaskbar}
 										onChange={(next) => saveNotifications({ ...notifPrefs, flashTaskbar: next })}
 									/>
 								</SettingRow>
-								<SettingRow title={t("settings.notifications.quickActions")} desc={t("settings.notifications.quickActionsDesc")}>
+								<SettingRow
+									title={t("settings.notifications.quickActions")}
+									desc={t("settings.notifications.quickActionsDesc")}
+								>
 									<Switch
 										checked={notifPrefs.quickActions}
 										onChange={(next) => saveNotifications({ ...notifPrefs, quickActions: next })}
@@ -3568,180 +4800,276 @@ export function SettingsPage({
 						)}
 
 						{/* -------- 使用统计 -------- */}
-						{section === "usage" && (() => {
-							const maxDay = usageData ? Math.max(...usageData.byDay.map((day) => day.totalTokens), 0) : 0;
-							const todayKey = usageData?.byDay[usageData.byDay.length - 1]?.date ?? "";
-							const modelMax = usageData ? Math.max(...usageData.byModel.map((m) => m.totalTokens), 0) : 0;
-							const projectMax = usageData ? Math.max(...usageData.byProject.map((p) => p.totalTokens), 0) : 0;
-							return (
-								<>
-									<SectionHeader title={t("settings.usage.title")} desc={t("settings.usage.desc")} />
+						{section === "usage" &&
+							(() => {
+								const maxDay = usageData ? Math.max(...usageData.byDay.map((day) => day.totalTokens), 0) : 0;
+								const todayKey = usageData?.byDay[usageData.byDay.length - 1]?.date ?? "";
+								const modelMax = usageData ? Math.max(...usageData.byModel.map((m) => m.totalTokens), 0) : 0;
+								const projectMax = usageData
+									? Math.max(...usageData.byProject.map((p) => p.totalTokens), 0)
+									: 0;
+								return (
+									<>
+										<SectionHeader title={t("settings.usage.title")} desc={t("settings.usage.desc")} />
 
-									{/* 实时监测：状态徽标 + 立即刷新 + 自动轮询开关 */}
-									<SettingRow
-										title={t("settings.usage.liveTitle")}
-										desc={usageData ? t("settings.usage.updatedAt", { time: formatClock(usageData.generatedAt) }) : t("settings.usage.liveDesc")}
-										control={
-											<div className="flex items-center gap-3">
-												<span className={`owl-usage-live ${usageAuto ? "is-on" : ""}`}>
-													<span className="owl-usage-live-dot" aria-hidden="true" />
-													{usageAuto ? t("settings.usage.liveOn") : t("settings.usage.liveOff")}
-												</span>
-												<button type="button" className={btn} disabled={usageLoading} onClick={() => void loadUsage()}>
-													{t("settings.usage.refresh")}
-												</button>
-												<Switch checked={usageAuto} onChange={setUsageAuto} title={t("settings.usage.liveTitle")} />
-											</div>
-										}
-									/>
+										{/* 实时监测：状态徽标 + 立即刷新 + 自动轮询开关 */}
+										<SettingRow
+											title={t("settings.usage.liveTitle")}
+											desc={
+												usageData
+													? t("settings.usage.updatedAt", { time: formatClock(usageData.generatedAt) })
+													: t("settings.usage.liveDesc")
+											}
+											control={
+												<div className="flex items-center gap-3">
+													<span className={`owl-usage-live ${usageAuto ? "is-on" : ""}`}>
+														<span className="owl-usage-live-dot" aria-hidden="true" />
+														{usageAuto ? t("settings.usage.liveOn") : t("settings.usage.liveOff")}
+													</span>
+													<button
+														type="button"
+														className={btn}
+														disabled={usageLoading}
+														onClick={() => void loadUsage()}
+													>
+														{t("settings.usage.refresh")}
+													</button>
+													<Switch
+														checked={usageAuto}
+														onChange={setUsageAuto}
+														title={t("settings.usage.liveTitle")}
+													/>
+												</div>
+											}
+										/>
 
-									{!usageData ? (
-										<div className="owl-settings-notice">{t("settings.usage.loading")}</div>
-									) : usageData.totals.requests === 0 ? (
-										<div className="owl-settings-notice">{t("settings.usage.empty")}</div>
-									) : (
-										<>
-											{/* 概览：总量 / 今日 / 费用 / 会话 */}
-											<div className="owl-usage-grid">
-												<div className="owl-usage-stat">
-													<div className="owl-usage-stat-label">{t("settings.usage.statTotal")}</div>
-													<div className="owl-usage-stat-value">{formatTokens(usageData.totals.totalTokens)}</div>
-													<div className="owl-usage-stat-sub">
-														{t("settings.usage.tokInput")} {formatTokens(usageData.totals.input)} · {t("settings.usage.tokOutput")} {formatTokens(usageData.totals.output)}
-														{usageData.totals.cacheRead > 0 ? ` · ${t("settings.usage.tokCacheRead")} ${formatTokens(usageData.totals.cacheRead)}` : ""}
-													</div>
-												</div>
-												<div className="owl-usage-stat">
-													<div className="owl-usage-stat-label">{t("settings.usage.statToday")}</div>
-													<div className="owl-usage-stat-value">
-														{formatTokens(usageData.today.totalTokens)}
-														{usageData.today.totalTokens > 0 && <span className="owl-usage-pulse" aria-hidden="true" />}
-													</div>
-													<div className="owl-usage-stat-sub">{t("settings.usage.statTodaySub", { n: usageData.today.requests })}</div>
-												</div>
-												<div className="owl-usage-stat">
-													<div className="owl-usage-stat-label">{t("settings.usage.statCost")}</div>
-													<div className="owl-usage-stat-value">{formatCost(usageData.totals.cost)}</div>
-													<div className="owl-usage-stat-sub">{t("settings.usage.statCostSub")}</div>
-												</div>
-												<div className="owl-usage-stat">
-													<div className="owl-usage-stat-label">{t("settings.usage.statSessions")}</div>
-													<div className="owl-usage-stat-value">{usageData.sessionCount}</div>
-													<div className="owl-usage-stat-sub">{t("settings.usage.requestsLabel", { n: usageData.totals.requests })}</div>
-												</div>
-											</div>
-
-											{/* 近 30 天趋势（纯 CSS 柱状图，today 高亮） */}
-											<div className="owl-settings-card">
-												<div className="owl-settings-row-title">{t("settings.usage.chartTitle")}</div>
-												<p className="owl-settings-row-description">{t("settings.usage.chartDesc")}</p>
-												<div className="owl-usage-chart" role="img" aria-label={t("settings.usage.chartTitle")}>
-													{usageData.byDay.map((day, index) => {
-														const height = maxDay > 0 && day.totalTokens > 0 ? Math.max(6, Math.round((day.totalTokens / maxDay) * 100)) : 0;
-														const showLabel = index % 5 === 0 || index === usageData.byDay.length - 1;
-														return (
-															<div
-																key={day.date}
-																className={`owl-usage-col${day.date === todayKey ? " is-today" : ""}`}
-																title={`${day.date} · ${formatTokens(day.totalTokens)} · ${formatCost(day.cost)} · ${t("settings.usage.requestsLabel", { n: day.requests })}`}
-															>
-																<div className="owl-usage-bar-track">
-																	<div className="owl-usage-bar" style={height > 0 ? { height: `${height}%` } : undefined} />
-																</div>
-																<span className="owl-usage-col-label">{showLabel ? day.date.slice(5) : ""}</span>
-															</div>
-														);
-													})}
-												</div>
-											</div>
-
-											{/* 分布：模型 / 项目（宽屏并排，条形为 Token 占比） */}
-											<div className="owl-usage-cols">
-												<div className="owl-settings-card">
-													<div className="owl-settings-row-title">{t("settings.usage.byModel")}</div>
-													<p className="owl-settings-row-description">{t("settings.usage.byModelDesc")}</p>
-													<div className="owl-usage-dist">
-														{usageData.byModel.map((m) => (
-															<div key={m.key} className="owl-usage-dist-row" title={t("settings.usage.requestsLabel", { n: m.requests })}>
-																<div className="owl-usage-dist-top">
-																	<span className="owl-usage-dist-key">{m.key}</span>
-																	<span className="owl-usage-dist-nums">
-																		<span className="owl-usage-dist-tokens">{formatTokens(m.totalTokens)}</span>
-																		<span className="owl-usage-dist-cost">{formatCost(m.cost)}</span>
-																	</span>
-																</div>
-																<div className="owl-usage-dist-track">
-																	<div className="owl-usage-dist-fill" style={{ width: modelMax > 0 ? `${Math.max(2, Math.round((m.totalTokens / modelMax) * 100))}%` : "0%" }} />
-																</div>
-															</div>
-														))}
-													</div>
-												</div>
-												<div className="owl-settings-card">
-													<div className="owl-settings-row-title">{t("settings.usage.byProject")}</div>
-													<p className="owl-settings-row-description">{t("settings.usage.byProjectDesc")}</p>
-													<div className="owl-usage-dist">
-														{usageData.byProject.map((p) => (
-															<div key={p.cwd} className="owl-usage-dist-row" title={`${p.cwd} · ${t("settings.usage.requestsLabel", { n: p.requests })}`}>
-																<div className="owl-usage-dist-top">
-																	<span className="owl-usage-dist-key">{getProjectDisplayName(p.cwd)}</span>
-																	<span className="owl-usage-dist-nums">
-																		<span className="owl-usage-dist-tokens">{formatTokens(p.totalTokens)}</span>
-																		<span className="owl-usage-dist-cost">{formatCost(p.cost)}</span>
-																	</span>
-																</div>
-																<div className="owl-usage-dist-track">
-																	<div className="owl-usage-dist-fill" style={{ width: projectMax > 0 ? `${Math.max(2, Math.round((p.totalTokens / projectMax) * 100))}%` : "0%" }} />
-																</div>
-															</div>
-														))}
-													</div>
-												</div>
-											</div>
-
-											{/* Token 用量最高的会话 */}
-											<SettingRow title={t("settings.usage.topSessions")} desc={t("settings.usage.topSessionsDesc")}>
-												<div className="owl-usage-sessions">
-													<div className="owl-usage-sessions-header">
-														<span>{t("settings.usage.colSession")}</span>
-														<span>{t("settings.usage.colTokens")} · {t("settings.usage.colCost")}</span>
-													</div>
-													{usageData.topSessions.map((s) => (
-														<div key={s.sessionId} className="owl-usage-session-row">
-															<div className="owl-usage-session-main">
-																<div className="owl-usage-session-name">{s.name ?? s.firstMessage ?? t("settings.sessionFallback", { id: s.sessionId.slice(0, 8) })}</div>
-																<div className="owl-usage-session-sub">
-																	{getProjectDisplayName(s.cwd || "")} · {t("settings.usage.sessionActive", { time: formatDateTime(s.lastActiveAt) })}
-																</div>
-															</div>
-															<div className="owl-usage-session-nums">
-																<span className="owl-usage-session-tokens">{formatTokens(s.totalTokens)}</span>
-																<span className="owl-usage-session-cost">{formatCost(s.cost)}</span>
-															</div>
+										{!usageData ? (
+											<div className="owl-settings-notice">{t("settings.usage.loading")}</div>
+										) : usageData.totals.requests === 0 ? (
+											<div className="owl-settings-notice">{t("settings.usage.empty")}</div>
+										) : (
+											<>
+												{/* 概览：总量 / 今日 / 费用 / 会话 */}
+												<div className="owl-usage-grid">
+													<div className="owl-usage-stat">
+														<div className="owl-usage-stat-label">{t("settings.usage.statTotal")}</div>
+														<div className="owl-usage-stat-value">
+															{formatTokens(usageData.totals.totalTokens)}
 														</div>
-													))}
+														<div className="owl-usage-stat-sub">
+															{t("settings.usage.tokInput")} {formatTokens(usageData.totals.input)} ·{" "}
+															{t("settings.usage.tokOutput")} {formatTokens(usageData.totals.output)}
+															{usageData.totals.cacheRead > 0
+																? ` · ${t("settings.usage.tokCacheRead")} ${formatTokens(usageData.totals.cacheRead)}`
+																: ""}
+														</div>
+													</div>
+													<div className="owl-usage-stat">
+														<div className="owl-usage-stat-label">{t("settings.usage.statToday")}</div>
+														<div className="owl-usage-stat-value">
+															{formatTokens(usageData.today.totalTokens)}
+															{usageData.today.totalTokens > 0 && (
+																<span className="owl-usage-pulse" aria-hidden="true" />
+															)}
+														</div>
+														<div className="owl-usage-stat-sub">
+															{t("settings.usage.statTodaySub", { n: usageData.today.requests })}
+														</div>
+													</div>
+													<div className="owl-usage-stat">
+														<div className="owl-usage-stat-label">{t("settings.usage.statCost")}</div>
+														<div className="owl-usage-stat-value">
+															{formatCost(usageData.totals.cost)}
+														</div>
+														<div className="owl-usage-stat-sub">{t("settings.usage.statCostSub")}</div>
+													</div>
+													<div className="owl-usage-stat">
+														<div className="owl-usage-stat-label">{t("settings.usage.statSessions")}</div>
+														<div className="owl-usage-stat-value">{usageData.sessionCount}</div>
+														<div className="owl-usage-stat-sub">
+															{t("settings.usage.requestsLabel", { n: usageData.totals.requests })}
+														</div>
+													</div>
 												</div>
-											</SettingRow>
-										</>
-									)}
-								</>
-							);
-						})()}
+
+												{/* 近 30 天趋势（纯 CSS 柱状图，today 高亮） */}
+												<div className="owl-settings-card">
+													<div className="owl-settings-row-title">{t("settings.usage.chartTitle")}</div>
+													<p className="owl-settings-row-description">{t("settings.usage.chartDesc")}</p>
+													<div
+														className="owl-usage-chart"
+														role="img"
+														aria-label={t("settings.usage.chartTitle")}
+													>
+														{usageData.byDay.map((day, index) => {
+															const height =
+																maxDay > 0 && day.totalTokens > 0
+																	? Math.max(6, Math.round((day.totalTokens / maxDay) * 100))
+																	: 0;
+															const showLabel = index % 5 === 0 || index === usageData.byDay.length - 1;
+															return (
+																<div
+																	key={day.date}
+																	className={`owl-usage-col${day.date === todayKey ? " is-today" : ""}`}
+																	title={`${day.date} · ${formatTokens(day.totalTokens)} · ${formatCost(day.cost)} · ${t("settings.usage.requestsLabel", { n: day.requests })}`}
+																>
+																	<div className="owl-usage-bar-track">
+																		<div
+																			className="owl-usage-bar"
+																			style={height > 0 ? { height: `${height}%` } : undefined}
+																		/>
+																	</div>
+																	<span className="owl-usage-col-label">
+																		{showLabel ? day.date.slice(5) : ""}
+																	</span>
+																</div>
+															);
+														})}
+													</div>
+												</div>
+
+												{/* 分布：模型 / 项目（宽屏并排，条形为 Token 占比） */}
+												<div className="owl-usage-cols">
+													<div className="owl-settings-card">
+														<div className="owl-settings-row-title">{t("settings.usage.byModel")}</div>
+														<p className="owl-settings-row-description">
+															{t("settings.usage.byModelDesc")}
+														</p>
+														<div className="owl-usage-dist">
+															{usageData.byModel.map((m) => (
+																<div
+																	key={m.key}
+																	className="owl-usage-dist-row"
+																	title={t("settings.usage.requestsLabel", { n: m.requests })}
+																>
+																	<div className="owl-usage-dist-top">
+																		<span className="owl-usage-dist-key">{m.key}</span>
+																		<span className="owl-usage-dist-nums">
+																			<span className="owl-usage-dist-tokens">
+																				{formatTokens(m.totalTokens)}
+																			</span>
+																			<span className="owl-usage-dist-cost">
+																				{formatCost(m.cost)}
+																			</span>
+																		</span>
+																	</div>
+																	<div className="owl-usage-dist-track">
+																		<div
+																			className="owl-usage-dist-fill"
+																			style={{
+																				width:
+																					modelMax > 0
+																						? `${Math.max(2, Math.round((m.totalTokens / modelMax) * 100))}%`
+																						: "0%",
+																			}}
+																		/>
+																	</div>
+																</div>
+															))}
+														</div>
+													</div>
+													<div className="owl-settings-card">
+														<div className="owl-settings-row-title">{t("settings.usage.byProject")}</div>
+														<p className="owl-settings-row-description">
+															{t("settings.usage.byProjectDesc")}
+														</p>
+														<div className="owl-usage-dist">
+															{usageData.byProject.map((p) => (
+																<div
+																	key={p.cwd}
+																	className="owl-usage-dist-row"
+																	title={`${p.cwd} · ${t("settings.usage.requestsLabel", { n: p.requests })}`}
+																>
+																	<div className="owl-usage-dist-top">
+																		<span className="owl-usage-dist-key">
+																			{getProjectDisplayName(p.cwd)}
+																		</span>
+																		<span className="owl-usage-dist-nums">
+																			<span className="owl-usage-dist-tokens">
+																				{formatTokens(p.totalTokens)}
+																			</span>
+																			<span className="owl-usage-dist-cost">
+																				{formatCost(p.cost)}
+																			</span>
+																		</span>
+																	</div>
+																	<div className="owl-usage-dist-track">
+																		<div
+																			className="owl-usage-dist-fill"
+																			style={{
+																				width:
+																					projectMax > 0
+																						? `${Math.max(2, Math.round((p.totalTokens / projectMax) * 100))}%`
+																						: "0%",
+																			}}
+																		/>
+																	</div>
+																</div>
+															))}
+														</div>
+													</div>
+												</div>
+
+												{/* Token 用量最高的会话 */}
+												<SettingRow
+													title={t("settings.usage.topSessions")}
+													desc={t("settings.usage.topSessionsDesc")}
+												>
+													<div className="owl-usage-sessions">
+														<div className="owl-usage-sessions-header">
+															<span>{t("settings.usage.colSession")}</span>
+															<span>
+																{t("settings.usage.colTokens")} · {t("settings.usage.colCost")}
+															</span>
+														</div>
+														{usageData.topSessions.map((s) => (
+															<div key={s.sessionId} className="owl-usage-session-row">
+																<div className="owl-usage-session-main">
+																	<div className="owl-usage-session-name">
+																		{s.name ??
+																			s.firstMessage ??
+																			t("settings.sessionFallback", { id: s.sessionId.slice(0, 8) })}
+																	</div>
+																	<div className="owl-usage-session-sub">
+																		{getProjectDisplayName(s.cwd || "")} ·{" "}
+																		{t("settings.usage.sessionActive", {
+																			time: formatDateTime(s.lastActiveAt),
+																		})}
+																	</div>
+																</div>
+																<div className="owl-usage-session-nums">
+																	<span className="owl-usage-session-tokens">
+																		{formatTokens(s.totalTokens)}
+																	</span>
+																	<span className="owl-usage-session-cost">{formatCost(s.cost)}</span>
+																</div>
+															</div>
+														))}
+													</div>
+												</SettingRow>
+											</>
+										)}
+									</>
+								);
+							})()}
 
 						{/* -------- 归档 -------- */}
 						{section === "archived" && (
 							<>
-								<SectionHeader
-									title={t("settings.archive.title")}
-										desc={t("settings.archive.desc")}
-								/>
+								<SectionHeader title={t("settings.archive.title")} desc={t("settings.archive.desc")} />
 								<div className="owl-settings-notice">{t("settings.archive.notice")}</div>
-								<SettingRow title={t("settings.archive.listTitle", { n: archiveCfg.sessions.length })} desc={t("settings.archive.listDesc")}>
+								<SettingRow
+									title={t("settings.archive.listTitle", { n: archiveCfg.sessions.length })}
+									desc={t("settings.archive.listDesc")}
+								>
 									{archiveCfg.sessions.length === 0 ? (
 										<p className="text-[11px] text-owl-faint">{t("settings.archive.none")}</p>
 									) : (
 										<div className="owl-settings-archive-list">
-											<div className="owl-settings-archive-header"><span>{t("settings.archive.colSession")}</span><span>{t("settings.archive.colStatus")}</span></div>
+											<div className="owl-settings-archive-header">
+												<span>{t("settings.archive.colSession")}</span>
+												<span>{t("settings.archive.colStatus")}</span>
+											</div>
 											{[...archiveCfg.sessions]
 												.sort((a, b) => (a.archivedAt < b.archivedAt ? 1 : -1))
 												.map((entry) => {
@@ -3749,16 +5077,15 @@ export function SettingsPage({
 													const title = sessionDisplayName(row ?? { id: entry.sessionId });
 													const origin = row?.cwd ? getProjectDisplayName(row.cwd) : "";
 													return (
-														<div
-															key={entry.sessionId}
-															className="owl-settings-archive-row"
-														>
+														<div key={entry.sessionId} className="owl-settings-archive-row">
 															<div className="min-w-0 flex-1">
 																<div className="truncate text-xs text-owl-text" title={title}>
 																	{title}
 																</div>
 																<div className="mt-0.5 text-[10px] text-owl-faint">
-																	{t("settings.archive.archivedAt", { time: formatDateTime(entry.archivedAt) })}
+																	{t("settings.archive.archivedAt", {
+																		time: formatDateTime(entry.archivedAt),
+																	})}
 																	{origin ? t("settings.archive.fromProject", { origin }) : ""}
 																</div>
 															</div>
@@ -3785,7 +5112,11 @@ export function SettingsPage({
 																			>
 																				{t("common.deleteForever")}
 																			</button>
-																			<button type="button" className={btn} onClick={() => setConfirmDelId(null)}>
+																			<button
+																				type="button"
+																				className={btn}
+																				onClick={() => setConfirmDelId(null)}
+																			>
 																				{t("common.cancel")}
 																			</button>
 																		</>
@@ -3799,7 +5130,11 @@ export function SettingsPage({
 																		</button>
 																	)}
 																</div>
-																{confirmDelId === entry.sessionId && <p className="owl-settings-archive-warning mt-2">{t("settings.archive.deleteWarn")}</p>}
+																{confirmDelId === entry.sessionId && (
+																	<p className="owl-settings-archive-warning mt-2">
+																		{t("settings.archive.deleteWarn")}
+																	</p>
+																)}
 															</div>
 														</div>
 													);
@@ -3818,10 +5153,7 @@ export function SettingsPage({
 
 						{section === "prompts" && (
 							<>
-								<SectionHeader
-									title={t("settings.prompts.title")}
-									desc={t("settings.prompts.desc")}
-								/>
+								<SectionHeader title={t("settings.prompts.title")} desc={t("settings.prompts.desc")} />
 								<SettingRow
 									title={t("settings.prompts.customTitle")}
 									desc={t("settings.prompts.customDesc")}
@@ -3865,10 +5197,7 @@ export function SettingsPage({
 										placeholder={t("settings.prompts.impressionPlaceholder")}
 									/>
 								</SettingRow>
-								<SettingRow
-									title={t("settings.prompts.builtinTitle")}
-									desc={t("settings.prompts.builtinDesc")}
-								>
+								<SettingRow title={t("settings.prompts.builtinTitle")} desc={t("settings.prompts.builtinDesc")}>
 									<div className="space-y-1.5">
 										{Object.keys(builtinSections).length === 0 && (
 											<p className="text-[11px] text-owl-faint">{t("settings.prompts.builtinNotLoaded")}</p>
@@ -3891,10 +5220,7 @@ export function SettingsPage({
 						{/* -------- 跨会话记忆 -------- */}
 						{section === "memory" && (
 							<>
-								<SectionHeader
-									title={t("settings.memory.title")}
-									desc={t("settings.memory.desc")}
-								/>
+								<SectionHeader title={t("settings.memory.title")} desc={t("settings.memory.desc")} />
 								<SettingRow
 									title={t("settings.memory.enableTitle")}
 									desc={t("settings.memory.enableDesc")}
@@ -3924,7 +5250,11 @@ export function SettingsPage({
 													>
 														{t("common.confirmClear")}
 													</button>
-													<button type="button" className={btn} onClick={() => setConfirmClearMemory(false)}>
+													<button
+														type="button"
+														className={btn}
+														onClick={() => setConfirmClearMemory(false)}
+													>
 														{t("common.cancel")}
 													</button>
 												</div>
@@ -3942,9 +5272,7 @@ export function SettingsPage({
 									}
 								>
 									{memory.entries.length === 0 ? (
-										<p className="text-[11px] text-owl-faint">
-											{t("settings.memory.empty")}
-										</p>
+										<p className="text-[11px] text-owl-faint">{t("settings.memory.empty")}</p>
 									) : (
 										<div className="space-y-1.5">
 											{memory.entries.map((entry, index) => (
@@ -3957,8 +5285,13 @@ export function SettingsPage({
 															{entry.content}
 														</div>
 														<div className="mt-1 text-[10px] text-owl-faint">
-															#{index + 1} · {t("settings.memory.recordedAt", { time: formatDateTime(entry.createdAt) })}
-															{entry.sourceCwd ? t("settings.memory.fromSource", { src: entry.sourceCwd }) : ""}
+															#{index + 1} ·{" "}
+															{t("settings.memory.recordedAt", {
+																time: formatDateTime(entry.createdAt),
+															})}
+															{entry.sourceCwd
+																? t("settings.memory.fromSource", { src: entry.sourceCwd })
+																: ""}
 														</div>
 													</div>
 													{confirmDelMemoryId === entry.id ? (
@@ -3971,14 +5304,18 @@ export function SettingsPage({
 															>
 																{t("common.confirmDelete")}
 															</button>
-															<button type="button" className={btn} onClick={() => setConfirmDelMemoryId(null)}>
+															<button
+																type="button"
+																className={btn}
+																onClick={() => setConfirmDelMemoryId(null)}
+															>
 																{t("common.cancel")}
 															</button>
 														</div>
 													) : (
 														<button
 															type="button"
-														className={`${btn} shrink-0 hover:border-owl-danger/60 hover:text-owl-danger`}
+															className={`${btn} shrink-0 hover:border-owl-danger/60 hover:text-owl-danger`}
 															disabled={busy}
 															onClick={() => setConfirmDelMemoryId(entry.id)}
 															title={t("settings.memory.deleteTitle")}
@@ -3998,19 +5335,21 @@ export function SettingsPage({
 						{section === "image" && (
 							<>
 								<SectionHeader title={t("settings.image.title")} desc={t("settings.image.desc")} />
-								{imageData && !imageData.pluginInstalled && <div className="owl-settings-notice">{t("settings.image.pluginMissing")}</div>}
+								{imageData && !imageData.pluginInstalled && (
+									<div className="owl-settings-notice">{t("settings.image.pluginMissing")}</div>
+								)}
 
-									<SettingRow title={t("settings.image.provider")} desc={t("settings.image.providerDesc")}>
-										<select
-											className={input}
-											value={imageCfg.provider ?? "google"}
-											onChange={(event) => {
-												// 切 provider 清掉上一家的拉取提示/候选状态:那是另一个 provider 的报错,
-												// 留着会让人误以为新选的通道在要 key（订阅通道本就不需要 key）。
-												setImageModelsNote("");
-												setImageCfg((prev) => ({ ...prev, provider: event.target.value as OwlImageProvider }));
-											}}
-										>
+								<SettingRow title={t("settings.image.provider")} desc={t("settings.image.providerDesc")}>
+									<select
+										className={input}
+										value={imageCfg.provider ?? "google"}
+										onChange={(event) => {
+											// 切 provider 清掉上一家的拉取提示/候选状态:那是另一个 provider 的报错,
+											// 留着会让人误以为新选的通道在要 key（订阅通道本就不需要 key）。
+											setImageModelsNote("");
+											setImageCfg((prev) => ({ ...prev, provider: event.target.value as OwlImageProvider }));
+										}}
+									>
 										{OWL_IMAGE_PROVIDERS.map((provider) => (
 											<option key={provider} value={provider}>
 												{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}
@@ -4024,21 +5363,38 @@ export function SettingsPage({
 									desc={t("settings.image.subDesc")}
 									control={
 										<div className="flex items-center gap-1.5">
-											<span className={`rounded-full border px-2 py-0.5 text-[11px] ${imageData?.subscription.loggedIn ? "border-owl-accent/60 text-owl-accent" : "text-owl-faint"}`}>
+											<span
+												className={`rounded-full border px-2 py-0.5 text-[11px] ${imageData?.subscription.loggedIn ? "border-owl-accent/60 text-owl-accent" : "text-owl-faint"}`}
+											>
 												{imageData?.subscription.loggedIn
 													? t("settings.image.subLoggedIn", { email: imageData.subscription.email ?? "" })
 													: t("settings.image.subLoggedOut")}
 											</span>
 											{imageData?.subscription.loggedIn ? (
-												<button type="button" className={btn} disabled={busy} onClick={() => void imageSubLogout()}>
+												<button
+													type="button"
+													className={btn}
+													disabled={busy}
+													onClick={() => void imageSubLogout()}
+												>
 													{t("settings.image.subLogout")}
 												</button>
 											) : (
-												<button type="button" className={btnAccent} disabled={busy} onClick={() => void imageSubLogin()}>
+												<button
+													type="button"
+													className={btnAccent}
+													disabled={busy}
+													onClick={() => void imageSubLogin()}
+												>
 													{t("settings.image.subLogin")}
 												</button>
 											)}
-											<button type="button" className={btn} disabled={busy} onClick={() => void loadImageConfig()}>
+											<button
+												type="button"
+												className={btn}
+												disabled={busy}
+												onClick={() => void loadImageConfig()}
+											>
 												{t("settings.image.subRefresh")}
 											</button>
 										</div>
@@ -4046,7 +5402,9 @@ export function SettingsPage({
 								>
 									{imageData?.subscription.loggedIn === true && (
 										<div className="space-y-1.5">
-											<p className="text-[11px] text-owl-text">{t("settings.image.subModelLine", { model: "gemini-3.1-flash-image" })}</p>
+											<p className="text-[11px] text-owl-text">
+												{t("settings.image.subModelLine", { model: "gemini-3.1-flash-image" })}
+											</p>
 											{imageCfg.provider !== "google-sub" && (
 												<p className="text-[11px] text-owl-muted">
 													{t("settings.image.switchToSubHint")}{" "}
@@ -4065,7 +5423,11 @@ export function SettingsPage({
 											)}
 										</div>
 									)}
-									{imageSubHint && <pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed text-owl-muted">{imageSubHint}</pre>}
+									{imageSubHint && (
+										<pre className="whitespace-pre-wrap break-all text-[11px] leading-relaxed text-owl-muted">
+											{imageSubHint}
+										</pre>
+									)}
 								</SettingRow>
 
 								<SettingRow title={t("settings.image.keysTitle")} desc={t("settings.image.keysDesc")}>
@@ -4079,21 +5441,34 @@ export function SettingsPage({
 												: t("settings.image.keyNotSet");
 											return (
 												<div key={provider} className="flex items-center gap-2">
-													<span className="w-36 shrink-0 text-xs text-owl-text">{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}</span>
-													<span className={`w-36 shrink-0 text-[11px] ${status?.configured ? "text-owl-accent" : "text-owl-faint"}`}>{badge}</span>
+													<span className="w-36 shrink-0 text-xs text-owl-text">
+														{t(OWL_IMAGE_PROVIDER_LABEL_KEYS[provider])}
+													</span>
+													<span
+														className={`w-36 shrink-0 text-[11px] ${status?.configured ? "text-owl-accent" : "text-owl-faint"}`}
+													>
+														{badge}
+													</span>
 													<input
 														className={`${input} mt-0 flex-1`}
 														type="password"
 														autoComplete="off"
 														placeholder="••••••••"
 														value={imageKeys[provider] ?? ""}
-														onChange={(event) => setImageKeys((prev) => ({ ...prev, [provider]: event.target.value }))}
+														onChange={(event) =>
+															setImageKeys((prev) => ({ ...prev, [provider]: event.target.value }))
+														}
 													/>
 													<label className="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-owl-muted">
 														<input
 															type="checkbox"
 															checked={imageKeyClear[provider] === true}
-															onChange={(event) => setImageKeyClear((prev) => ({ ...prev, [provider]: event.target.checked }))}
+															onChange={(event) =>
+																setImageKeyClear((prev) => ({
+																	...prev,
+																	[provider]: event.target.checked,
+																}))
+															}
 														/>
 														{t("settings.image.keyClear")}
 													</label>
@@ -4107,11 +5482,17 @@ export function SettingsPage({
 									<div className="grid grid-cols-1 gap-2">
 										{(() => {
 											const provider = imageCfg.provider ?? "google";
-											const set = (patch: Partial<OwlImageConfigPublic>) => setImageCfg((prev) => ({ ...prev, ...patch }));
+											const set = (patch: Partial<OwlImageConfigPublic>) =>
+												setImageCfg((prev) => ({ ...prev, ...patch }));
 											const modelOptions = imageModels[provider] ?? [];
 											// 模型字段：带「拉取模型」按钮 + datalist（拉取后点击输入框即出候选；
 											// datalist 随输入前缀过滤，拉不到也保持手填不阻断）。
-											const field = (labelKey: TextKey, key: keyof OwlImageConfigPublic, placeholder?: string, isModelField = false) => (
+											const field = (
+												labelKey: TextKey,
+												key: keyof OwlImageConfigPublic,
+												placeholder?: string,
+												isModelField = false,
+											) => (
 												<label className="block">
 													<span className="flex items-center justify-between">
 														<span className="text-[11px] text-owl-muted">{t(labelKey)}</span>
@@ -4122,7 +5503,9 @@ export function SettingsPage({
 																disabled={busy || fetchingModels}
 																onClick={() => void fetchImageModels(provider)}
 															>
-																{fetchingModels ? t("settings.image.fetchingModels") : t("settings.image.fetchModels")}
+																{fetchingModels
+																	? t("settings.image.fetchingModels")
+																	: t("settings.image.fetchModels")}
 															</button>
 														)}
 													</span>
@@ -4130,8 +5513,14 @@ export function SettingsPage({
 														className={`${input} mt-0.5`}
 														value={typeof imageCfg[key] === "string" ? (imageCfg[key] as string) : ""}
 														placeholder={placeholder}
-														list={isModelField && modelOptions.length > 0 ? "owl-image-model-options" : undefined}
-														onChange={(event) => set({ [key]: event.target.value } as Partial<OwlImageConfigPublic>)}
+														list={
+															isModelField && modelOptions.length > 0
+																? "owl-image-model-options"
+																: undefined
+														}
+														onChange={(event) =>
+															set({ [key]: event.target.value } as Partial<OwlImageConfigPublic>)
+														}
 													/>
 													{isModelField && modelOptions.length > 0 && (
 														<datalist id="owl-image-model-options">
@@ -4140,10 +5529,18 @@ export function SettingsPage({
 															))}
 														</datalist>
 													)}
-													{isModelField && imageModelsNote && <span className="mt-0.5 block text-[10px] text-owl-faint">{imageModelsNote}</span>}
-													{isModelField && !imageModelsNote && !imageData?.keyStatus[provider]?.configured && (
-														<span className="mt-0.5 block text-[10px] text-owl-faint">{t("settings.image.modelsNeedKey")}</span>
+													{isModelField && imageModelsNote && (
+														<span className="mt-0.5 block text-[10px] text-owl-faint">
+															{imageModelsNote}
+														</span>
 													)}
+													{isModelField &&
+														!imageModelsNote &&
+														!imageData?.keyStatus[provider]?.configured && (
+															<span className="mt-0.5 block text-[10px] text-owl-faint">
+																{t("settings.image.modelsNeedKey")}
+															</span>
+														)}
 												</label>
 											);
 											if (provider === "google") {
@@ -4168,11 +5565,20 @@ export function SettingsPage({
 														{field("settings.image.baseURL", "openaiCompatBaseURL")}
 														{field("settings.image.model", "openaiCompatModel", undefined, true)}
 														<label className="block">
-															<span className="text-[11px] text-owl-muted">{t("settings.image.editFormat")}</span>
+															<span className="text-[11px] text-owl-muted">
+																{t("settings.image.editFormat")}
+															</span>
 															<select
 																className={`${input} mt-0.5`}
 																value={imageCfg.openaiCompatEditFormat ?? "multipart"}
-																onChange={(event) => set({ openaiCompatEditFormat: event.target.value as "multipart" | "jsonImageUrlArray" | "formReferenceImages" })}
+																onChange={(event) =>
+																	set({
+																		openaiCompatEditFormat: event.target.value as
+																			| "multipart"
+																			| "jsonImageUrlArray"
+																			| "formReferenceImages",
+																	})
+																}
 															>
 																<option value="multipart">multipart</option>
 																<option value="jsonImageUrlArray">jsonImageUrlArray</option>
@@ -4189,33 +5595,51 @@ export function SettingsPage({
 														{field("settings.image.model", "seedreamModel", undefined, true)}
 														<div className="grid grid-cols-3 gap-2">
 															<label className="block">
-																<span className="text-[11px] text-owl-muted">{t("settings.image.outputFormat")}</span>
+																<span className="text-[11px] text-owl-muted">
+																	{t("settings.image.outputFormat")}
+																</span>
 																<select
 																	className={`${input} mt-0.5`}
 																	value={imageCfg.seedreamOutputFormat ?? "jpeg"}
-																	onChange={(event) => set({ seedreamOutputFormat: event.target.value as "png" | "jpeg" })}
+																	onChange={(event) =>
+																		set({
+																			seedreamOutputFormat: event.target.value as "png" | "jpeg",
+																		})
+																	}
 																>
 																	<option value="jpeg">jpeg</option>
 																	<option value="png">png</option>
 																</select>
 															</label>
 															<label className="block">
-																<span className="text-[11px] text-owl-muted">{t("settings.image.watermark")}</span>
+																<span className="text-[11px] text-owl-muted">
+																	{t("settings.image.watermark")}
+																</span>
 																<select
 																	className={`${input} mt-0.5`}
 																	value={imageCfg.seedreamWatermark === false ? "off" : "on"}
-																	onChange={(event) => set({ seedreamWatermark: event.target.value !== "off" })}
+																	onChange={(event) =>
+																		set({ seedreamWatermark: event.target.value !== "off" })
+																	}
 																>
 																	<option value="on">on</option>
 																	<option value="off">off</option>
 																</select>
 															</label>
 															<label className="block">
-																<span className="text-[11px] text-owl-muted">{t("settings.image.background")}</span>
+																<span className="text-[11px] text-owl-muted">
+																	{t("settings.image.background")}
+																</span>
 																<select
 																	className={`${input} mt-0.5`}
 																	value={imageCfg.seedreamBackground ?? "opaque"}
-																	onChange={(event) => set({ seedreamBackground: event.target.value as "opaque" | "transparent" })}
+																	onChange={(event) =>
+																		set({
+																			seedreamBackground: event.target.value as
+																				| "opaque"
+																				| "transparent",
+																		})
+																	}
 																>
 																	<option value="opaque">opaque</option>
 																	<option value="transparent">transparent</option>
@@ -4255,22 +5679,47 @@ export function SettingsPage({
 													<>
 														{field("settings.image.baseURL", "comfyuiBaseURL", "http://127.0.0.1:8188")}
 														<label className="block">
-															<span className="text-[11px] text-owl-muted">{t("settings.image.timeout")}</span>
+															<span className="text-[11px] text-owl-muted">
+																{t("settings.image.timeout")}
+															</span>
 															<input
 																className={`${input} mt-0.5`}
 																type="number"
 																min={1}
 																max={3600}
-																value={imageCfg.comfyuiTimeoutMs ? Math.round(imageCfg.comfyuiTimeoutMs / 1000) : 300}
-																onChange={(event) => set({ comfyuiTimeoutMs: Math.max(1, Math.min(3600, Number(event.target.value) || 300)) * 1000 })}
+																value={
+																	imageCfg.comfyuiTimeoutMs
+																		? Math.round(imageCfg.comfyuiTimeoutMs / 1000)
+																		: 300
+																}
+																onChange={(event) =>
+																	set({
+																		comfyuiTimeoutMs:
+																			Math.max(
+																				1,
+																				Math.min(3600, Number(event.target.value) || 300),
+																			) * 1000,
+																	})
+																}
 															/>
 														</label>
 														<div className="space-y-1.5">
-															<span className="text-[11px] text-owl-muted">{t("settings.image.comfyTitle")}</span>
-															{workflows.length === 0 && <p className="text-[11px] text-owl-faint">{t("settings.image.comfyDesc")}</p>}
+															<span className="text-[11px] text-owl-muted">
+																{t("settings.image.comfyTitle")}
+															</span>
+															{workflows.length === 0 && (
+																<p className="text-[11px] text-owl-faint">
+																	{t("settings.image.comfyDesc")}
+																</p>
+															)}
 															{workflows.map((workflow) => (
-																<div key={workflow.name} className="flex items-center gap-1.5 rounded-lg bg-owl-sidebar/60 px-2.5 py-1.5">
-																	<span className="min-w-0 flex-1 truncate text-xs text-owl-text">{workflow.name}</span>
+																<div
+																	key={workflow.name}
+																	className="flex items-center gap-1.5 rounded-lg bg-owl-sidebar/60 px-2.5 py-1.5"
+																>
+																	<span className="min-w-0 flex-1 truncate text-xs text-owl-text">
+																		{workflow.name}
+																	</span>
 																	{imageCfg.comfyuiActiveWorkflow === workflow.name ? (
 																		<span className="shrink-0 text-[11px] text-owl-accent">✓</span>
 																	) : (
@@ -4291,7 +5740,9 @@ export function SettingsPage({
 																			const rest = workflows.filter((w) => w.name !== workflow.name);
 																			set({
 																				comfyuiWorkflows: rest,
-																				...(imageCfg.comfyuiActiveWorkflow === workflow.name ? { comfyuiActiveWorkflow: rest[0]?.name ?? "" } : {}),
+																				...(imageCfg.comfyuiActiveWorkflow === workflow.name
+																					? { comfyuiActiveWorkflow: rest[0]?.name ?? "" }
+																					: {}),
 																			});
 																		}}
 																	>
@@ -4300,17 +5751,38 @@ export function SettingsPage({
 																</div>
 															))}
 															<div className="space-y-1 rounded-lg border border-owl-border p-2">
-																<input className={`${input} mt-0`} placeholder={t("settings.image.comfyNamePlaceholder")} value={comfyForm.name} onChange={(event) => setComfyForm((prev) => ({ ...prev, name: event.target.value }))} />
-																<input className={`${input} mt-0`} placeholder={t("settings.image.comfyPreset")} value={comfyForm.preset} onChange={(event) => setComfyForm((prev) => ({ ...prev, preset: event.target.value }))} />
+																<input
+																	className={`${input} mt-0`}
+																	placeholder={t("settings.image.comfyNamePlaceholder")}
+																	value={comfyForm.name}
+																	onChange={(event) =>
+																		setComfyForm((prev) => ({ ...prev, name: event.target.value }))
+																	}
+																/>
+																<input
+																	className={`${input} mt-0`}
+																	placeholder={t("settings.image.comfyPreset")}
+																	value={comfyForm.preset}
+																	onChange={(event) =>
+																		setComfyForm((prev) => ({ ...prev, preset: event.target.value }))
+																	}
+																/>
 																<textarea
 																	className={`${input} mt-0 h-24 resize-y`}
 																	placeholder={t("settings.image.comfyJsonPlaceholder")}
 																	value={comfyForm.json}
 																	spellCheck={false}
-																	onChange={(event) => setComfyForm((prev) => ({ ...prev, json: event.target.value }))}
+																	onChange={(event) =>
+																		setComfyForm((prev) => ({ ...prev, json: event.target.value }))
+																	}
 																/>
 																<div className="flex justify-end">
-																	<button type="button" className={btn} disabled={busy} onClick={addComfyWorkflow}>
+																	<button
+																		type="button"
+																		className={btn}
+																		disabled={busy}
+																		onClick={addComfyWorkflow}
+																	>
 																		{t("settings.image.comfyAdd")}
 																	</button>
 																</div>
@@ -4324,9 +5796,13 @@ export function SettingsPage({
 													<p className="text-[11px] text-owl-text">
 														{t("settings.image.modelFixed", { model: "gemini-3.1-flash-image" })}
 													</p>
-													<p className={`text-[11px] ${imageData?.subscription.loggedIn === true ? "text-owl-accent" : "text-owl-faint"}`}>
+													<p
+														className={`text-[11px] ${imageData?.subscription.loggedIn === true ? "text-owl-accent" : "text-owl-faint"}`}
+													>
 														{imageData?.subscription.loggedIn === true
-															? t("settings.image.subLoggedIn", { email: imageData.subscription.email ?? "" })
+															? t("settings.image.subLoggedIn", {
+																	email: imageData.subscription.email ?? "",
+																})
 															: t("settings.image.subLoggedOut")}
 													</p>
 												</div>
@@ -4341,11 +5817,15 @@ export function SettingsPage({
 											<input
 												type="checkbox"
 												checked={imageCfg.saveToWorkspace !== false}
-												onChange={(event) => setImageCfg((prev) => ({ ...prev, saveToWorkspace: event.target.checked }))}
+												onChange={(event) =>
+													setImageCfg((prev) => ({ ...prev, saveToWorkspace: event.target.checked }))
+												}
 											/>
 											<span>
 												{t("settings.image.saveWs")}
-												<span className="ml-1 text-[11px] text-owl-faint">{t("settings.image.saveWsDesc")}</span>
+												<span className="ml-1 text-[11px] text-owl-faint">
+													{t("settings.image.saveWsDesc")}
+												</span>
 											</span>
 										</label>
 										{imageCfg.saveToWorkspace !== false && (
@@ -4354,7 +5834,9 @@ export function SettingsPage({
 												<input
 													className={`${input} mt-0.5`}
 													value={imageCfg.workspaceFolder ?? "owl-image"}
-													onChange={(event) => setImageCfg((prev) => ({ ...prev, workspaceFolder: event.target.value }))}
+													onChange={(event) =>
+														setImageCfg((prev) => ({ ...prev, workspaceFolder: event.target.value }))
+													}
 												/>
 											</label>
 										)}
@@ -4362,11 +5844,15 @@ export function SettingsPage({
 											<input
 												type="checkbox"
 												checked={imageCfg.attachImageToResult !== false}
-												onChange={(event) => setImageCfg((prev) => ({ ...prev, attachImageToResult: event.target.checked }))}
+												onChange={(event) =>
+													setImageCfg((prev) => ({ ...prev, attachImageToResult: event.target.checked }))
+												}
 											/>
 											<span>
 												{t("settings.image.attach")}
-												<span className="ml-1 text-[11px] text-owl-faint">{t("settings.image.attachDesc")}</span>
+												<span className="ml-1 text-[11px] text-owl-faint">
+													{t("settings.image.attachDesc")}
+												</span>
 											</span>
 										</label>
 										<div className="grid grid-cols-2 gap-2">
@@ -4378,7 +5864,15 @@ export function SettingsPage({
 													min={1}
 													max={64}
 													value={Math.round((imageCfg.maxImageBytes ?? 10 * 1024 * 1024) / (1024 * 1024))}
-													onChange={(event) => setImageCfg((prev) => ({ ...prev, maxImageBytes: Math.max(1, Math.min(64, Number(event.target.value) || 10)) * 1024 * 1024 }))}
+													onChange={(event) =>
+														setImageCfg((prev) => ({
+															...prev,
+															maxImageBytes:
+																Math.max(1, Math.min(64, Number(event.target.value) || 10)) *
+																1024 *
+																1024,
+														}))
+													}
 												/>
 											</label>
 											<label className="block">
@@ -4387,7 +5881,9 @@ export function SettingsPage({
 													className={`${input} mt-0.5`}
 													placeholder={t("settings.image.proxyPlaceholder")}
 													value={imageCfg.proxy ?? ""}
-													onChange={(event) => setImageCfg((prev) => ({ ...prev, proxy: event.target.value }))}
+													onChange={(event) =>
+														setImageCfg((prev) => ({ ...prev, proxy: event.target.value }))
+													}
 												/>
 											</label>
 										</div>
@@ -4395,11 +5891,18 @@ export function SettingsPage({
 								</SettingRow>
 
 								<div className="flex items-center justify-end gap-2">
-									{imageSaved && <span className="text-[11px] text-owl-accent">{t("settings.image.saved")}</span>}
+									{imageSaved && (
+										<span className="text-[11px] text-owl-accent">{t("settings.image.saved")}</span>
+									)}
 									{imageData && (
 										<span className="mr-auto text-[10px] text-owl-faint">{imageData.configPath}</span>
 									)}
-									<button type="button" className={btnAccent} disabled={busy} onClick={() => void saveImageConfig()}>
+									<button
+										type="button"
+										className={btnAccent}
+										disabled={busy}
+										onClick={() => void saveImageConfig()}
+									>
 										{t("settings.image.save")}
 									</button>
 								</div>
@@ -4428,7 +5931,8 @@ export function SettingsPage({
 												try {
 													const values = JSON.parse(raw) as Record<string, unknown>;
 													// 手改 settings.json 里的 owlAnimation：保存成功后同步到即时生效的订阅存储
-													if (await saveSettings(values) && "owlAnimation" in values) applyOwlAnimation(values.owlAnimation);
+													if ((await saveSettings(values)) && "owlAnimation" in values)
+														applyOwlAnimation(values.owlAnimation);
 												} catch (error) {
 													setError(error instanceof Error ? error.message : String(error));
 												}
@@ -4443,7 +5947,9 @@ export function SettingsPage({
 
 						{section === "diagnostics" && <DiagnosticsSection probe={lifeProbe} onFix={selectSection} />}
 						{section === "changelog" && <ChangelogSection />}
-						{section === "execution-anomalies" && <ExecutionAnomaliesSection client={client} onOpenSession={onOpenAnomalySession} />}
+						{section === "execution-anomalies" && (
+							<ExecutionAnomaliesSection client={client} onOpenSession={onOpenAnomalySession} />
+						)}
 
 						{/* -------- 关于 -------- */}
 						{section === "about" && (
@@ -4451,7 +5957,13 @@ export function SettingsPage({
 								<SectionHeader title={t("settings.about.title")} desc={t("settings.about.desc")} />
 								<div className="owl-settings-about-brand">
 									<img src="/owl.svg" alt="" draggable={false} />
-									<div><h3>Owl</h3><p className="owl-settings-row-description">{t("settings.about.desktop")} · {version ? `v${version}` : t("settings.about.versionUnknown")}</p></div>
+									<div>
+										<h3>Owl</h3>
+										<p className="owl-settings-row-description">
+											{t("settings.about.desktop")} ·{" "}
+											{version ? `v${version}` : t("settings.about.versionUnknown")}
+										</p>
+									</div>
 								</div>
 								<SettingRow title={t("settings.about.basis")} desc={t("settings.about.basisDesc")}>
 									<span className="text-xs text-owl-muted">{t("settings.about.basisValue")}</span>
@@ -4459,9 +5971,15 @@ export function SettingsPage({
 								<SettingRow title={t("settings.about.dataDir")} desc={t("settings.about.dataDirDesc")}>
 									<span className="break-all font-mono text-xs text-owl-muted">{agentDir || "—"}</span>
 								</SettingRow>
-								<SettingRow title={t("settings.about.configuredModels")} desc={t("settings.about.configuredModelsDesc")}>
+								<SettingRow
+									title={t("settings.about.configuredModels")}
+									desc={t("settings.about.configuredModelsDesc")}
+								>
 									<span className="text-xs text-owl-muted">
-										{t("settings.models.providerModelCount", { providers: groups.length, models: modelCount })}
+										{t("settings.models.providerModelCount", {
+											providers: groups.length,
+											models: modelCount,
+										})}
 									</span>
 								</SettingRow>
 							</>
@@ -4471,25 +5989,52 @@ export function SettingsPage({
 
 				{/* ============ 底部 ============ */}
 				<div className="owl-settings-footer">
-					<span className={savedMsg ? "owl-settings-save-status is-saved" : "owl-settings-save-status"} role="status" aria-live="polite">
+					<span
+						className={savedMsg ? "owl-settings-save-status is-saved" : "owl-settings-save-status"}
+						role="status"
+						aria-live="polite"
+					>
 						{busy ? t("common.processing") : savedMsg || t("settings.footer.status")}
 					</span>
-					<button type="button" className={btn} onClick={onClose}>{t("common.done")}</button>
+					<button type="button" className={btn} onClick={onClose}>
+						{t("common.done")}
+					</button>
 				</div>
 			</div>
 
 			{confirmProvider && (
 				<div className="owl-settings-modal-shade" onClick={() => setConfirmProviderId(null)}>
-					<div className="owl-settings-modal" role="alertdialog" aria-modal="true" aria-labelledby="owl-provider-delete-title" aria-describedby="owl-provider-delete-description" onClick={(event) => event.stopPropagation()}>
+					<div
+						className="owl-settings-modal"
+						role="alertdialog"
+						aria-modal="true"
+						aria-labelledby="owl-provider-delete-title"
+						aria-describedby="owl-provider-delete-description"
+						onClick={(event) => event.stopPropagation()}
+					>
 						<h3 id="owl-provider-delete-title">{t("settings.providerDelete.title")}</h3>
-						<p id="owl-provider-delete-description">{t("settings.providerDelete.desc", { name: confirmProvider.name ?? confirmProvider.id, n: confirmProvider.models.length })}</p>
+						<p id="owl-provider-delete-description">
+							{t("settings.providerDelete.desc", {
+								name: confirmProvider.name ?? confirmProvider.id,
+								n: confirmProvider.models.length,
+							})}
+						</p>
 						<p>{t("settings.providerDelete.reAdd")}</p>
 						<div className="mt-6 flex justify-end gap-2">
-							<button type="button" className={btn} autoFocus onClick={() => setConfirmProviderId(null)}>{t("common.cancel")}</button>
-							<button type="button" className={`${btn} is-danger`} disabled={busy} onClick={() => {
-								setConfirmProviderId(null);
-								void run({ type: "models.removeProvider", providerKey: confirmProvider.id });
-							}}>{t("settings.providerDelete.confirm")}</button>
+							<button type="button" className={btn} autoFocus onClick={() => setConfirmProviderId(null)}>
+								{t("common.cancel")}
+							</button>
+							<button
+								type="button"
+								className={`${btn} is-danger`}
+								disabled={busy}
+								onClick={() => {
+									setConfirmProviderId(null);
+									void run({ type: "models.removeProvider", providerKey: confirmProvider.id });
+								}}
+							>
+								{t("settings.providerDelete.confirm")}
+							</button>
 						</div>
 					</div>
 				</div>
@@ -4505,10 +6050,16 @@ export function SettingsPage({
 						aria-label={authSuccess.title}
 						onClick={(e) => e.stopPropagation()}
 					>
-						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-owl-success/15 text-lg text-owl-success">✓</div>
+						<div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-owl-success/15 text-lg text-owl-success">
+							✓
+						</div>
 						<div className="mt-3 text-sm font-semibold text-owl-text">{authSuccess.title}</div>
 						<div className="mt-1 text-xs leading-relaxed text-owl-muted">{authSuccess.message}</div>
-						<button type="button" className={`${btnAccent} mt-4 w-full py-1.5`} onClick={() => setAuthSuccess(null)}>
+						<button
+							type="button"
+							className={`${btnAccent} mt-4 w-full py-1.5`}
+							onClick={() => setAuthSuccess(null)}
+						>
 							{t("settings.auth.known")}
 						</button>
 					</div>

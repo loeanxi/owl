@@ -981,11 +981,12 @@ export class AgentSession {
 	private _exceedsCompactionThresholdForMessages(model: Model<any>, messages: AgentMessage[]): boolean {
 		const contextWindow = compactionContextWindow(model);
 		if (contextWindow <= 0) return false;
-		return shouldCompact(
-			estimateContextTokens(messages).tokens,
-			contextWindow,
-			this.settingsManager.getCompactionSettings(this.model),
+		const est = estimateContextTokens(messages).tokens;
+		const st = this.settingsManager.getCompactionSettings(this.model);
+		console.error(
+			`[DBG-THRESH] est=${est} window=${contextWindow} settings=${JSON.stringify(st)} compact=${shouldCompact(est, contextWindow, st)} msgs=${messages.length} roles=${messages.map((m) => m.role).join(",")}`,
 		);
+		return shouldCompact(est, contextWindow, st);
 	}
 
 	private async _compactBeforeNextAssistantResponse(context: AgentContext): Promise<AgentContext> {
@@ -1271,6 +1272,9 @@ export class AgentSession {
 
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
+		if (event.type === "compaction_start") {
+			console.error(`[DBG-EMIT] compaction_start reason=${event.reason} stack=${new Error("t").stack}`);
+		}
 		for (const l of this._eventListeners) {
 			l(event);
 		}

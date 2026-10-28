@@ -1,6 +1,13 @@
 import MarkdownIt from "markdown-it";
 import { highlightCodeHtml } from "../../../../packages/coding-agent/src/utils/syntax-highlight.ts";
+import type { Citation } from "../hooks/transcript.ts";
 import { pathCandidateFromCode } from "../utils/paths.ts";
+import {
+	buildCitationSources,
+	insertCitationMarkers,
+	renderSourcesPanel,
+	replaceCitationMarkers,
+} from "./citations.ts";
 import { replyReadingText } from "./reply-reading-copy.ts";
 import { classifyChip, type TurnDiffSummary } from "./turn-diff.ts";
 
@@ -71,12 +78,14 @@ function renderCodeBody(content: string, language: string): string {
 function renderCode(content: string, language: string): string {
 	const escape = md.utils.escapeHtml;
 	const lineCount = Math.max(1, content.split("\n").length - Number(content.endsWith("\n")));
-	return `<div class="owl-answer-code" data-answer-code="" data-answer-code-lines="${lineCount}" data-answer-language="${escape(language)}">`
-		+ `<div class="owl-answer-code-toolbar" data-answer-toolbar=""><span class="owl-answer-code-language">${escape(language || replyReadingText("code"))}</span>`
-		+ `<div class="owl-answer-code-actions"><button type="button" data-answer-action="copy-code">${escape(replyReadingText("copy"))}</button>`
-		+ `<button type="button" data-answer-action="expand-code" aria-expanded="false" hidden>${escape(replyReadingText("expandCode"))}</button></div>`
-		+ '<span data-answer-copy-status="" role="status" aria-live="polite"></span></div>'
-		+ `<pre><code>${renderCodeBody(content, language)}</code></pre></div>\n`;
+	return (
+		`<div class="owl-answer-code" data-answer-code="" data-answer-code-lines="${lineCount}" data-answer-language="${escape(language)}">` +
+		`<div class="owl-answer-code-toolbar" data-answer-toolbar=""><span class="owl-answer-code-language">${escape(language || replyReadingText("code"))}</span>` +
+		`<div class="owl-answer-code-actions"><button type="button" data-answer-action="copy-code">${escape(replyReadingText("copy"))}</button>` +
+		`<button type="button" data-answer-action="expand-code" aria-expanded="false" hidden>${escape(replyReadingText("expandCode"))}</button></div>` +
+		'<span data-answer-copy-status="" role="status" aria-live="polite"></span></div>' +
+		`<pre><code>${renderCodeBody(content, language)}</code></pre></div>\n`
+	);
 }
 
 md.renderer.rules.fence = (tokens, idx): string => {
@@ -93,28 +102,35 @@ plainMd.renderer.rules.fence = (tokens, idx): string => {
 	const language = plainMd.utils.unescapeAll(token.info).trim().split(/\s+/)[0] ?? "";
 	return `<pre><code>${renderCodeBody(token.content, language)}</code></pre>\n`;
 };
-plainMd.renderer.rules.code_block = (tokens, idx): string => `<pre><code>${renderCodeBody(tokens[idx]!.content, "")}</code></pre>\n`;
+plainMd.renderer.rules.code_block = (tokens, idx): string =>
+	`<pre><code>${renderCodeBody(tokens[idx]!.content, "")}</code></pre>\n`;
 
 md.renderer.rules.table_open = (tokens, idx, options, _env, self): string => {
 	const escape = md.utils.escapeHtml;
-	return '<div class="owl-answer-table" data-answer-table=""><div class="owl-answer-table-toolbar" data-answer-toolbar="">'
-		+ `<span data-answer-table-hint="" hidden>${escape(replyReadingText("tableScroll"))}</span>`
-		+ `<button type="button" data-answer-action="expand-table" aria-expanded="false" hidden>${escape(replyReadingText("expandTable"))}</button></div>`
-		+ `<div class="owl-answer-table-scroll" data-answer-table-scroll="" tabindex="0" role="region" aria-label="${escape(replyReadingText("tableLabel"))}">`
-		+ self.renderToken(tokens, idx, options);
+	return (
+		'<div class="owl-answer-table" data-answer-table=""><div class="owl-answer-table-toolbar" data-answer-toolbar="">' +
+		`<span data-answer-table-hint="" hidden>${escape(replyReadingText("tableScroll"))}</span>` +
+		`<button type="button" data-answer-action="expand-table" aria-expanded="false" hidden>${escape(replyReadingText("expandTable"))}</button></div>` +
+		`<div class="owl-answer-table-scroll" data-answer-table-scroll="" tabindex="0" role="region" aria-label="${escape(replyReadingText("tableLabel"))}">` +
+		self.renderToken(tokens, idx, options)
+	);
 };
-md.renderer.rules.table_close = (tokens, idx, options, _env, self): string => `${self.renderToken(tokens, idx, options)}</div></div>\n`;
+md.renderer.rules.table_close = (tokens, idx, options, _env, self): string =>
+	`${self.renderToken(tokens, idx, options)}</div></div>\n`;
 
 /**
  * Safe answer Markdown with complete code/table content and delegated reading controls.
  *
  * @param diff 本轮改动的染色上下文：其中的行内 code 按 git 语义染色（Claude 的做法）。
+ * @param citations 本段的引用：正文里插行内角标，段末附来源面板（Claude 的锚点级引用）。
  */
-export function renderAnswerMarkdown(text: string, diff?: TurnDiffSummary): string {
+export function renderAnswerMarkdown(text: string, diff?: TurnDiffSummary, citations?: readonly Citation[]): string {
+	const sources = buildCitationSources(citations);
 	const previous = diffOfRender;
 	diffOfRender = diff;
 	try {
-		return md.render(text);
+		const html = replaceCitationMarkers(md.render(insertCitationMarkers(text, sources)), sources);
+		return html + renderSourcesPanel(sources);
 	} finally {
 		diffOfRender = previous;
 	}

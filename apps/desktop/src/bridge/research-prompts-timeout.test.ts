@@ -11,9 +11,15 @@ class SilentSocket {
 	onclose?: () => void;
 	onmessage?: (event: { data: string }) => void;
 	sent: Array<{ id: string; type: string }> = [];
-	constructor() { SilentSocket.latest = this; }
-	send(value: string): void { this.sent.push(JSON.parse(value) as { id: string; type: string }); }
-	close(): void { this.onclose?.(); }
+	constructor() {
+		SilentSocket.latest = this;
+	}
+	send(value: string): void {
+		this.sent.push(JSON.parse(value) as { id: string; type: string });
+	}
+	close(): void {
+		this.onclose?.();
+	}
 }
 
 let client: BridgeClient;

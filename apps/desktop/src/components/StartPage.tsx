@@ -1,7 +1,7 @@
 import { useId } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { StartRecentSession } from "../hooks/use-start-recent-sessions.ts";
-import { useT, type TextKey } from "../i18n/index.ts";
+import { type TextKey, useT } from "../i18n/index.ts";
 import { OwlMascot } from "./OwlMascot.tsx";
 import { UsageOverview } from "./UsageOverview.tsx";
 import "./start-page.css";
@@ -23,7 +23,10 @@ const EXAMPLES: readonly { title: TextKey; desc: TextKey; prompt: TextKey }[] = 
 	{ title: "start.exCodingTitle", desc: "start.exCodingDesc", prompt: "start.exCodingPrompt" },
 ];
 
-function relativeTime(time: string | undefined, t: (key: TextKey, vars?: Record<string, string | number>) => string): string {
+function relativeTime(
+	time: string | undefined,
+	t: (key: TextKey, vars?: Record<string, string | number>) => string,
+): string {
 	const stamp = Date.parse(time ?? "");
 	if (!Number.isFinite(stamp)) return "";
 	const minutes = Math.max(0, Math.round((Date.now() - stamp) / 60000));
@@ -35,7 +38,13 @@ function relativeTime(time: string | undefined, t: (key: TextKey, vars?: Record<
 }
 
 /** A keyed account boundary remounts usage when the signed-in profile changes. */
-export function StartPage({ client, profile, onPromptExample, recentSessions, onResumeSession }: StartPageProps): React.JSX.Element {
+export function StartPage({
+	client,
+	profile,
+	onPromptExample,
+	recentSessions,
+	onResumeSession,
+}: StartPageProps): React.JSX.Element {
 	const t = useT();
 	const headingId = useId();
 	const heading = t("start.heading");
@@ -44,42 +53,65 @@ export function StartPage({ client, profile, onPromptExample, recentSessions, on
 	const examples = onPromptExample ? EXAMPLES : [];
 	const recents = onResumeSession ? [...(recentSessions ?? [])] : [];
 
-	return <section className="owl-start-page" aria-labelledby={headingId}>
-		<header className="owl-start-header">
-			<OwlMascot pose="idle" inline />
-			<h1 id={headingId} className="owl-start-heading">
-				{mark && <span className="owl-wordmark">{mark}</span>}
-				<span className="owl-start-service">{rest}</span>
-			</h1>
-		</header>
-		{client && <div key={profile?.trim() || "pending"} className="owl-start-usage"><UsageOverview client={client} /></div>}
-		{examples.length > 0 && <section className="owl-start-examples" aria-label={t("start.examplesAria")}>
-			<p className="owl-start-section-title">{t("start.examplesAria")}<span className="owl-start-section-hint">{t("start.exampleHint")}</span></p>
-			<div className="owl-start-example-grid">
-				{examples.map((example) => <button
-					key={example.prompt}
-					type="button"
-					className="owl-start-example"
-					onClick={() => onPromptExample?.(t(example.prompt))}
-				>
-					<strong>{t(example.title)}</strong>
-					<span>{t(example.desc)}</span>
-				</button>)}
-			</div>
-		</section>}
-		{recents.length > 0 && <section className="owl-start-recents" aria-label={t("start.recentTitle")}>
-			<p className="owl-start-section-title">{t("start.recentTitle")}</p>
-			<ul>
-				{recents.map((session) => {
-					const when = relativeTime(session.time, t);
-					return <li key={session.id}>
-						<button type="button" className="owl-start-recent" onClick={() => onResumeSession?.(session.id)}>
-							<span className="owl-start-recent-title" title={session.title}>{session.title}</span>
-							{when !== "" && <span className="owl-start-recent-time">{when}</span>}
-						</button>
-					</li>;
-				})}
-			</ul>
-		</section>}
-	</section>;
+	return (
+		<section className="owl-start-page" aria-labelledby={headingId}>
+			<header className="owl-start-header">
+				<OwlMascot pose="idle" inline />
+				<h1 id={headingId} className="owl-start-heading">
+					{mark && <span className="owl-wordmark">{mark}</span>}
+					<span className="owl-start-service">{rest}</span>
+				</h1>
+			</header>
+			{client && (
+				<div key={profile?.trim() || "pending"} className="owl-start-usage">
+					<UsageOverview client={client} />
+				</div>
+			)}
+			{examples.length > 0 && (
+				<section className="owl-start-examples" aria-label={t("start.examplesAria")}>
+					<p className="owl-start-section-title">
+						{t("start.examplesAria")}
+						<span className="owl-start-section-hint">{t("start.exampleHint")}</span>
+					</p>
+					<div className="owl-start-example-grid">
+						{examples.map((example) => (
+							<button
+								key={example.prompt}
+								type="button"
+								className="owl-start-example"
+								onClick={() => onPromptExample?.(t(example.prompt))}
+							>
+								<strong>{t(example.title)}</strong>
+								<span>{t(example.desc)}</span>
+							</button>
+						))}
+					</div>
+				</section>
+			)}
+			{recents.length > 0 && (
+				<section className="owl-start-recents" aria-label={t("start.recentTitle")}>
+					<p className="owl-start-section-title">{t("start.recentTitle")}</p>
+					<ul>
+						{recents.map((session) => {
+							const when = relativeTime(session.time, t);
+							return (
+								<li key={session.id}>
+									<button
+										type="button"
+										className="owl-start-recent"
+										onClick={() => onResumeSession?.(session.id)}
+									>
+										<span className="owl-start-recent-title" title={session.title}>
+											{session.title}
+										</span>
+										{when !== "" && <span className="owl-start-recent-time">{when}</span>}
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+				</section>
+			)}
+		</section>
+	);
 }

@@ -8,7 +8,13 @@ import { useT } from "../i18n/index.ts";
  * "卡住"几秒后自己恢复，不知道发生了什么。retrying 阶段带退避倒计时；
  * failed 阶段（重试预算耗尽）常驻到用户下一次发言，可手动收起。
  */
-export function RetryPin({ status, onDismiss }: { status: RetryBannerState | null; onDismiss?: () => void }): React.JSX.Element | null {
+export function RetryPin({
+	status,
+	onDismiss,
+}: {
+	status: RetryBannerState | null;
+	onDismiss?: () => void;
+}): React.JSX.Element | null {
 	const t = useT();
 	const [now, setNow] = useState(() => Date.now());
 
@@ -33,11 +39,17 @@ export function RetryPin({ status, onDismiss }: { status: RetryBannerState | nul
 				role="status"
 			>
 				<div className="flex items-center gap-2.5">
-					<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${retrying ? "animate-pulse bg-amber-400" : "bg-red-400"}`} />
+					<span
+						className={`h-1.5 w-1.5 shrink-0 rounded-full ${retrying ? "animate-pulse bg-amber-400" : "bg-red-400"}`}
+					/>
 					<span className="shrink-0 font-medium text-owl-text">
-						{retrying ? t("retry.retrying", { attempt: status.attempt, max: status.maxAttempts }) : t("retry.failed", { attempt: status.attempt })}
+						{retrying
+							? t("retry.retrying", { attempt: status.attempt, max: status.maxAttempts })
+							: t("retry.failed", { attempt: status.attempt })}
 					</span>
-					{retrying && <span className="shrink-0 text-owl-faint">{t("retry.retryingIn", { seconds: secondsLeft })}</span>}
+					{retrying && (
+						<span className="shrink-0 text-owl-faint">{t("retry.retryingIn", { seconds: secondsLeft })}</span>
+					)}
 					{status.reason && (
 						<span className="min-w-0 flex-1 truncate text-owl-muted" title={status.reason}>
 							{status.reason}

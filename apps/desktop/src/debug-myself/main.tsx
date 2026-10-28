@@ -17,11 +17,9 @@ import type {
 import { AgentConversation } from "../components/AgentConversation.tsx";
 import { ChatStream } from "../components/ChatStream.tsx";
 import { Composer } from "../components/Composer.tsx";
+import { ContextView } from "../components/ContextView.tsx";
 import { ConversationHeader, type ConversationView } from "../components/ConversationHeader.tsx";
 import { GenuiSessionProvider } from "../components/Genui.tsx";
-import { ContextView } from "../components/ContextView.tsx";
-import { TrajectoryView } from "../features/trajectory/TrajectoryView.tsx";
-import { rebuild } from "../hooks/transcript.ts";
 import { MyselfPanel } from "../features/myself/MyselfPanel.tsx";
 import { type MyselfChatIntent, myselfChatKey } from "../features/myself/myself-chat-controller.ts";
 import {
@@ -34,6 +32,8 @@ import {
 	updateSummaryInRaw,
 	weekDaysOf,
 } from "../features/myself/myself-data.ts";
+import { TrajectoryView } from "../features/trajectory/TrajectoryView.tsx";
+import { rebuild } from "../hooks/transcript.ts";
 import { setUiLanguage } from "../i18n/index.ts";
 import "../index.css";
 import "../desktop-shell.css";
@@ -44,29 +44,69 @@ const historyMode = new URLSearchParams(location.search).has("history");
 const HISTORY_STORAGE = "owl.debug.myself.history-fixtures";
 const fixtureTime = new Date(`${todayKey()}T08:42:00`).getTime();
 const styleFixture: Record<string, unknown>[] = [
-	{ role: "user", content: [{ type: "text", text: "今天的任务：确定助理日程改版方案，完善供应商设置。" }], timestamp: fixtureTime },
+	{
+		role: "user",
+		content: [{ type: "text", text: "今天的任务：确定助理日程改版方案，完善供应商设置。" }],
+		timestamp: fixtureTime,
+	},
 	{
 		role: "assistant",
 		content: [
 			{ type: "thinking", thinking: "这是待办记录；只核对当天内容，再合并记录。" },
 			{ type: "text", text: "先查看今天已有的事项，再把这两件事记进去。" },
 			{ type: "toolCall", id: "style-read", name: "read", arguments: { path: `${CWD}/${todayKey()}.md` } },
-			{ type: "toolCall", id: "style-edit", name: "edit", arguments: { path: `${CWD}/${todayKey()}.md`, oldText: "演示待办", newText: "日程改版与供应商设置" } },
+			{
+				type: "toolCall",
+				id: "style-edit",
+				name: "edit",
+				arguments: { path: `${CWD}/${todayKey()}.md`, oldText: "演示待办", newText: "日程改版与供应商设置" },
+			},
 		],
-		stopReason: "toolUse", timestamp: fixtureTime + 1000,
-		usage: { input: 200, output: 40, cacheRead: 120, cacheWrite: 0 }, model: "offline-agent",
+		stopReason: "toolUse",
+		timestamp: fixtureTime + 1000,
+		usage: { input: 200, output: 40, cacheRead: 120, cacheWrite: 0 },
+		model: "offline-agent",
 	},
-	{ role: "toolResult", toolCallId: "style-read", toolName: "read", content: [{ type: "text", text: "离线夹具：已读取今天的示例事项。" }], isError: false, timestamp: fixtureTime + 2000 },
-	{ role: "toolResult", toolCallId: "style-edit", toolName: "edit", content: [{ type: "text", text: "离线夹具：已保留原内容并合并两条记录。" }], isError: false, timestamp: fixtureTime + 3000 },
 	{
-		role: "assistant", content: [{ type: "text", text: "已记下两件待办：\n- 确定助理日程改版方案\n- 完善供应商设置\n\n现在只是记录，等你决定开始处理。" }],
-		stopReason: "stop", timestamp: fixtureTime + 4500, model: "offline-agent",
+		role: "toolResult",
+		toolCallId: "style-read",
+		toolName: "read",
+		content: [{ type: "text", text: "离线夹具：已读取今天的示例事项。" }],
+		isError: false,
+		timestamp: fixtureTime + 2000,
+	},
+	{
+		role: "toolResult",
+		toolCallId: "style-edit",
+		toolName: "edit",
+		content: [{ type: "text", text: "离线夹具：已保留原内容并合并两条记录。" }],
+		isError: false,
+		timestamp: fixtureTime + 3000,
+	},
+	{
+		role: "assistant",
+		content: [
+			{
+				type: "text",
+				text: "已记下两件待办：\n- 确定助理日程改版方案\n- 完善供应商设置\n\n现在只是记录，等你决定开始处理。",
+			},
+		],
+		stopReason: "stop",
+		timestamp: fixtureTime + 4500,
+		model: "offline-agent",
 		usage: { input: 210, output: 50, cacheRead: 130, cacheWrite: 0 },
 	},
 ];
 const fixturePresets: AgentPresetDefinition[] = [
 	{ id: "standard", name: "标准模式", description: "离线预设夹具：工具按当前配置使用。", builtin: true, order: 1 },
-	{ id: "minimal", name: "极简模式", description: "离线预设夹具：使用基础工具。", builtin: true, order: 2, tools: ["read", "bash", "edit"] },
+	{
+		id: "minimal",
+		name: "极简模式",
+		description: "离线预设夹具：使用基础工具。",
+		builtin: true,
+		order: 2,
+		tools: ["read", "bash", "edit"],
+	},
 ];
 const today = todayKey();
 const tomorrow = nextDayKey(today);
@@ -165,23 +205,29 @@ function rememberCurrentHistory(updated = false): void {
 	if (!historyMode || !sessionId) return;
 	const current = historySessions.get(sessionId);
 	const firstUser = messages.find((message) => message.role === "user");
-	const content = Array.isArray(firstUser?.content) ? firstUser.content as { type?: string; text?: string }[] : [];
+	const content = Array.isArray(firstUser?.content) ? (firstUser.content as { type?: string; text?: string }[]) : [];
 	const firstText = content.find((part) => part.type === "text")?.text ?? "";
 	historySessions.set(sessionId, {
-		id: sessionId, cwd: current?.cwd ?? CWD,
+		id: sessionId,
+		cwd: current?.cwd ?? CWD,
 		name: current?.name || (firstText ? `新记录：${turnOf(firstText).text}` : "新会话"),
 		created: current?.created ?? new Date().toISOString(),
-		modified: updated ? new Date().toISOString() : current?.modified ?? new Date().toISOString(),
-		messages: structuredClone(messages), preferences: structuredClone(preferences),
+		modified: updated ? new Date().toISOString() : (current?.modified ?? new Date().toISOString()),
+		messages: structuredClone(messages),
+		preferences: structuredClone(preferences),
 		...(current?.archivedAt ? { archivedAt: current.archivedAt } : {}),
 	});
 	persistHistory();
 }
 function historySnapshot(item: HistoryFixtureSession): SessionSnapshotPayload {
 	return {
-		sessionId: item.id, cwd: item.cwd, messages: structuredClone(item.messages),
+		sessionId: item.id,
+		cwd: item.cwd,
+		messages: structuredClone(item.messages),
 		messageEntryIds: item.messages.map((_, index) => `debug-entry-${index}`),
-		header: {}, name: item.name, running: false,
+		header: {},
+		name: item.name,
+		running: false,
 		approvalMode: item.preferences.approvalMode as "confirm" | "auto" | "plan",
 		agentPreset: item.preferences.agentPreset,
 	};
@@ -368,7 +414,16 @@ const mockClient = {
 			case "fs.read": {
 				const content = files.get(payload.path);
 				const result: FsReadResult | undefined =
-					content === undefined ? undefined : { kind: "text", content, truncated: false, size: content.length, editable: true, revision: `debug-only:${payload.path}:${content}` };
+					content === undefined
+						? undefined
+						: {
+								kind: "text",
+								content,
+								truncated: false,
+								size: content.length,
+								editable: true,
+								revision: `debug-only:${payload.path}:${content}`,
+							};
 				response = result
 					? { ok: true, result }
 					: { ok: false, error: `ENOENT: no such file or directory, open '${payload.path}'` };
@@ -383,7 +438,15 @@ const mockClient = {
 				}
 				files.set(payload.path, payload.content);
 				writes.push({ actor: "ui", path: payload.path, content: payload.content });
-				response = { ok: true, result: { status: "saved", path: payload.path, size: payload.content.length, revision: `debug-only:${payload.path}:${payload.content}` } };
+				response = {
+					ok: true,
+					result: {
+						status: "saved",
+						path: payload.path,
+						size: payload.content.length,
+						revision: `debug-only:${payload.path}:${payload.content}`,
+					},
+				};
 				break;
 			}
 			case "fs.write":
@@ -411,22 +474,53 @@ const mockClient = {
 				break;
 			case "session.list": {
 				if (historyListMode === "delay") await new Promise((resolve) => setTimeout(resolve, 350));
-				if (historyListMode === "error") { response = { ok: false, error: "离线夹具：历史列表加载失败" }; break; }
+				if (historyListMode === "error") {
+					response = { ok: false, error: "离线夹具：历史列表加载失败" };
+					break;
+				}
 				rememberCurrentHistory();
-				response = { ok: true, result: historyListMode === "empty" ? [] : [...historySessions.values()].filter((item) => item.messages.length).map((item) => ({
-					id: item.id, path: `offline-fixture/${item.id}.jsonl`, cwd: item.cwd, name: item.name,
-					created: item.created, modified: item.modified, messageCount: item.messages.length,
-					firstMessage: item.name, allMessagesText: item.name, scope: "chat", preset: item.preferences.agentPreset,
-					...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
-				})).sort((a, b) => b.modified.localeCompare(a.modified)) };
+				response = {
+					ok: true,
+					result:
+						historyListMode === "empty"
+							? []
+							: [...historySessions.values()]
+									.filter((item) => item.messages.length)
+									.map((item) => ({
+										id: item.id,
+										path: `offline-fixture/${item.id}.jsonl`,
+										cwd: item.cwd,
+										name: item.name,
+										created: item.created,
+										modified: item.modified,
+										messageCount: item.messages.length,
+										firstMessage: item.name,
+										allMessagesText: item.name,
+										scope: "chat",
+										preset: item.preferences.agentPreset,
+										...(item.archivedAt ? { archivedAt: item.archivedAt } : {}),
+									}))
+									.sort((a, b) => b.modified.localeCompare(a.modified)),
+				};
 				break;
 			}
 			case "session.resume": {
 				if (historyMode) {
-					if (failHistoryResumeId === payload.sessionId) { failHistoryResumeId = undefined; response = { ok: false, error: "离线夹具：会话恢复失败" }; break; }
+					if (failHistoryResumeId === payload.sessionId) {
+						failHistoryResumeId = undefined;
+						response = { ok: false, error: "离线夹具：会话恢复失败" };
+						break;
+					}
 					const target = historySessions.get(payload.sessionId);
-					if (!target) { response = { ok: false, error: "Unknown offline history session" }; break; }
-					if (mismatchHistoryResumeId === payload.sessionId) { mismatchHistoryResumeId = undefined; response = { ok: true, result: { ...historySnapshot(target), cwd: "D:/offline/other-workspace" } }; break; }
+					if (!target) {
+						response = { ok: false, error: "Unknown offline history session" };
+						break;
+					}
+					if (mismatchHistoryResumeId === payload.sessionId) {
+						mismatchHistoryResumeId = undefined;
+						response = { ok: true, result: { ...historySnapshot(target), cwd: "D:/offline/other-workspace" } };
+						break;
+					}
 					rememberCurrentHistory();
 					sessionId = target.id;
 					messages = structuredClone(target.messages);
@@ -445,9 +539,14 @@ const mockClient = {
 				const index = Number(payload.entryId.replace("debug-entry-", ""));
 				const target = messages[index];
 				const content = Array.isArray(target?.content) ? target.content : [];
-				const editorText = content.find((part: unknown) => Boolean(part && typeof part === "object" && (part as Record<string, unknown>).type === "text")) as { text?: string } | undefined;
+				const editorText = content.find((part: unknown) =>
+					Boolean(part && typeof part === "object" && (part as Record<string, unknown>).type === "text"),
+				) as { text?: string } | undefined;
 				messages = messages.slice(0, Number.isFinite(index) ? index : 0);
-				response = { ok: true, result: { editorText: editorText?.text, snapshot: snapshot(), restored: 0, deleted: 0, skipped: [] } };
+				response = {
+					ok: true,
+					result: { editorText: editorText?.text, snapshot: snapshot(), restored: 0, deleted: 0, skipped: [] },
+				};
 				break;
 			}
 			case "session.fork": {
@@ -532,13 +631,20 @@ const mockClient = {
 					composition: { system: 700, inject: 300, user: 900, assistant, toolResult, toolSchemas: 1200, other: 0 },
 					totalTokens: 3100 + toolResult + assistant,
 					contextWindow: 200000,
-					usage: { input: 200, output: 40 * seq, cacheRead: 120 * seq, cacheWrite: 0, totalTokens: 360 + 160 * seq },
+					usage: {
+						input: 200,
+						output: 40 * seq,
+						cacheRead: 120 * seq,
+						cacheWrite: 0,
+						totalTokens: 360 + 160 * seq,
+					},
 					timing: { ttft: 800, thinking: 1200, answer: 900, toolArgs: 300, model: 3200 },
 					toolCalls: step === 1 ? 1 : 0,
 					brief: {
 						user: "看看 README 里写了什么",
 						inbound: step === 1 ? [] : [{ chip: "read", text: "README.md" }],
-						response: step === 1 ? [{ chip: "read", text: "README.md" }] : [{ text: "README 介绍了项目的安装与使用。" }],
+						response:
+							step === 1 ? [{ chip: "read", text: "README.md" }] : [{ text: "README 介绍了项目的安装与使用。" }],
 					},
 				});
 				response = {
@@ -546,12 +652,33 @@ const mockClient = {
 					result: {
 						sessionId,
 						requests: [row(1, 1, 1, 0, 0), row(2, 1, 2, 1200, 500), row(3, 2, 1, 1200, 900)],
-						events: [{ ts: now - 45_000, kind: "inject", label: "段落注入 · environment", seq: 1, turn: 1, step: 1, delta: 300, itemKey: "sec:environment" }],
+						events: [
+							{
+								ts: now - 45_000,
+								kind: "inject",
+								label: "段落注入 · environment",
+								seq: 1,
+								turn: 1,
+								step: 1,
+								delta: 300,
+								itemKey: "sec:environment",
+							},
+						],
 						tools: [
 							{ name: "read", source: "builtin" },
 							{ name: "edit", source: "builtin" },
 						],
-						files: [{ path: `${CWD}/README.md`, kind: "read", tool: "read", seq: 1, ts: now - 40_000, ok: true, callId: "call-1" }],
+						files: [
+							{
+								path: `${CWD}/README.md`,
+								kind: "read",
+								tool: "read",
+								seq: 1,
+								ts: now - 40_000,
+								ok: true,
+								callId: "call-1",
+							},
+						],
 						timing: { activeMs: 14_000, toolRuns: 1, toolMs: 400 },
 						liveVersion: "3:0",
 					},
@@ -565,11 +692,51 @@ const mockClient = {
 						available: true,
 						categories: [
 							{ key: "system", tokens: 700, items: [{ key: "sys", label: "系统提示词", tokens: 700 }] },
-							{ key: "toolSchemas", tokens: 1200, items: [{ key: "tool:read", label: "read", chip: "builtin", tokens: 600, hits: 1 }, { key: "tool:edit", label: "edit", chip: "builtin", tokens: 600 }] },
-							{ key: "user", tokens: 900, items: [{ key: "m0", label: "看看 README 里写了什么", tokens: 900, at: { turn: 1, step: 1 } }] },
-							{ key: "inject", tokens: 300, items: [{ key: "sec:environment", label: "environment", chip: "段落", tokens: 300 }] },
-							{ key: "assistant", tokens: 500, items: [{ key: "m1", label: "read README.md", tokens: 500, kinds: ["tool"], at: { turn: 1, step: 1 } }] },
-							{ key: "toolResult", tokens: 1200, items: [{ key: "m2", label: "README.md", chip: "read", tokens: 1200, callId: "call-1", at: { turn: 1, step: 2 } }] },
+							{
+								key: "toolSchemas",
+								tokens: 1200,
+								items: [
+									{ key: "tool:read", label: "read", chip: "builtin", tokens: 600, hits: 1 },
+									{ key: "tool:edit", label: "edit", chip: "builtin", tokens: 600 },
+								],
+							},
+							{
+								key: "user",
+								tokens: 900,
+								items: [{ key: "m0", label: "看看 README 里写了什么", tokens: 900, at: { turn: 1, step: 1 } }],
+							},
+							{
+								key: "inject",
+								tokens: 300,
+								items: [{ key: "sec:environment", label: "environment", chip: "段落", tokens: 300 }],
+							},
+							{
+								key: "assistant",
+								tokens: 500,
+								items: [
+									{
+										key: "m1",
+										label: "read README.md",
+										tokens: 500,
+										kinds: ["tool"],
+										at: { turn: 1, step: 1 },
+									},
+								],
+							},
+							{
+								key: "toolResult",
+								tokens: 1200,
+								items: [
+									{
+										key: "m2",
+										label: "README.md",
+										chip: "read",
+										tokens: 1200,
+										callId: "call-1",
+										at: { turn: 1, step: 2 },
+									},
+								],
+							},
 							{ key: "other", tokens: 0, items: [] },
 						],
 					},
@@ -646,9 +813,15 @@ const testApi = {
 	failNextWrite: (): void => {
 		failNextWrite = true;
 	},
-	setHistoryListMode: (mode: "normal" | "empty" | "error" | "delay"): void => { historyListMode = mode; },
-	failHistoryResumeOnce: (id: string): void => { failHistoryResumeId = id; },
-	mismatchHistoryResumeOnce: (id: string): void => { mismatchHistoryResumeId = id; },
+	setHistoryListMode: (mode: "normal" | "empty" | "error" | "delay"): void => {
+		historyListMode = mode;
+	},
+	failHistoryResumeOnce: (id: string): void => {
+		failHistoryResumeId = id;
+	},
+	mismatchHistoryResumeOnce: (id: string): void => {
+		mismatchHistoryResumeId = id;
+	},
 	read: (path: string): string | undefined => files.get(path),
 	parse: (date: string) => parseDay(files.get(`${date}.md`) ?? "", date),
 };
@@ -674,18 +847,54 @@ if (historyMode) {
 		for (const item of parsed.sessions) historySessions.set(item.id, item);
 		sessionCount = parsed.sessionCount;
 	} else {
-		const makeSession = (id: string, cwd: string, name: string, day: string, reply: string): HistoryFixtureSession => ({
-			id, cwd, name, created: `${day}T08:30:00+08:00`, modified: `${day}T09:00:00+08:00`, preferences: structuredClone(preferences),
+		const makeSession = (
+			id: string,
+			cwd: string,
+			name: string,
+			day: string,
+			reply: string,
+		): HistoryFixtureSession => ({
+			id,
+			cwd,
+			name,
+			created: `${day}T08:30:00+08:00`,
+			modified: `${day}T09:00:00+08:00`,
+			preferences: structuredClone(preferences),
 			messages: [
-				{ role: "user", content: [{ type: "text", text: name }], timestamp: new Date(`${day}T08:30:00+08:00`).getTime() },
-				{ role: "assistant", content: [{ type: "text", text: reply }], stopReason: "stop", timestamp: new Date(`${day}T08:31:00+08:00`).getTime(), model: "offline-agent" },
+				{
+					role: "user",
+					content: [{ type: "text", text: name }],
+					timestamp: new Date(`${day}T08:30:00+08:00`).getTime(),
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: reply }],
+					stopReason: "stop",
+					timestamp: new Date(`${day}T08:31:00+08:00`).getTime(),
+					model: "offline-agent",
+				},
 			],
 		});
 		const fixtures = [
 			makeSession("debug-history-today", CWD, "今天：助理日程改版", today, "今日旧会话已恢复。"),
-			makeSession("debug-history-yesterday", "d:\\OWL\\owl-myself\\", "昨天：供应商资料", yesterday, "昨天的供应商会话已恢复。"),
-			makeSession("debug-history-other", "D:/offline/other-workspace", "其他工作区会话", today, "这是其他工作区，不属于我的助理。"),
-			{ ...makeSession("debug-history-archived", CWD, "已归档会话", yesterday, "已归档的旧记录。"), archivedAt: `${today}T08:00:00+08:00` },
+			makeSession(
+				"debug-history-yesterday",
+				"d:\\OWL\\owl-myself\\",
+				"昨天：供应商资料",
+				yesterday,
+				"昨天的供应商会话已恢复。",
+			),
+			makeSession(
+				"debug-history-other",
+				"D:/offline/other-workspace",
+				"其他工作区会话",
+				today,
+				"这是其他工作区，不属于我的助理。",
+			),
+			{
+				...makeSession("debug-history-archived", CWD, "已归档会话", yesterday, "已归档的旧记录。"),
+				archivedAt: `${today}T08:00:00+08:00`,
+			},
 		];
 		for (const item of fixtures) historySessions.set(item.id, item);
 		sessionCount = fixtures.length;
@@ -694,7 +903,11 @@ if (historyMode) {
 	}
 	const boundId = localStorage.getItem(myselfChatKey(CWD));
 	const bound = boundId ? historySessions.get(boundId) : undefined;
-	if (bound) { sessionId = bound.id; messages = structuredClone(bound.messages); Object.assign(preferences, structuredClone(bound.preferences)); }
+	if (bound) {
+		sessionId = bound.id;
+		messages = structuredClone(bound.messages);
+		Object.assign(preferences, structuredClone(bound.preferences));
+	}
 }
 if (comparison === "home" || comparison === "myself") {
 	sessionId = comparison === "home" ? "debug-home-style-session" : "debug-myself-style-session";
@@ -736,20 +949,98 @@ const noop = (): void => {};
 function DebugHomeComparison(): React.JSX.Element {
 	const [view, setView] = useState<ConversationView>("chat");
 	const entries = rebuild(messages, snapshot().messageEntryIds);
-	return <div className="owl-main-frame" style={{ margin: 0, border: 0, borderRadius: 0 }}>
-		<AgentConversation
-			header={<ConversationHeader title="Owl Si" workspaceDir={CWD} view={view} onViewChange={setView} terminalOpen={false} sidebarOpen={false} onToggleTerminal={noop} onToggleSidebar={noop} sessionId={sessionId} onExport={noop} onExportTurns={noop} />}
-			view={view}
-			chat={<GenuiSessionProvider client={mockClient} sessionId={sessionId}><ChatStream entries={entries} activity="idle" client={mockClient} cwd={CWD} onRegenerate={() => { void mockClient.request({ type: "rewind.execute", sessionId: sessionId!, entryId: "debug-entry-0", mode: "conversation" }); }} onEditMessage={(entryId) => { void mockClient.request({ type: "rewind.execute", sessionId: sessionId!, entryId, mode: "conversation" }); }} onBranch={(entryId) => { void mockClient.request({ type: "session.fork", sessionId: sessionId!, entryId }); }} /></GenuiSessionProvider>}
-			context={<ContextView client={mockClient} cwd={CWD} sessionId={sessionId} requireSession active={view === "context"} />}
-			trajectory={<TrajectoryView entries={entries} active={view === "trajectory"} />}
-			questionDock={{ requests: [], activeRequest: undefined, onAnswer: noop }}
-			composer={<Composer client={mockClient} connected disabled={false} running={false} onSend={noop} onAbort={noop} onPause={noop} onResume={noop} providers={providers} model="debug/offline-agent" onModel={noop} thinkingLevel="high" onThinkingLevel={noop} approvalMode="confirm" onApprovalMode={noop} agentPresets={fixturePresets} defaultPresetId="standard" agentPreset="standard" agentPresetLocked onAgentPresetSelect={noop} sessionInfo={stats()} workspaceDir={CWD} projects={[CWD]} onSwitchProject={noop} commands={[]} searchFiles={async () => []} />}
-		/>
-	</div>;
+	return (
+		<div className="owl-main-frame" style={{ margin: 0, border: 0, borderRadius: 0 }}>
+			<AgentConversation
+				header={
+					<ConversationHeader
+						title="Owl Si"
+						view={view}
+						onViewChange={setView}
+						terminalOpen={false}
+						sidebarOpen={false}
+						onToggleTerminal={noop}
+						onToggleSidebar={noop}
+						sessionId={sessionId}
+						onExport={noop}
+						onExportTurns={noop}
+					/>
+				}
+				view={view}
+				chat={
+					<GenuiSessionProvider client={mockClient} sessionId={sessionId}>
+						<ChatStream
+							entries={entries}
+							activity="idle"
+							client={mockClient}
+							cwd={CWD}
+							onRegenerate={() => {
+								void mockClient.request({
+									type: "rewind.execute",
+									sessionId: sessionId!,
+									entryId: "debug-entry-0",
+									mode: "conversation",
+								});
+							}}
+							onEditMessage={(entryId) => {
+								void mockClient.request({
+									type: "rewind.execute",
+									sessionId: sessionId!,
+									entryId,
+									mode: "conversation",
+								});
+							}}
+							onBranch={(entryId) => {
+								void mockClient.request({ type: "session.fork", sessionId: sessionId!, entryId });
+							}}
+						/>
+					</GenuiSessionProvider>
+				}
+				context={
+					<ContextView
+						client={mockClient}
+						cwd={CWD}
+						sessionId={sessionId}
+						requireSession
+						active={view === "context"}
+					/>
+				}
+				trajectory={<TrajectoryView entries={entries} active={view === "trajectory"} />}
+				questionDock={{ requests: [], activeRequest: undefined, onAnswer: noop }}
+				composer={
+					<Composer
+						client={mockClient}
+						connected
+						disabled={false}
+						running={false}
+						onSend={noop}
+						onAbort={noop}
+						onPause={noop}
+						onResume={noop}
+						providers={providers}
+						model="debug/offline-agent"
+						onModel={noop}
+						thinkingLevel="high"
+						onThinkingLevel={noop}
+						approvalMode="confirm"
+						onApprovalMode={noop}
+						agentPresets={fixturePresets}
+						defaultPresetId="standard"
+						agentPreset="standard"
+						agentPresetLocked
+						onAgentPresetSelect={noop}
+						sessionInfo={stats()}
+						workspaceDir={CWD}
+						projects={[CWD]}
+						onSwitchProject={noop}
+						commands={[]}
+						searchFiles={async () => []}
+					/>
+				}
+			/>
+		</div>
+	);
 }
 createRoot(document.getElementById("app")!).render(
-	<StrictMode>
-		{comparison === "home" ? <DebugHomeComparison /> : <DebugMyself />}
-	</StrictMode>,
+	<StrictMode>{comparison === "home" ? <DebugHomeComparison /> : <DebugMyself />}</StrictMode>,
 );

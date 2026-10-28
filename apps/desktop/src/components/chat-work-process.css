@@ -238,86 +238,115 @@
    ========================================================================== */
 .owl-claude-flow-item { margin: 6px 0; }
 
-/* 组头：一行文字加一个箭头，和正文同层。 */
+/* 组头：一行文字加一个箭头，和正文同层。
+   Claude 的 TurnStatus 折叠头：text-muted、body 字号（13px/20px），
+   悬停转 secondary，展开后保持 secondary；行高按控件高度 26px 收（(26-20)/2）。 */
 .owl-claude-group { margin: 0; }
 .owl-claude-group-head {
 	display: flex;
 	width: 100%;
 	align-items: center;
-	gap: 6px;
-	padding: 2px 0;
-	color: var(--owl-reading-text);
-	font-size: 14px;
-	line-height: 1.6;
+	gap: 8px;
+	padding: 3px 0;
+	color: var(--owl-reading-muted);
+	font-size: 13px;
+	line-height: 20px;
 	text-align: left;
 	transition: color 120ms ease;
 }
 .owl-claude-group-head:hover { color: var(--owl-reading-text); }
+.owl-claude-group-head[aria-expanded="true"] .owl-claude-group-title { color: var(--owl-reading-text); }
 .owl-claude-group-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
 .owl-claude-group-title { min-width: 0; flex: 1; }
 .owl-claude-group-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
 .owl-claude-group-head[aria-expanded="true"] .owl-claude-group-chevron { transform: rotate(90deg); }
 
-/* 组盒：整组一个圆角盒，盒内每条工具一行。 */
+/* 组盒：整组一个圆角盒，盒内每条工具一行。
+   Claude 的卡片（kt()）：rounded-card（8px）+ 1px 描边环（border-strong = 前景 20%）
+   + 行间 1px 分隔线（border = 前景 10%），无底色填充。 */
 .owl-claude-group-box {
-	margin-top: 4px;
-	border: 1px solid var(--owl-reading-border);
-	border-radius: 12px;
-	background: color-mix(in srgb, var(--owl-reading-text) 3%, transparent);
+	margin-top: 2px;
+	border: 1px solid color-mix(in srgb, var(--owl-reading-text) 20%, transparent);
+	border-radius: 8px;
 	overflow: hidden;
 }
-.owl-claude-group-row + .owl-claude-group-row { border-top: 1px solid color-mix(in srgb, var(--owl-reading-text) 8%, transparent); }
+.owl-claude-group-row + .owl-claude-group-row { border-top: 1px solid color-mix(in srgb, var(--owl-reading-text) 10%, transparent); }
 .owl-claude-group-row { position: relative; }
 .owl-claude-group-row-head {
 	display: flex;
 	width: 100%;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 14px;
+	padding: 8px 12px;
 	color: var(--owl-reading-muted);
 	font-size: 13px;
-	line-height: 1.6;
+	line-height: 20px;
 	text-align: left;
-	transition: background 120ms ease, color 120ms ease;
+	transition: color 120ms ease;
 }
-.owl-claude-group-row-head:hover { background: color-mix(in srgb, var(--owl-reading-text) 5%, transparent); color: var(--owl-reading-text); }
+/* Claude 的行悬停只变文字色，不加底。悬停时对象（meta）转主色。 */
+.owl-claude-group-row-head:hover { color: var(--owl-reading-text); }
+.owl-claude-group-row-head:hover .owl-claude-group-row-meta { color: var(--owl-reading-text); }
 .owl-claude-group-row-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: -2px; }
 .owl-claude-group-row-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owl-claude-group-row-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
-.owl-claude-group-row-head[aria-expanded="true"] .owl-claude-group-row-chevron { transform: rotate(90deg); }
-/* 失败：整行标红，并在行首留一个红点 —— Claude 靠颜色表达失败，不加图标占位。 */
-.owl-claude-group-row[data-status="error"] .owl-claude-group-row-label { color: var(--color-owl-danger); }
-.owl-claude-group-row[data-status="error"] .owl-claude-group-row-chevron { color: var(--color-owl-danger); }
-.owl-claude-group-row-failed {
-	position: absolute;
-	left: 4px;
-	top: 50%;
-	width: 4px;
-	height: 4px;
-	margin-top: -2px;
-	border-radius: 50%;
-	background: var(--color-owl-danger);
+/* 带对象的行：标签收紧（shrink），对象占满剩余宽度（Claude 的 label shrink-0 + meta flex-1）。 */
+.owl-claude-group-row-label[data-meta] { flex: 0 1 auto; max-width: 70%; }
+.owl-claude-group-row-meta {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--owl-reading-muted);
 }
-/* 组头的失败计数：与 Claude 的错误计数同色。 */
-.owl-claude-group-failed-count {
+.owl-claude-group-row[data-open] .owl-claude-group-row-meta { color: var(--owl-reading-text); }
+/* Edit 行行尾的 diff 统计（Claude 的 compact 次级元素）：mono 12px、无边框，
+   +n 绿（forest-green）/ -m 红（danger）。 */
+.owl-claude-group-row-diff {
 	flex: none;
-	color: var(--color-owl-danger);
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--owl-font-mono, ui-monospace, Consolas, monospace);
 	font-size: 12px;
+	line-height: 1;
 	font-variant-numeric: tabular-nums;
 }
+.owl-claude-diff-added { color: var(--color-owl-success); }
+.owl-claude-diff-removed { color: var(--color-owl-danger); }
+.owl-claude-group-row-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
+.owl-claude-group-row-head[aria-expanded="true"] .owl-claude-group-row-chevron { transform: rotate(90deg); }
+/* 状态词（Claude 的 outcome word，`Vj()`）：行尾/组头一个词表达失败与中断，
+   done 与 running 没有词。色调逐条来自 bundle：danger / secondary / warning。 */
+.owl-claude-state-word {
+	flex: none;
+	font-size: 13px;
+	line-height: 20px;
+}
+.owl-claude-state-word[data-tone="danger"] { color: var(--color-owl-danger); }
+.owl-claude-state-word[data-tone="secondary"] { color: var(--owl-reading-muted); }
+.owl-claude-state-word[data-tone="warning"] { color: var(--color-owl-warning); }
 
-/* 展开后是原始工具输出（grep 的行号前缀就在文本里），等宽、可滚动。 */
+/* 展开后是原始工具输出。Claude 的面板正文（bt()）是 sans 13px；代码类内容
+   （display_content）走代码块渲染 —— 5% 底、mono 12px/17px、pre-wrap，
+   spacing=card：pt 8 / pb 4。 */
 .owl-claude-group-output {
 	margin: 0;
-	padding: 10px 14px 14px;
+	padding: 8px 12px 4px;
 	max-height: 320px;
 	overflow: auto;
 	color: var(--owl-reading-muted);
-	font-family: ui-monospace, Consolas, monospace;
+	background: color-mix(in srgb, var(--owl-reading-text) 4%, transparent);
+	font-family: var(--owl-font-mono, ui-monospace, Consolas, monospace);
 	font-size: 12px;
-	line-height: 1.6;
-	white-space: pre;
+	line-height: 17px;
+	white-space: pre-wrap;
+	word-break: break-word;
 	tab-size: 4;
+}
+.owl-claude-group-output code {
+	font: inherit;
+	color: inherit;
 }
 
 /* Every record uses a 16px icon slot followed by the same 8px gap.
@@ -584,34 +613,63 @@ html[data-owl-chat-motion="off"] .owl-work-process :is(*, *::before, *::after),
 	.owl-work-process .owl-collapse-body { animation: none !important; }
 }
 
-/* Claude 风格的思考区块：有摘要时就地展开在正文流里，不是折叠行。 */
-.owl-claude-thinking { margin: 6px 0; }
-.owl-claude-thinking-summary {
-	margin: 0 0 4px;
+/* Claude 风格的思考行：折叠行（label + 箭头），点开是面板（时长在头 + 摘要）。
+   行与工具行同构：13px muted、悬停转主文、箭头极弱色。 */
+.owl-claude-thinking { margin: 6px 0; min-width: 0; }
+.owl-claude-thinking-head {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 0;
 	color: var(--owl-reading-muted);
-	font-size: 13.5px;
-	line-height: 1.65;
+	font-size: 13px;
+	line-height: 20px;
+	text-align: left;
+	transition: color 120ms ease;
 }
-.owl-claude-thinking-duration { color: var(--owl-reading-faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.owl-claude-thinking-head:hover { color: var(--owl-reading-text); }
+.owl-claude-thinking-head:focus-visible { outline: 2px solid var(--owl-reading-link, var(--color-owl-accent)); outline-offset: 2px; }
+.owl-claude-thinking-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-open] .owl-claude-thinking-label { color: var(--owl-reading-text); }
+.owl-claude-thinking-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
+.owl-claude-thinking-head[aria-expanded="true"] .owl-claude-thinking-chevron { transform: rotate(90deg); }
+.owl-claude-thinking-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 2px;
+	padding-left: 10px;
+	border-left: 1px solid color-mix(in srgb, var(--owl-reading-text) 10%, transparent);
+}
+.owl-claude-thinking-summary {
+	margin: 0;
+	color: var(--owl-reading-muted);
+	font-size: 13px;
+	line-height: 20px;
+}
+.owl-claude-thinking-duration { color: var(--owl-reading-faint); font-size: 11.5px; line-height: 17px; font-variant-numeric: tabular-nums; }
 
-/* 轮末总结行：Claude 的形态是「做过什么 + diff 统计」，灰字、可点开。 */
-.owl-claude-summary { margin: 10px 0 2px; }
+/* 轮末总结行：「做过什么 + diff 统计」——静默行，13px 次级色；
+   diff 数字 mono 12px、+n 绿 / -n 红（Claude 的 compact 次级元素同款）。 */
+.owl-claude-summary { margin: 8px 0 2px; }
 .owl-claude-summary-head {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
-	padding: 2px 0;
+	padding: 3px 0;
 	color: var(--owl-reading-muted);
 	font-size: 13px;
-	line-height: 1.6;
-	text-align: left;
+	line-height: 20px;
+	transition: color 120ms ease;
 }
-.owl-claude-summary-head:hover { color: var(--owl-reading-text); }
 .owl-claude-summary-text { min-width: 0; }
-.owl-claude-summary-added { color: var(--color-owl-success); font-variant-numeric: tabular-nums; }
-.owl-claude-summary-removed { color: var(--color-owl-danger); font-variant-numeric: tabular-nums; }
-.owl-claude-summary-tail { color: var(--owl-reading-faint); font-size: 12px; }
-.owl-claude-summary-chevron { flex: none; color: var(--owl-reading-faint); transform: rotate(0deg); transition: transform 160ms ease; }
-.owl-claude-summary-head[aria-expanded="true"] .owl-claude-summary-chevron { transform: rotate(90deg); }
-.owl-claude-summary-body { margin-top: 4px; padding-left: 2px; }
-.owl-claude-summary-failed { color: var(--color-owl-danger); font-size: 12px; line-height: 1.6; }
+.owl-claude-summary-diff {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--owl-font-mono, ui-monospace, Consolas, monospace);
+	font-size: 12px;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}

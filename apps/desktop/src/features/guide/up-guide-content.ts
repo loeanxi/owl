@@ -54,7 +54,12 @@ export const UP_GUIDE_CHAPTERS: UpGuideChapterMeta[] = [
 	{ path: "docs/threads/part-1/8-job-search-english.md", no: 13, title: "求职英语与远程协作", part: 1 },
 	{ path: "docs/threads/part-2/return-to-life.md", no: 14, title: "导语：把自己放回生活", part: 2 },
 	{ path: "docs/threads/part-2/my-story.md", no: 15, title: "我的故事", part: 2 },
-	{ path: "docs/threads/part-2/depression-anxiety-recovery.md", no: 16, title: "我还在这里：从抑郁焦虑的黑暗中走出来", part: 2 },
+	{
+		path: "docs/threads/part-2/depression-anxiety-recovery.md",
+		no: 16,
+		title: "我还在这里：从抑郁焦虑的黑暗中走出来",
+		part: 2,
+	},
 	{ path: "docs/threads/part-2/narrative-and-evidence.md", no: 17, title: "叙事与证据篇：不把经历写成命运", part: 2 },
 	{ path: "docs/threads/part-2/x-misc.md", no: 18, title: "回声篇：不要把逃避写成浪漫", part: 2 },
 	{ path: "docs/threads/part-2/recovery.md", no: 19, title: "恢复篇：先把自己接住", part: 2 },
@@ -64,11 +69,21 @@ export const UP_GUIDE_CHAPTERS: UpGuideChapterMeta[] = [
 	{ path: "docs/threads/part-2/entrepreneurship.md", no: 23, title: "创业篇：从野心到使命", part: 2 },
 	{ path: "docs/threads/part-3/amplify-ability.md", no: 24, title: "导语：借工具放大能力", part: 3 },
 	{ path: "docs/threads/part-3/1-ai-learning.md", no: 25, title: "使用 AI 学习一切", part: 3 },
-	{ path: "docs/threads/part-3/6-ai-trends-and-learning-roadmap.md", no: 26, title: "AI 趋势与学习路线：把变化变成能力", part: 3 },
+	{
+		path: "docs/threads/part-3/6-ai-trends-and-learning-roadmap.md",
+		no: 26,
+		title: "AI 趋势与学习路线：把变化变成能力",
+		part: 3,
+	},
 	{ path: "docs/threads/part-3/3-attention-and-judgment.md", no: 27, title: "注意力篇：把注意力还给自己", part: 3 },
 	{ path: "docs/threads/part-3/4-artifacts-and-delivery.md", no: 28, title: "作品篇：把学会变成做出", part: 3 },
 	{ path: "docs/threads/part-3/5-evidence-and-transfer.md", no: 29, title: "证据篇：变化要如何被看见", part: 3 },
-	{ path: "docs/threads/part-3/2-ai-development-and-resource-layer.md", no: 30, title: "AI 开发与资源层创业", part: 3 },
+	{
+		path: "docs/threads/part-3/2-ai-development-and-resource-layer.md",
+		no: 30,
+		title: "AI 开发与资源层创业",
+		part: 3,
+	},
 	{ path: "docs/projects.md", no: 31, title: "作者项目与现实实践", part: 3 },
 	{ path: "docs/threads/part-4/practice-and-recovery.md", no: 32, title: "导语：实践与恢复", part: 4 },
 	{ path: "docs/threads/part-4/week-1.md", no: 33, title: "实践篇：先把第一周过完", part: 4 },
@@ -81,9 +96,24 @@ export const UP_GUIDE_CHAPTERS: UpGuideChapterMeta[] = [
 	{ path: "docs/threads/part-5/after-90-days.md", no: 40, title: "九十天以后：把改变留在生活里", part: 5 },
 	{ path: "docs/threads/part-6/1-understanding-yourself.md", no: 41, title: "了解自己：先看见自己如何运作", part: 6 },
 	{ path: "docs/threads/part-6/2-knowing-yourself.md", no: 42, title: "认识自己：从角色与评价中收回定义权", part: 6 },
-	{ path: "docs/threads/part-6/3-being-kind-to-yourself.md", no: 43, title: "善待自己：建立不依赖羞耻的恢复系统", part: 6 },
-	{ path: "docs/threads/part-6/4-improving-yourself.md", no: 44, title: "提升自己：让成长成为可验证的长期实验", part: 6 },
-	{ path: "docs/threads/part-6/5-being-your-own-lifelong-friend.md", no: 45, title: "与自己做终身朋友：在变化中持续相处", part: 6 },
+	{
+		path: "docs/threads/part-6/3-being-kind-to-yourself.md",
+		no: 43,
+		title: "善待自己：建立不依赖羞耻的恢复系统",
+		part: 6,
+	},
+	{
+		path: "docs/threads/part-6/4-improving-yourself.md",
+		no: 44,
+		title: "提升自己：让成长成为可验证的长期实验",
+		part: 6,
+	},
+	{
+		path: "docs/threads/part-6/5-being-your-own-lifelong-friend.md",
+		no: 45,
+		title: "与自己做终身朋友：在变化中持续相处",
+		part: 6,
+	},
 	{ path: "docs/threads/part-6/afterword.md", no: 46, title: "人生最大的进阶，是找到真正的自己", part: 7 },
 ];
 
@@ -112,28 +142,37 @@ export function parseUpGuideChapter(meta: UpGuideChapterMeta, raw: string): UpGu
 	const title = META_TITLE_RE.exec(head)?.[1]?.trim() || meta.title;
 	const updated = META_UPDATED_RE.exec(head)?.[1]?.trim() || undefined;
 	// frontmatter 与 H1 之间常有空行，先吃掉行首空行再剥 H1。
-	const body = raw.slice(front ? front[0].length : 0).replace(/^(?:\r?\n)+/, "").replace(H1_RE, "");
+	const body = raw
+		.slice(front ? front[0].length : 0)
+		.replace(/^(?:\r?\n)+/, "")
+		.replace(H1_RE, "");
 	return { no: meta.no, title, ...(updated ? { updated } : {}), body, raw };
 }
 
 /** 逐章抓取；单章失败不影响其他章，返回成功解析的章节（按序号排序）与失败数。 */
-export async function fetchUpGuideChapters(onProgress?: (done: number, total: number) => void): Promise<{ chapters: UpGuideChapter[]; failed: number }> {
+export async function fetchUpGuideChapters(
+	onProgress?: (done: number, total: number) => void,
+): Promise<{ chapters: UpGuideChapter[]; failed: number }> {
 	const total = UP_GUIDE_CHAPTERS.length;
 	let done = 0;
-	const settled = await Promise.all(UP_GUIDE_CHAPTERS.map(async (meta) => {
-		try {
-			const response = await fetch(UP_GUIDE_RAW_BASE + meta.path, { signal: AbortSignal.timeout(30000) });
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
-			const raw = await response.text();
-			return parseUpGuideChapter(meta, raw);
-		} catch {
-			return undefined;
-		} finally {
-			done += 1;
-			onProgress?.(done, total);
-		}
-	}));
-	const chapters = settled.filter((chapter): chapter is UpGuideChapter => Boolean(chapter)).sort((a, b) => a.no - b.no);
+	const settled = await Promise.all(
+		UP_GUIDE_CHAPTERS.map(async (meta) => {
+			try {
+				const response = await fetch(UP_GUIDE_RAW_BASE + meta.path, { signal: AbortSignal.timeout(30000) });
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const raw = await response.text();
+				return parseUpGuideChapter(meta, raw);
+			} catch {
+				return undefined;
+			} finally {
+				done += 1;
+				onProgress?.(done, total);
+			}
+		}),
+	);
+	const chapters = settled
+		.filter((chapter): chapter is UpGuideChapter => Boolean(chapter))
+		.sort((a, b) => a.no - b.no);
 	return { chapters, failed: total - chapters.length };
 }
 
@@ -235,12 +274,16 @@ export function resolveUpGuideLink(fromPath: string, href: string): UpGuideChapt
 		if (segment === "..") resolved.pop();
 		else if (segment && segment !== ".") resolved.push(segment);
 	}
-	return UP_GUIDE_PATH_BY_TARGET.get(`/${resolved.join("/")}`) ?? UP_GUIDE_PATH_BY_TARGET.get(resolved[resolved.length - 1] ?? "");
+	return (
+		UP_GUIDE_PATH_BY_TARGET.get(`/${resolved.join("/")}`) ??
+		UP_GUIDE_PATH_BY_TARGET.get(resolved[resolved.length - 1] ?? "")
+	);
 }
 
 /** 相对目标（链接/图片）基于当前章节目录归一化成仓库内路径；解析不了返回 undefined。 */
 export function resolveUpGuideRepoPath(fromPath: string, target: string): string | undefined {
-	if (/^(https?:)?\/\//.test(target) || target.startsWith("data:") || /^[a-z][a-z0-9+.-]*:/i.test(target)) return undefined;
+	if (/^(https?:)?\/\//.test(target) || target.startsWith("data:") || /^[a-z][a-z0-9+.-]*:/i.test(target))
+		return undefined;
 	const segments = (chapterDir(fromPath) + target.replace(/^\.\//, "")).split("/");
 	const resolved: string[] = [];
 	for (const segment of segments) {

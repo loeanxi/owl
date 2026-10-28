@@ -119,11 +119,15 @@ export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 		}
 		case "read": {
 			const path = str(a.path);
-			return path ? { summary: t("sum.readPath", { path: shortPath(path) }), detail: path } : { summary: t("sum.read") };
+			return path
+				? { summary: t("sum.readPath", { path: shortPath(path) }), detail: path }
+				: { summary: t("sum.read") };
 		}
 		case "write": {
 			const path = str(a.path);
-			return path ? { summary: t("sum.writePath", { path: shortPath(path) }), detail: path } : { summary: t("sum.write") };
+			return path
+				? { summary: t("sum.writePath", { path: shortPath(path) }), detail: path }
+				: { summary: t("sum.write") };
 		}
 		case "edit": {
 			const path = str(a.path);
@@ -154,9 +158,11 @@ export function summarizeToolCall(name: string, args: unknown): ToolSummary {
 			const workflow = a.workflow;
 			if (workflow === true) return { summary: "subagent workflow" };
 			if (typeof workflow === "string") {
-				const inline = workflow.includes("\n") || workflow.includes("\r")
-					|| /^(?:const|let|var|import|export|return|await|async)\b/.test(workflow.trim())
-					|| /\bruns\.(?:run|all|lanes)\b/.test(workflow);
+				const inline =
+					workflow.includes("\n") ||
+					workflow.includes("\r") ||
+					/^(?:const|let|var|import|export|return|await|async)\b/.test(workflow.trim()) ||
+					/\bruns\.(?:run|all|lanes)\b/.test(workflow);
 				if (inline) return { summary: "subagent workflow" };
 				return { summary: `subagent \`${clip(workflow, 48)}\`` };
 			}

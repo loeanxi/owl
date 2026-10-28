@@ -10,9 +10,31 @@ export { formatProviderError } from "./provider-error.ts";
 
 export type ToolStatus = "pending" | "running" | "ok" | "error" | "cancelled";
 
+/**
+ * 一条引用。
+ *
+ * 协议层的形状见 `packages/ai/src/types.ts` 的 `Citation`（各 provider 的
+ * 引用变体在这里拍平成同一个最小形状）。桌面端不直接依赖 pi-ai 的类型，
+ * 这里保留一份等价定义。
+ */
+export type Citation = {
+	/** 来源标题（网页标题 / 文档名）。 */
+	title?: string;
+	/** 来源地址；纯文档引用没有地址。 */
+	url?: string;
+	/** 被引用的原文片段。 */
+	snippet?: string;
+	/** 在本条正文里的起始字符（0 基，含）。 */
+	startIndex?: number;
+	/** 在本条正文里的结束字符（0 基，不含）。 */
+	endIndex?: number;
+	/** provider 原始类型（`char_location` / `url_citation` / …）。 */
+	source?: string;
+};
+
 /** 原始消息内容的时间顺序；不从文字猜测进度或最终回答的模型通道。 */
 export type AssistantSegment =
-	| { kind: "text"; text: string; phase?: "commentary" | "final_answer" }
+	| { kind: "text"; text: string; phase?: "commentary" | "final_answer"; citations?: Citation[] }
 	| {
 			kind: "thinking";
 			text: string;
@@ -20,12 +42,27 @@ export type AssistantSegment =
 			endedAt?: number;
 			/** Provider 给的思考摘要（Claude 用它替代原始思考文字）。 */
 			summaries?: string[];
-		}
+	  }
 	| { kind: "tool"; toolId: string };
 
 /** 工具结果里的图片内容块（base64；如 browser_screenshot 的返回）。 */
 export type ToolResultImage = { data: string; mimeType: string };
 export type ToolResultArtifact = { path: string; action: "written" | "edited" | "opened" };
+
+/** 任务清单的一项（todo 工具回传的快照）。 */
+export type TaskListItem = {
+	content: string;
+	status: "pending" | "in_progress" | "completed";
+	priority?: "high" | "medium" | "low";
+};
+
+/** 一条下一步建议（模型提议，渲染成芯片）。 */
+export type NextStep = {
+	/** 芯片上的字。 */
+	label: string;
+	/** 点芯片后发出去的那句话。 */
+	prompt: string;
+};
 
 /** 工具输出：已从 content 解码成纯文本，不再是 JSON 字符串。 */
 export type ToolOutput = {
@@ -40,6 +77,14 @@ export type ToolOutput = {
 	fullPath?: string;
 	/** owl-genui：render_ui 工具修复后的 GenUI spec（details.genuiSpec），ChatStream 渲染为交互卡片。 */
 	genuiSpec?: unknown;
+	/** todo 工具回传的清单快照（details.todos）：渲染成行内清单卡，原始输出不再上屏。 */
+	todos?: TaskListItem[];
+	/** 模型提议的下一步（details.steps）：渲染成回答下方的一排芯片。 */
+	nextSteps?: NextStep[];
+	/** 子代理的实时活动（owl-subagents 的 partial details.activity）：组内行下的动态一行。 */
+	activity?: string;
+	/** 提问的答案（owl-ask-user 的 details.answers）：渲染成 Claude 的响应列表。 */
+	questionAnswers?: { question: string; response: string }[];
 	/** Research tool's persisted result; prose is never treated as structured evidence. */
 	researchResult?: ResearchResult;
 };
@@ -68,6 +113,13 @@ export type ToolCard = {
 	 * 同一批里的每张卡都带上它，渲染时取组内任意一张即可。
 	 */
 	batchLabel?: string;
+	/**
+	 * 内部工具：不进回答流（Claude 的 `hidden_in_chat`）。
+	 *
+	 * Claude 把这类调用从聊天里藏掉，只在统计里留着；对应的结果也不显示。
+	 * 网关（`pi-messages`）可以给这类调用打标记。
+	 */
+	hiddenInChat?: boolean;
 };
 
 /** 单条 LLM 回复的 token 用量（消息操作栏的「用量」展示）。 */
@@ -84,7 +136,12 @@ export function estimateTokens(text: string): number {
 	let wide = 0;
 	for (const char of text) {
 		const code = char.codePointAt(0)!;
-		if ((code >= 0x3000 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af) || (code >= 0xff00 && code <= 0xffef)) wide++;
+		if (
+			(code >= 0x3000 && code <= 0x9fff) ||
+			(code >= 0xac00 && code <= 0xd7af) ||
+			(code >= 0xff00 && code <= 0xffef)
+		)
+			wide++;
 	}
 	return wide + (text.length - wide) / 4;
 }
@@ -198,7 +255,9 @@ function sealsActiveTurn(entry: ChatEntry): boolean {
 
 /** 快照里第一条用户消息是本轮开场白。其后的用户消息才是已经送达的跟进。 */
 function retainUndeliveredFollowUps(before: ChatEntry[], next: ChatEntry[], messages: AnyEvent[]): ChatEntry[] {
-	const pending = before.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && entry.queued === true);
+	const pending = before.filter(
+		(entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && entry.queued === true,
+	);
 	if (pending.length === 0) return next;
 	const delivered = new Map<string, number>();
 	let skippedOpeningUser = false;
@@ -237,10 +296,14 @@ function lastAssistant(entries: ChatEntry[]): (ChatEntry & { kind: "assistant" }
 type AssistantEntry = Extract<ChatEntry, { kind: "assistant" }>;
 
 function cloneAssistant(entry: AssistantEntry): AssistantEntry {
-	return { ...entry, tools: entry.tools.map((tool) => ({ ...tool })), segments: entry.segments?.map((segment) => ({ ...segment })) ?? [] };
+	return {
+		...entry,
+		tools: entry.tools.map((tool) => ({ ...tool })),
+		segments: entry.segments?.map((segment) => ({ ...segment })) ?? [],
+	};
 }
 
-function upsertTool(entry: AssistantEntry, id: string, name: string, args?: unknown): ToolCard {
+function upsertTool(entry: AssistantEntry, id: string, name: string, args?: unknown, hiddenInChat?: boolean): ToolCard {
 	let card = entry.tools.find((tool) => tool.id === id);
 	if (!card) {
 		card = { id, name, args: "", summary: name, status: "pending" };
@@ -248,6 +311,7 @@ function upsertTool(entry: AssistantEntry, id: string, name: string, args?: unkn
 		(entry.segments ??= []).push({ kind: "tool", toolId: id });
 	}
 	card.name = name;
+	if (hiddenInChat === true) card.hiddenInChat = true;
 	if (args !== undefined) {
 		card.args = JSON.stringify(args);
 		Object.assign(card, summarizeToolCall(name, args));
@@ -257,7 +321,8 @@ function upsertTool(entry: AssistantEntry, id: string, name: string, args?: unkn
 
 function resultStatus(result: AnyEvent, isError: boolean): ToolStatus {
 	// 普通失败不当作取消；这里仅识别工具明确标志及 agent-core 的标准中止结果。
-	if (result.details?.cancelled === true || (isError && textOf(result.content).trim() === "Operation aborted")) return "cancelled";
+	if (result.details?.cancelled === true || (isError && textOf(result.content).trim() === "Operation aborted"))
+		return "cancelled";
 	return isError ? "error" : "ok";
 }
 
@@ -265,7 +330,16 @@ function assistantTextPhase(signature: unknown): "commentary" | "final_answer" |
 	if (typeof signature !== "string" || !signature.startsWith("{")) return undefined;
 	try {
 		const value: unknown = JSON.parse(signature);
-		if (value === null || typeof value !== "object" || !("v" in value) || value.v !== 1 || !("id" in value) || typeof value.id !== "string" || !("phase" in value)) return undefined;
+		if (
+			value === null ||
+			typeof value !== "object" ||
+			!("v" in value) ||
+			value.v !== 1 ||
+			!("id" in value) ||
+			typeof value.id !== "string" ||
+			!("phase" in value)
+		)
+			return undefined;
 		return value.phase === "commentary" || value.phase === "final_answer" ? value.phase : undefined;
 	} catch {
 		return undefined;
@@ -289,35 +363,90 @@ function thinkingSummariesOf(summary: unknown): string[] {
 	return out;
 }
 
+/** provider 给的引用：只保留有标题或地址的条目。 */
+export function citationsOf(raw: unknown): Citation[] {
+	if (!Array.isArray(raw)) return [];
+	const out: Citation[] = [];
+	for (const item of raw) {
+		if (item === null || typeof item !== "object") continue;
+		const citation = item as Citation;
+		const title = typeof citation.title === "string" && citation.title.trim() !== "" ? citation.title : undefined;
+		const url = typeof citation.url === "string" && citation.url.trim() !== "" ? citation.url : undefined;
+		const snippet =
+			typeof citation.snippet === "string" && citation.snippet.trim() !== "" ? citation.snippet : undefined;
+		if (title === undefined && url === undefined && snippet === undefined) continue;
+		out.push({
+			...(title !== undefined ? { title } : {}),
+			...(url !== undefined ? { url } : {}),
+			...(snippet !== undefined ? { snippet } : {}),
+			...(typeof citation.startIndex === "number" ? { startIndex: citation.startIndex } : {}),
+			...(typeof citation.endIndex === "number" ? { endIndex: citation.endIndex } : {}),
+			...(typeof citation.source === "string" ? { source: citation.source } : {}),
+		});
+	}
+	return out;
+}
+
 /**
  * 从 wire 的 content 重建 segments。
  * 流式阶段已经为思考块记了起止时刻，重建时按顺序把它们接回去，
  * 否则 message_end 会把思考时长冲掉。
- */function segmentsOf(content: unknown, previous?: AssistantSegment[]): AssistantSegment[] {
+ */ function segmentsOf(content: unknown, previous?: AssistantSegment[]): AssistantSegment[] {
 	if (!Array.isArray(content)) return typeof content === "string" ? [{ kind: "text", text: content }] : [];
 	let thinkingIndex = 0;
 	return content.flatMap((part): AssistantSegment[] => {
 		if (part.type === "text") {
 			const phase = assistantTextPhase(part.textSignature);
-			return [{ kind: "text", text: part.text ?? "", ...(phase ? { phase } : {}) }];
+			const citations = citationsOf(part.citations);
+			return [
+				{
+					kind: "text",
+					text: part.text ?? "",
+					...(phase ? { phase } : {}),
+					...(citations.length > 0 ? { citations } : {}),
+				},
+			];
 		}
 		if (part.type === "thinking") {
 			const timed = previous?.filter((segment) => segment.kind === "thinking")[thinkingIndex++];
 			const summaries = thinkingSummariesOf(part.summaries);
-			return [{
-				kind: "thinking",
-				text: part.thinking ?? "",
-				...(timed?.startedAt !== undefined ? { startedAt: timed.startedAt } : {}),
-				...(timed?.endedAt !== undefined ? { endedAt: timed.endedAt } : {}),
-				...(summaries.length > 0 ? { summaries } : {}),
-			}];
+			return [
+				{
+					kind: "thinking",
+					text: part.thinking ?? "",
+					...(timed?.startedAt !== undefined ? { startedAt: timed.startedAt } : {}),
+					...(timed?.endedAt !== undefined ? { endedAt: timed.endedAt } : {}),
+					...(summaries.length > 0 ? { summaries } : {}),
+				},
+			];
 		}
 		if (part.type === "toolCall") return [{ kind: "tool", toolId: part.id }];
 		return [];
 	});
 }
 
-function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: string, phase?: "commentary" | "final_answer", at?: number, summaries?: string[]): void {
+/**
+ * 把引用并进最后一段正文。
+ *
+ * 引用事件可能晚于正文段到达（流式尾巴），所以只往已有的正文段上挂，
+ * 绝不新开一段空正文。
+ */
+function appendCitations(entry: AssistantEntry, citations: Citation[]): void {
+	if (citations.length === 0) return;
+	const last = entry.segments?.at(-1);
+	if (last?.kind !== "text") return;
+	last.citations = [...(last.citations ?? []), ...citations];
+}
+
+function appendSegment(
+	entry: AssistantEntry,
+	kind: "text" | "thinking",
+	text: string,
+	phase?: "commentary" | "final_answer",
+	at?: number,
+	summaries?: string[],
+	citations?: Citation[],
+): void {
 	const segments = (entry.segments ??= []);
 	const last = segments.at(-1);
 	if (last?.kind === kind && (last.kind !== "text" || last.phase === phase)) {
@@ -331,17 +460,28 @@ function appendSegment(entry: AssistantEntry, kind: "text" | "thinking", text: s
 		if (last.kind === "thinking" && summaries !== undefined && summaries.length > 0) {
 			last.summaries = [...(last.summaries ?? []), ...summaries];
 		}
+		// 引用随引用事件逐条到，补进已建的正文段。
+		if (last.kind === "text" && citations !== undefined && citations.length > 0) {
+			last.citations = [...(last.citations ?? []), ...citations];
+		}
 		return;
 	}
 	// 新的一段开始：上一段思考到此结束，计时在这里结算。
 	if (last?.kind === "thinking" && at !== undefined) last.endedAt = at;
-	if (kind === "text") segments.push({ kind, text, ...(phase ? { phase } : {}) });
-	else segments.push({
-		kind,
-		text,
-		...(at !== undefined ? { startedAt: at } : {}),
-		...(summaries !== undefined && summaries.length > 0 ? { summaries } : {}),
-	});
+	if (kind === "text")
+		segments.push({
+			kind,
+			text,
+			...(phase ? { phase } : {}),
+			...(citations !== undefined && citations.length > 0 ? { citations } : {}),
+		});
+	else
+		segments.push({
+			kind,
+			text,
+			...(at !== undefined ? { startedAt: at } : {}),
+			...(summaries !== undefined && summaries.length > 0 ? { summaries } : {}),
+		});
 }
 
 /**
@@ -365,7 +505,13 @@ function applyBatchLabel(entries: ChatEntry[], toolCallIds: string[], label: str
 	return entries;
 }
 
-function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyEvent, isError: boolean, toolName?: string): ChatEntry[] {
+function applyToolResult(
+	entries: ChatEntry[],
+	toolCallId: unknown,
+	result: AnyEvent,
+	isError: boolean,
+	toolName?: string,
+): ChatEntry[] {
 	if (typeof toolCallId === "string") {
 		for (let index = entries.length - 1; index >= 0; index--) {
 			const entry = entries[index];
@@ -375,16 +521,18 @@ function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyE
 			const card = updated.tools.find((tool) => tool.id === toolCallId)!;
 			card.status = resultStatus(result, isError);
 			card.output = toolOutputOf(result);
-			card.finishedAt = typeof result.timestamp === "number" ? result.timestamp : card.finishedAt ?? Date.now();
+			card.finishedAt = typeof result.timestamp === "number" ? result.timestamp : (card.finishedAt ?? Date.now());
 			applyNestedCallRecords(updated, toolCallId, result);
 			return [...entries.slice(0, index), updated, ...entries.slice(index + 1)];
 		}
 		// A result from a sealed turn cannot become an artifact of the current question.
-		if (entries.some((entry) => entry.kind === "assistant" && entry.tools.some((tool) => tool.id === toolCallId))) return entries;
+		if (entries.some((entry) => entry.kind === "assistant" && entry.tools.some((tool) => tool.id === toolCallId)))
+			return entries;
 	}
 	if (resultStatus(result, isError) !== "ok") return entries;
 	const sourceName = toolName ?? result.toolName ?? "tool";
-	if (publishedResults([{ ...result, role: "toolResult", toolName: sourceName, isError }]).length === 0) return entries;
+	if (publishedResults([{ ...result, role: "toolResult", toolName: sourceName, isError }]).length === 0)
+		return entries;
 	const output = toolOutputOf(result);
 	if (!output.researchResult) return entries;
 	const orphan: Extract<ChatEntry, { kind: "toolResult" }> = {
@@ -398,7 +546,11 @@ function applyToolResult(entries: ChatEntry[], toolCallId: unknown, result: AnyE
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
 		if (sealsActiveTurn(entry)) break;
-		if (entry.kind === "toolResult" && entry.toolName === orphan.toolName && entry.researchResult?.id === orphan.researchResult?.id) {
+		if (
+			entry.kind === "toolResult" &&
+			entry.toolName === orphan.toolName &&
+			entry.researchResult?.id === orphan.researchResult?.id
+		) {
 			return [...entries.slice(0, index), orphan, ...entries.slice(index + 1)];
 		}
 	}
@@ -410,11 +562,20 @@ function applyNestedCallRecords(entry: AssistantEntry, parentToolCallId: string,
 		if (typeof call.id !== "string" || typeof call.name !== "string") continue;
 		const card = upsertTool(entry, call.id, call.name, call.arguments);
 		card.parentToolCallId = parentToolCallId;
-		card.status = call.status === "unfinished" ? "cancelled" : call.status === "error"
-			? resultStatus({ content: [{ type: "text", text: typeof call.error === "string" ? call.error : "" }] }, true)
-			: call.status === "ok" ? "ok" : "pending";
+		card.status =
+			call.status === "unfinished"
+				? "cancelled"
+				: call.status === "error"
+					? resultStatus(
+							{ content: [{ type: "text", text: typeof call.error === "string" ? call.error : "" }] },
+							true,
+						)
+					: call.status === "ok"
+						? "ok"
+						: "pending";
 		// Nested snapshots persist errors/arguments, but do not contain successful result bodies.
-		if (typeof call.error === "string" && !card.output) card.output = { text: call.error, totalLines: call.error.split("\n").length };
+		if (typeof call.error === "string" && !card.output)
+			card.output = { text: call.error, totalLines: call.error.split("\n").length };
 	}
 }
 
@@ -430,7 +591,8 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 	const boundary = runBoundaries.get(entries);
 	if (boundary !== undefined && next !== entries && !runBoundaries.has(next)) runBoundaries.set(next, boundary);
 	const restoredBoundary = restoredRunBoundaries.get(entries);
-	if (restoredBoundary !== undefined && next !== entries && !restoredRunBoundaries.has(next)) restoredRunBoundaries.set(next, restoredBoundary);
+	if (restoredBoundary !== undefined && next !== entries && !restoredRunBoundaries.has(next))
+		restoredRunBoundaries.set(next, restoredBoundary);
 	return next;
 }
 
@@ -443,15 +605,16 @@ export function applyEvent(entries: ChatEntry[], message: ServerEventMessage): C
 function alignMessageEntryIds(previous: ChatEntry[], messages: AnyEvent[]): (string | undefined)[] | undefined {
 	const queues: { user: string[]; assistant: string[] } = { user: [], assistant: [] };
 	for (const entry of previous) {
-		if ((entry.kind === "user" || entry.kind === "assistant") && entry.entryId) queues[entry.kind].push(entry.entryId);
+		if ((entry.kind === "user" || entry.kind === "assistant") && entry.entryId)
+			queues[entry.kind].push(entry.entryId);
 	}
 	const counts: { user: number; assistant: number } = { user: 0, assistant: 0 };
 	for (const message of messages) {
 		if (message.role === "user" || message.role === "assistant") counts[message.role as "user" | "assistant"] += 1;
 	}
-		if (counts.user === 0 && counts.assistant === 0) return undefined;
-		// 尾部对齐：某角色原转录里没有足够的带 id 行（老桥/异常流）时，该角色拿不到 id 不硬凑
-		// （暂停后继续的 run 快照没有 user 消息，user 角色自然落空，assistant 照常对齐）。
+	if (counts.user === 0 && counts.assistant === 0) return undefined;
+	// 尾部对齐：某角色原转录里没有足够的带 id 行（老桥/异常流）时，该角色拿不到 id 不硬凑
+	// （暂停后继续的 run 快照没有 user 消息，user 角色自然落空，assistant 照常对齐）。
 	const cursors: { user: number; assistant: number } = {
 		user: queues.user.length - counts.user,
 		assistant: queues.assistant.length - counts.assistant,
@@ -557,12 +720,18 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			// 没有占位行时走空闲乐观行合并/直接追加的老路。
 			if (message?.role === "user") {
 				const delivered = userEntryOf(message);
-				const queuedRow = entries.find((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && entry.queued === true && userSourceText(entry.text) === userSourceText(delivered.text));
+				const queuedRow = entries.find(
+					(entry): entry is Extract<ChatEntry, { kind: "user" }> =>
+						entry.kind === "user" &&
+						entry.queued === true &&
+						userSourceText(entry.text) === userSourceText(delivered.text),
+				);
 				if (queuedRow) {
 					const queuedIndex = entries.indexOf(queuedRow);
-					const replacement = delivered.omittedImages && !queuedRow.omittedImages
-						? { ...queuedRow, queued: undefined, omittedImages: delivered.omittedImages }
-						: { ...delivered };
+					const replacement =
+						delivered.omittedImages && !queuedRow.omittedImages
+							? { ...queuedRow, queued: undefined, omittedImages: delivered.omittedImages }
+							: { ...delivered };
 					return [...entries.slice(0, queuedIndex), ...entries.slice(queuedIndex + 1), replacement];
 				}
 				const last = entries.at(-1);
@@ -574,7 +743,17 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			}
 			// 只给 assistant 建流式气泡，否则每轮会多出带空"思考过程"的空气泡。
 			if (!message || message.role !== "assistant") return entries;
-			return [...entries, { kind: "assistant", text: "", thinking: "", tools: [], segments: [], timestamp: timestampOf(message) ?? Date.now() }];
+			return [
+				...entries,
+				{
+					kind: "assistant",
+					text: "",
+					thinking: "",
+					tools: [],
+					segments: [],
+					timestamp: timestampOf(message) ?? Date.now(),
+				},
+			];
 		}
 		case "message_update": {
 			const ae = event.assistantMessageEvent as AnyEvent | undefined;
@@ -586,8 +765,20 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			switch (ae.type) {
 				case "text_delta":
 					current.text += ae.delta ?? "";
-					appendSegment(current, "text", ae.delta ?? "", assistantTextPhase(ae.partial?.content?.[ae.contentIndex]?.textSignature), Date.now());
+					appendSegment(
+						current,
+						"text",
+						ae.delta ?? "",
+						assistantTextPhase(ae.partial?.content?.[ae.contentIndex]?.textSignature),
+						Date.now(),
+					);
 					break;
+				case "text_citation": {
+					// 引用逐条到达（Claude Desktop 用它做行内角标 + 来源面板）。
+					const citations = citationsOf(ae.citation ? [ae.citation] : []);
+					if (citations.length > 0) appendCitations(current, citations);
+					break;
+				}
 				case "thinking_delta":
 					current.thinking += ae.delta ?? "";
 					appendSegment(
@@ -601,17 +792,32 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 					break;
 				case "toolcall_start": {
 					const toolCall = ae.partial?.content?.[ae.contentIndex];
-					upsertTool(current, ae.id ?? ae.toolCall?.id ?? toolCall?.id ?? `tool-${ae.contentIndex}`, ae.toolName ?? ae.toolCall?.name ?? toolCall?.name ?? "tool");
+					upsertTool(
+						current,
+						ae.id ?? ae.toolCall?.id ?? toolCall?.id ?? `tool-${ae.contentIndex}`,
+						ae.toolName ?? ae.toolCall?.name ?? toolCall?.name ?? "tool",
+					);
 					break;
 				}
 				case "toolcall_end": {
-					if (ae.toolCall?.id) upsertTool(current, ae.toolCall.id, ae.toolCall.name ?? "tool", ae.toolCall.arguments ?? {});
+					if (ae.toolCall?.id)
+						upsertTool(
+							current,
+							ae.toolCall.id,
+							ae.toolCall.name ?? "tool",
+							ae.toolCall.arguments ?? {},
+							ae.toolCall.hiddenInChat,
+						);
 					break;
 				}
 				default:
 					break;
 			}
-			if ((ae.type === "text_delta" || ae.type === "thinking_delta" || ae.type === "toolcall_delta") && typeof ae.delta === "string" && ae.delta !== "") {
+			if (
+				(ae.type === "text_delta" || ae.type === "thinking_delta" || ae.type === "toolcall_delta") &&
+				typeof ae.delta === "string" &&
+				ae.delta !== ""
+			) {
 				const now = Date.now();
 				const estTokens = (current.stream?.estTokens ?? 0) + estimateTokens(ae.delta);
 				current.stream = { firstAt: current.stream?.firstAt ?? now, lastAt: now, estTokens };
@@ -623,15 +829,24 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			const previous = lastAssistant(entries);
 			if (!previous || typeof event.toolCallId !== "string") return entries;
 			// Nested tool calls belong to their parent's assistant, not a later streamed answer.
-			const owner = entries.findLast((entry) => entry.kind === "assistant" && entry.tools.some((tool) => tool.id === event.toolCallId || tool.id === event.parentToolCallId));
-			const target = owner?.kind === "assistant" && entries.indexOf(owner) > entries.findLastIndex((entry) => entry.kind === "user") ? owner : previous;
+			const owner = entries.findLast(
+				(entry) =>
+					entry.kind === "assistant" &&
+					entry.tools.some((tool) => tool.id === event.toolCallId || tool.id === event.parentToolCallId),
+			);
+			const target =
+				owner?.kind === "assistant" &&
+				entries.indexOf(owner) > entries.findLastIndex((entry) => entry.kind === "user")
+					? owner
+					: previous;
 			const current = cloneAssistant(target);
 			const card = upsertTool(current, event.toolCallId, event.toolName ?? "tool", event.args);
 			if (typeof event.parentToolCallId === "string") card.parentToolCallId = event.parentToolCallId;
 			if (card.status === "pending" || card.status === "running") {
 				card.status = "running";
 				card.startedAt ??= Date.now();
-				if (event.type === "tool_execution_update" && event.partialResult) card.output = toolOutputOf(event.partialResult);
+				if (event.type === "tool_execution_update" && event.partialResult)
+					card.output = toolOutputOf(event.partialResult);
 			}
 			const index = entries.indexOf(target);
 			return [...entries.slice(0, index), current, ...entries.slice(index + 1)];
@@ -641,14 +856,17 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 		case "tool_use_summary": {
 			// 模型为这批工具写的组标题（Claude 的 tool_use_summary）。
 			const summary = typeof event.summary === "string" ? event.summary.trim() : "";
-			const ids = Array.isArray(event.toolCallIds) ? event.toolCallIds.filter((id): id is string => typeof id === "string") : [];
+			const ids = Array.isArray(event.toolCallIds)
+				? event.toolCallIds.filter((id): id is string => typeof id === "string")
+				: [];
 			if (summary === "" || ids.length === 0) return entries;
 			return applyBatchLabel(entries, ids, summary);
 		}
 		case "message_end": {
 			const message = event.message as AnyEvent | undefined;
 			if (!message) return entries;
-			if (message.role === "toolResult") return applyToolResult(entries, message.toolCallId, message, message.isError === true, message.toolName);
+			if (message.role === "toolResult")
+				return applyToolResult(entries, message.toolCallId, message, message.isError === true, message.toolName);
 			if (message.role !== "assistant") return entries;
 			const previous = lastAssistant(entries);
 			if (!previous) return entries;
@@ -660,17 +878,25 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 				.join("\n");
 			for (const part of message.content ?? []) {
 				if (part.type !== "toolCall") continue;
-				const card = upsertTool(current, part.id, part.name, part.arguments ?? {});
-				if (card.status === "pending" && (message.stopReason === "error" || message.stopReason === "aborted")) card.status = message.stopReason === "aborted" ? "cancelled" : "error";
+				const call = part as AnyEvent & { hiddenInChat?: unknown };
+				const card = upsertTool(current, part.id, part.name, part.arguments ?? {}, call.hiddenInChat === true);
+				if (card.status === "pending" && (message.stopReason === "error" || message.stopReason === "aborted"))
+					card.status = message.stopReason === "aborted" ? "cancelled" : "error";
 			}
 			// A flooded tool-call batch is removed from the assistant message before this
 			// event. Drop the cards that were streamed and then discarded.
 			const keptToolIds = new Set(
-				(message.content ?? []).filter((part: AnyEvent) => part.type === "toolCall").map((part: AnyEvent) => part.id),
+				(message.content ?? [])
+					.filter((part: AnyEvent) => part.type === "toolCall")
+					.map((part: AnyEvent) => part.id),
 			);
 			current.tools = current.tools.filter((tool) => keptToolIds.has(tool.id));
 			current.segments = segmentsOf(message.content, current.segments);
-			current.thinking = (message.content ?? []).filter((part: AnyEvent) => part.type === "thinking").map((part: AnyEvent) => part.thinking ?? "").join("\n") || current.thinking;
+			current.thinking =
+				(message.content ?? [])
+					.filter((part: AnyEvent) => part.type === "thinking")
+					.map((part: AnyEvent) => part.thinking ?? "")
+					.join("\n") || current.thinking;
 			// 用户暂停（stopReason=aborted）不算错误：红色报错换成一个 aborted 标记，
 			// 由 ChatStream 渲染成置灰小字；只有真正的 error 才保留报错文案。
 			current.error = message.stopReason === "error" ? formatProviderError(message.errorMessage) : undefined;
@@ -712,7 +938,8 @@ function applyTranscriptEvent(entries: ChatEntry[], message: ServerEventMessage)
 			if (runBoundary !== undefined) {
 				const prefix = entries.slice(0, runBoundary);
 				// Some hosts omit the already-displayed user from the run snapshot.
-				if (!messages.some((message) => message.role === "user") && entries[runBoundary]?.kind === "user") prefix.push(entries[runBoundary]);
+				if (!messages.some((message) => message.role === "user") && entries[runBoundary]?.kind === "user")
+					prefix.push(entries[runBoundary]);
 				const next = [...prefix, ...rebuilt];
 				runBoundaries.set(next, runBoundary);
 				return finish(next);
@@ -744,9 +971,8 @@ export function rebuild(
 	run?: { running: boolean; runStartMessageIndex?: number },
 ): ChatEntry[] {
 	const entries: ChatEntry[] = [];
-	const rawBoundary = run?.running && Number.isInteger(run.runStartMessageIndex)
-		? run.runStartMessageIndex
-		: undefined;
+	const rawBoundary =
+		run?.running && Number.isInteger(run.runStartMessageIndex) ? run.runStartMessageIndex : undefined;
 	for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
 		// Wire indices include hidden/system/tool messages that produce no separate UI row.
 		if (messageIndex === rawBoundary) restoredRunBoundaries.set(entries, entries.length);
@@ -762,12 +988,23 @@ export function rebuild(
 					name: part.name,
 					args: JSON.stringify(part.arguments ?? {}),
 					...summarizeToolCall(part.name, part.arguments),
-					status: message.stopReason === "aborted" ? "cancelled" as const : message.stopReason === "error" ? "error" as const : "pending" as const,
+					status:
+						message.stopReason === "aborted"
+							? ("cancelled" as const)
+							: message.stopReason === "error"
+								? ("error" as const)
+								: ("pending" as const),
 				}));
 			const startedAt = timestampOf(message);
-			const persistedAt = typeof message.persistedAt === "number" && Number.isFinite(message.persistedAt) ? message.persistedAt : undefined;
-			const endedAt = (startedAt !== undefined ? assistantEndedAt.get(startedAt) : undefined)
-				?? (persistedAt !== undefined && (startedAt === undefined || persistedAt > startedAt) ? persistedAt : undefined);
+			const persistedAt =
+				typeof message.persistedAt === "number" && Number.isFinite(message.persistedAt)
+					? message.persistedAt
+					: undefined;
+			const endedAt =
+				(startedAt !== undefined ? assistantEndedAt.get(startedAt) : undefined) ??
+				(persistedAt !== undefined && (startedAt === undefined || persistedAt > startedAt)
+					? persistedAt
+					: undefined);
 			const stream = startedAt !== undefined ? assistantStream.get(startedAt) : undefined;
 			entries.push({
 				kind: "assistant",
@@ -778,10 +1015,7 @@ export function rebuild(
 					.join("\n"),
 				tools,
 				segments: segmentsOf(message.content),
-				error:
-					message.stopReason === "error"
-						? formatProviderError(message.errorMessage)
-						: undefined,
+				error: message.stopReason === "error" ? formatProviderError(message.errorMessage) : undefined,
 				...(message.stopReason === "aborted" ? { aborted: true as const } : {}),
 				...(typeof entryId === "string" ? { entryId } : {}),
 				...(startedAt !== undefined ? { timestamp: startedAt } : {}),
@@ -807,8 +1041,12 @@ export function rebuild(
 					kind: "toolResult",
 					toolName: message.toolName ?? "tool",
 					ok: !message.isError,
-					brief: firstTextLine(output.text) || t("err.briefNoOutput", { status: message.isError ? t("err.failed") : t("err.completed") }),
-					...(resultStatus(message, message.isError === true) === "ok" && output.researchResult ? { researchResult: output.researchResult } : {}),
+					brief:
+						firstTextLine(output.text) ||
+						t("err.briefNoOutput", { status: message.isError ? t("err.failed") : t("err.completed") }),
+					...(resultStatus(message, message.isError === true) === "ok" && output.researchResult
+						? { researchResult: output.researchResult }
+						: {}),
 				});
 			}
 		}
@@ -867,12 +1105,65 @@ function toolOutputOf(message: AnyEvent): ToolOutput {
 			}
 		}
 	}
+	// 任务清单快照：只有结构完整的项才进清单（渲染成行内清单卡）。
+	const todos: TaskListItem[] = [];
+	if (Array.isArray(details.todos)) {
+		for (const item of details.todos) {
+			if (item === null || typeof item !== "object") continue;
+			const entry = item as { content?: unknown; status?: unknown; priority?: unknown };
+			if (typeof entry.content !== "string" || entry.content.trim() === "") continue;
+			const status = entry.status === "in_progress" || entry.status === "completed" ? entry.status : "pending";
+			const priority =
+				entry.priority === "high" || entry.priority === "low"
+					? entry.priority
+					: entry.priority === "medium"
+						? "medium"
+						: undefined;
+			todos.push({ content: entry.content.trim(), status, ...(priority !== undefined ? { priority } : {}) });
+		}
+	}
+	// 下一步建议（details.steps）：只有结构完整的项才上屏。
+	const nextSteps: NextStep[] = [];
+	if (Array.isArray(details.steps)) {
+		for (const item of details.steps) {
+			if (item === null || typeof item !== "object") continue;
+			const step = item as { label?: unknown; prompt?: unknown };
+			if (typeof step.label !== "string" || step.label.trim() === "") continue;
+			const label = step.label.trim();
+			const prompt = typeof step.prompt === "string" && step.prompt.trim() !== "" ? step.prompt.trim() : label;
+			nextSteps.push({ label, prompt });
+		}
+	}
+	// 提问的答案（owl-ask-user 的 details.answers）：投影成「问题 → 用户回答」
+	// 对，渲染成 Claude 的响应列表（Yc）；未作答按它的占位写法。
+	const questionAnswers: { question: string; response: string }[] = [];
+	if (Array.isArray(details.answers)) {
+		for (const item of details.answers) {
+			if (item === null || typeof item !== "object") continue;
+			const entry = item as { question?: unknown; kind?: unknown; answer?: unknown; selected?: unknown };
+			if (typeof entry.question !== "string" || entry.question.trim() === "") continue;
+			const placeholder = "（未作答）";
+			let response = placeholder;
+			if (entry.kind === "multi" && Array.isArray(entry.selected) && entry.selected.length > 0)
+				response =
+					entry.selected.filter((part): part is string => typeof part === "string").join("、") || placeholder;
+			else if (typeof entry.answer === "string" && entry.answer.trim() !== "") response = entry.answer;
+			questionAnswers.push({ question: entry.question, response });
+		}
+	}
 	return {
 		text,
 		totalLines: text === "" ? 0 : text.split("\n").length,
 		...(images.length > 0 ? { images } : {}),
 		...(typeof details.title === "string" && details.title.trim() !== "" ? { title: details.title.trim() } : {}),
 		...(artifacts.length > 0 ? { artifacts } : {}),
+		...(todos.length > 0 ? { todos } : {}),
+		...(nextSteps.length > 0 ? { nextSteps } : {}),
+		...(questionAnswers.length > 0 ? { questionAnswers } : {}),
+		// 子代理的实时活动（owl-subagents partial details.activity）：组内行下的动态一行。
+		...(typeof details.activity === "string" && details.activity.trim() !== ""
+			? { activity: details.activity.trim().slice(0, 200) }
+			: {}),
 		...(typeof details.fullOutputPath === "string" ? { fullPath: details.fullOutputPath } : {}),
 		...(details.genuiSpec !== undefined ? { genuiSpec: details.genuiSpec } : {}),
 		...(researchResult ? { researchResult } : {}),
@@ -892,7 +1183,8 @@ function textOf(content: unknown): string {
 function usageOf(message: AnyEvent): MessageUsage | undefined {
 	const usage = message.usage;
 	if (typeof usage !== "object" || usage === null) return undefined;
-	const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+	const num = (value: unknown): number =>
+		typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 	const parsed: MessageUsage = {
 		input: num(usage.input),
 		output: num(usage.output),
@@ -905,7 +1197,9 @@ function usageOf(message: AnyEvent): MessageUsage | undefined {
 
 /** 消息时间戳（wire 上 AgentMessage 自带；旧桥/异常流可能缺）。 */
 function timestampOf(message: AnyEvent): number | undefined {
-	return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) && message.timestamp > 0 ? message.timestamp : undefined;
+	return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) && message.timestamp > 0
+		? message.timestamp
+		: undefined;
 }
 
 /** 消息上的模型 id（仅 assistant）。 */
@@ -918,7 +1212,10 @@ function contentImagesOf(content: unknown): ToolResultImage[] {
 	if (!Array.isArray(content)) return [];
 	return content
 		.filter((part: AnyEvent) => part.type === "image" && typeof part.data === "string" && part.data !== "")
-		.map((part: AnyEvent) => ({ data: part.data, mimeType: typeof part.mimeType === "string" && part.mimeType !== "" ? part.mimeType : "image/png" }));
+		.map((part: AnyEvent) => ({
+			data: part.data,
+			mimeType: typeof part.mimeType === "string" && part.mimeType !== "" ? part.mimeType : "image/png",
+		}));
 }
 
 function firstTextLine(text: string): string {

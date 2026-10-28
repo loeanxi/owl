@@ -266,7 +266,13 @@ export function createAmbientEngine(
 			});
 			// 等待授权/提问：底部泛琥珀，节奏比工作更缓、更显眼一点
 			if (wait > 0.01) {
-				drawBlob(blobSprite("255,170,50"), w * 0.5, h * 1.0, long * 0.5, 0.42 * gain * wait * (0.65 + 0.35 * Math.sin((TWO_PI * t) / 2.2)));
+				drawBlob(
+					blobSprite("255,170,50"),
+					w * 0.5,
+					h * 1.0,
+					long * 0.5,
+					0.42 * gain * wait * (0.65 + 0.35 * Math.sin((TWO_PI * t) / 2.2)),
+				);
 			}
 			// 异常：底部泛红，随时间衰减
 			if (err > 0.01) {

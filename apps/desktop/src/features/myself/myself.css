@@ -998,9 +998,6 @@
 	.owl-myself-sheet-head h2 i {
 		display: none;
 	}
-	.owl-myself-full-conversation .owl-shell-project {
-		display: none;
-	}
 }
 @media (prefers-reduced-motion: reduce) {
 	.owl-myself * {

@@ -24,7 +24,9 @@ const en: Record<keyof typeof zh, string> = {
 
 export function composerMaterialsText(key: keyof typeof zh, vars?: Record<string, string | number>): string {
 	const template = (getUiLanguage() === "en" ? en : zh)[key];
-	return vars ? template.replace(/\{(\w+)\}/g, (raw, name: string) => name in vars ? String(vars[name]) : raw) : template;
+	return vars
+		? template.replace(/\{(\w+)\}/g, (raw, name: string) => (name in vars ? String(vars[name]) : raw))
+		: template;
 }
 
 export function useComposerMaterialsText(): typeof composerMaterialsText {

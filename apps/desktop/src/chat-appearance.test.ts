@@ -13,30 +13,45 @@ test("missing and malformed saved preferences use independent defaults", () => {
 });
 
 test("invalid fields fall back independently without discarding valid display preferences", () => {
-	assert.deepEqual(parseChatAppearance({
-		fontSize: "22",
-		codeFontSize: Number.NaN,
-		lineHeight: Number.POSITIVE_INFINITY,
-		width: null,
-		toolRecords: "expanded",
-		motion: false,
-		unrelated: "ignored",
-	}), { ...DEFAULT_CHAT_APPEARANCE, toolRecords: "expanded", motion: false });
+	assert.deepEqual(
+		parseChatAppearance({
+			fontSize: "22",
+			codeFontSize: Number.NaN,
+			lineHeight: Number.POSITIVE_INFINITY,
+			width: null,
+			toolRecords: "expanded",
+			motion: false,
+			unrelated: "ignored",
+		}),
+		{ ...DEFAULT_CHAT_APPEARANCE, toolRecords: "expanded", motion: false },
+	);
 	assert.deepEqual(parseChatAppearance({ toolRecords: "unknown", motion: "false" }), DEFAULT_CHAT_APPEARANCE);
 });
 
 test("finite saved numbers clamp at both ends of every supported reading range", () => {
 	assert.deepEqual(parseChatAppearance({ fontSize: -100, codeFontSize: 0, lineHeight: 0, width: 1 }), {
-		...DEFAULT_CHAT_APPEARANCE, fontSize: 14, codeFontSize: 11, lineHeight: 1.5, width: 640,
+		...DEFAULT_CHAT_APPEARANCE,
+		fontSize: 14,
+		codeFontSize: 11,
+		lineHeight: 1.5,
+		width: 640,
 	});
 	assert.deepEqual(parseChatAppearance({ fontSize: 100, codeFontSize: 100, lineHeight: 9, width: 10000 }), {
-		...DEFAULT_CHAT_APPEARANCE, fontSize: 22, codeFontSize: 18, lineHeight: 2, width: 960,
+		...DEFAULT_CHAT_APPEARANCE,
+		fontSize: 22,
+		codeFontSize: 18,
+		lineHeight: 2,
+		width: 960,
 	});
 });
 
 test("saved fractional values normalize to stable slider values", () => {
 	assert.deepEqual(parseChatAppearance({ fontSize: 17.6, codeFontSize: 12.4, lineHeight: 1.72, width: 767.8 }), {
-		...DEFAULT_CHAT_APPEARANCE, fontSize: 18, codeFontSize: 12, lineHeight: 1.7, width: 768,
+		...DEFAULT_CHAT_APPEARANCE,
+		fontSize: 18,
+		codeFontSize: 12,
+		lineHeight: 1.7,
+		width: 768,
 	});
 });
 
@@ -58,14 +73,31 @@ test("applying preferences changes only chat variables and publishes the complet
 	const target = new EventTarget();
 	const notifications: string[] = [];
 	target.addEventListener("owl-chat-appearance-change", (event) => {
-		notifications.push(`${event.type}:${dataset.owlToolRecords}:${dataset.owlChatMotion}:${properties.get("--owl-chat-font-size")}`);
+		notifications.push(
+			`${event.type}:${dataset.owlToolRecords}:${dataset.owlChatMotion}:${properties.get("--owl-chat-font-size")}`,
+		);
 	});
-	Object.defineProperty(globalThis, "document", { configurable: true, value: {
-		documentElement: { dataset, style: { setProperty: (name: string, value: string) => properties.set(name, value) } },
-	} });
+	Object.defineProperty(globalThis, "document", {
+		configurable: true,
+		value: {
+			documentElement: {
+				dataset,
+				style: { setProperty: (name: string, value: string) => properties.set(name, value) },
+			},
+		},
+	});
 	Object.defineProperty(globalThis, "window", { configurable: true, value: target });
 
-	applyChatAppearance(parseChatAppearance({ fontSize: 20, codeFontSize: 16, lineHeight: 1.9, width: 920, toolRecords: "expanded", motion: false }));
+	applyChatAppearance(
+		parseChatAppearance({
+			fontSize: 20,
+			codeFontSize: 16,
+			lineHeight: 1.9,
+			width: 920,
+			toolRecords: "expanded",
+			motion: false,
+		}),
+	);
 	assert.deepEqual(Object.fromEntries(properties), {
 		"--font-sans": "original interface font",
 		"--composer-font-size": "14px",
@@ -75,7 +107,14 @@ test("applying preferences changes only chat variables and publishes the complet
 		"--owl-chat-line-height": "1.9",
 		"--owl-chat-width": "920px",
 	});
-	assert.deepEqual(dataset, { owlTheme: "dark", owlToolRecords: "expanded", owlChatMotion: "off", owlClaudeFlow: "on", owlThinkingStyle: "claude", owlWorkEffects: "rail enter morph count spine breathe nudge" });
+	assert.deepEqual(dataset, {
+		owlTheme: "dark",
+		owlToolRecords: "expanded",
+		owlChatMotion: "off",
+		owlClaudeFlow: "on",
+		owlThinkingStyle: "claude",
+		owlWorkEffects: "rail enter morph count spine breathe nudge",
+	});
 	assert.deepEqual(notifications, ["owl-chat-appearance-change:expanded:off:20px"]);
 
 	applyChatAppearance(parseChatAppearance(undefined));
@@ -95,8 +134,14 @@ test("work process effects are parsed per item and written to the dataset as ena
 	// 没提到的项各自回落到默认开启，不受同组坏值影响。
 	assert.equal(parsed.workEffects.morph, true);
 	assert.equal(parsed.workEffects.nudge, true);
-	assert.deepEqual(parseChatAppearance({ workEffects: "not-an-object" }).workEffects, DEFAULT_CHAT_APPEARANCE.workEffects);
-	assert.deepEqual(parseChatAppearance({ workEffects: { rail: "off" } }).workEffects, DEFAULT_CHAT_APPEARANCE.workEffects);
+	assert.deepEqual(
+		parseChatAppearance({ workEffects: "not-an-object" }).workEffects,
+		DEFAULT_CHAT_APPEARANCE.workEffects,
+	);
+	assert.deepEqual(
+		parseChatAppearance({ workEffects: { rail: "off" } }).workEffects,
+		DEFAULT_CHAT_APPEARANCE.workEffects,
+	);
 });
 
 test("preferences can be loaded outside the desktop browser without accessing the DOM", () => {

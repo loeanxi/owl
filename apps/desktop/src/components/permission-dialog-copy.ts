@@ -38,7 +38,7 @@ const en: Record<keyof typeof zh, string> = {
 
 export function permissionDialogText(key: keyof typeof zh, vars?: Record<string, string>): string {
 	const template = (getUiLanguage() === "en" ? en : zh)[key];
-	return vars ? template.replace(/\{(\w+)\}/g, (raw, name: string) => name in vars ? vars[name]! : raw) : template;
+	return vars ? template.replace(/\{(\w+)\}/g, (raw, name: string) => (name in vars ? vars[name]! : raw)) : template;
 }
 
 export function usePermissionDialogText(): typeof permissionDialogText {

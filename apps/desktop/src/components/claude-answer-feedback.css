@@ -1,0 +1,115 @@
+/**
+ * 回答的赞/跌。
+ *
+ * 两个拇指按钮跟着消息操作栏的尺度走（`owl-msg-action`），
+ * 选中的那个染色并按下。展开的补充框浮在操作栏下方，不挤动别的行。
+ *
+ * 颜色走对话区的阅读色（`--owl-reading-*`，由 `index.css` 映射到 `--color-owl-*`），
+ * 这样浅色/深色/壁纸主题都跟着走。
+ */
+
+.owl-feedback {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.owl-feedback-btn.is-pressed {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 40%, transparent);
+	background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent);
+	color: var(--color-owl-accent);
+}
+
+/* 补充框挂在拇指下面：锚在按钮组的左缘，宽度固定，不会被挤到屏幕外。 */
+.owl-feedback-form {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: 0;
+	z-index: 30;
+	display: flex;
+	width: min(280px, calc(100vw - 32px));
+	flex-direction: column;
+	gap: 5px;
+	padding: 9px 10px;
+	border: 1px solid var(--owl-reading-border);
+	border-radius: 9px;
+	background: var(--owl-ui-panel, var(--owl-reading-panel));
+	color: var(--owl-reading-text);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+
+.owl-feedback-label {
+	color: var(--owl-reading-muted);
+	font-size: 11px;
+	line-height: 15px;
+}
+
+.owl-feedback-text {
+	width: 100%;
+	resize: vertical;
+	padding: 6px 8px;
+	border: 1px solid var(--owl-reading-border);
+	border-radius: 7px;
+	background: var(--owl-reading-panel);
+	color: var(--owl-reading-text);
+	font-family: var(--font-sans);
+	font-size: 12px;
+	line-height: 1.6;
+	outline: none;
+}
+
+.owl-feedback-text:focus {
+	border-color: color-mix(in srgb, var(--color-owl-accent) 60%, transparent);
+}
+
+.owl-feedback-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.owl-feedback-action {
+	padding: 2px 9px;
+	border: 1px solid var(--owl-reading-border);
+	border-radius: 6px;
+	background: transparent;
+	color: var(--owl-reading-muted);
+	font-family: var(--font-sans);
+	font-size: 11px;
+	line-height: 16px;
+	cursor: pointer;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.owl-feedback-action:hover:not(:disabled) {
+	background: var(--owl-reading-panel);
+	color: var(--owl-reading-text);
+}
+
+.owl-feedback-action.is-primary {
+	border-color: transparent;
+	background: var(--color-owl-accent);
+	color: #fff;
+}
+
+.owl-feedback-action.is-primary:hover:not(:disabled) {
+	background: var(--color-owl-accent-hover, var(--color-owl-accent));
+	color: #fff;
+}
+
+.owl-feedback-action:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+.owl-feedback-note {
+	margin: 0;
+	color: var(--owl-reading-faint);
+	font-size: 11px;
+	line-height: 15px;
+}
+
+.owl-feedback-note.is-error {
+	color: var(--owl-ui-danger, var(--color-owl-danger, #d48080));
+}

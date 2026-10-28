@@ -11,7 +11,10 @@ import "./manager-tab.css";
 
 const DEFAULT_URL = "http://127.0.0.1:8790";
 
-export function ManagerTab({ onOpenExternal, onThemeChange }: {
+export function ManagerTab({
+	onOpenExternal,
+	onThemeChange,
+}: {
 	onOpenExternal: (url: string) => Promise<void>;
 	onThemeChange: (theme: "dark" | "light") => Promise<void>;
 }) {
@@ -21,11 +24,10 @@ export function ManagerTab({ onOpenExternal, onThemeChange }: {
 	});
 	const [status, setStatus] = useState<"checking" | "up" | "down">("checking");
 	const [reloadKey, setReloadKey] = useState(0);
-	const frameUrl = useMemo(() => managerFrameUrl(
-		url,
-		window.location.origin,
-		resolveSurfaceTheme(document.documentElement.dataset),
-	), [url, reloadKey]);
+	const frameUrl = useMemo(
+		() => managerFrameUrl(url, window.location.origin, resolveSurfaceTheme(document.documentElement.dataset)),
+		[url, reloadKey],
+	);
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const frameRef = useRef<HTMLIFrameElement>(null);
 	const themeBridgeRef = useRef<ReturnType<typeof attachManagerTheme> | null>(null);
@@ -34,12 +36,16 @@ export function ManagerTab({ onOpenExternal, onThemeChange }: {
 	const openExternalRef = useRef(onOpenExternal);
 	openExternalRef.current = onOpenExternal;
 
-	useEffect(() => attachManagerAccountAuth({
-		host: window,
-		managerUrl: url,
-		frameWindow: () => frameRef.current?.contentWindow ?? null,
-		openExternal: (target) => openExternalRef.current(target),
-	}), [url]);
+	useEffect(
+		() =>
+			attachManagerAccountAuth({
+				host: window,
+				managerUrl: url,
+				frameWindow: () => frameRef.current?.contentWindow ?? null,
+				openExternal: (target) => openExternalRef.current(target),
+			}),
+		[url],
+	);
 	useEffect(() => {
 		const surface = surfaceRef.current;
 		if (!surface) return;
@@ -76,11 +82,7 @@ export function ManagerTab({ onOpenExternal, onThemeChange }: {
 					<span className={`owl-manager-status-dot is-${status}`} aria-hidden="true" />
 					{status === "up" ? "号池运行中" : status === "checking" ? "检测中…" : "号池离线"}
 				</button>
-				<button
-					type="button"
-					className="owl-manager-refresh"
-					onClick={() => setReloadKey((k) => k + 1)}
-				>
+				<button type="button" className="owl-manager-refresh" onClick={() => setReloadKey((k) => k + 1)}>
 					刷新
 				</button>
 			</div>
@@ -98,10 +100,12 @@ export function ManagerTab({ onOpenExternal, onThemeChange }: {
 				<div className="owl-manager-empty">
 					<p style={{ fontWeight: 600 }}>号池服务未启动</p>
 					<p className="owl-manager-hint">
-						Owl 启动时会自动拉起号池（默认 127.0.0.1:8790）。若仍离线，可托盘「重启后台服务」，
-						或手动运行 <code>node apps/pool-server/dist/main.js</code>。
+						Owl 启动时会自动拉起号池（默认 127.0.0.1:8790）。若仍离线，可托盘「重启后台服务」， 或手动运行{" "}
+						<code>node apps/pool-server/dist/main.js</code>。
 					</p>
-					<button type="button" className="owl-manager-refresh" onClick={check}>重试</button>
+					<button type="button" className="owl-manager-refresh" onClick={check}>
+						重试
+					</button>
 				</div>
 			)}
 		</div>

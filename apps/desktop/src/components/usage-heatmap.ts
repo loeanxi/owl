@@ -67,11 +67,13 @@ function fullHeatmap(byDay: HeatDay[]): HeatCell[][] {
 		const tokens = tokensByDate.get(date) ?? 0;
 		if (tokens > 0) max = Math.max(max, tokens);
 	}
-	return chunkWeeks(dates.map((date) => {
-		if (date > todayKey) return { date: "", tokens: 0, level: -1 };
-		const tokens = tokensByDate.get(date) ?? 0;
-		return { date, tokens, level: heatLevel(tokens, max) };
-	}));
+	return chunkWeeks(
+		dates.map((date) => {
+			if (date > todayKey) return { date: "", tokens: 0, level: -1 };
+			const tokens = tokensByDate.get(date) ?? 0;
+			return { date, tokens, level: heatLevel(tokens, max) };
+		}),
+	);
 }
 
 /** 7 天 / 30 天跟接口窗口走，不补半年空格。窗口外的对齐格隐藏，不当成零用量。 */
@@ -101,11 +103,13 @@ function spannedHeatmap(byDay: HeatDay[]): HeatCell[][] {
 		const tokens = tokensByDate.get(date);
 		if (tokens !== undefined) max = Math.max(max, tokens);
 	}
-	return chunkWeeks(dates.map((date) => {
-		const tokens = tokensByDate.get(date);
-		if (tokens === undefined || date < firstKey || date > lastKey) return { date: "", tokens: 0, level: -1 };
-		return { date, tokens, level: heatLevel(tokens, max) };
-	}));
+	return chunkWeeks(
+		dates.map((date) => {
+			const tokens = tokensByDate.get(date);
+			if (tokens === undefined || date < firstKey || date > lastKey) return { date: "", tokens: 0, level: -1 };
+			return { date, tokens, level: heatLevel(tokens, max) };
+		}),
+	);
 }
 
 export function heatmapCells(byDay: HeatDay[], range: UsageRange): { cells: HeatCell[][]; fill: boolean } {

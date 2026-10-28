@@ -22,8 +22,7 @@
  * （上游教训：频繁 resume 会重置帧计量，首帧判定永不通过）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { applyOwlGlassTheme, type OwlWallpaperSettings } from "../wallpaper.ts";
-import { WALLPAPER_IFRAME_SANDBOX } from "../wallpaper.ts";
+import { applyOwlGlassTheme, type OwlWallpaperSettings, WALLPAPER_IFRAME_SANDBOX } from "../wallpaper.ts";
 
 /** 桥端 inventory 条目（wallpaper-http.ts WallpaperEntry 的客户端视图）。 */
 export interface WallpaperEntry {
@@ -186,9 +185,11 @@ export function WallpaperLayer({ settings, refreshKey = 0 }: WallpaperLayerProps
 
 	useEffect(() => {
 		let mounted = true;
-		void fetchInventory(refreshKey > 0).then((list) => {
-			if (mounted) setEntries(list);
-		}).catch(() => {});
+		void fetchInventory(refreshKey > 0)
+			.then((list) => {
+				if (mounted) setEntries(list);
+			})
+			.catch(() => {});
 		return () => {
 			mounted = false;
 		};
@@ -258,7 +259,9 @@ export function WallpaperLayer({ settings, refreshKey = 0 }: WallpaperLayerProps
 	return (
 		<div className="owl-wallpaper-layer" aria-hidden="true">
 			{shown && <MediaLayer spec={shown} settings={settings} visible onReady={handleReady} onFail={handleFail} />}
-			{staging && <MediaLayer spec={staging} settings={settings} visible={false} onReady={handleReady} onFail={handleFail} />}
+			{staging && (
+				<MediaLayer spec={staging} settings={settings} visible={false} onReady={handleReady} onFail={handleFail} />
+			)}
 			<div className="owl-wallpaper-dim" style={{ backgroundColor: `rgba(0,0,0,${dimAlpha})` }} />
 		</div>
 	);
@@ -287,7 +290,13 @@ function MediaLayer(props: MediaLayerProps): React.JSX.Element {
 
 // ---------------------------------------------------------------- 视频渲染
 
-function VideoLayer({ spec, settings, visible, onReady, onFail }: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "video" }> }) {
+function VideoLayer({
+	spec,
+	settings,
+	visible,
+	onReady,
+	onFail,
+}: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "video" }> }) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 	const readyFired = useRef(false);
 	const fireReady = () => {
@@ -340,7 +349,13 @@ function VideoLayer({ spec, settings, visible, onReady, onFail }: MediaLayerProp
 
 // ---------------------------------------------------------------- 图片渲染
 
-function ImageLayer({ spec, visible, settings, onReady, onFail }: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "image" }> }) {
+function ImageLayer({
+	spec,
+	visible,
+	settings,
+	onReady,
+	onFail,
+}: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "image" }> }) {
 	return (
 		<img
 			src={spec.src}
@@ -355,7 +370,13 @@ function ImageLayer({ spec, visible, settings, onReady, onFail }: MediaLayerProp
 
 // ---------------------------------------------------------------- 网页渲染
 
-function WebFrame({ spec, settings, visible, onReady, onFail }: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "web" }> }) {
+function WebFrame({
+	spec,
+	settings,
+	visible,
+	onReady,
+	onFail,
+}: MediaLayerProps & { spec: Extract<RenderSpec, { kind: "web" }> }) {
 	const frameRef = useRef<HTMLIFrameElement | null>(null);
 	const pausedRef = useRef(false);
 	const readyFired = useRef(false);
@@ -414,7 +435,13 @@ interface WebWallGLControl {
 	updateWebProps(props: Record<string, { value: unknown }>): void;
 	pushPointer(u: number, v: number, buttons: number, mods?: number): void;
 	pointerLeave(): void;
-	getState?(): { type?: string; iframeLoaded?: boolean | null; webError?: string | null; paused?: boolean; webFps?: number | null };
+	getState?(): {
+		type?: string;
+		iframeLoaded?: boolean | null;
+		webError?: string | null;
+		paused?: boolean;
+		webFps?: number | null;
+	};
 }
 
 interface WebWallGLStats {
@@ -467,7 +494,10 @@ function SceneLiveFrame({
 	const pausedRef = useRef(false);
 	const readyFired = useRef(false);
 
-	const url = useMemo(() => buildSceneLiveUrl(spec, settings), [spec, settings.sceneFps, settings.fit, settings.volume > 0]);
+	const url = useMemo(
+		() => buildSceneLiveUrl(spec, settings),
+		[spec, settings.sceneFps, settings.fit, settings.volume > 0],
+	);
 
 	const renderWin = (): WebWallGLWindow | null => {
 		try {

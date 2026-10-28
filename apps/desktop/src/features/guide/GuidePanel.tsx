@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useT } from "../../i18n/index.ts";
 import {
+	fetchGuideChapters,
 	GUIDE_CHAPTERS,
 	GUIDE_LICENSE_URL,
 	GUIDE_REPO_URL,
-	fetchGuideChapters,
+	type GuideChapter,
+	type GuideTip,
 	guideChapterUrl,
 	loadCachedGuide,
 	saveCachedGuide,
-	type GuideChapter,
-	type GuideTip,
 } from "./guide-content.ts";
 import "./guide.css";
 import { LongevityGuidePanel } from "./LongevityGuidePanel.tsx";
@@ -46,7 +46,16 @@ function linkify(text: string, onOpenUrl: (url: string) => void, keyBase: string
 		if (match.index > last) nodes.push(text.slice(last, match.index));
 		const url = match[1];
 		nodes.push(
-			<a key={`${keyBase}-${index++}`} href={url} onClick={(event) => { event.preventDefault(); onOpenUrl(url); }}>{url}</a>,
+			<a
+				key={`${keyBase}-${index++}`}
+				href={url}
+				onClick={(event) => {
+					event.preventDefault();
+					onOpenUrl(url);
+				}}
+			>
+				{url}
+			</a>,
 		);
 		last = match.index + match[0].length;
 	}
@@ -70,7 +79,12 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 			// 忽略。
 		}
 	};
-	const [state, setState] = useState<LoadState>({ status: "idle", chapters: [], done: 0, total: GUIDE_CHAPTERS.length });
+	const [state, setState] = useState<LoadState>({
+		status: "idle",
+		chapters: [],
+		done: 0,
+		total: GUIDE_CHAPTERS.length,
+	});
 	const [activeNo, setActiveNo] = useState(1);
 	const [query, setQuery] = useState("");
 	const [grade, setGrade] = useState<GradeFilter>("all");
@@ -85,7 +99,13 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 					return;
 				}
 				const savedAt = saveCachedGuide(result.chapters);
-				setState({ status: "ready", chapters: result.chapters, savedAt, done: result.chapters.length, total: GUIDE_CHAPTERS.length });
+				setState({
+					status: "ready",
+					chapters: result.chapters,
+					savedAt,
+					done: result.chapters.length,
+					total: GUIDE_CHAPTERS.length,
+				});
 			})
 			.catch(() => setState((current) => ({ ...current, status: "error" })));
 	};
@@ -94,7 +114,13 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 		if (!active || tab !== "better" || state.status !== "idle") return;
 		const cached = loadCachedGuide();
 		if (cached.chapters.length > 0) {
-			setState({ status: "ready", chapters: cached.chapters, savedAt: cached.savedAt, done: cached.chapters.length, total: GUIDE_CHAPTERS.length });
+			setState({
+				status: "ready",
+				chapters: cached.chapters,
+				savedAt: cached.savedAt,
+				done: cached.chapters.length,
+				total: GUIDE_CHAPTERS.length,
+			});
 			return;
 		}
 		sync();
@@ -132,7 +158,8 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 		if (state.status !== "ready") return [];
 		const match = (tip: GuideTip): boolean => {
 			if (grade === "disputed" ? !tip.disputed : grade !== "all" && tip.grade !== grade) return false;
-			if (needle && !(tip.title.toLowerCase().includes(needle) || tip.plain.toLowerCase().includes(needle))) return false;
+			if (needle && !(tip.title.toLowerCase().includes(needle) || tip.plain.toLowerCase().includes(needle)))
+				return false;
 			return true;
 		};
 		const scope = filtering ? state.chapters : state.chapters.filter((chapter) => chapter.no === activeNo);
@@ -154,32 +181,89 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 		<div className={`owl-guide${active ? " is-active" : ""}`}>
 			<div className="owl-guide-head">
 				<span className="owl-guide-avatar" aria-hidden="true">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.4" cy="4.6" r="2.4" /><path d="M13 7.4 11.6 13.4" /><path d="M12.8 8.6 17.2 10.2" /><path d="M12.4 9 8 10.6" /><path d="M11.6 13.4 15 15.8 14.6 19.6" /><path d="M11.6 13.4 8.8 16.6 5.9 19.2" /></svg>
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.9"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
+						<circle cx="13.4" cy="4.6" r="2.4" />
+						<path d="M13 7.4 11.6 13.4" />
+						<path d="M12.8 8.6 17.2 10.2" />
+						<path d="M12.4 9 8 10.6" />
+						<path d="M11.6 13.4 15 15.8 14.6 19.6" />
+						<path d="M11.6 13.4 8.8 16.6 5.9 19.2" />
+					</svg>
 				</span>
 				<div className="owl-guide-tabs" role="tablist">
-					<button type="button" role="tab" aria-selected={tab === "better"} className={tab === "better" ? "on" : ""} onClick={() => selectTab("better")}>{t("guide.tabBetter")}</button>
-					<button type="button" role="tab" aria-selected={tab === "up"} className={tab === "up" ? "on" : ""} onClick={() => selectTab("up")}>{t("guide.tabUp")}</button>
-					<button type="button" role="tab" aria-selected={tab === "longevity"} className={tab === "longevity" ? "on" : ""} onClick={() => selectTab("longevity")}>{t("guide.tabLongevity")}</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === "better"}
+						className={tab === "better" ? "on" : ""}
+						onClick={() => selectTab("better")}
+					>
+						{t("guide.tabBetter")}
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === "up"}
+						className={tab === "up" ? "on" : ""}
+						onClick={() => selectTab("up")}
+					>
+						{t("guide.tabUp")}
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={tab === "longevity"}
+						className={tab === "longevity" ? "on" : ""}
+						onClick={() => selectTab("longevity")}
+					>
+						{t("guide.tabLongevity")}
+					</button>
 				</div>
 				{tab === "better" && (
 					<>
 						<label className="owl-guide-search">
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+							<svg
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="1.8"
+								strokeLinecap="round"
+								aria-hidden="true"
+							>
+								<circle cx="11" cy="11" r="7" />
+								<path d="m20 20-3.5-3.5" />
+							</svg>
 							<input
 								value={query}
 								onChange={(event) => setQuery(event.target.value)}
 								placeholder={t("guide.searchPlaceholder")}
 								aria-label={t("guide.searchPlaceholder")}
 							/>
-							{query && <button type="button" aria-label="×" onClick={() => setQuery("")}>×</button>}
+							{query && (
+								<button type="button" aria-label="×" onClick={() => setQuery("")}>
+									×
+								</button>
+							)}
 						</label>
 						<span className="owl-guide-sync" data-status={state.status}>
-							{state.status === "loading" ? t("guide.loading", { done: state.done, total: state.total })
-								: state.status === "error" ? t("guide.fetchFailed")
-								: state.savedAt ? t("guide.cachedAt", { date: state.savedAt })
-								: ""}
+							{state.status === "loading"
+								? t("guide.loading", { done: state.done, total: state.total })
+								: state.status === "error"
+									? t("guide.fetchFailed")
+									: state.savedAt
+										? t("guide.cachedAt", { date: state.savedAt })
+										: ""}
 							{(state.status === "ready" || state.status === "error") && (
-								<button type="button" onClick={sync}>{t("guide.resync")}</button>
+								<button type="button" onClick={sync}>
+									{t("guide.resync")}
+								</button>
 							)}
 						</span>
 					</>
@@ -188,11 +272,23 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 			{/* 三个 tab 都保活：display:contents 让可见面板的子元素直接参与 .owl-guide 布局。 */}
 			<div style={{ display: tab === "better" ? "contents" : "none" }}>
 				<div className="owl-guide-filters" role="group">
-					<FilterChip current={grade} value="all" label={t("guide.filterAll")} count={counts.total} onPick={setGrade} />
+					<FilterChip
+						current={grade}
+						value="all"
+						label={t("guide.filterAll")}
+						count={counts.total}
+						onPick={setGrade}
+					/>
 					<FilterChip current={grade} value="A" label={t("guide.filterA")} count={counts.a} onPick={setGrade} />
 					<FilterChip current={grade} value="B" label={t("guide.filterB")} count={counts.b} onPick={setGrade} />
 					<FilterChip current={grade} value="C" label={t("guide.filterC")} count={counts.c} onPick={setGrade} />
-					<FilterChip current={grade} value="disputed" label={t("guide.filterDisputed")} count={counts.disputed} onPick={setGrade} />
+					<FilterChip
+						current={grade}
+						value="disputed"
+						label={t("guide.filterDisputed")}
+						count={counts.disputed}
+						onPick={setGrade}
+					/>
 					<span className="owl-guide-sort">{t("guide.sortNote")}</span>
 				</div>
 				<div className="owl-guide-main">
@@ -202,7 +298,11 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 								key={meta.no}
 								type="button"
 								className={`owl-guide-ch${!filtering && activeNo === meta.no ? " on" : ""}`}
-								onClick={() => { setActiveNo(meta.no); setQuery(""); setGrade("all"); }}
+								onClick={() => {
+									setActiveNo(meta.no);
+									setQuery("");
+									setGrade("all");
+								}}
 							>
 								<span className="no">{String(meta.no).padStart(2, "0")}</span>
 								<span>{titleOf(meta.no)}</span>
@@ -213,24 +313,40 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 						{state.status === "loading" && (
 							<div className="owl-guide-state">
 								<p>{t("guide.loading", { done: state.done, total: state.total })}</p>
-								<div className="bar"><i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} /></div>
+								<div className="bar">
+									<i style={{ width: `${Math.round((state.done / Math.max(1, state.total)) * 100)}%` }} />
+								</div>
 							</div>
 						)}
 						{state.status === "error" && (
 							<div className="owl-guide-state">
 								<p className="err">{t("guide.fetchFailed")}</p>
-								<p><button type="button" className="owl-guide-linkbtn" onClick={sync}>{t("guide.retry")}</button></p>
+								<p>
+									<button type="button" className="owl-guide-linkbtn" onClick={sync}>
+										{t("guide.retry")}
+									</button>
+								</p>
 							</div>
 						)}
 						{state.status === "ready" && groups.length === 0 && (
-							<div className="owl-guide-state"><p>{t("guide.noMatch")}</p></div>
+							<div className="owl-guide-state">
+								<p>{t("guide.noMatch")}</p>
+							</div>
 						)}
 						{groups.map(({ chapter, tips }) => (
 							<section key={chapter.no} className="owl-guide-section">
 								<header className="owl-guide-sec-head">
 									<h2>{t("guide.section", { no: chapter.no, title: titleOf(chapter.no) })}</h2>
 									<span>{t("guide.sortNote")}</span>
-									<a href={guideChapterUrl(chapter.file)} onClick={(event) => { event.preventDefault(); onOpenUrl(guideChapterUrl(chapter.file)); }}>{t("guide.viewChapter")} ↗</a>
+									<a
+										href={guideChapterUrl(chapter.file)}
+										onClick={(event) => {
+											event.preventDefault();
+											onOpenUrl(guideChapterUrl(chapter.file));
+										}}
+									>
+										{t("guide.viewChapter")} ↗
+									</a>
 								</header>
 								{tips.map((tip) => (
 									<TipCard
@@ -251,8 +367,24 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 						{state.savedAt && ` · ${t("guide.mayLagUpstream", { date: state.savedAt })}`}
 					</span>
 					<span className="right">
-						<a href={GUIDE_LICENSE_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_LICENSE_URL); }}>{t("guide.license")} ↗</a>
-						<a href={GUIDE_REPO_URL} onClick={(event) => { event.preventDefault(); onOpenUrl(GUIDE_REPO_URL); }}>{t("guide.openOnGithub")} ↗</a>
+						<a
+							href={GUIDE_LICENSE_URL}
+							onClick={(event) => {
+								event.preventDefault();
+								onOpenUrl(GUIDE_LICENSE_URL);
+							}}
+						>
+							{t("guide.license")} ↗
+						</a>
+						<a
+							href={GUIDE_REPO_URL}
+							onClick={(event) => {
+								event.preventDefault();
+								onOpenUrl(GUIDE_REPO_URL);
+							}}
+						>
+							{t("guide.openOnGithub")} ↗
+						</a>
 					</span>
 				</div>
 			</div>
@@ -266,7 +398,13 @@ export function GuidePanel({ active, onOpenUrl }: GuidePanelProps): React.JSX.El
 	);
 }
 
-function FilterChip({ current, value, label, count, onPick }: {
+function FilterChip({
+	current,
+	value,
+	label,
+	count,
+	onPick,
+}: {
 	current: GradeFilter;
 	value: GradeFilter;
 	label: string;
@@ -274,13 +412,23 @@ function FilterChip({ current, value, label, count, onPick }: {
 	onPick: (value: GradeFilter) => void;
 }): React.JSX.Element {
 	return (
-		<button type="button" className={`owl-guide-fchip${current === value ? " on" : ""}`} onClick={() => onPick(value)}>
-			{label}<span className="n">{count}</span>
+		<button
+			type="button"
+			className={`owl-guide-fchip${current === value ? " on" : ""}`}
+			onClick={() => onPick(value)}
+		>
+			{label}
+			<span className="n">{count}</span>
 		</button>
 	);
 }
 
-function TipCard({ tip, expanded, onToggle, onOpenUrl }: {
+function TipCard({
+	tip,
+	expanded,
+	onToggle,
+	onOpenUrl,
+}: {
 	tip: GuideTip;
 	expanded: boolean;
 	onToggle: () => void;
@@ -298,20 +446,47 @@ function TipCard({ tip, expanded, onToggle, onOpenUrl }: {
 			{tip.tags.length > 0 && (
 				<div className="tags">
 					{tip.tags.map((tag) => (
-						<span key={tag.k} className={`tag${tag.k === "收益" && tag.v === "大" ? " hot" : ""}`}>{tag.k} <b>{tag.v}</b></span>
+						<span key={tag.k} className={`tag${tag.k === "收益" && tag.v === "大" ? " hot" : ""}`}>
+							{tag.k} <b>{tag.v}</b>
+						</span>
 					))}
 				</div>
 			)}
-			{tip.plain && <p className="plain"><span className="lbl">{t("guide.labelPlain")}</span>{tip.plain}</p>}
+			{tip.plain && (
+				<p className="plain">
+					<span className="lbl">{t("guide.labelPlain")}</span>
+					{tip.plain}
+				</p>
+			)}
 			<button type="button" className="tip-more" onClick={onToggle}>
 				{expanded ? t("guide.collapse") : t("guide.expand")} {expanded ? "▴" : "▾"}
 			</button>
 			{expanded && (
 				<div className="tip-detail">
-					{tip.cost && <p className="d-field"><span className="lbl">{t("guide.labelCost")}</span>{tip.cost}</p>}
-					{tip.benefit && <p className="d-field"><span className="lbl">{t("guide.labelBenefit")}</span>{tip.benefit}</p>}
-					{tip.sources && <p className="d-field"><span className="lbl">{t("guide.labelSources")}</span>{linkify(tip.sources, onOpenUrl, tip.key)}</p>}
-					{tip.remark && <p className={`d-note${tip.disputed ? " warn" : ""}`}><span className="lbl">{t("guide.labelRemark")}</span>{tip.remark}</p>}
+					{tip.cost && (
+						<p className="d-field">
+							<span className="lbl">{t("guide.labelCost")}</span>
+							{tip.cost}
+						</p>
+					)}
+					{tip.benefit && (
+						<p className="d-field">
+							<span className="lbl">{t("guide.labelBenefit")}</span>
+							{tip.benefit}
+						</p>
+					)}
+					{tip.sources && (
+						<p className="d-field">
+							<span className="lbl">{t("guide.labelSources")}</span>
+							{linkify(tip.sources, onOpenUrl, tip.key)}
+						</p>
+					)}
+					{tip.remark && (
+						<p className={`d-note${tip.disputed ? " warn" : ""}`}>
+							<span className="lbl">{t("guide.labelRemark")}</span>
+							{tip.remark}
+						</p>
+					)}
 				</div>
 			)}
 		</article>

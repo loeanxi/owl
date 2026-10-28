@@ -1,0 +1,276 @@
+/*
+ * Claude 回答流里新增单元的样式。
+ *
+ * 每条规则的取值都来自 Claude Desktop 的打包渲染层
+ * （`ion-dist/assets/v1/cc1aae219-DjR8LnUv.js` 与 `c6a992d55-sXiDGMFQ.css`）：
+ *
+ *   --cds-font-size-body:     .8125rem   （13px，正文）
+ *   --cds-font-size-footnote: .75rem     （12px，脚注）
+ *   --cds-font-size-code:     .75rem     （12px，等宽）
+ *   --cds-text-secondary:     neutral-600
+ *   --cds-text-muted:         neutral-400
+ *   --radius-xl:              .75rem     （12px）
+ *   --cds-surface-0:          --cds-gray-20
+ *   .shadow-xs:               0 1px 2px 0 rgb(0 0 0 / 0.05)
+ *
+ * 与 `claude-design-tokens.css` 分开放：那份是全局 token，
+ * 这份只管本轮新增单元的具体形态，避免两处同时改一个变量。
+ */
+
+/* ── 用户消息气泡 ───────────────────────────────────────────────
+   Claude 的 `RD()`：`w-fit min-w-64 max-w-[85%] rounded-xl border
+   bg-white dark:bg-surface-0 shadow-xs shadow-always-black/5`。
+   owl 原本是实心灰底（--color-owl-bubble）+ 16px 圆角 + 无描边。 */
+html[data-owl-claude-flow="on"] .owl-user-bubble {
+	min-width: 16rem;
+	max-width: 85%;
+	border-radius: 0.75rem;
+	border: 1px solid var(--owl-claude-user-bubble-border, var(--color-owl-border));
+	background: var(--owl-claude-user-bubble-bg, var(--color-owl-panel));
+	box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+	padding: 10px 16px;
+}
+
+/* ── 子代理组 ───────────────────────────────────────────────────
+   组头文案是 Claude 的 `Ran N agents`；外观复用普通工具组的类名。 */
+.owl-claude-subagent-group .owl-claude-group-title {
+	letter-spacing: 0.01em;
+}
+
+/* ── 提问卡 ─────────────────────────────────────────────────────
+   Claude 的 AskUserQuestion（Qc/Jc/qc）：my-4 块级单元；
+   卡 = rounded-xl + border + bg-surface-3 + p-4；
+   问题行 primary + 多题进度计数；选项装在一个 rounded-lg 边框盒里，
+   行间 border-t 分隔，行尾数字徽章（h-6 w-6 rounded）；
+   收口后整卡换成响应列表（Yc）：问题次级色 + 答案主色。 */
+.owl-claude-question {
+	margin: 16px 0;
+	padding: 16px;
+	border: 1px solid color-mix(in srgb, var(--owl-reading-text) 15%, transparent);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--owl-reading-text) 4%, transparent);
+}
+
+.owl-claude-question-item + .owl-claude-question-item {
+	margin-top: 16px;
+}
+
+.owl-claude-question-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+
+.owl-claude-question-text {
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--owl-reading-text);
+}
+
+.owl-claude-question-count {
+	flex: none;
+	font-size: 0.75rem;
+	color: var(--owl-reading-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.owl-claude-question-options {
+	overflow: hidden;
+	border: 1px solid color-mix(in srgb, var(--owl-reading-text) 15%, transparent);
+	border-radius: 8px;
+}
+
+.owl-claude-question-option {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 12px;
+	text-align: start;
+}
+.owl-claude-question-option + .owl-claude-question-option {
+	border-top: 1px solid color-mix(in srgb, var(--owl-reading-text) 15%, transparent);
+}
+
+.owl-claude-question-option-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.owl-claude-question-option-label {
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--owl-reading-text);
+}
+
+.owl-claude-question-option-desc {
+	margin-top: 2px;
+	font-size: 0.75rem;
+	line-height: 1.45;
+	color: var(--owl-reading-muted);
+}
+
+.owl-claude-question-option-badge {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent);
+	color: var(--owl-reading-muted);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+}
+
+/* "其他"自由填写行的占位文案用次级色。 */
+.owl-claude-question[data-claude-question-state="waiting"] .owl-claude-question-option-other .owl-claude-question-option-label {
+	color: var(--owl-reading-muted);
+}
+
+/* 收口后的响应列表（Yc）：问题次级色 + 答案主色，成对纵排。 */
+.owl-claude-question-responses {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+}
+.owl-claude-question-response {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+.owl-claude-question-response-q {
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--owl-reading-muted);
+}
+.owl-claude-question-response-a {
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--owl-reading-text);
+	overflow-wrap: anywhere;
+}
+
+/* ── 中断标记 ───────────────────────────────────────────────────
+   Claude 的 `ID()` 把 interrupted 单列一态：不是错误，不上红。 */
+.owl-claude-interrupted {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 6px 0;
+	font-size: 0.75rem;
+	line-height: 1.25rem;
+	color: var(--owl-reading-muted);
+}
+
+.owl-claude-interrupted-mark {
+	font-size: 0.5rem;
+	line-height: 1;
+	opacity: 0.7;
+}
+
+/* ── 连接器文本 ─────────────────────────────────────────────────
+   Claude 的 `connector_text`：一等散文块，脚注字号 + 次级色。 */
+.owl-claude-connector {
+	margin: 8px 0;
+	padding-left: 10px;
+	border-left: 1px solid var(--color-owl-border);
+}
+
+.owl-claude-connector-source {
+	display: block;
+	font-size: 0.75rem;
+	color: var(--owl-reading-muted);
+}
+
+.owl-claude-connector-text {
+	margin: 2px 0 0;
+	font-size: 0.75rem;
+	line-height: 1.45;
+	color: var(--owl-reading-muted);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* ── 产出文件卡（已撤）────────────────────────────────────────
+   对齐结论：Claude 的 present_files 就是一行 "Shared files" 工具行，
+   没有文件芯片条 —— write/edit 行已带文件名与动作。 *//* ── 本轮用量（token_budget 单元）─────────────────────────────
+   Claude 的 `token_budget` 在回答流里是「透明」单元（bundle 的 Oo 表：
+   omitted），从不渲染成可见行 —— owl 的本轮用量由回答底部操作栏承担。 */
+
+/* ── 链接预览卡（web_search 的 Sources 段 → rich_content 形态）────────
+   Claude 展开面板里来源是标题卡：字母瓦片 + 标题 + 域名，可点。 */
+.owl-claude-link-previews {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 8px 12px 4px;
+}
+.owl-claude-link-preview {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 8px;
+	border-radius: 8px;
+	text-decoration: none;
+	transition: background 120ms ease;
+}
+.owl-claude-link-preview:hover {
+	background: color-mix(in srgb, var(--owl-reading-text) 6%, transparent);
+}
+.owl-claude-link-preview-tile {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--owl-reading-text) 8%, transparent);
+	color: var(--owl-reading-muted);
+	font-size: 11px;
+	font-weight: 600;
+}
+.owl-claude-link-preview-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.owl-claude-link-preview-title {
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	color: var(--owl-reading-text);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.owl-claude-link-preview-domain {
+	font-size: 0.6875rem;
+	line-height: 1.4;
+	color: var(--owl-reading-muted);
+}
+
+/* ── 子代理实时活动行 ───────────────────────────────────────────
+   跑动中 agent 的 partial details.activity 落在标签下的动态一行。 */
+.owl-claude-subagent-row-body {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.owl-claude-subagent-activity {
+	margin-top: 2px;
+	font-size: 0.75rem;
+	line-height: 1.45;
+	color: var(--owl-reading-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

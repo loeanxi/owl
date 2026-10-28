@@ -1,0 +1,185 @@
+/**
+ * 产物列表。
+ *
+ * 形态对着 Claude Desktop 的 artifact 列表：一张安静的表，一行一个产物。
+ * 颜色走阅读色（`--owl-reading-*`），跟对话流同一套层级，不另起一套。
+ */
+
+.owl-products {
+	min-width: 0;
+	padding: 8px 0 2px;
+	color: var(--owl-reading-text);
+}
+
+.owl-products-heading {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 6px;
+	font-size: 13px;
+	line-height: 20px;
+}
+
+.owl-products-heading strong {
+	font-weight: 500;
+}
+
+.owl-products-heading > span {
+	color: var(--owl-reading-faint);
+	font-size: 12px;
+}
+
+.owl-products-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.owl-product-row {
+	min-width: 0;
+}
+
+.owl-product-button {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+	padding: 3px 0;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	font-size: 13px;
+	line-height: 20px;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 120ms ease;
+}
+
+.owl-product-button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--owl-reading-text) 5%, transparent);
+}
+
+.owl-product-button:focus-visible {
+	outline: 2px solid var(--owl-reading-link, var(--color-owl-accent));
+	outline-offset: 2px;
+}
+
+.owl-product-button:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+/* 没有打开动作时就是一行静态文本，不假装能点。 */
+.owl-product-button-static {
+	cursor: default;
+}
+
+.owl-product-button-static:hover {
+	background: transparent;
+}
+
+.owl-product-kind {
+	flex: none;
+	min-width: 34px;
+	padding: 0 5px;
+	border-radius: 5px;
+	background: color-mix(in srgb, var(--owl-reading-text) 8%, transparent);
+	color: var(--owl-reading-muted);
+	font-size: 11px;
+	line-height: 16px;
+	text-align: center;
+	white-space: nowrap;
+}
+
+.owl-product-kind[data-kind="chart"] {
+	background: color-mix(in srgb, var(--color-owl-accent) 16%, transparent);
+	color: var(--color-owl-accent);
+}
+
+.owl-product-kind[data-kind="table"] {
+	background: color-mix(in srgb, var(--color-owl-success) 14%, transparent);
+	color: var(--color-owl-success);
+}
+
+.owl-product-description {
+	display: flex;
+	min-width: 0;
+	flex: 1;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.owl-product-description strong {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--owl-reading-text);
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-product-description > span {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--owl-reading-faint);
+	font-size: 11px;
+	line-height: 15px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.owl-product-action {
+	flex: none;
+	color: var(--owl-reading-faint);
+	font-size: 11px;
+	line-height: 15px;
+	white-space: nowrap;
+}
+
+.owl-product-chevron {
+	flex: none;
+	width: 12px;
+	height: 12px;
+	color: var(--owl-reading-faint);
+}
+
+/*
+ * 产物列表一行一个：文件的次级动作（在文件夹中显示 / 复制绝对路径）平时收起来，
+ * 悬停或聚焦才出现 —— 与 Claude 的产物列表一样安静，也和 owl 自己的
+ * 「悬停才出操作」一致。
+ */
+.owl-product-row .owl-artifact-actions-buttons {
+	display: none;
+}
+
+.owl-product-row:hover .owl-artifact-actions-buttons,
+.owl-product-row:focus-within .owl-artifact-actions-buttons {
+	display: flex;
+}
+
+/* 定位产物时闪一下：告诉用户「滚到这里了」。 */
+[data-tool-id].is-product-located {
+	animation: owl-product-locate-flash 1400ms ease-out 1;
+}
+
+@keyframes owl-product-locate-flash {
+	0% {
+		background: color-mix(in srgb, var(--color-owl-accent) 14%, transparent);
+		box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-owl-accent) 55%, transparent);
+	}
+
+	70% {
+		background: transparent;
+		box-shadow: 0 0 0 8px transparent;
+	}
+
+	100% {
+		background: transparent;
+		box-shadow: 0 0 0 0 transparent;
+	}
+}

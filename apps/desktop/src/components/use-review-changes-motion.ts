@@ -5,11 +5,7 @@ export function useReviewChangesMotion(collapsed: boolean, contextKey: string) {
 	const cardRef = useRef<HTMLElement>(null);
 	useEffect(() => {
 		const card = cardRef.current;
-		if (
-			!card ||
-			typeof window.matchMedia !== "function" ||
-			typeof window.requestAnimationFrame !== "function"
-		)
+		if (!card || typeof window.matchMedia !== "function" || typeof window.requestAnimationFrame !== "function")
 			return;
 		const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 		const animations = new Set<Animation>();

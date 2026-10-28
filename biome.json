@@ -34,6 +34,8 @@
 			"apps/pool-server/test/**/*.ts",
 			"packages/coding-agent/examples/**/*.ts",
 			"packages/agent/examples/**/*.ts",
+			"apps/desktop/src/**/*.ts",
+			"apps/desktop/src/**/*.tsx",
 			"!**/node_modules/**/*",
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
@@ -43,5 +45,13 @@
 			"!!**/.temp"
 		]
 	},
+	"overrides": [
+		{
+			"includes": ["apps/desktop/src/**/*.ts", "apps/desktop/src/**/*.tsx"],
+			"linter": {
+				"enabled": false
+			}
+		}
+	],
 	"plugins": ["./scripts/biome/model-type-comparison.grit"]
 }

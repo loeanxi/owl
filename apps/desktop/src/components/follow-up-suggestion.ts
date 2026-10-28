@@ -16,7 +16,9 @@ export function dynamicFollowUp(user: string, assistant: string): string | undef
 	return chinese ? `就按「${offer}」继续，并给我结果` : `Continue from “${offer}” and show me the result`;
 }
 
-export function latestTurn(entries: readonly { kind: string; text?: string; aborted?: boolean }[]): { user: string; assistant: string } | undefined {
+export function latestTurn(
+	entries: readonly { kind: string; text?: string; aborted?: boolean }[],
+): { user: string; assistant: string } | undefined {
 	let assistant = "";
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
@@ -36,5 +38,7 @@ function clip(text: string, max: number): string {
 }
 
 function genericQuestion(question: string): boolean {
-	return /what can i help|how can i help|what would you like|你想|搞点什么|需要我做|帮你什么|有什么可以/i.test(question);
+	return /what can i help|how can i help|what would you like|你想|搞点什么|需要我做|帮你什么|有什么可以/i.test(
+		question,
+	);
 }

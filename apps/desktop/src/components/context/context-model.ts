@@ -142,7 +142,12 @@ export function cacheHitOf(usage: Usage): number | undefined {
 }
 
 export function compositionParts(row: ContextRequestRow): Part[] {
-	return CATS.map((cat) => ({ key: cat.key, label: cat.label, color: cat.color, value: row.composition[cat.key] ?? 0 }));
+	return CATS.map((cat) => ({
+		key: cat.key,
+		label: cat.label,
+		color: cat.color,
+		value: row.composition[cat.key] ?? 0,
+	}));
 }
 
 /** 估算构成按实测总量重新配比：估算给比例，provider 给总量；raw 保留估算原值。 */
@@ -237,10 +242,16 @@ export function sessionStatsOf(requests: readonly ContextRequestRow[]): SessionS
 		}
 		const total = row.totalTokens;
 		if (total <= 0) continue;
-		for (const cat of CATS) billed[cat.key] = (billed[cat.key] ?? 0) + (rowPrompt * (row.composition[cat.key] ?? 0)) / total;
+		for (const cat of CATS)
+			billed[cat.key] = (billed[cat.key] ?? 0) + (rowPrompt * (row.composition[cat.key] ?? 0)) / total;
 	}
 	const parts: Part[] = [
-		...CATS.map((cat) => ({ key: cat.key, label: cat.label, color: cat.color, value: Math.round(billed[cat.key] ?? 0) })),
+		...CATS.map((cat) => ({
+			key: cat.key,
+			label: cat.label,
+			color: cat.color,
+			value: Math.round(billed[cat.key] ?? 0),
+		})),
 		{ key: "output", label: "输出", color: OUTPUT_COLOR, value: output, sub: "含思考" },
 	];
 	return {
@@ -267,7 +278,11 @@ export interface TimingStats {
 	tps?: number;
 }
 
-export function timingStatsOf(requests: readonly ContextRequestRow[], totals: ContextTimingTotals, now: number): TimingStats | undefined {
+export function timingStatsOf(
+	requests: readonly ContextRequestRow[],
+	totals: ContextTimingTotals,
+	now: number,
+): TimingStats | undefined {
 	let ttft = 0;
 	let calls = 0;
 	let thinking = 0;
@@ -287,7 +302,10 @@ export function timingStatsOf(requests: readonly ContextRequestRow[], totals: Co
 		if (timing.model !== undefined) output += row.usage?.output ?? 0;
 	}
 	const measured = ttft + thinking + answer + toolArgs + totals.toolMs;
-	const active = Math.max(totals.activeMs + (totals.activeSince !== undefined ? Math.max(0, now - totals.activeSince) : 0), measured);
+	const active = Math.max(
+		totals.activeMs + (totals.activeSince !== undefined ? Math.max(0, now - totals.activeSince) : 0),
+		measured,
+	);
 	if (active <= 0) return undefined;
 	const generation = thinking + answer + toolArgs;
 	return {
@@ -305,7 +323,13 @@ export function timingStatsOf(requests: readonly ContextRequestRow[], totals: Co
 				value: totals.toolMs,
 				sub: `${fmtDuration(totals.toolMs)} · ${totals.toolRuns} 次`,
 			},
-			{ key: "other", label: "其他开销", color: "#94a3b8", value: active - measured, sub: fmtDuration(active - measured) },
+			{
+				key: "other",
+				label: "其他开销",
+				color: "#94a3b8",
+				value: active - measured,
+				sub: fmtDuration(active - measured),
+			},
 		],
 	};
 }
@@ -397,7 +421,8 @@ const EXT_BADGES: Record<string, { text: string; color: string }> = {
 
 export function fileBadgeOf(entry: FileEntry): { text: string; color?: string; glyph?: string } {
 	if (entry.counts.image > 0) return { text: "", glyph: "🖼" };
-	if (entry.display.base === "./" || (entry.counts.search > 0 && !/\.[a-z0-9]+$/i.test(entry.display.base))) return { text: "", glyph: "📁" };
+	if (entry.display.base === "./" || (entry.counts.search > 0 && !/\.[a-z0-9]+$/i.test(entry.display.base)))
+		return { text: "", glyph: "📁" };
 	const ext = /\.([a-z0-9]+)$/i.exec(entry.display.base)?.[1]?.toLowerCase();
 	const badge = ext ? EXT_BADGES[ext] : undefined;
 	return badge ?? { text: "", glyph: "📄" };

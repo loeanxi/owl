@@ -12,7 +12,10 @@ test("a recovered duplicate agent_start keeps the original 12:28 clock instead o
 });
 
 test("backend original start repairs a cached restart timestamp for the same run", () => {
-	const repaired = resolveSessionRunTiming({ runId: "original", startedAt: 1_724_000 }, { runId: "original", startedAt: 1_000_000 });
+	const repaired = resolveSessionRunTiming(
+		{ runId: "original", startedAt: 1_724_000 },
+		{ runId: "original", startedAt: 1_000_000 },
+	);
 	assert.deepEqual(repaired, { runId: "original", startedAt: 1_000_000 });
 	assert.equal(formatRunClock(repaired.startedAt, 1_748_000), "12:28");
 });
@@ -22,12 +25,21 @@ test("an older bridge running snapshot without timing preserves the cached start
 });
 
 test("repeated start notifications for the same run preserve its known identity and clock", () => {
-	assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "one" }, 9_000), { runId: "one", startedAt: 1_000 });
+	assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "one" }, 9_000), {
+		runId: "one",
+		startedAt: 1_000,
+	});
 });
 
 test("a real new run replaces the previous identity and clock", () => {
-	assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "two", startedAt: 9_000 }, 10_000), { runId: "two", startedAt: 9_000 });
-	assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "two" }, 10_000), { runId: "two", startedAt: 10_000 });
+	assert.deepEqual(
+		resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "two", startedAt: 9_000 }, 10_000),
+		{ runId: "two", startedAt: 9_000 },
+	);
+	assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "two" }, 10_000), {
+		runId: "two",
+		startedAt: 10_000,
+	});
 });
 
 test("a legacy genuine new start after settlement uses its own timestamp", () => {
@@ -40,6 +52,9 @@ test("unknown snapshot timing stays unknown until cache or authority is availabl
 
 test("invalid wire timing cannot replace a healthy existing run", () => {
 	for (const startedAt of [NaN, Infinity, -1, 0, "1_000", undefined]) {
-		assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "", startedAt }, 9_000), { runId: "one", startedAt: 1_000 });
+		assert.deepEqual(resolveSessionRunTiming({ runId: "one", startedAt: 1_000 }, { runId: "", startedAt }, 9_000), {
+			runId: "one",
+			startedAt: 1_000,
+		});
 	}
 });

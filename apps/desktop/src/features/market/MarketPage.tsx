@@ -41,7 +41,10 @@ function fmtCount(n: number | null): string {
 }
 
 function initials(name: string): string {
-	return name.replace(/^(dsh-|DSH-|pi-|@[^/]+\/)/, "").slice(0, 2).toUpperCase();
+	return name
+		.replace(/^(dsh-|DSH-|pi-|@[^/]+\/)/, "")
+		.slice(0, 2)
+		.toUpperCase();
 }
 
 function relTime(at: number | undefined, lang: "zh" | "en"): string {
@@ -53,11 +56,21 @@ function relTime(at: number | undefined, lang: "zh" | "en"): string {
 
 function SourceBadge({ plugin }: { plugin: MarketPlugin }): React.JSX.Element {
 	const t = useT();
-	return <span className={`owl-market-badge ${plugin.src === "pi" ? "is-pi" : "is-adapt"}`}>{t(plugin.src === "pi" ? "market.badgePi" : "market.badgeDsh")}</span>;
+	return (
+		<span className={`owl-market-badge ${plugin.src === "pi" ? "is-pi" : "is-adapt"}`}>
+			{t(plugin.src === "pi" ? "market.badgePi" : "market.badgeDsh")}
+		</span>
+	);
 }
 
 /** 列表有数千行：memo 后切换选中只重渲染新旧两行。 */
-const MarketRow = memo(function MarketRow({ plugin: p, selected, imported, lang, onSelect }: {
+const MarketRow = memo(function MarketRow({
+	plugin: p,
+	selected,
+	imported,
+	lang,
+	onSelect,
+}: {
 	plugin: MarketPlugin;
 	selected: boolean;
 	imported: boolean;
@@ -95,7 +108,13 @@ const MarketRow = memo(function MarketRow({ plugin: p, selected, imported, lang,
  * 「插件市场」：实时聚合 pi 生态与 DSH 社区插件；目录列表 + 右侧详情抽屉。
  * 两个源的插件均非 owl 原生，点「引入」组装改造任务书交给 App 开新会话，由 Agent 按流程自适应改造。
  */
-export function MarketPage({ active, connected, agentDir, workspaceDir, onImport }: {
+export function MarketPage({
+	active,
+	connected,
+	agentDir,
+	workspaceDir,
+	onImport,
+}: {
 	active: boolean;
 	/** 桥连接状态：引入需要新开会话，未连接时禁用。 */
 	connected: boolean;
@@ -159,10 +178,13 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
-		return snapshot.plugins.filter((p) =>
-			(source === "all" || p.src === source)
-			&& (cat === "all" || p.cat === cat)
-			&& (!q || `${p.name} ${p.descZh} ${p.descEn} ${p.owner}`.toLowerCase().includes(q)))
+		return snapshot.plugins
+			.filter(
+				(p) =>
+					(source === "all" || p.src === source) &&
+					(cat === "all" || p.cat === cat) &&
+					(!q || `${p.name} ${p.descZh} ${p.descEn} ${p.owner}`.toLowerCase().includes(q)),
+			)
 			.sort(SORTERS[sort]);
 	}, [snapshot, source, cat, query, sort]);
 
@@ -217,8 +239,20 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 					<button type="button" className="owl-market-srcpill" onClick={() => setSrcPopOpen((v) => !v)}>
 						<span className="owl-market-livedot" aria-hidden="true" />
 						{t("market.sources")}
-						{loading && snapshot.plugins.length > 0 && <span className="owl-market-srcpill-busy">· {t("market.refreshing")}</span>}
-						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+						{loading && snapshot.plugins.length > 0 && (
+							<span className="owl-market-srcpill-busy">· {t("market.refreshing")}</span>
+						)}
+						<svg
+							width="10"
+							height="10"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2.4"
+							aria-hidden="true"
+						>
+							<path d="m6 9 6 6 6-6" />
+						</svg>
 					</button>
 					{srcPopOpen && (
 						<div className="owl-market-srcpop" role="dialog">
@@ -226,26 +260,44 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 								<div className="owl-market-srcitem-t">
 									<span className="owl-market-livedot" aria-hidden="true" />
 									{t("market.srcPiName")}
-									<span className="owl-market-srcitem-cnt">{snapshot.piTotal ? `× ${snapshot.piTotal}` : "—"}</span>
+									<span className="owl-market-srcitem-cnt">
+										{snapshot.piTotal ? `× ${snapshot.piTotal}` : "—"}
+									</span>
 								</div>
 								<div className="owl-market-srcitem-d">{t("market.srcPiDesc")}</div>
-								<div className="owl-market-srcitem-ep">registry.npmjs.org · keywords:pi-package · {relTime(snapshot.piAt, lang)}</div>
+								<div className="owl-market-srcitem-ep">
+									registry.npmjs.org · keywords:pi-package · {relTime(snapshot.piAt, lang)}
+								</div>
 							</div>
 							<div className="owl-market-srcitem">
 								<div className="owl-market-srcitem-t">
 									<span className="owl-market-livedot" aria-hidden="true" />
 									{t("market.srcDshName")}
-									<span className="owl-market-srcitem-cnt">{snapshot.dshTotal ? `× ${snapshot.dshTotal}` : "—"}</span>
+									<span className="owl-market-srcitem-cnt">
+										{snapshot.dshTotal ? `× ${snapshot.dshTotal}` : "—"}
+									</span>
 								</div>
 								<div className="owl-market-srcitem-d">{t("market.srcDshDesc")}</div>
-								<div className="owl-market-srcitem-ep">awesome-dsh-plugin.com/plugins.json · {relTime(snapshot.dshAt, lang)}</div>
+								<div className="owl-market-srcitem-ep">
+									awesome-dsh-plugin.com/plugins.json · {relTime(snapshot.dshAt, lang)}
+								</div>
 							</div>
 							{snapshot.dshError || snapshot.piError ? (
-								<button type="button" className="owl-market-srcretry" disabled={loading} onClick={() => void load(true)}>
+								<button
+									type="button"
+									className="owl-market-srcretry"
+									disabled={loading}
+									onClick={() => void load(true)}
+								>
 									{t("market.retry")} · {snapshot.piError ?? snapshot.dshError}
 								</button>
 							) : (
-								<button type="button" className="owl-market-srcretry" disabled={loading} onClick={() => void load(true)}>
+								<button
+									type="button"
+									className="owl-market-srcretry"
+									disabled={loading}
+									onClick={() => void load(true)}
+								>
 									{loading ? t("market.refreshing") : t("market.refreshNow")}
 								</button>
 							)}
@@ -258,19 +310,55 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 			<div className="owl-market-toolbar">
 				<div className="owl-market-seg" role="tablist">
 					{(["all", "pi", "dsh"] as const).map((key) => (
-						<button key={key} type="button" className={source === key ? "is-on" : undefined} onClick={() => setSource(key)}>
+						<button
+							key={key}
+							type="button"
+							className={source === key ? "is-on" : undefined}
+							onClick={() => setSource(key)}
+						>
 							{t(key === "all" ? "market.srcAll" : key === "pi" ? "market.srcPi" : "market.srcDsh")}
 						</button>
 					))}
 				</div>
 				<label className="owl-market-search">
-					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-					<input value={query} placeholder={t("market.search")} onChange={(event) => setQuery(event.target.value)} />
+					<svg
+						width="13"
+						height="13"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						aria-hidden="true"
+					>
+						<circle cx="11" cy="11" r="7" />
+						<path d="m20 20-3.5-3.5" />
+					</svg>
+					<input
+						value={query}
+						placeholder={t("market.search")}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
 				</label>
 				<div className="owl-market-sort" ref={sortRef}>
-					<button type="button" className="owl-market-sort-btn" aria-haspopup="listbox" aria-expanded={sortOpen} onClick={() => setSortOpen((v) => !v)}>
+					<button
+						type="button"
+						className="owl-market-sort-btn"
+						aria-haspopup="listbox"
+						aria-expanded={sortOpen}
+						onClick={() => setSortOpen((v) => !v)}
+					>
 						{t("market.sortBy", { label: t(`market.sort.${sort}`) })}
-						<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+						<svg
+							width="10"
+							height="10"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2.4"
+							aria-hidden="true"
+						>
+							<path d="m6 9 6 6 6-6" />
+						</svg>
 					</button>
 					{sortOpen && (
 						<div className="owl-market-sort-pop" role="listbox">
@@ -285,7 +373,9 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 										setSort(key);
 										setSortOpen(false);
 									}}
-								>{t(`market.sort.${key}`)}</button>
+								>
+									{t(`market.sort.${key}`)}
+								</button>
 							))}
 						</div>
 					)}
@@ -293,26 +383,43 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 			</div>
 
 			<div className="owl-market-cats">
-				<button type="button" className={`owl-market-chip${cat === "all" ? " is-on" : ""}`} onClick={() => setCat("all")}>
-					{t("market.catAll")}<span className="owl-market-chip-n">{catCount("all")}</span>
+				<button
+					type="button"
+					className={`owl-market-chip${cat === "all" ? " is-on" : ""}`}
+					onClick={() => setCat("all")}
+				>
+					{t("market.catAll")}
+					<span className="owl-market-chip-n">{catCount("all")}</span>
 				</button>
 				{MARKET_CATS.filter((c) => catCount(c.key) > 0).map((c) => (
-					<button key={c.key} type="button" className={`owl-market-chip${cat === c.key ? " is-on" : ""}`} onClick={() => setCat(c.key)}>
-						{lang === "zh" ? c.zh : c.en}<span className="owl-market-chip-n">{catCount(c.key)}</span>
+					<button
+						key={c.key}
+						type="button"
+						className={`owl-market-chip${cat === c.key ? " is-on" : ""}`}
+						onClick={() => setCat(c.key)}
+					>
+						{lang === "zh" ? c.zh : c.en}
+						<span className="owl-market-chip-n">{catCount(c.key)}</span>
 					</button>
 				))}
 			</div>
 
 			<div className="owl-market-body">
 				<div className="owl-market-list" role="listbox" aria-label={t("market.title")}>
-					{loading && snapshot.plugins.length === 0 && <div className="owl-market-state">{t("market.loading")}</div>}
+					{loading && snapshot.plugins.length === 0 && (
+						<div className="owl-market-state">{t("market.loading")}</div>
+					)}
 					{!loading && snapshot.plugins.length === 0 && (snapshot.dshError || snapshot.piError) && (
 						<div className="owl-market-state">
 							{t("market.loadFailed", { message: snapshot.piError ?? snapshot.dshError ?? "" })}
-							<button type="button" className="owl-market-retry" onClick={() => void load(true)}>{t("market.retry")}</button>
+							<button type="button" className="owl-market-retry" onClick={() => void load(true)}>
+								{t("market.retry")}
+							</button>
 						</div>
 					)}
-					{snapshot.plugins.length > 0 && filtered.length === 0 && <div className="owl-market-state">{t("market.empty")}</div>}
+					{snapshot.plugins.length > 0 && filtered.length === 0 && (
+						<div className="owl-market-state">{t("market.empty")}</div>
+					)}
 					{filtered.map((p) => (
 						<MarketRow
 							key={p.key}
@@ -335,43 +442,80 @@ export function MarketPage({ active, connected, agentDir, workspaceDir, onImport
 										{selected.name}
 										{selected.ver && <span className="owl-market-prow-v"> {selected.ver}</span>}
 									</span>
-									<span className="owl-market-drawer-ow">by {selected.owner} · ★ {fmtCount(selected.stars || 0)} · {fmtCount(selected.dl)}/mo</span>
+									<span className="owl-market-drawer-ow">
+										by {selected.owner} · ★ {fmtCount(selected.stars || 0)} · {fmtCount(selected.dl)}/mo
+									</span>
 								</span>
-								{importState(selected.key) === "ok" && <span className="owl-market-badge is-done">{t("market.importedBadge")}</span>}
+								{importState(selected.key) === "ok" && (
+									<span className="owl-market-badge is-done">{t("market.importedBadge")}</span>
+								)}
 							</div>
-							<div className="owl-market-desc">{(lang === "zh" ? selected.descZh : selected.descEn) || selected.descEn}</div>
+							<div className="owl-market-desc">
+								{(lang === "zh" ? selected.descZh : selected.descEn) || selected.descEn}
+							</div>
 							<div className="owl-market-kv">
 								<span className="owl-market-kv-k">{t("market.kSource")}</span>
 								<span>{t(selected.src === "pi" ? "market.srcPiValue" : "market.srcDshValue")}</span>
 								<span className="owl-market-kv-k">{t("market.kCategory")}</span>
-								<span>{lang === "zh" ? MARKET_CATS.find((c) => c.key === selected.cat)?.zh : MARKET_CATS.find((c) => c.key === selected.cat)?.en}</span>
+								<span>
+									{lang === "zh"
+										? MARKET_CATS.find((c) => c.key === selected.cat)?.zh
+										: MARKET_CATS.find((c) => c.key === selected.cat)?.en}
+								</span>
 								<span className="owl-market-kv-k">{t("market.kPerms")}</span>
 								<span className="owl-market-caps">
-									{selected.caps.length === 0 && selected.red.length === 0
-										? <span className="owl-market-badge is-cap">{t("market.noPerms")}</span>
-										: selected.caps.map((c) => <span key={c} className="owl-market-badge is-cap">{c}</span>)}
-									{selected.red.map((c) => <span key={c} className="owl-market-badge is-red">{t("market.redLine", { name: c })}</span>)}
+									{selected.caps.length === 0 && selected.red.length === 0 ? (
+										<span className="owl-market-badge is-cap">{t("market.noPerms")}</span>
+									) : (
+										selected.caps.map((c) => (
+											<span key={c} className="owl-market-badge is-cap">
+												{c}
+											</span>
+										))
+									)}
+									{selected.red.map((c) => (
+										<span key={c} className="owl-market-badge is-red">
+											{t("market.redLine", { name: c })}
+										</span>
+									))}
 								</span>
 								<span className="owl-market-kv-k">{t("market.kInstallAs")}</span>
 								<span>{t("market.installAs")}</span>
 							</div>
-							<div className="owl-market-hint">{t(selected.src === "pi" ? "market.hintPi" : "market.hintDsh")}</div>
+							<div className="owl-market-hint">
+								{t(selected.src === "pi" ? "market.hintPi" : "market.hintDsh")}
+							</div>
 							<div className="owl-market-acts">
-								{importState(selected.key) === "ok"
-									? <button type="button" className="owl-market-import" disabled>{t("market.imported")}</button>
-									: <button
+								{importState(selected.key) === "ok" ? (
+									<button type="button" className="owl-market-import" disabled>
+										{t("market.imported")}
+									</button>
+								) : (
+									<button
 										type="button"
 										className="owl-market-import"
 										disabled={!connected || importState(selected.key) === "run"}
 										onClick={() => void doImport(selected)}
-									>{importState(selected.key) === "run" ? t("market.importing") : t("market.import")}</button>}
-								<a className="owl-market-repo" href={selected.url} target="_blank" rel="noreferrer">{t("market.repo")}</a>
+									>
+										{importState(selected.key) === "run" ? t("market.importing") : t("market.import")}
+									</button>
+								)}
+								<a className="owl-market-repo" href={selected.url} target="_blank" rel="noreferrer">
+									{t("market.repo")}
+								</a>
 							</div>
-							{importError && <div className="owl-market-import-error">{t("market.importFailed", { message: importError })}</div>}
+							{importError && (
+								<div className="owl-market-import-error">
+									{t("market.importFailed", { message: importError })}
+								</div>
+							)}
 							<div className="owl-market-pipe">
 								<div className="owl-market-pipe-t">{t("market.pipeTitle")}</div>
 								{(["pull", "analyze", "map", "generate", "install", "verify"] as const).map((stepKey) => (
-									<div key={stepKey} className="owl-market-step"><span className="owl-market-step-dot" aria-hidden="true" /><span>{t(`market.step.${stepKey}`)}</span></div>
+									<div key={stepKey} className="owl-market-step">
+										<span className="owl-market-step-dot" aria-hidden="true" />
+										<span>{t(`market.step.${stepKey}`)}</span>
+									</div>
 								))}
 								<div className="owl-market-pipe-note">{t("market.pipeNote")}</div>
 							</div>

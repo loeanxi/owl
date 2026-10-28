@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { ContextEventRow, ContextFileOp, ContextRequestRow } from "../bridge/protocol.ts";
 import { EventsCard, FilesCard } from "./context/ContextActivity.tsx";
-import { type BrowserFocus, BrowserCard } from "./context/ContextBrowser.tsx";
+import { BrowserCard, type BrowserFocus } from "./context/ContextBrowser.tsx";
 import { DonutCard, Legend, StackedBar } from "./context/ContextCharts.tsx";
 import { type Granularity, type LocateTarget, TrendCard, type TrendMode } from "./context/ContextTrend.tsx";
 import {
@@ -36,7 +36,8 @@ export function ContextRequestUsage({ usage }: { usage: NonNullable<ContextReque
 	const totalInput = usage.input + usage.cacheRead + usage.cacheWrite;
 	return (
 		<span className="ctx-usage-line">
-			本次输入 {fmtTokens(totalInput)}（含缓存；未缓存 {fmtTokens(usage.input)} · 缓存读 {fmtTokens(usage.cacheRead)} · 缓存写 {fmtTokens(usage.cacheWrite)}）· 本次输出 {fmtTokens(usage.output)}
+			本次输入 {fmtTokens(totalInput)}（含缓存；未缓存 {fmtTokens(usage.input)} · 缓存读 {fmtTokens(usage.cacheRead)}{" "}
+			· 缓存写 {fmtTokens(usage.cacheWrite)}）· 本次输出 {fmtTokens(usage.output)}
 		</span>
 	);
 }
@@ -58,7 +59,11 @@ function StatsCard({ data }: { data: InsightData }): React.JSX.Element {
 		{ label: "步数", value: String(stats.steps), title: "模型请求次数（一轮内每次工具往返算一步）" },
 		{ label: "工具调用", value: String(stats.toolCalls) },
 		{ label: "回答", value: String(stats.answers), title: "含正文回复的步数" },
-		{ label: "缓存命中", value: stats.cacheHit !== undefined ? fmtPct1(stats.cacheHit) : "—", title: "缓存读 ÷ 计费输入（含缓存）" },
+		{
+			label: "缓存命中",
+			value: stats.cacheHit !== undefined ? fmtPct1(stats.cacheHit) : "—",
+			title: "缓存读 ÷ 计费输入（含缓存）",
+		},
 		{ label: "费用", value: fmtCost(stats.cost), title: "provider 上报的累计费用" },
 	];
 	return (
@@ -175,10 +180,18 @@ function CurrentCard({
 			</div>
 			<div className="ctx-headline">
 				<b>{fmtTokens(headline)}</b>
-				{capacity ? <span className="ctx-headline-cap">/ {fmtTokens(capacity)} tokens</span> : <span className="ctx-headline-cap">tokens</span>}
+				{capacity ? (
+					<span className="ctx-headline-cap">/ {fmtTokens(capacity)} tokens</span>
+				) : (
+					<span className="ctx-headline-cap">tokens</span>
+				)}
 				<span
 					className={`ctx-tag${measured !== undefined ? " ctx-tag-live" : ""}`}
-					title={measured !== undefined ? "provider 返回的本步输入、输出及缓存 token 总量" : "chars/4 估算，响应回来后改用 provider 用量"}
+					title={
+						measured !== undefined
+							? "provider 返回的本步输入、输出及缓存 token 总量"
+							: "chars/4 估算，响应回来后改用 provider 用量"
+					}
 				>
 					{measured !== undefined ? "实测" : "估算"}
 				</span>
@@ -191,13 +204,21 @@ function CurrentCard({
 			<StackedBar parts={parts} capacity={capacity} height={14} hoverKey={hoverCat} onHoverKey={onHoverCat} />
 			<Legend parts={parts} total={headline} hoverKey={hoverCat} onHoverKey={onHoverCat} />
 			{measured !== undefined && Math.abs(measured - row.totalTokens) > 500 && (
-				<p className="ctx-note">构成按估算比例摊到实测总量；估算原值 ≈{fmtTokens(row.totalTokens)}（中文、JSON 与分词会带来误差）。</p>
+				<p className="ctx-note">
+					构成按估算比例摊到实测总量；估算原值 ≈{fmtTokens(row.totalTokens)}（中文、JSON 与分词会带来误差）。
+				</p>
 			)}
 		</div>
 	);
 }
 
-export function ContextView({ client, cwd, sessionId, requireSession = false, active = true }: {
+export function ContextView({
+	client,
+	cwd,
+	sessionId,
+	requireSession = false,
+	active = true,
+}: {
 	client: BridgeClient;
 	cwd: string;
 	sessionId?: string;
@@ -226,7 +247,11 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 		let alive = true;
 		const fetchOnce = async (): Promise<void> => {
 			try {
-				const response = await client.request<InsightData>({ type: "context.get", cwd, ...(sessionId ? { sessionId } : {}) });
+				const response = await client.request<InsightData>({
+					type: "context.get",
+					cwd,
+					...(sessionId ? { sessionId } : {}),
+				});
 				if (!alive) return;
 				if (response.ok && response.result) {
 					const json = JSON.stringify(response.result);
@@ -254,7 +279,8 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 		setFocus((current) => ({ ...target, nonce: (current?.nonce ?? 0) + 1 }));
 	}, []);
 	const focusEvent = useCallback(
-		(event: ContextEventRow) => locate({ seq: event.seq, cat: event.itemKey ? "inject" : "toolSchemas", key: event.itemKey }),
+		(event: ContextEventRow) =>
+			locate({ seq: event.seq, cat: event.itemKey ? "inject" : "toolSchemas", key: event.itemKey }),
 		[locate],
 	);
 	const locateFileOp = useCallback(
@@ -301,7 +327,9 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 				<div className="ctx-card ctx-col">
 					<div className="ctx-card-title">
 						<span className="ctx-card-title-text">Token 统计</span>
-						{stats.cost !== undefined && <span className="ctx-card-sub ctx-card-right">费用 {fmtCost(stats.cost)}</span>}
+						{stats.cost !== undefined && (
+							<span className="ctx-card-sub ctx-card-right">费用 {fmtCost(stats.cost)}</span>
+						)}
 					</div>
 					{stats.billedTotal > 0 ? (
 						<DonutCard
@@ -321,7 +349,10 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 					<div className="ctx-card-title">
 						<span className="ctx-card-title-text">耗时统计</span>
 						{timing?.tps !== undefined && (
-							<span className="ctx-card-sub ctx-card-right" title="输出 token ÷ 生成耗时（思考 + 回复 + 工具参数）">
+							<span
+								className="ctx-card-sub ctx-card-right"
+								title="输出 token ÷ 生成耗时（思考 + 回复 + 工具参数）"
+							>
 								输出 {timing.tps.toFixed(1)} tok/s
 							</span>
 						)}
@@ -336,7 +367,9 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 						/>
 					) : (
 						<div className="ctx-lane">
-							<span className="ctx-empty">{data.reconstructed ? "历史重建的会话没有耗时数据" : "尚无耗时数据"}</span>
+							<span className="ctx-empty">
+								{data.reconstructed ? "历史重建的会话没有耗时数据" : "尚无耗时数据"}
+							</span>
 						</div>
 					)}
 				</div>
@@ -391,14 +424,19 @@ export function ContextView({ client, cwd, sessionId, requireSession = false, ac
 					files={data.files}
 					cwd={cwd}
 					upTo={selectedRow?.seq}
-					scope={selectedRow ? `截至 ${stepTitle(selectedRow, turnSteps.get(selectedRow.turn) ?? 1)}` : "截至最新 · 跟随趋势图的选择"}
+					scope={
+						selectedRow
+							? `截至 ${stepTitle(selectedRow, turnSteps.get(selectedRow.turn) ?? 1)}`
+							: "截至最新 · 跟随趋势图的选择"
+					}
 					onLocate={locateFileOp}
 				/>
 			</div>
 
 			<div className="ctx-footer">
 				<span className="ctx-pulse" />
-				2s 轮询 · {data.requests.length} 步请求记录 · 「≈」为 chars/4 估算，「实际/实测」为 provider 上报用量；缓存命中的内容仍占上下文窗口
+				2s 轮询 · {data.requests.length} 步请求记录 · 「≈」为 chars/4 估算，「实际/实测」为 provider
+				上报用量；缓存命中的内容仍占上下文窗口
 			</div>
 		</div>
 	);

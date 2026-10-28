@@ -27,8 +27,11 @@ export function attachPluginViewers(
 		}
 		for (const viewer of viewers) {
 			const previous = registered.get(viewer.id);
-			if (previous?.viewer.title === viewer.title &&
-				previous.viewer.extensions.join("\0") === viewer.extensions.join("\0")) continue;
+			if (
+				previous?.viewer.title === viewer.title &&
+				previous.viewer.extensions.join("\0") === viewer.extensions.join("\0")
+			)
+				continue;
 			previous?.dispose();
 			const dispose = registerTab({
 				kind: `${PLUGIN_VIEWER_KIND_PREFIX}${viewer.id}`,
@@ -43,15 +46,21 @@ export function attachPluginViewers(
 	};
 	const refresh = (): void => {
 		const requestRevision = ++revision;
-		void client.request<ViewerListResult>({ type: "viewer.list" }).then((response) => {
-			if (!disposed && requestRevision === revision && response.ok && response.result) update(response.result.viewers);
-		}).catch(() => {});
+		void client
+			.request<ViewerListResult>({ type: "viewer.list" })
+			.then((response) => {
+				if (!disposed && requestRevision === revision && response.ok && response.result)
+					update(response.result.viewers);
+			})
+			.catch(() => {});
 	};
 	const offChanged = client.onViewersChanged((message) => {
 		revision++;
 		if (!disposed) update(message.viewers);
 	});
-	const offStatus = client.onStatus((connected) => { if (connected) refresh(); });
+	const offStatus = client.onStatus((connected) => {
+		if (connected) refresh();
+	});
 	refresh();
 	return () => {
 		disposed = true;

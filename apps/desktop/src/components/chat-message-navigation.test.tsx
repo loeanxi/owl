@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatEntry } from "../hooks/transcript.ts";
 import { ChatStream } from "./ChatStream.tsx";
@@ -14,14 +14,24 @@ class TextRange {
 	startOffset = 0;
 	endContainer?: Node;
 	endOffset = 0;
-	setStart(node: Node, offset: number): void { this.startContainer = node; this.startOffset = offset; }
-	setEnd(node: Node, offset: number): void { this.endContainer = node; this.endOffset = offset; }
+	setStart(node: Node, offset: number): void {
+		this.startContainer = node;
+		this.startOffset = offset;
+	}
+	setEnd(node: Node, offset: number): void {
+		this.endContainer = node;
+		this.endOffset = offset;
+	}
 	toString(): string {
-		if (this.startContainer === this.endContainer) return this.startContainer?.textContent?.slice(this.startOffset, this.endOffset) ?? "";
+		if (this.startContainer === this.endContainer)
+			return this.startContainer?.textContent?.slice(this.startOffset, this.endOffset) ?? "";
 		const parts: string[] = [];
 		let node = this.startContainer;
 		while (node) {
-			if (node === this.endContainer) { parts.push(node.textContent?.slice(0, this.endOffset) ?? ""); break; }
+			if (node === this.endContainer) {
+				parts.push(node.textContent?.slice(0, this.endOffset) ?? "");
+				break;
+			}
 			parts.push(node.textContent?.slice(node === this.startContainer ? this.startOffset : 0) ?? "");
 			node = node.nextSibling ?? undefined;
 		}
@@ -50,17 +60,33 @@ beforeEach(() => {
 	vi.spyOn(document, "createRange").mockImplementation(() => new TextRange() as unknown as Range);
 	frames = new Map();
 	frameSequence = 0;
-	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { const id = ++frameSequence; frames.set(id, callback); return id; });
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		const id = ++frameSequence;
+		frames.set(id, callback);
+		return id;
+	});
 	vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
 	highlights = new Map();
 	vi.stubGlobal("CSS", { highlights });
-	vi.stubGlobal("Highlight", class extends Set<Range> { constructor(...ranges: Range[]) { super(ranges); } });
+	vi.stubGlobal(
+		"Highlight",
+		class extends Set<Range> {
+			constructor(...ranges: Range[]) {
+				super(ranges);
+			}
+		},
+	);
 	resizeCallbacks = [];
-	vi.stubGlobal("ResizeObserver", class {
-		constructor(callback: ResizeObserverCallback) { resizeCallbacks.push(callback); }
-		observe(): void {}
-		disconnect(): void {}
-	});
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			constructor(callback: ResizeObserverCallback) {
+				resizeCallbacks.push(callback);
+			}
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
 	container = document.getElementById("root")!;
 	root = createRoot(container);
 	props = { entries: [], sessionId: "session-one", profile: "D:/profile-one", cwd: "D:/project-one" };
@@ -73,7 +99,13 @@ afterEach(async () => {
 });
 
 const user = (id: string, text: string): ChatEntry => ({ kind: "user", entryId: id, text });
-const assistant = (id: string, text: string): ChatEntry => ({ kind: "assistant", entryId: id, text, thinking: "", tools: [] });
+const assistant = (id: string, text: string): ChatEntry => ({
+	kind: "assistant",
+	entryId: id,
+	text,
+	thinking: "",
+	tools: [],
+});
 
 async function render(overrides: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...overrides };
@@ -96,8 +128,10 @@ function scrollSurface(): HTMLElement & { scrollTo: ReturnType<typeof vi.fn> } {
 		scrollHeight: { configurable: true, value: 2400 },
 	});
 	surface.scrollTop ||= 0;
-	surface.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
-	const scrollTo = vi.fn((options: ScrollToOptions) => { surface.scrollTop = options.top ?? 0; });
+	surface.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+	const scrollTo = vi.fn((options: ScrollToOptions) => {
+		surface.scrollTop = options.top ?? 0;
+	});
 	surface.scrollTo = scrollTo;
 	return surface as typeof surface & { scrollTo: typeof scrollTo };
 }
@@ -110,9 +144,17 @@ async function workspaceRestored(surface: HTMLElement, top: number): Promise<voi
 
 describe("message search navigation", () => {
 	it("uses the exact persisted entry ID when the same words appear in other turns", async () => {
-		await render({ entries: [user("question-1", "timeout"), assistant("answer-1", "timeout in first turn"), user("question-2", "later"), assistant("answer-2", "timeout in second turn")], searchTarget: { sessionId: "session-one", entryId: "answer-1", query: "timeout", requestId: 1 } });
+		await render({
+			entries: [
+				user("question-1", "timeout"),
+				assistant("answer-1", "timeout in first turn"),
+				user("question-2", "later"),
+				assistant("answer-2", "timeout in second turn"),
+			],
+			searchTarget: { sessionId: "session-one", entryId: "answer-1", query: "timeout", requestId: 1 },
+		});
 		const surface = scrollSurface();
-		messageElement(surface, "answer-1", "timeout")!.getBoundingClientRect = () => ({ top: 320 } as DOMRect);
+		messageElement(surface, "answer-1", "timeout")!.getBoundingClientRect = () => ({ top: 320 }) as DOMRect;
 		const navigation = vi.fn();
 		surface.addEventListener("owl-chat-search-navigation", navigation);
 		await flushFrames();
@@ -125,14 +167,20 @@ describe("message search navigation", () => {
 	});
 
 	it("locates an already visible intermediate assistant message without hiding its progress", async () => {
-		const entries = [user("question", "run"), assistant("note", "intermediate ERR_CONFLICT detail"), assistant("answer", "final result")];
+		const entries = [
+			user("question", "run"),
+			assistant("note", "intermediate ERR_CONFLICT detail"),
+			assistant("answer", "final result"),
+		];
 		await render({ entries });
 		expect(container.textContent).toContain("intermediate ERR_CONFLICT detail");
-		await render({ searchTarget: { sessionId: "session-one", entryId: "note", query: "ERR_CONFLICT", requestId: 2 } });
+		await render({
+			searchTarget: { sessionId: "session-one", entryId: "note", query: "ERR_CONFLICT", requestId: 2 },
+		});
 		const surface = scrollSurface();
 		const note = messageElement(surface, "note", "ERR_CONFLICT")!;
 		expect(note).toBeDefined();
-		note.getBoundingClientRect = () => ({ top: 180 } as DOMRect);
+		note.getBoundingClientRect = () => ({ top: 180 }) as DOMRect;
 		await flushFrames();
 		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 164, behavior: "instant" });
 		// 说明并进了本轮的工作过程折叠块，所以折叠行存在；但这一轮没有工具，只有进展本身。
@@ -142,14 +190,38 @@ describe("message search navigation", () => {
 	});
 
 	it("keeps unrelated tool records folded without an explicit message search", async () => {
-		await render({ entries: [user("question", "run"), { kind: "assistant", entryId: "tool-owner", text: "", thinking: "private work", tools: [{ id: "tool", name: "read", summary: "tool summary", args: "{}", detail: "tool detail", status: "ok" }] }, assistant("answer", "done")] });
+		await render({
+			entries: [
+				user("question", "run"),
+				{
+					kind: "assistant",
+					entryId: "tool-owner",
+					text: "",
+					thinking: "private work",
+					tools: [
+						{
+							id: "tool",
+							name: "read",
+							summary: "tool summary",
+							args: "{}",
+							detail: "tool detail",
+							status: "ok",
+						},
+					],
+				},
+				assistant("answer", "done"),
+			],
+		});
 		expect(container.querySelector(".owl-work-process-summary")?.getAttribute("aria-expanded")).toBe("false");
 		expect(container.textContent).not.toContain("tool summary");
 		expect(container.textContent).not.toContain("private work");
 	});
 
 	it("does not locate a hit from a different session or guess another matching message", async () => {
-		await render({ entries: [user("other", "same words")], searchTarget: { sessionId: "session-two", entryId: "other", query: "same", requestId: 3 } });
+		await render({
+			entries: [user("other", "same words")],
+			searchTarget: { sessionId: "session-two", entryId: "other", query: "same", requestId: 3 },
+		});
 		const surface = scrollSurface();
 		await flushFrames();
 		expect(surface.scrollTo).not.toHaveBeenCalled();
@@ -161,18 +233,28 @@ describe("message search navigation", () => {
 
 	it("waits for the exact message to arrive and does not repeat navigation on streaming updates", async () => {
 		const initial = [user("question", "first question")];
-		await render({ entries: initial, searchTarget: { sessionId: "session-one", entryId: "historical", query: "SQL", requestId: 5 } });
+		await render({
+			entries: initial,
+			searchTarget: { sessionId: "session-one", entryId: "historical", query: "SQL", requestId: 5 },
+		});
 		const surface = scrollSurface();
 		await flushFrames();
 		expect(surface.scrollTo).not.toHaveBeenCalled();
-		const loaded = [...initial, assistant("historical", "historical SQL result"), user("latest-question", "new task"), assistant("live", "working")];
+		const loaded = [
+			...initial,
+			assistant("historical", "historical SQL result"),
+			user("latest-question", "new task"),
+			assistant("live", "working"),
+		];
 		await render({ entries: loaded, activity: "working" });
-		messageElement(surface, "historical", "SQL")!.getBoundingClientRect = () => ({ top: 260 } as DOMRect);
+		messageElement(surface, "historical", "SQL")!.getBoundingClientRect = () => ({ top: 260 }) as DOMRect;
 		await flushFrames();
 		expect(surface.scrollTop).toBe(244);
 		await render({ entries: [...loaded.slice(0, -1), assistant("live", "working on additional content")] });
 		await flushFrames();
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		expect(surface.scrollTo).toHaveBeenCalledOnce();
 		expect(surface.scrollTop).toBe(244);
 	});
@@ -182,11 +264,11 @@ describe("message search navigation", () => {
 		const surface = scrollSurface();
 		await workspaceRestored(surface, 850);
 		await render({ searchTarget: { sessionId: "session-one", entryId: "answer", query: "cache", requestId: 6 } });
-		messageElement(surface, "answer", "cache")!.getBoundingClientRect = () => ({ top: 250 } as DOMRect);
+		messageElement(surface, "answer", "cache")!.getBoundingClientRect = () => ({ top: 250 }) as DOMRect;
 		await flushFrames();
 		expect(surface.scrollTop).toBe(1084);
 		await render({ searchTarget: { sessionId: "session-one", entryId: "question", query: "run", requestId: 7 } });
-		messageElement(surface, "question", "run")!.getBoundingClientRect = () => ({ top: -900 } as DOMRect);
+		messageElement(surface, "question", "run")!.getBoundingClientRect = () => ({ top: -900 }) as DOMRect;
 		await flushFrames();
 		expect(surface.scrollTop).toBe(168);
 		expect(surface.scrollTo).toHaveBeenCalledTimes(2);
@@ -198,11 +280,15 @@ describe("reading position ownership", () => {
 		await render({ sessionId: undefined, entries: [] });
 		const surface = scrollSurface();
 		expect(surface.scrollTop).toBe(0);
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		expect(surface.scrollTop).toBe(0);
 		await render({ recentSessions: [{ id: "recent", title: "最近任务" }] });
 		Object.defineProperty(surface, "scrollHeight", { configurable: true, value: 3000 });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		expect(surface.scrollTop).toBe(0);
 		surface.scrollTop = 80;
 		await act(async () => surface.dispatchEvent(new Event("scroll")));
@@ -215,13 +301,35 @@ describe("reading position ownership", () => {
 
 	it("opens the latest turn's delivery from a completion request and does not repeat on later updates", async () => {
 		const criteria = [{ criterion: "已生成结果文件", status: "verified", toolCallId: "write-result" }];
-		const answer: ChatEntry = { ...assistant("answer", "已交付"), tools: [
-			{ id: "write-result", name: "write", args: JSON.stringify({ path: "result.md" }), summary: "生成结果", status: "ok", output: { text: "written", totalLines: 1 } },
-			{ id: "registered-check", name: "task_check", args: JSON.stringify({ goal: "生成结果", criteria }), summary: "登记验收清单", status: "ok", output: { text: JSON.stringify({ goal: "生成结果", criteria }), totalLines: 1 } },
-		] };
-		await render({ entries: [user("latest-question", "生成结果"), answer], onOpenFile: () => {}, deliveryRequest: 10 });
+		const answer: ChatEntry = {
+			...assistant("answer", "已交付"),
+			tools: [
+				{
+					id: "write-result",
+					name: "write",
+					args: JSON.stringify({ path: "result.md" }),
+					summary: "生成结果",
+					status: "ok",
+					output: { text: "written", totalLines: 1 },
+				},
+				{
+					id: "registered-check",
+					name: "task_check",
+					args: JSON.stringify({ goal: "生成结果", criteria }),
+					summary: "登记验收清单",
+					status: "ok",
+					output: { text: JSON.stringify({ goal: "生成结果", criteria }), totalLines: 1 },
+				},
+			],
+		};
+		await render({
+			entries: [user("latest-question", "生成结果"), answer],
+			onOpenFile: () => {},
+			deliveryRequest: 10,
+		});
 		const surface = scrollSurface();
-		container.querySelector<HTMLElement>(".owl-delivery-summary")!.getBoundingClientRect = () => ({ top: 520 } as DOMRect);
+		container.querySelector<HTMLElement>(".owl-delivery-summary")!.getBoundingClientRect = () =>
+			({ top: 520 }) as DOMRect;
 		await flushFrames();
 		expect(surface.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 504, behavior: "instant" });
 		expect(surface.dataset.owlSearchNavigation).toBe("delivery-10");
@@ -231,7 +339,11 @@ describe("reading position ownership", () => {
 	});
 
 	it("waits for task settlement before following a completion request", async () => {
-		await render({ entries: [user("latest-question", "检查结果"), assistant("answer", "仍在处理")], activity: "working", deliveryRequest: 11 });
+		await render({
+			entries: [user("latest-question", "检查结果"), assistant("answer", "仍在处理")],
+			activity: "working",
+			deliveryRequest: 11,
+		});
 		const surface = scrollSurface();
 		await flushFrames();
 		expect(surface.scrollTo).not.toHaveBeenCalled();
@@ -244,7 +356,9 @@ describe("reading position ownership", () => {
 		const surface = scrollSurface();
 		surface.scrollTop = 340;
 		await render({ entries: [user("question", "run"), assistant("answer", "history restored")] });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		expect(surface.scrollTop).toBe(340);
 		expect(surface.dataset.owlScrollRestoring).toBe("true");
 	});
@@ -266,7 +380,9 @@ describe("reading position ownership", () => {
 		await render({ entries: [user("question", "run")] });
 		expect(surface.scrollTop).toBe(520);
 		await render({ entries: [user("question", "run"), assistant("answer", "streaming reply")], activity: "working" });
-		await act(async () => { for (const callback of resizeCallbacks) callback([], {} as ResizeObserver); });
+		await act(async () => {
+			for (const callback of resizeCallbacks) callback([], {} as ResizeObserver);
+		});
 		expect(surface.scrollTop).toBe(520);
 		expect(container.querySelector(".owl-chat-latest")).not.toBeNull();
 	});
@@ -306,7 +422,11 @@ describe("reading position ownership", () => {
 		const surface = scrollSurface();
 		await workspaceRestored(surface, 0);
 		surface.dataset.owlSearchNavigation = "old-request";
-		await render({ sessionId: "session-two", profile: "D:/profile-two", entries: [user("new-question", "other project")] });
+		await render({
+			sessionId: "session-two",
+			profile: "D:/profile-two",
+			entries: [user("new-question", "other project")],
+		});
 		expect(surface.dataset.owlScrollRestoring).toBe("true");
 		expect(surface.hasAttribute("data-owl-search-navigation")).toBe(false);
 		expect(surface.scrollTop).toBe(0);
@@ -330,7 +450,8 @@ describe("literal text highlights", () => {
 
 	it("keeps code, links and escaped HTML intact and treats punctuation literally", () => {
 		const element = document.createElement("div");
-		element.innerHTML = '<p>ERR[A].* <a href="https://example.test/ERR[A].*">err[a].*</a> <code>ERR[A].*</code> &lt;script&gt;</p><button>ERR[A].*</button>';
+		element.innerHTML =
+			'<p>ERR[A].* <a href="https://example.test/ERR[A].*">err[a].*</a> <code>ERR[A].*</code> &lt;script&gt;</p><button>ERR[A].*</button>';
 		const original = element.innerHTML;
 		const ranges = messageMatchRanges(element, "ERR[A].*");
 		expect(ranges.map(String)).toEqual(["ERR[A].*", "err[a].*", "ERR[A].*"]);

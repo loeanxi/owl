@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BridgeClient } from "../bridge/client.ts";
 import type { SessionSearchHit } from "../bridge/protocol.ts";
-import { loadAndScrubProjects, normPath, samePath, isReservedDir, isValidationDir } from "../utils/paths.ts";
-import { getProjectDisplayName as projectLabel, getProjectSidebarPreferences, saveProjectSidebarPreferences, useProjectSidebarRevision, restoreProject, moveProjectToSection, removeProjectSection, hideProject, initializeReadMarkers, markSessionsRead, isSessionUnread, type ProjectSidebarPreferences } from "../project-sidebar-model.ts";
-import { initializeResearchSidebar, loadSidebarStrings, matchesSessionScope, sidebarStorageKeys, type SessionScope } from "./sidebar-scope.ts";
-import { startPointerDrag } from "../sidebar/pointer-drag.ts";
-import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, sidebarWidthLimit } from "../sidebar/pane-sizing.ts";
-import { usePaneContainer } from "../sidebar/use-pane-container.ts";
 import { getUiLanguage, t, useT } from "../i18n/index.ts";
-import { NewProjectDialog } from "./NewProjectDialog.tsx";
-import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
-import { SessionSearchDialog } from "./SessionSearchDialog.tsx";
-import { useSessionSearchText } from "./session-search-copy.ts";
-import { ProjectActionsMenu, ProjectsSectionMenu, SectionActionsMenu } from "./ProjectActionsMenu.tsx";
-import { ProjectSidebarDialog } from "./ProjectSidebarDialog.tsx";
-import { useProjectSidebarText } from "./project-sidebar-copy.ts";
-import { groupSessionsByPeriod, sessionDisplayTitle } from "./session-list-presentation.ts";
+import {
+	getProjectSidebarPreferences,
+	hideProject,
+	initializeReadMarkers,
+	isSessionUnread,
+	markSessionsRead,
+	moveProjectToSection,
+	type ProjectSidebarPreferences,
+	getProjectDisplayName as projectLabel,
+	removeProjectSection,
+	restoreProject,
+	saveProjectSidebarPreferences,
+	useProjectSidebarRevision,
+} from "../project-sidebar-model.ts";
+import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, sidebarWidthLimit } from "../sidebar/pane-sizing.ts";
+import { startPointerDrag } from "../sidebar/pointer-drag.ts";
+import { usePaneContainer } from "../sidebar/use-pane-container.ts";
+import { isReservedDir, isValidationDir, loadAndScrubProjects, normPath, samePath } from "../utils/paths.ts";
+import type { RailView } from "./ActivityRail.tsx";
 import {
 	IconChat,
 	IconCheck,
@@ -29,7 +34,21 @@ import {
 	IconPlus,
 	IconSearch,
 } from "./icons.tsx";
-import type { RailView } from "./ActivityRail.tsx";
+import { NewProjectDialog } from "./NewProjectDialog.tsx";
+import { ProjectActionsMenu, ProjectsSectionMenu, SectionActionsMenu } from "./ProjectActionsMenu.tsx";
+import { ProjectSidebarDialog } from "./ProjectSidebarDialog.tsx";
+import { useProjectSidebarText } from "./project-sidebar-copy.ts";
+import { SessionActionsMenu } from "./SessionActionsMenu.tsx";
+import { SessionSearchDialog } from "./SessionSearchDialog.tsx";
+import { groupSessionsByPeriod, sessionDisplayTitle } from "./session-list-presentation.ts";
+import { useSessionSearchText } from "./session-search-copy.ts";
+import {
+	initializeResearchSidebar,
+	loadSidebarStrings,
+	matchesSessionScope,
+	type SessionScope,
+	sidebarStorageKeys,
+} from "./sidebar-scope.ts";
 import "./navigation-design.css";
 import "./session-sidebar-responsive.css";
 
@@ -109,7 +128,12 @@ function sessionTitle(row: SessionRow): string {
 function sessionRenameDraft(row: SessionRow): string {
 	const named = row.name?.trim();
 	if (named) return named;
-	return sessionDisplayTitle({ ...row, parentSessionPath: undefined }, t("sidebar.sessionUnnamed"), t("app.branchSuffix"), 80).slice(0, 80);
+	return sessionDisplayTitle(
+		{ ...row, parentSessionPath: undefined },
+		t("sidebar.sessionUnnamed"),
+		t("app.branchSuffix"),
+		80,
+	).slice(0, 80);
 }
 
 /** 相对时间：刚刚 / n 分钟前 / n 小时前 / 昨天 / n 天前 / MM-DD。 */
@@ -130,7 +154,10 @@ function relativeTime(iso: string): string {
 	if (time >= today.getTime()) return t("sidebar.relativeHours", { n: Math.max(1, Math.floor(diff / hour)) });
 	if (time >= yesterday.getTime()) return t("sidebar.yesterday");
 	if (diff < 7 * day) return t("sidebar.relativeDays", { n: Math.max(1, Math.floor(diff / day)) });
-	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", { month: "2-digit", day: "2-digit" });
+	return new Date(time).toLocaleDateString(getUiLanguage() === "en" ? "en-US" : "zh-CN", {
+		month: "2-digit",
+		day: "2-digit",
+	});
 }
 
 function loadPinned(key: string = PINNED_KEY): string[] {
@@ -174,7 +201,9 @@ function loadSessionOrder(key: string): SessionOrderMap {
 
 /** 拖拽悬停位置 → 插入下标（按行中点划分上下半）。 */
 function sessionDropIndex(container: HTMLElement, clientY: number): number {
-	const rows = [...container.querySelectorAll<HTMLElement>(".owl-sidebar-session-row:not([data-sidebar-window-overflow])")];
+	const rows = [
+		...container.querySelectorAll<HTMLElement>(".owl-sidebar-session-row:not([data-sidebar-window-overflow])"),
+	];
 	for (const [index, row] of rows.entries()) {
 		const rect = row.getBoundingClientRect();
 		if (clientY < rect.top + rect.height / 2) return index;
@@ -211,7 +240,10 @@ function Section({
 					type="button"
 					className="owl-sidebar-section-toggle"
 					onClick={onToggle}
-					aria-label={t("sidebar.sectionToggleAria", { action: open ? t("common.collapse") : t("common.expand"), label })}
+					aria-label={t("sidebar.sectionToggleAria", {
+						action: open ? t("common.collapse") : t("common.expand"),
+						label,
+					})}
 					aria-expanded={open}
 				>
 					<span className="owl-sidebar-section-label">{label}</span>
@@ -331,17 +363,35 @@ export function SessionSidebar({
 	const pt = useProjectSidebarText();
 	const searchText = useSessionSearchText();
 	const projectRevision = useProjectSidebarRevision();
-	const projectPreferences = useMemo(() => getProjectSidebarPreferences(sessionScope), [sessionScope, projectRevision]);
-	const researchText = getUiLanguage() === "en" ? { title: "Research chats", search: "Search research chats or projects", newChat: "New research chat", recent: "Recent research" } : { title: "研究会话", search: "搜索研究会话或项目", newChat: "新研究会话", recent: "最近研究" };
+	const projectPreferences = useMemo(
+		() => getProjectSidebarPreferences(sessionScope),
+		[sessionScope, projectRevision],
+	);
+	const researchText =
+		getUiLanguage() === "en"
+			? {
+					title: "Research chats",
+					search: "Search research chats or projects",
+					newChat: "New research chat",
+					recent: "Recent research",
+				}
+			: { title: "研究会话", search: "搜索研究会话或项目", newChat: "新研究会话", recent: "最近研究" };
 	const keys = sidebarStorageKeys(sessionScope);
 	const [allSessions, setAllSessions] = useState<SessionRow[]>([]);
-	const sessions = useMemo(() => allSessions.filter((row) => matchesSessionScope(row, sessionScope)), [allSessions, sessionScope]);
+	const sessions = useMemo(
+		() => allSessions.filter((row) => matchesSessionScope(row, sessionScope)),
+		[allSessions, sessionScope],
+	);
 	const [showNewProject, setShowNewProject] = useState(false);
 	const [editingProject, setEditingProject] = useState<string | null>(null);
 	const [sectionDialog, setSectionDialog] = useState<{ id?: string; path?: string } | null>(null);
 	const [sectionError, setSectionError] = useState("");
 	const [projectNotice, setProjectNotice] = useState("");
-	const [projectConfirm, setProjectConfirm] = useState<{ type: "archive" | "remove" | "section-remove"; path?: string; sectionId?: string } | null>(null);
+	const [projectConfirm, setProjectConfirm] = useState<{
+		type: "archive" | "remove" | "section-remove";
+		path?: string;
+		sectionId?: string;
+	} | null>(null);
 	const [projectBusy, setProjectBusy] = useState(false);
 	const projectBusyRef = useRef(false);
 	// 桌面壳里可打开系统文件夹选择框（浏览器模式隐藏入口）
@@ -349,24 +399,46 @@ export function SessionSidebar({
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(keys.collapsed));
 	const [query, setQuery] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
-	const closeSearch = useCallback((): void => { setSearchOpen(false); setQuery(""); }, []);
-	useEffect(() => { closeSearch(); }, [sessionScope, focus, minimized, closeSearch]);
+	const closeSearch = useCallback((): void => {
+		setSearchOpen(false);
+		setQuery("");
+	}, []);
+	useEffect(() => {
+		closeSearch();
+	}, [sessionScope, focus, minimized, closeSearch]);
 	/** 当前展开的分组菜单（Codex 式 ⋯ 菜单）；值为菜单 id（含各项目行自己的菜单）。 */
 	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	const projectMenuId = useId();
-	const [projectPopup, setProjectPopup] = useState<{ key: string; kind: "project" | "projects" | "recent" | "section"; path?: string; sectionId?: string; anchor: HTMLButtonElement } | null>(null);
-	const closeProjectPopup = useCallback((restoreFocus = true): void => {
-		if (restoreFocus && projectPopup?.anchor.isConnected) projectPopup.anchor.focus({ preventScroll: true });
-		setProjectPopup(null);
-		setOpenMenu((current) => current === projectPopup?.key ? null : current);
-	}, [projectPopup]);
+	const [projectPopup, setProjectPopup] = useState<{
+		key: string;
+		kind: "project" | "projects" | "recent" | "section";
+		path?: string;
+		sectionId?: string;
+		anchor: HTMLButtonElement;
+	} | null>(null);
+	const closeProjectPopup = useCallback(
+		(restoreFocus = true): void => {
+			if (restoreFocus && projectPopup?.anchor.isConnected) projectPopup.anchor.focus({ preventScroll: true });
+			setProjectPopup(null);
+			setOpenMenu((current) => (current === projectPopup?.key ? null : current));
+		},
+		[projectPopup],
+	);
 	const sessionMenuId = useId();
-	const [sessionMenu, setSessionMenu] = useState<{ key: string; row: SessionRow; anchor: HTMLButtonElement; point?: { x: number; y: number } } | null>(null);
-	const closeSessionMenu = useCallback((restoreFocus = true): void => {
-		if (restoreFocus && sessionMenu?.anchor.isConnected) sessionMenu.anchor.focus({ preventScroll: true });
-		setSessionMenu(null);
-		setOpenMenu((current) => current === sessionMenu?.key ? null : current);
-	}, [sessionMenu]);
+	const [sessionMenu, setSessionMenu] = useState<{
+		key: string;
+		row: SessionRow;
+		anchor: HTMLButtonElement;
+		point?: { x: number; y: number };
+	} | null>(null);
+	const closeSessionMenu = useCallback(
+		(restoreFocus = true): void => {
+			if (restoreFocus && sessionMenu?.anchor.isConnected) sessionMenu.anchor.focus({ preventScroll: true });
+			setSessionMenu(null);
+			setOpenMenu((current) => (current === sessionMenu?.key ? null : current));
+		},
+		[sessionMenu],
+	);
 	const [pinnedSort, setPinnedSort] = useState<PinnedSort>(() =>
 		loadChoice(keys.pinnedSort, ["recent", "manual"] as const, "manual"),
 	);
@@ -381,11 +453,17 @@ export function SessionSidebar({
 	const [renameBusy, setRenameBusy] = useState(false);
 	const [deleteError, setDeleteError] = useState("");
 	/** 到访过的项目（含没有会话的）：保证新建/切换项目后旧项目仍留在「项目」分组。启动时清掉评测 workspace。 */
-	const [knownProjects, setKnownProjects] = useState<string[]>(() => loadAndScrubProjects(localStorage, keys.projects));
+	const [knownProjects, setKnownProjects] = useState<string[]>(() =>
+		loadAndScrubProjects(localStorage, keys.projects),
+	);
 	/** 手动展开过会话列表的项目（normalized path）。null = 未交互，默认只展开当前项目。 */
 	const [openProjects, setOpenProjects] = useState<Set<string> | null>(null);
-	const [listWindows, setListWindows] = useState<{ scope: SessionScope; counts: Record<string, number> }>(() => ({ scope: sessionScope, counts: {} }));
-	const visibleCount = (key: string): number => listWindows.scope === sessionScope ? listWindows.counts[key] ?? SESSION_PAGE_SIZE : SESSION_PAGE_SIZE;
+	const [listWindows, setListWindows] = useState<{ scope: SessionScope; counts: Record<string, number> }>(() => ({
+		scope: sessionScope,
+		counts: {},
+	}));
+	const visibleCount = (key: string): number =>
+		listWindows.scope === sessionScope ? (listWindows.counts[key] ?? SESSION_PAGE_SIZE) : SESSION_PAGE_SIZE;
 	/** 当前会话排在本页窗口外时仍留在列表末尾，且不计入「再显示 N 条」。 */
 	const sessionWindow = (rows: SessionRow[], windowKey: string): { rows: SessionRow[]; total: number } => {
 		const limit = visibleCount(windowKey);
@@ -396,19 +474,45 @@ export function SessionSidebar({
 			total: rows.length - (activeOutside ? 1 : 0),
 		};
 	};
-	const setVisibleCount = (key: string, count: number): void => setListWindows((current) => ({
-		scope: sessionScope,
-		counts: { ...(current.scope === sessionScope ? current.counts : {}), [key]: count },
-	}));
-	const listControls = (key: string, total: number, label: string, moreKey: "showMoreSessions" | "showMoreProjects" = "showMoreSessions"): React.ReactNode => {
+	const setVisibleCount = (key: string, count: number): void =>
+		setListWindows((current) => ({
+			scope: sessionScope,
+			counts: { ...(current.scope === sessionScope ? current.counts : {}), [key]: count },
+		}));
+	const listControls = (
+		key: string,
+		total: number,
+		label: string,
+		moreKey: "showMoreSessions" | "showMoreProjects" = "showMoreSessions",
+	): React.ReactNode => {
 		if (total <= SESSION_PAGE_SIZE) return null;
 		const count = Math.min(visibleCount(key), total);
 		const more = Math.min(SESSION_PAGE_SIZE, total - count);
 		const moreLabel = pt(moreKey).replace("{n}", String(more));
-		return <div className="owl-sidebar-list-controls" data-sidebar-list={key} role="group" aria-label={label}>
-			{more > 0 && <button type="button" className="owl-sidebar-list-more" aria-label={label + "：" + moreLabel} onClick={() => setVisibleCount(key, count + SESSION_PAGE_SIZE)}>{moreLabel}</button>}
-			{count > SESSION_PAGE_SIZE && <button type="button" className="owl-sidebar-list-collapse" aria-label={label + "：" + pt("collapseSessions")} onClick={() => setVisibleCount(key, SESSION_PAGE_SIZE)}>{pt("collapseSessions")}</button>}
-		</div>;
+		return (
+			<div className="owl-sidebar-list-controls" data-sidebar-list={key} role="group" aria-label={label}>
+				{more > 0 && (
+					<button
+						type="button"
+						className="owl-sidebar-list-more"
+						aria-label={label + "：" + moreLabel}
+						onClick={() => setVisibleCount(key, count + SESSION_PAGE_SIZE)}
+					>
+						{moreLabel}
+					</button>
+				)}
+				{count > SESSION_PAGE_SIZE && (
+					<button
+						type="button"
+						className="owl-sidebar-list-collapse"
+						aria-label={label + "：" + pt("collapseSessions")}
+						onClick={() => setVisibleCount(key, SESSION_PAGE_SIZE)}
+					>
+						{pt("collapseSessions")}
+					</button>
+				)}
+			</div>
+		);
 	};
 	/** 项目会话手动顺序（拖拽产生并持久化）。 */
 	const [sessionOrder, setSessionOrder] = useState<SessionOrderMap>(() => loadSessionOrder(keys.sessionOrder));
@@ -424,20 +528,31 @@ export function SessionSidebar({
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const previousMinimized = useRef(minimized);
 	const sidebarHidden = minimized || (drawerMode && !drawerOpen);
-	const paneWidthLimit = containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
+	const paneWidthLimit =
+		containerSize === null ? SIDEBAR_MAX_WIDTH : sidebarWidthLimit(containerSize.width, containerSize.toolsVisible);
 	const maxSidebarWidth = drawerMode
 		? Math.min(360, Math.max(0, containerSize.width - 40))
 		: containerSize !== null
-			? Math.min(paneWidthLimit, Math.max(216, Math.round(containerSize.width * 0.28 + Math.max(0, containerSize.width - 1000) * 0.52)))
+			? Math.min(
+					paneWidthLimit,
+					Math.max(216, Math.round(containerSize.width * 0.28 + Math.max(0, containerSize.width - 1000) * 0.52)),
+				)
 			: paneWidthLimit;
-	const defaultSidebarWidth = drawerMode ? 288 : containerSize === null ? 252 : Math.min(260, Math.max(216, Math.round(containerSize.width * 0.12 + 100)));
+	const defaultSidebarWidth = drawerMode
+		? 288
+		: containerSize === null
+			? 252
+			: Math.min(260, Math.max(216, Math.round(containerSize.width * 0.12 + 100)));
 	/** 右缘拖拽调宽：null = 未拖过，使用自适应默认宽度。 */
 	const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
 	const renderedSidebarWidth = Math.min(sidebarWidth ?? defaultSidebarWidth, maxSidebarWidth);
 	const [visibleSidebarWidth, setVisibleSidebarWidth] = useState<number | undefined>(undefined);
 	const [resizing, setResizing] = useState(false);
 	const activeDrag = useRef<(() => void) | undefined>(undefined);
-	const resizeAria = getUiLanguage() === "en" ? "Drag or use Left/Right arrows to resize sidebar, double-click to reset" : "拖拽或按左右方向键调整侧栏宽度，双击复位";
+	const resizeAria =
+		getUiLanguage() === "en"
+			? "Drag or use Left/Right arrows to resize sidebar, double-click to reset"
+			: "拖拽或按左右方向键调整侧栏宽度，双击复位";
 	const closeDrawer = useCallback((): void => {
 		closeSearch();
 		setDrawerOpen(false);
@@ -463,16 +578,39 @@ export function SessionSidebar({
 		return () => window.removeEventListener("owl:toggle-session-drawer", toggleDrawer);
 	}, [drawerMode, minimized, drawerOpen, closeDrawer]);
 	useEffect(() => {
-		window.dispatchEvent(new CustomEvent("owl:session-drawer-state", { detail: { enabled: drawerMode && !minimized, open: drawerMode && !sidebarHidden } }));
-		return () => { window.dispatchEvent(new CustomEvent("owl:session-drawer-state", { detail: { enabled: false, open: false } })); };
+		window.dispatchEvent(
+			new CustomEvent("owl:session-drawer-state", {
+				detail: { enabled: drawerMode && !minimized, open: drawerMode && !sidebarHidden },
+			}),
+		);
+		return () => {
+			window.dispatchEvent(new CustomEvent("owl:session-drawer-state", { detail: { enabled: false, open: false } }));
+		};
 	}, [drawerMode, minimized, sidebarHidden]);
 	useEffect(() => {
 		if (!drawerMode || sidebarHidden) return;
-		const frame = requestAnimationFrame(() => asideRef.current?.querySelector<HTMLButtonElement>(".owl-sidebar-search-trigger")?.focus({ preventScroll: true }));
+		const frame = requestAnimationFrame(() =>
+			asideRef.current
+				?.querySelector<HTMLButtonElement>(".owl-sidebar-search-trigger")
+				?.focus({ preventScroll: true }),
+		);
 		return () => cancelAnimationFrame(frame);
 	}, [drawerMode, sidebarHidden]);
 	useEffect(() => {
-		if (!drawerMode || sidebarHidden || searchOpen || openMenu || showNewProject || editingProject || sectionDialog || projectConfirm || renaming || confirmDelete || resizing) return;
+		if (
+			!drawerMode ||
+			sidebarHidden ||
+			searchOpen ||
+			openMenu ||
+			showNewProject ||
+			editingProject ||
+			sectionDialog ||
+			projectConfirm ||
+			renaming ||
+			confirmDelete ||
+			resizing
+		)
+			return;
 		const onKey = (event: KeyboardEvent): void => {
 			if (event.defaultPrevented) return;
 			if (event.key === "Escape") {
@@ -482,18 +620,38 @@ export function SessionSidebar({
 			}
 			if (event.key !== "Tab") return;
 			const aside = asideRef.current;
-			const controls = aside ? [...aside.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')].filter((control) => control.getClientRects().length > 0) : [];
+			const controls = aside
+				? [
+						...aside.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]'),
+					].filter((control) => control.getClientRects().length > 0)
+				: [];
 			const first = controls[0];
 			const last = controls.at(-1);
 			if (!first || !last) return;
-			if (!aside?.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+			if (
+				!aside?.contains(document.activeElement) ||
+				(event.shiftKey ? document.activeElement === first : document.activeElement === last)
+			) {
 				event.preventDefault();
 				(event.shiftKey ? last : first).focus({ preventScroll: true });
 			}
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
-	}, [drawerMode, sidebarHidden, closeDrawer, searchOpen, openMenu, showNewProject, editingProject, sectionDialog, projectConfirm, renaming, confirmDelete, resizing]);
+	}, [
+		drawerMode,
+		sidebarHidden,
+		closeDrawer,
+		searchOpen,
+		openMenu,
+		showNewProject,
+		editingProject,
+		sectionDialog,
+		projectConfirm,
+		renaming,
+		confirmDelete,
+		resizing,
+	]);
 	useEffect(() => {
 		const aside = asideRef.current;
 		if (!aside) return;
@@ -503,32 +661,41 @@ export function SessionSidebar({
 		observer.observe(aside);
 		return () => observer.disconnect();
 	}, []);
-	const beginSidebarResize = useCallback((event: React.PointerEvent<HTMLDivElement>): void => {
-		if (event.button !== 0 || !event.isPrimary) return;
-		const aside = asideRef.current;
-		if (!aside) return;
-		activeDrag.current?.();
-		const previousWidth = sidebarWidth;
-		const startWidth = aside.getBoundingClientRect().width;
-		const startX = event.clientX;
-		let latest = startWidth;
-		event.preventDefault();
-		setResizing(true);
-		activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
-			cursor: "col-resize",
-			onMove: (moveEvent) => {
-				latest = Math.min(Math.max(Math.round(startWidth + moveEvent.clientX - startX), SIDEBAR_MIN_WIDTH), Math.floor(maxSidebarWidth));
-				setSidebarWidth(latest);
-			},
-			onFinish: (cancelled) => {
-				activeDrag.current = undefined;
-				setResizing(false);
-				// 取消时恢复手势开始前的偏好；窄窗口临时限宽不会覆盖原偏好。
-				if (cancelled) { setSidebarWidth(previousWidth); return; }
-				saveChoice(WIDTH_KEY, String(latest));
-			},
-		});
-	}, [maxSidebarWidth, sidebarWidth]);
+	const beginSidebarResize = useCallback(
+		(event: React.PointerEvent<HTMLDivElement>): void => {
+			if (event.button !== 0 || !event.isPrimary) return;
+			const aside = asideRef.current;
+			if (!aside) return;
+			activeDrag.current?.();
+			const previousWidth = sidebarWidth;
+			const startWidth = aside.getBoundingClientRect().width;
+			const startX = event.clientX;
+			let latest = startWidth;
+			event.preventDefault();
+			setResizing(true);
+			activeDrag.current = startPointerDrag(event.currentTarget, event.nativeEvent, {
+				cursor: "col-resize",
+				onMove: (moveEvent) => {
+					latest = Math.min(
+						Math.max(Math.round(startWidth + moveEvent.clientX - startX), SIDEBAR_MIN_WIDTH),
+						Math.floor(maxSidebarWidth),
+					);
+					setSidebarWidth(latest);
+				},
+				onFinish: (cancelled) => {
+					activeDrag.current = undefined;
+					setResizing(false);
+					// 取消时恢复手势开始前的偏好；窄窗口临时限宽不会覆盖原偏好。
+					if (cancelled) {
+						setSidebarWidth(previousWidth);
+						return;
+					}
+					saveChoice(WIDTH_KEY, String(latest));
+				},
+			});
+		},
+		[maxSidebarWidth, sidebarWidth],
+	);
 	const resizeSidebarWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
 		if (resizing || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
 		const aside = asideRef.current;
@@ -536,7 +703,12 @@ export function SessionSidebar({
 		event.preventDefault();
 		const step = event.shiftKey ? 50 : 10;
 		const currentWidth = aside.getBoundingClientRect().width;
-		const requestedWidth = event.key === "Home" ? SIDEBAR_MIN_WIDTH : event.key === "End" ? maxSidebarWidth : currentWidth + (event.key === "ArrowLeft" ? -step : step);
+		const requestedWidth =
+			event.key === "Home"
+				? SIDEBAR_MIN_WIDTH
+				: event.key === "End"
+					? maxSidebarWidth
+					: currentWidth + (event.key === "ArrowLeft" ? -step : step);
 		const nextWidth = Math.min(Math.max(Math.round(requestedWidth), SIDEBAR_MIN_WIDTH), Math.floor(maxSidebarWidth));
 		setSidebarWidth(nextWidth);
 		saveChoice(WIDTH_KEY, String(nextWidth));
@@ -556,15 +728,21 @@ export function SessionSidebar({
 		document.addEventListener("keydown", cancelWithEscape);
 		return () => document.removeEventListener("keydown", cancelWithEscape);
 	}, [resizing]);
-	useEffect(() => () => {
-		activeDrag.current?.();
-		activeDrag.current = undefined;
-	}, []);
+	useEffect(
+		() => () => {
+			activeDrag.current?.();
+			activeDrag.current = undefined;
+		},
+		[],
+	);
 	const mounted = useRef(true);
 	const refreshVersion = useRef(0);
 	useEffect(() => {
 		mounted.current = true;
-		return () => { mounted.current = false; refreshVersion.current++; };
+		return () => {
+			mounted.current = false;
+			refreshVersion.current++;
+		};
 	}, []);
 
 	// 菜单打开时：点击菜单外或按 Esc 关闭
@@ -586,12 +764,32 @@ export function SessionSidebar({
 		};
 	}, [openMenu, projectPopup]);
 	useEffect(() => {
-		if (projectPopup !== null && (openMenu !== projectPopup.key || !projectPopup.anchor.isConnected)) closeProjectPopup(false);
+		if (projectPopup !== null && (openMenu !== projectPopup.key || !projectPopup.anchor.isConnected))
+			closeProjectPopup(false);
 	}, [openMenu, projectPopup, closeProjectPopup, allSessions, projectRevision]);
 	useEffect(() => {
 		setProjectPopup(null);
-		setOpenMenu((current) => current === "projects" || current === "recent" || current?.startsWith(PROJECT_ROW_MENU_PREFIX) || current?.startsWith("partition:") ? null : current);
-	}, [minimized, activeId, activeProject, sessionScope, focus, allSessions, query, collapsed, openProjects, projectRevision, recentSort]);
+		setOpenMenu((current) =>
+			current === "projects" ||
+			current === "recent" ||
+			current?.startsWith(PROJECT_ROW_MENU_PREFIX) ||
+			current?.startsWith("partition:")
+				? null
+				: current,
+		);
+	}, [
+		minimized,
+		activeId,
+		activeProject,
+		sessionScope,
+		focus,
+		allSessions,
+		query,
+		collapsed,
+		openProjects,
+		projectRevision,
+		recentSort,
+	]);
 
 	// A menu belongs to a specific rendered row, not every copy of that session.
 	useEffect(() => {
@@ -600,7 +798,7 @@ export function SessionSidebar({
 	}, [openMenu, sessionMenu, closeSessionMenu, allSessions, query, collapsed, openProjects, pinned]);
 	useEffect(() => {
 		setSessionMenu(null);
-		setOpenMenu((current) => current?.startsWith(SESSION_ROW_MENU_PREFIX) ? null : current);
+		setOpenMenu((current) => (current?.startsWith(SESSION_ROW_MENU_PREFIX) ? null : current));
 	}, [minimized, activeId, activeProject, sessionScope, focus, allSessions, query, collapsed, openProjects]);
 
 	// 当前项目变化时登记进项目列表：新建项目、切项目、恢复历史会话都会走到这里。
@@ -626,7 +824,10 @@ export function SessionSidebar({
 			if (!response.ok || !mounted.current || version !== refreshVersion.current) return;
 			const rows = response.result ?? [];
 			initializeResearchSidebar(localStorage, rows);
-			initializeReadMarkers(sessionScope, rows.filter((row) => matchesSessionScope(row, sessionScope)));
+			initializeReadMarkers(
+				sessionScope,
+				rows.filter((row) => matchesSessionScope(row, sessionScope)),
+			);
 			if (sessionScope === "research") {
 				setPinned(loadPinned(keys.pinned));
 				setKnownProjects(loadAndScrubProjects(localStorage, keys.projects));
@@ -839,7 +1040,10 @@ export function SessionSidebar({
 
 	// 弹窗中的标题/项目匹配；后台侧栏保留原列表和展开状态。
 	const sessionMatches = (row: SessionRow): boolean =>
-		!search || sessionTitle(row).toLowerCase().includes(search) || (row.cwd ?? "").toLowerCase().includes(search) || (row.cwd ? projectLabel(row.cwd).toLowerCase().includes(search) : false);
+		!search ||
+		sessionTitle(row).toLowerCase().includes(search) ||
+		(row.cwd ?? "").toLowerCase().includes(search) ||
+		(row.cwd ? projectLabel(row.cwd).toLowerCase().includes(search) : false);
 
 	const byLatest = (a: SessionRow, b: SessionRow): number => {
 		const left = sessionTime(a);
@@ -894,7 +1098,8 @@ export function SessionSidebar({
 		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row));
 		if (recentSort === "name") {
 			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
-		} else if (recentSort === "oldest") rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
+		} else if (recentSort === "oldest")
+			rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
 		else rows.sort(byLatest);
 		return rows;
 	}, [sessions, recentSort, projectRevision, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -905,14 +1110,32 @@ export function SessionSidebar({
 	/** 会话行悬停 tooltip：标题 + 时间 · 项目（单行化后元信息收进这里）。 */
 	const sessionRowTip = (row: SessionRow): string => {
 		const time = relativeTime(sessionTime(row));
-		return [...new Set([sessionTitle(row), row.name?.trim(), row.firstMessage?.trim(), `${time}${row.cwd ? ` · ${row.cwd}` : ""}`, row.id, row.path].filter((part): part is string => Boolean(part)))].join("\n");
+		return [
+			...new Set(
+				[
+					sessionTitle(row),
+					row.name?.trim(),
+					row.firstMessage?.trim(),
+					`${time}${row.cwd ? ` · ${row.cwd}` : ""}`,
+					row.id,
+					row.path,
+				].filter((part): part is string => Boolean(part)),
+			),
+		].join("\n");
 	};
 
 	/**
 	 * 会话行（单行紧凑式）：标题在左，状态点靠右。运行中绿点闪烁，跑完未看为实心绿点，看过后变浅灰。
 	 * 悬停露出会话操作菜单，避免多个操作图标挤占标题空间。
 	 */
-	const sessionRow = (row: SessionRow, index: number, pinnedRow: boolean, location: string, projectPath?: string, overflow = false): React.JSX.Element => {
+	const sessionRow = (
+		row: SessionRow,
+		index: number,
+		pinnedRow: boolean,
+		location: string,
+		projectPath?: string,
+		overflow = false,
+	): React.JSX.Element => {
 		const id = row.id;
 		const isRunning = id !== undefined && runningSessions.has(id);
 		const unread = isSessionUnread(projectPreferences, row);
@@ -921,54 +1144,86 @@ export function SessionSidebar({
 		const menuOpen = openMenu === menuKey && sessionMenu?.key === menuKey;
 		// 仅项目分组内的完整会话列表可拖拽排序。
 		const draggable = projectPath !== undefined && id !== undefined;
-		const dropBefore = !overflow && projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
-		const dropAfter = !overflow && projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index + 1;
-			return (
-				<div
-					key={id ?? index}
-					data-sidebar-window-overflow={overflow ? "true" : undefined}
-					className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
-						id ? "owl-sidebar-row--has-marker" : ""
-					} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
-						dropBefore ? "is-drop-before" : ""
-					} ${dropAfter ? "is-drop-after" : ""}`}
-					draggable={draggable || undefined}
-					onContextMenu={id ? (event) => {
-						// 右键弹出会话操作菜单（与 ⋯ 按钮同一张）；定位到指针处
-						event.preventDefault();
-						const anchor = event.currentTarget.querySelector<HTMLButtonElement>(".owl-sidebar-row-main");
-						if (!anchor) return;
-						setSessionMenu({ key: menuKey, row, anchor, point: { x: event.clientX, y: event.clientY } });
-						setOpenMenu(menuKey);
-					} : undefined}
-				onDragStart={draggable ? (event) => {
-					// 从行尾操作按钮（⋯）起拖视为误操作：不进入拖拽。
-					if ((event.target as HTMLElement).closest(".owl-sidebar-row-actions")) {
-						event.preventDefault();
-						return;
-					}
-					event.dataTransfer.effectAllowed = "move";
-					event.dataTransfer.setData("text/plain", id!);
-					setDraggingSession({ id: id!, fromPath: normPath(projectPath!) });
-				} : undefined}
-				onDragEnd={draggable ? () => {
-					setDraggingSession(null);
-					setDropHint(null);
-				} : undefined}
+		const dropBefore =
+			!overflow && projectPath !== undefined && dropHint?.path === normPath(projectPath) && dropHint.index === index;
+		const dropAfter =
+			!overflow &&
+			projectPath !== undefined &&
+			dropHint?.path === normPath(projectPath) &&
+			dropHint.index === index + 1;
+		return (
+			<div
+				key={id ?? index}
+				data-sidebar-window-overflow={overflow ? "true" : undefined}
+				className={`owl-sidebar-row owl-sidebar-session-row ${id === activeId ? "is-active" : ""} ${
+					id ? "owl-sidebar-row--has-marker" : ""
+				} ${menuOpen ? "is-open" : ""} ${draggingSession && draggingSession.id === id ? "is-dragging" : ""} ${
+					dropBefore ? "is-drop-before" : ""
+				} ${dropAfter ? "is-drop-after" : ""}`}
+				draggable={draggable || undefined}
+				onContextMenu={
+					id
+						? (event) => {
+								// 右键弹出会话操作菜单（与 ⋯ 按钮同一张）；定位到指针处
+								event.preventDefault();
+								const anchor = event.currentTarget.querySelector<HTMLButtonElement>(".owl-sidebar-row-main");
+								if (!anchor) return;
+								setSessionMenu({ key: menuKey, row, anchor, point: { x: event.clientX, y: event.clientY } });
+								setOpenMenu(menuKey);
+							}
+						: undefined
+				}
+				onDragStart={
+					draggable
+						? (event) => {
+								// 从行尾操作按钮（⋯）起拖视为误操作：不进入拖拽。
+								if ((event.target as HTMLElement).closest(".owl-sidebar-row-actions")) {
+									event.preventDefault();
+									return;
+								}
+								event.dataTransfer.effectAllowed = "move";
+								event.dataTransfer.setData("text/plain", id!);
+								setDraggingSession({ id: id!, fromPath: normPath(projectPath!) });
+							}
+						: undefined
+				}
+				onDragEnd={
+					draggable
+						? () => {
+								setDraggingSession(null);
+								setDropHint(null);
+							}
+						: undefined
+				}
 			>
 				<button
 					type="button"
 					className="owl-sidebar-row-main"
 					title={sessionRowTip(row)}
 					aria-current={id === activeId ? "page" : undefined}
-					onClick={() => { if (id) { clickFollowSuppressedAt.current = Date.now(); markSessionsRead(sessionScope, [row]); onOpenSession(id); if (drawerMode) setDrawerOpen(false); } }}
+					onClick={() => {
+						if (id) {
+							clickFollowSuppressedAt.current = Date.now();
+							markSessionsRead(sessionScope, [row]);
+							onOpenSession(id);
+							if (drawerMode) setDrawerOpen(false);
+						}
+					}}
 				>
 					<span className="owl-sidebar-row-label">{sessionTitle(row)}</span>
 					{time && <span className="owl-sidebar-row-time">{time}</span>}
 					<span
 						className={`owl-sidebar-session-dot${isRunning ? " is-running" : unread ? " is-unread" : id !== undefined && (draftSessions?.has(id) ?? false) ? " is-draft" : ""}`}
 						data-draft={(id !== undefined && (draftSessions?.has(id) ?? false)) || undefined}
-						title={isRunning ? t("sidebar.runningTip") : unread ? t("sidebar.unreadTip") : (draftSessions?.has(id ?? "") ?? false) ? t("sidebar.draftTip") : t("sidebar.readTip")}
+						title={
+							isRunning
+								? t("sidebar.runningTip")
+								: unread
+									? t("sidebar.unreadTip")
+									: (draftSessions?.has(id ?? "") ?? false)
+										? t("sidebar.draftTip")
+										: t("sidebar.readTip")
+						}
 					/>
 					{isRunning && <span className="sr-only">{t("sidebar.runningSr")}</span>}
 				</button>
@@ -1005,16 +1260,29 @@ export function SessionSidebar({
 	 * 没有手动顺序时，最新创建的会话固定第一位（新对话默认置顶），其余按当前排序偏好。
 	 */
 	const projectSessionRows = (path: string): SessionRow[] => {
-		const sorted = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && samePath(row.cwd, path)).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const sorted = sessions
+			.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && samePath(row.cwd, path))
+			.sort((a, b) =>
+				recentSort === "name"
+					? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage())
+					: recentSort === "oldest"
+						? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b)))
+						: byLatest(a, b),
+			);
 		const manual = sessionOrder[normPath(path)];
 		if (manual && manual.length > 0) {
 			const rank = new Map(manual.map((id, index) => [id, index]));
-			const listed = sorted.filter((row) => row.id !== undefined && rank.has(row.id)).sort((a, b) => (rank.get(a.id!) ?? 0) - (rank.get(b.id!) ?? 0));
+			const listed = sorted
+				.filter((row) => row.id !== undefined && rank.has(row.id))
+				.sort((a, b) => (rank.get(a.id!) ?? 0) - (rank.get(b.id!) ?? 0));
 			const unlisted = sorted.filter((row) => row.id === undefined || !rank.has(row.id)).sort(byLatest);
 			return [...unlisted, ...listed];
 		}
 		// 最新创建的会话置顶：按名称/从旧到新排序时新对话也不会被插到中间。
-		const newest = sorted.reduce<SessionRow | null>((top, row) => !top || String(row.created ?? "") > String(top.created ?? "") ? row : top, null);
+		const newest = sorted.reduce<SessionRow | null>(
+			(top, row) => (!top || String(row.created ?? "") > String(top.created ?? "") ? row : top),
+			null,
+		);
 		return newest ? [newest, ...sorted.filter((row) => row !== newest)] : sorted;
 	};
 
@@ -1027,53 +1295,127 @@ export function SessionSidebar({
 		const name = projectLabel(path);
 		const windowKey = "project:" + normPath(path);
 		const windowed = sessionWindow(rows, windowKey);
-		return <div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
-			<div className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}>
-				<button type="button" className="owl-sidebar-project-toggle" data-icon={expanded ? "folder-open" : "folder"} aria-expanded={expanded} aria-label={t("sidebar.projectToggleAria", { project: name })} title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")} onClick={() => toggleProjectGroup(path)}>{expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />}</button>
-				<button type="button" className="owl-sidebar-row-main" title={path} aria-expanded={expanded} aria-label={isCurrent ? t("sidebar.currentProjectAria", { project: name }) : t("sidebar.switchToProjectAria", { project: name })} onClick={() => { toggleProjectGroup(path); onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}><span className="owl-sidebar-row-label">{name}</span></button>
-				<div data-menu-root className="owl-sidebar-row-actions">
-					<button type="button" className="owl-sidebar-action" title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActionsAria", { project: name })} aria-haspopup="menu" aria-expanded={openMenu === menuId} aria-controls={openMenu === menuId ? projectMenuId : undefined} onClick={(event) => {
-						if (openMenu === menuId) closeProjectPopup();
-						else { setProjectPopup({ key: menuId, kind: "project", path, anchor: event.currentTarget }); setOpenMenu(menuId); }
-					}}><IconMore className="h-3.5 w-3.5" /></button>
-					<button type="button" className="owl-sidebar-action" title={t("sidebar.newChatInProject")} aria-label={t("sidebar.newChatInProjectAria", { project: name })} onClick={() => { setOpenMenu(null); onNewChatInProject(path); if (drawerMode) setDrawerOpen(false); }}><IconCompose className="h-3.5 w-3.5" /></button>
+		return (
+			<div key={menuId} className="owl-sidebar-project-group" data-project-path={normPath(path)}>
+				<div
+					className={`owl-sidebar-row owl-sidebar-project-row owl-sidebar-row--has-marker ${isCurrent ? "is-current" : ""} ${openMenu === menuId ? "is-open" : ""}`}
+				>
+					<button
+						type="button"
+						className="owl-sidebar-project-toggle"
+						data-icon={expanded ? "folder-open" : "folder"}
+						aria-expanded={expanded}
+						aria-label={t("sidebar.projectToggleAria", { project: name })}
+						title={expanded ? t("sidebar.collapseList") : t("sidebar.expandList")}
+						onClick={() => toggleProjectGroup(path)}
+					>
+						{expanded ? (
+							<IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+						) : (
+							<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+						)}
+					</button>
+					<button
+						type="button"
+						className="owl-sidebar-row-main"
+						title={path}
+						aria-expanded={expanded}
+						aria-label={
+							isCurrent
+								? t("sidebar.currentProjectAria", { project: name })
+								: t("sidebar.switchToProjectAria", { project: name })
+						}
+						onClick={() => {
+							toggleProjectGroup(path);
+							onSelectProject(path);
+							if (drawerMode) setDrawerOpen(false);
+						}}
+					>
+						<span className="owl-sidebar-row-label">{name}</span>
+					</button>
+					<div data-menu-root className="owl-sidebar-row-actions">
+						<button
+							type="button"
+							className="owl-sidebar-action"
+							title={t("sidebar.projectActions")}
+							aria-label={t("sidebar.projectActionsAria", { project: name })}
+							aria-haspopup="menu"
+							aria-expanded={openMenu === menuId}
+							aria-controls={openMenu === menuId ? projectMenuId : undefined}
+							onClick={(event) => {
+								if (openMenu === menuId) closeProjectPopup();
+								else {
+									setProjectPopup({ key: menuId, kind: "project", path, anchor: event.currentTarget });
+									setOpenMenu(menuId);
+								}
+							}}
+						>
+							<IconMore className="h-3.5 w-3.5" />
+						</button>
+						<button
+							type="button"
+							className="owl-sidebar-action"
+							title={t("sidebar.newChatInProject")}
+							aria-label={t("sidebar.newChatInProjectAria", { project: name })}
+							onClick={() => {
+								setOpenMenu(null);
+								onNewChatInProject(path);
+								if (drawerMode) setDrawerOpen(false);
+							}}
+						>
+							<IconCompose className="h-3.5 w-3.5" />
+						</button>
+					</div>
 				</div>
+				{expanded && (
+					<div
+						className="owl-sidebar-project-sessions"
+						onDragOver={(event) => {
+							const target = normPath(path);
+							if (!draggingSession || draggingSession.fromPath !== target) return;
+							event.preventDefault();
+							event.dataTransfer.dropEffect = "move";
+							const index = sessionDropIndex(event.currentTarget, event.clientY);
+							setDropHint((current) =>
+								current?.path === target && current.index === index ? current : { path: target, index },
+							);
+						}}
+						onDrop={(event) => {
+							const drag = draggingSession;
+							const target = normPath(path);
+							if (!drag || drag.fromPath !== target) return;
+							event.preventDefault();
+							const ids = rows.map((row) => row.id).filter((value): value is string => value !== undefined);
+							const oldIndex = ids.indexOf(drag.id);
+							if (oldIndex === -1) return;
+							const without = ids.filter((value) => value !== drag.id);
+							const hintIndex = dropHint?.path === target ? dropHint.index : oldIndex;
+							// 落点按含拖拽行的渲染序计；先摘掉拖拽行，之后的落点前移一位。
+							const insert = Math.min(
+								Math.max(hintIndex > oldIndex ? hintIndex - 1 : hintIndex, 0),
+								without.length,
+							);
+							without.splice(insert, 0, drag.id);
+							const next = { ...sessionOrder, [target]: without };
+							setSessionOrder(next);
+							try {
+								localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
+							} catch {
+								// localStorage 不可用时手动顺序退化为本次会话内存态
+							}
+							setDraggingSession(null);
+							setDropHint(null);
+						}}
+					>
+						{windowed.rows.map((row, index) =>
+							sessionRow(row, index, false, menuId, path, index >= visibleCount(windowKey)),
+						)}
+						{listControls(windowKey, windowed.total, name)}
+						{rows.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}
+					</div>
+				)}
 			</div>
-			{expanded && <div
-				className="owl-sidebar-project-sessions"
-				onDragOver={(event) => {
-					const target = normPath(path);
-					if (!draggingSession || draggingSession.fromPath !== target) return;
-					event.preventDefault();
-					event.dataTransfer.dropEffect = "move";
-					const index = sessionDropIndex(event.currentTarget, event.clientY);
-					setDropHint((current) => current?.path === target && current.index === index ? current : { path: target, index });
-				}}
-				onDrop={(event) => {
-					const drag = draggingSession;
-					const target = normPath(path);
-					if (!drag || drag.fromPath !== target) return;
-					event.preventDefault();
-					const ids = rows.map((row) => row.id).filter((value): value is string => value !== undefined);
-					const oldIndex = ids.indexOf(drag.id);
-					if (oldIndex === -1) return;
-					const without = ids.filter((value) => value !== drag.id);
-					const hintIndex = dropHint?.path === target ? dropHint.index : oldIndex;
-					// 落点按含拖拽行的渲染序计；先摘掉拖拽行，之后的落点前移一位。
-					const insert = Math.min(Math.max(hintIndex > oldIndex ? hintIndex - 1 : hintIndex, 0), without.length);
-					without.splice(insert, 0, drag.id);
-					const next = { ...sessionOrder, [target]: without };
-					setSessionOrder(next);
-					try {
-						localStorage.setItem(keys.sessionOrder, JSON.stringify(next));
-					} catch {
-						// localStorage 不可用时手动顺序退化为本次会话内存态
-					}
-					setDraggingSession(null);
-					setDropHint(null);
-				}}
-			>{windowed.rows.map((row, index) => sessionRow(row, index, false, menuId, path, index >= visibleCount(windowKey)))}{listControls(windowKey, windowed.total, name)}{rows.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}</div>}
-		</div>;
+		);
 	};
 	const renderProjectContents = (paths: string[], location: string): React.ReactNode => {
 		if (projectPreferences.view === "projects") {
@@ -1083,54 +1425,140 @@ export function SessionSidebar({
 			const activeIndex = paths.findIndex((path) => samePath(path, activeProject));
 			const activeOutside = activeIndex >= limit;
 			const shown = activeOutside ? [...paths.slice(0, limit), paths[activeIndex]!] : paths.slice(0, limit);
-			return <>{shown.map(projectRow)}{listControls(windowKey, paths.length - (activeOutside ? 1 : 0), pt("defaultSection"), "showMoreProjects")}</>;
+			return (
+				<>
+					{shown.map(projectRow)}
+					{listControls(
+						windowKey,
+						paths.length - (activeOutside ? 1 : 0),
+						pt("defaultSection"),
+						"showMoreProjects",
+					)}
+				</>
+			);
 		}
 		const pathsSet = new Set(paths.map(normPath));
-		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd))).sort((a, b) => recentSort === "name" ? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()) : recentSort === "oldest" ? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))) : byLatest(a, b));
+		const rows = sessions
+			.filter((row) => !isArchivedRow(row) && !isPinnedRow(row) && pathsSet.has(normPath(row.cwd)))
+			.sort((a, b) =>
+				recentSort === "name"
+					? sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage())
+					: recentSort === "oldest"
+						? String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b)))
+						: byLatest(a, b),
+			);
 		const windowKey = "merged:" + location;
 		const windowed = sessionWindow(rows, windowKey);
-		return rows.length ? <>{windowed.rows.map((row, index) => sessionRow(row, index, false, location, undefined, index >= visibleCount(windowKey)))}{listControls(windowKey, windowed.total, pt("defaultSection"))}</> : <p className="owl-sidebar-empty">{t("sidebar.none")}</p>;
+		return rows.length ? (
+			<>
+				{windowed.rows.map((row, index) =>
+					sessionRow(row, index, false, location, undefined, index >= visibleCount(windowKey)),
+				)}
+				{listControls(windowKey, windowed.total, pt("defaultSection"))}
+			</>
+		) : (
+			<p className="owl-sidebar-empty">{t("sidebar.none")}</p>
+		);
 	};
-	const defaultProjects = visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === undefined);
+	const defaultProjects = visibleProjects.filter(
+		(path) => projectPreferences.assignments[normPath(path)] === undefined,
+	);
 	const renderRecentRows = (rows: SessionRow[], location: string, overflowId?: string): React.ReactNode => {
 		const groups = groupSessionsByPeriod(rows);
 		if (recentSort === "oldest") groups.reverse();
-		return groups.map(({ period, rows: periodRows }) => <div key={period} className="owl-sidebar-date-group" data-session-period={period}>
-			<h3 className="owl-sidebar-date-label">{t(period === "today" ? "history.today" : period === "yesterday" ? "sidebar.yesterday" : "myself.groupEarlier")}</h3>
-			{periodRows.map((row, index) => sessionRow(row, index, false, location, undefined, row.id === overflowId))}
-		</div>);
+		return groups.map(({ period, rows: periodRows }) => (
+			<div key={period} className="owl-sidebar-date-group" data-session-period={period}>
+				<h3 className="owl-sidebar-date-label">
+					{t(
+						period === "today"
+							? "history.today"
+							: period === "yesterday"
+								? "sidebar.yesterday"
+								: "myself.groupEarlier",
+					)}
+				</h3>
+				{periodRows.map((row, index) => sessionRow(row, index, false, location, undefined, row.id === overflowId))}
+			</div>
+		));
 	};
 	const renderRecentContents = (): React.ReactNode => {
 		const recentWindow = sessionWindow(recentSessions, "recent");
 		const rows = recentWindow.rows;
 		const overflowId = rows.length > visibleCount("recent") ? rows.at(-1)?.id : undefined;
-		const controls = listControls("recent", recentWindow.total, sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent"));
-		if (projectPreferences.recentView === "merged") return <>{renderRecentRows(rows, "recent", overflowId)}{controls}</>;
+		const controls = listControls(
+			"recent",
+			recentWindow.total,
+			sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent"),
+		);
+		if (projectPreferences.recentView === "merged")
+			return (
+				<>
+					{renderRecentRows(rows, "recent", overflowId)}
+					{controls}
+				</>
+			);
 		const groups = new Map<string, { path?: string; rows: SessionRow[] }>();
 		for (const row of rows) {
 			const key = normPath(row.cwd);
 			const group = groups.get(key);
-			if (group) group.rows.push(row); else groups.set(key, { path: row.cwd, rows: [row] });
+			if (group) group.rows.push(row);
+			else groups.set(key, { path: row.cwd, rows: [row] });
 		}
-		return <>{[...groups].map(([pathKey, group]) => {
-			const key = `recent-project:${pathKey || "standalone"}`;
-			const expanded = isOpen(key);
-			const name = group.path ? projectLabel(group.path) : pt("standalone");
-			return <div key={key} className="owl-sidebar-project-group" data-recent-project={pathKey || "standalone"}>
-				<div className="owl-sidebar-row"><button type="button" className="owl-sidebar-row-main" title={group.path ?? name} aria-expanded={expanded} data-icon={group.path ? (expanded ? "folder-open" : "folder") : undefined} aria-label={t("sidebar.projectToggleAria", { project: name })} onClick={() => toggleSection(key)}>
-					{group.path ? (expanded ? <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /> : <IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />) : <><IconChevron className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`} /><IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" /></>}
-					<span className="owl-sidebar-row-label">{name}</span>
-				</button></div>
-				{expanded && <div className="owl-sidebar-project-sessions">{renderRecentRows(group.rows, key, overflowId)}</div>}
-			</div>;
-		})}{controls}</>;
+		return (
+			<>
+				{[...groups].map(([pathKey, group]) => {
+					const key = `recent-project:${pathKey || "standalone"}`;
+					const expanded = isOpen(key);
+					const name = group.path ? projectLabel(group.path) : pt("standalone");
+					return (
+						<div key={key} className="owl-sidebar-project-group" data-recent-project={pathKey || "standalone"}>
+							<div className="owl-sidebar-row">
+								<button
+									type="button"
+									className="owl-sidebar-row-main"
+									title={group.path ?? name}
+									aria-expanded={expanded}
+									data-icon={group.path ? (expanded ? "folder-open" : "folder") : undefined}
+									aria-label={t("sidebar.projectToggleAria", { project: name })}
+									onClick={() => toggleSection(key)}
+								>
+									{group.path ? (
+										expanded ? (
+											<IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+										) : (
+											<IconFolder className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+										)
+									) : (
+										<>
+											<IconChevron
+												className={`h-3 w-3 shrink-0 text-owl-sidebar-faint transition-transform ${expanded ? "rotate-90" : ""}`}
+											/>
+											<IconChat className="h-3.5 w-3.5 shrink-0 text-owl-sidebar-faint" />
+										</>
+									)}
+									<span className="owl-sidebar-row-label">{name}</span>
+								</button>
+							</div>
+							{expanded && (
+								<div className="owl-sidebar-project-sessions">
+									{renderRecentRows(group.rows, key, overflowId)}
+								</div>
+							)}
+						</div>
+					);
+				})}
+				{controls}
+			</>
+		);
 	};
 	const savePreferences = (next: ProjectSidebarPreferences): void => saveProjectSidebarPreferences(sessionScope, next);
 	const confirmProjectAction = async (): Promise<void> => {
 		if (!projectConfirm || projectBusyRef.current) return;
 		if (projectConfirm.type === "section-remove") {
-			if (projectConfirm.sectionId) savePreferences(removeProjectSection(projectPreferences, projectConfirm.sectionId));
-			setProjectConfirm(null); return;
+			if (projectConfirm.sectionId)
+				savePreferences(removeProjectSection(projectPreferences, projectConfirm.sectionId));
+			setProjectConfirm(null);
+			return;
 		}
 		const path = projectConfirm.path;
 		if (!path) return;
@@ -1139,30 +1567,74 @@ export function SessionSidebar({
 			const nextKnown = knownProjects.filter((entry) => !samePath(entry, path));
 			setKnownProjects(nextKnown);
 			localStorage.setItem(keys.projects, JSON.stringify(nextKnown));
-			setProjectConfirm(null); return;
+			setProjectConfirm(null);
+			return;
 		}
 		const targets = sessions.filter((row) => row.id && !isArchivedRow(row) && samePath(row.cwd, path));
-		let done = 0; let failed = 0; let running = 0;
-		projectBusyRef.current = true; setProjectBusy(true);
+		let done = 0;
+		let failed = 0;
+		let running = 0;
+		projectBusyRef.current = true;
+		setProjectBusy(true);
 		try {
 			for (const row of targets) {
-				if (row.id && runningSessions.has(row.id)) { running++; continue; }
-				try { const result = await client.request({ type: "session.archive", sessionId: row.id! }); if (result.ok) done++; else failed++; } catch { failed++; }
+				if (row.id && runningSessions.has(row.id)) {
+					running++;
+					continue;
+				}
+				try {
+					const result = await client.request({ type: "session.archive", sessionId: row.id! });
+					if (result.ok) done++;
+					else failed++;
+				} catch {
+					failed++;
+				}
 			}
 			await refresh();
-			setProjectNotice(pt("archiveResult").replace("{done}", String(done)).replace("{failed}", String(failed)).replace("{running}", String(running)));
+			setProjectNotice(
+				pt("archiveResult")
+					.replace("{done}", String(done))
+					.replace("{failed}", String(failed))
+					.replace("{running}", String(running)),
+			);
 			setProjectConfirm(null);
-		} finally { projectBusyRef.current = false; setProjectBusy(false); }
+		} finally {
+			projectBusyRef.current = false;
+			setProjectBusy(false);
+		}
 	};
 
-	const metadataSessions: SessionSearchHit[] = search ? allSessions.filter(sessionMatches).filter((row) => row.id).map((row) => ({
-		sessionId: row.id!, cwd: row.cwd ?? "", title: sessionTitle(row),
-		scope: matchesSessionScope(row, "research") ? "research" : "chat",
-		archived: isArchivedRow(row), modified: sessionTime(row), entryId: "", role: "user", excerpt: "", matchRanges: [],
-	})) : [];
-	const searchProjects = search ? [...new Map([...projectPaths, ...allSessions.map((row) => row.cwd).filter((path): path is string => Boolean(path))]
-		.filter((path) => !isReservedDir(path) && !isValidationDir(path) && (projectLabel(path).toLowerCase().includes(search) || path.toLowerCase().includes(search)))
-		.map((path) => [normPath(path), path])).values()] : [];
+	const metadataSessions: SessionSearchHit[] = search
+		? allSessions
+				.filter(sessionMatches)
+				.filter((row) => row.id)
+				.map((row) => ({
+					sessionId: row.id!,
+					cwd: row.cwd ?? "",
+					title: sessionTitle(row),
+					scope: matchesSessionScope(row, "research") ? "research" : "chat",
+					archived: isArchivedRow(row),
+					modified: sessionTime(row),
+					entryId: "",
+					role: "user",
+					excerpt: "",
+					matchRanges: [],
+				}))
+		: [];
+	const searchProjects = search
+		? [
+				...new Map(
+					[...projectPaths, ...allSessions.map((row) => row.cwd).filter((path): path is string => Boolean(path))]
+						.filter(
+							(path) =>
+								!isReservedDir(path) &&
+								!isValidationDir(path) &&
+								(projectLabel(path).toLowerCase().includes(search) || path.toLowerCase().includes(search)),
+						)
+						.map((path) => [normPath(path), path]),
+				).values(),
+			]
+		: [];
 
 	/** 分组头部快捷按钮的统一样式。 */
 	const actionBtn = "owl-sidebar-action";
@@ -1183,308 +1655,558 @@ export function SessionSidebar({
 
 	return (
 		<>
-		{drawerMode && !minimized && !drawerOpen && <button
-			ref={drawerTriggerRef}
-			type="button"
-			className="owl-sidebar-drawer-trigger"
-			aria-label={t("sidebar.aria")}
-			aria-controls="owl-session-sidebar"
-			aria-expanded={false}
-			title={t("sidebar.aria")}
-			onClick={() => setDrawerOpen(true)}
-		><IconPanelLeft className="h-4 w-4" /></button>}
-		{drawerMode && !sidebarHidden && <button
-			type="button"
-			className="owl-sidebar-backdrop"
-			tabIndex={-1}
-			aria-label={t("sidebar.collapseSidebar")}
-			onClick={closeDrawer}
-		/>}
-		<aside
-			ref={asideRef}
-			id="owl-session-sidebar"
-			className={`owl-sidebar${drawerMode ? " owl-sidebar--drawer" : ""}${renderedSidebarWidth <= 232 ? " owl-sidebar--compact" : ""}`}
-			role={drawerMode ? "dialog" : undefined}
-			aria-modal={drawerMode && !sidebarHidden && !searchOpen ? true : undefined}
-			aria-label={t("sidebar.aria")}
-			hidden={sidebarHidden}
-			style={{ width: renderedSidebarWidth, flexBasis: renderedSidebarWidth, maxWidth: maxSidebarWidth }}
-		>
-			<div className="owl-sidebar-header" data-tauri-drag-region="deep">
+			{drawerMode && !minimized && !drawerOpen && (
 				<button
+					ref={drawerTriggerRef}
 					type="button"
-					className="owl-sidebar-brand"
-					title={t("sidebar.collapseSidebar")}
-					aria-label={t("sidebar.collapseSidebar")}
-					aria-expanded={!minimized}
-					onClick={onToggleMinimized}
+					className="owl-sidebar-drawer-trigger"
+					aria-label={t("sidebar.aria")}
+					aria-controls="owl-session-sidebar"
+					aria-expanded={false}
+					title={t("sidebar.aria")}
+					onClick={() => setDrawerOpen(true)}
 				>
-					<span className={sessionScope === "research" ? undefined : "owl-wordmark"}>{sessionScope === "research" ? researchText.title : "owl"}</span>
+					<IconPanelLeft className="h-4 w-4" />
 				</button>
-				<div className="flex-1" data-tauri-drag-region="deep" />
-				<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>LOCAL</span>
-				{drawerMode && <button type="button" className="owl-sidebar-drawer-close" aria-label={t("sidebar.collapseSidebar")} title={t("sidebar.collapseSidebar")} onClick={closeDrawer}><IconPanelLeft className="h-4 w-4" /></button>}
-			</div>
-
-			<div className="owl-sidebar-shortcuts">
+			)}
+			{drawerMode && !sidebarHidden && (
 				<button
 					type="button"
-					className="owl-sidebar-search-trigger"
-					aria-label={searchText("title")}
-					aria-haspopup="dialog"
-					aria-expanded={searchOpen}
-					title={t("sidebar.searchPlaceholder")}
-					onClick={() => { setOpenMenu(null); setSessionMenu(null); setProjectPopup(null); setSearchOpen(true); }}
-				><IconSearch className="h-3.5 w-3.5 shrink-0" /><span>{searchText("title")}</span></button>
-				<button type="button" className="owl-sidebar-new-chat" aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")} onClick={() => { onNewChat(); if (drawerMode) setDrawerOpen(false); }}>
-					<IconCompose className="h-3.5 w-3.5 shrink-0" />
-					<span>{sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}</span>
-				</button>
-			</div>
+					className="owl-sidebar-backdrop"
+					tabIndex={-1}
+					aria-label={t("sidebar.collapseSidebar")}
+					onClick={closeDrawer}
+				/>
+			)}
+			<aside
+				ref={asideRef}
+				id="owl-session-sidebar"
+				className={`owl-sidebar${drawerMode ? " owl-sidebar--drawer" : ""}${renderedSidebarWidth <= 232 ? " owl-sidebar--compact" : ""}`}
+				role={drawerMode ? "dialog" : undefined}
+				aria-modal={drawerMode && !sidebarHidden && !searchOpen ? true : undefined}
+				aria-label={t("sidebar.aria")}
+				hidden={sidebarHidden}
+				style={{ width: renderedSidebarWidth, flexBasis: renderedSidebarWidth, maxWidth: maxSidebarWidth }}
+			>
+				<div className="owl-sidebar-header" data-tauri-drag-region="deep">
+					<button
+						type="button"
+						className="owl-sidebar-brand"
+						title={t("sidebar.collapseSidebar")}
+						aria-label={t("sidebar.collapseSidebar")}
+						aria-expanded={!minimized}
+						onClick={onToggleMinimized}
+					>
+						<span className={sessionScope === "research" ? undefined : "owl-wordmark"}>
+							{sessionScope === "research" ? researchText.title : "owl"}
+						</span>
+					</button>
+					<div className="flex-1" data-tauri-drag-region="deep" />
+					<span className="owl-sidebar-local-badge" title={t("sidebar.localBadgeTitle")}>
+						LOCAL
+					</span>
+					{drawerMode && (
+						<button
+							type="button"
+							className="owl-sidebar-drawer-close"
+							aria-label={t("sidebar.collapseSidebar")}
+							title={t("sidebar.collapseSidebar")}
+							onClick={closeDrawer}
+						>
+							<IconPanelLeft className="h-4 w-4" />
+						</button>
+					)}
+				</div>
 
-			<div ref={scrollRef} className="owl-sidebar-list">
-				{pinnedSessions.length > 0 && (
+				<div className="owl-sidebar-shortcuts">
+					<button
+						type="button"
+						className="owl-sidebar-search-trigger"
+						aria-label={searchText("title")}
+						aria-haspopup="dialog"
+						aria-expanded={searchOpen}
+						title={t("sidebar.searchPlaceholder")}
+						onClick={() => {
+							setOpenMenu(null);
+							setSessionMenu(null);
+							setProjectPopup(null);
+							setSearchOpen(true);
+						}}
+					>
+						<IconSearch className="h-3.5 w-3.5 shrink-0" />
+						<span>{searchText("title")}</span>
+					</button>
+					<button
+						type="button"
+						className="owl-sidebar-new-chat"
+						aria-label={sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}
+						onClick={() => {
+							onNewChat();
+							if (drawerMode) setDrawerOpen(false);
+						}}
+					>
+						<IconCompose className="h-3.5 w-3.5 shrink-0" />
+						<span>{sessionScope === "research" ? researchText.newChat : t("sidebar.newChat")}</span>
+					</button>
+				</div>
+
+				<div ref={scrollRef} className="owl-sidebar-list">
+					{pinnedSessions.length > 0 && (
+						<Section
+							id="pinned"
+							label={t("sidebar.sectionPinned")}
+							open={isOpen("pinned")}
+							onToggle={() => toggleSection("pinned")}
+							showMenu={openMenu === "pinned"}
+							actions={
+								<button
+									type="button"
+									className={actionBtn}
+									title={t("sidebar.pinnedOptions")}
+									aria-label={t("sidebar.pinnedOptions")}
+									aria-expanded={openMenu === "pinned"}
+									onClick={() => setOpenMenu(openMenu === "pinned" ? null : "pinned")}
+								>
+									<IconMore className="h-3.5 w-3.5" />
+								</button>
+							}
+							menu={
+								<>
+									<MenuRow
+										label={t("sidebar.sortByUpdated")}
+										checked={pinnedSort === "recent"}
+										onClick={() => switchPinnedSort("recent")}
+									/>
+									<MenuRow
+										label={t("sidebar.sortManual")}
+										checked={pinnedSort === "manual"}
+										hint={t("sidebar.sortManualHint")}
+										onClick={() => switchPinnedSort("manual")}
+									/>
+								</>
+							}
+						>
+							{sessionWindow(pinnedSessions, "pinned").rows.map((row, index) =>
+								sessionRow(row, index, true, "pinned", undefined, index >= visibleCount("pinned")),
+							)}
+							{listControls("pinned", sessionWindow(pinnedSessions, "pinned").total, t("sidebar.sectionPinned"))}
+						</Section>
+					)}
+
 					<Section
-						id="pinned"
-						label={t("sidebar.sectionPinned")}
-						open={isOpen("pinned")}
-						onToggle={() => toggleSection("pinned")}
-						showMenu={openMenu === "pinned"}
+						id="projects"
+						label={t("sidebar.sectionProjects")}
+						open={isOpen("projects")}
+						onToggle={() => toggleSection("projects")}
+						showMenu={openMenu === "projects"}
 						actions={
-							<button
-								type="button"
-								className={actionBtn}
-								title={t("sidebar.pinnedOptions")}
-								aria-label={t("sidebar.pinnedOptions")}
-								aria-expanded={openMenu === "pinned"}
-								onClick={() => setOpenMenu(openMenu === "pinned" ? null : "pinned")}
-							>
-								<IconMore className="h-3.5 w-3.5" />
-							</button>
-						}
-						menu={
 							<>
-								<MenuRow
-									label={t("sidebar.sortByUpdated")}
-									checked={pinnedSort === "recent"}
-									onClick={() => switchPinnedSort("recent")}
-								/>
-								<MenuRow
-									label={t("sidebar.sortManual")}
-									checked={pinnedSort === "manual"}
-									hint={t("sidebar.sortManualHint")}
-									onClick={() => switchPinnedSort("manual")}
-								/>
+								<button
+									type="button"
+									className={actionBtn}
+									title={t("sidebar.projectOptions")}
+									aria-label={t("sidebar.projectOptions")}
+									aria-expanded={openMenu === "projects"}
+									onClick={(event) => {
+										if (openMenu === "projects") closeProjectPopup();
+										else {
+											setProjectPopup({ key: "projects", kind: "projects", anchor: event.currentTarget });
+											setOpenMenu("projects");
+										}
+									}}
+									aria-haspopup="menu"
+									aria-controls={openMenu === "projects" ? projectMenuId : undefined}
+								>
+									<IconMore className="h-3.5 w-3.5" />
+								</button>
+								<button
+									type="button"
+									className={actionBtn}
+									title={t("sidebar.newProject")}
+									aria-label={t("sidebar.newProject")}
+									onClick={openNewProject}
+								>
+									<IconPlus className="h-3.5 w-3.5" />
+								</button>
 							</>
 						}
 					>
-					{sessionWindow(pinnedSessions, "pinned").rows.map((row, index) => sessionRow(row, index, true, "pinned", undefined, index >= visibleCount("pinned")))}
-					{listControls("pinned", sessionWindow(pinnedSessions, "pinned").total, t("sidebar.sectionPinned"))}
+						{/* 项目列表：按最近活动排序（切项目不重排）；点击项目名切换，chevron 展开会话 */}
+						{renderProjectContents(defaultProjects, "merged-default")}
 					</Section>
+					{projectPreferences.sections.map((section) => (
+						<Section
+							key={section.id}
+							id={`partition-${section.id}`}
+							label={section.name}
+							open={isOpen(`partition-${section.id}`)}
+							onToggle={() => toggleSection(`partition-${section.id}`)}
+							showMenu={openMenu === `partition:${section.id}`}
+							actions={
+								<button
+									type="button"
+									className={actionBtn}
+									aria-label={`${pt("section")}：${section.name}`}
+									aria-haspopup="menu"
+									aria-expanded={openMenu === `partition:${section.id}`}
+									onClick={(event) => {
+										const key = `partition:${section.id}`;
+										if (openMenu === key) closeProjectPopup();
+										else {
+											setProjectPopup({
+												key,
+												kind: "section",
+												sectionId: section.id,
+												anchor: event.currentTarget,
+											});
+											setOpenMenu(key);
+										}
+									}}
+								>
+									<IconMore className="h-3.5 w-3.5" />
+								</button>
+							}
+						>
+							{renderProjectContents(
+								visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === section.id),
+								`merged-${section.id}`,
+							)}
+						</Section>
+					))}
+
+					<Section
+						id="recent"
+						label={sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent")}
+						open={isOpen("recent")}
+						onToggle={() => toggleSection("recent")}
+						showMenu={openMenu === "recent"}
+						actions={
+							<>
+								<button
+									type="button"
+									className={actionBtn}
+									title={t("sidebar.recentOptions")}
+									aria-label={t("sidebar.recentOptions")}
+									aria-expanded={openMenu === "recent"}
+									aria-haspopup="menu"
+									aria-controls={openMenu === "recent" ? projectMenuId : undefined}
+									onClick={(event) => {
+										if (openMenu === "recent") closeProjectPopup();
+										else {
+											setProjectPopup({ key: "recent", kind: "recent", anchor: event.currentTarget });
+											setOpenMenu("recent");
+										}
+									}}
+								>
+									<IconMore className="h-3.5 w-3.5" />
+								</button>
+								<button
+									type="button"
+									className={actionBtn}
+									title={t("sidebar.newChatBtn")}
+									aria-label={t("sidebar.newChatBtn")}
+									onClick={() => {
+										onNewChat();
+										if (drawerMode) setDrawerOpen(false);
+									}}
+								>
+									<IconCompose className="h-3.5 w-3.5" />
+								</button>
+							</>
+						}
+					>
+						{renderRecentContents()}
+						{recentSessions.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}
+					</Section>
+
+					{projectNotice && (
+						<p className="owl-sidebar-notice" role="status">
+							{projectNotice}
+						</p>
+					)}
+				</div>
+				{!sidebarHidden &&
+					projectPopup !== null &&
+					openMenu === projectPopup.key &&
+					(projectPopup.kind === "project" && projectPopup.path ? (
+						<ProjectActionsMenu
+							anchor={projectPopup.anchor}
+							menuId={projectMenuId}
+							label={t("sidebar.projectActionsAria", { project: projectLabel(projectPopup.path) })}
+							sections={projectPreferences.sections}
+							sectionId={projectPreferences.assignments[normPath(projectPopup.path)] ?? null}
+							onClose={closeProjectPopup}
+							onEdit={() => setEditingProject(projectPopup.path ?? null)}
+							onSection={(id) => {
+								if (projectPopup.path)
+									savePreferences(moveProjectToSection(projectPreferences, projectPopup.path, id));
+							}}
+							onNewSection={() => {
+								setSectionError("");
+								setSectionDialog({ path: projectPopup.path });
+							}}
+							onReveal={() => {
+								if (projectPopup.path) void revealProject(projectPopup.path);
+							}}
+							onMarkRead={() => {
+								markSessionsRead(
+									sessionScope,
+									sessions.filter((row) => samePath(row.cwd, projectPopup.path)),
+								);
+								setProjectNotice(pt("allRead"));
+							}}
+							onArchive={() => setProjectConfirm({ type: "archive", path: projectPopup.path })}
+							onRemove={() => setProjectConfirm({ type: "remove", path: projectPopup.path })}
+						/>
+					) : projectPopup.kind === "projects" || projectPopup.kind === "recent" ? (
+						<ProjectsSectionMenu
+							anchor={projectPopup.anchor}
+							menuId={projectMenuId}
+							label={t(projectPopup.kind === "recent" ? "sidebar.recentOptions" : "sidebar.projectOptions")}
+							organize={projectPopup.kind === "recent" ? projectPreferences.recentView : projectPreferences.view}
+							sort={recentSort}
+							onClose={closeProjectPopup}
+							onOrganize={(view) =>
+								savePreferences(
+									projectPopup.kind === "recent"
+										? { ...projectPreferences, recentView: view }
+										: { ...projectPreferences, view },
+								)
+							}
+							onSort={switchRecentSort}
+						/>
+					) : (
+						<SectionActionsMenu
+							anchor={projectPopup.anchor}
+							menuId={projectMenuId}
+							label={pt("section")}
+							onClose={closeProjectPopup}
+							onEdit={() => {
+								setSectionError("");
+								setSectionDialog({ id: projectPopup.sectionId });
+							}}
+							onRemove={() => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId })}
+						/>
+					))}
+				{!sidebarHidden && sessionMenu !== null && openMenu === sessionMenu.key && (
+					<SessionActionsMenu
+						key={sessionMenu.key}
+						anchor={sessionMenu.anchor}
+						point={sessionMenu.point}
+						menuId={sessionMenuId}
+						label={t("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) })}
+						pinned={sessionMenu.row.id !== undefined && pinned.includes(sessionMenu.row.id)}
+						session={{
+							id: sessionMenu.row.id,
+							cwd: sessionMenu.row.cwd || undefined,
+							file: sessionMenu.row.path || undefined,
+						}}
+						onClose={closeSessionMenu}
+						onPin={() => {
+							if (sessionMenu.row.id) togglePin(sessionMenu.row.id);
+						}}
+						onRename={
+							sessionMenu.row.id
+								? () => {
+										setRenameError("");
+										setRenaming(sessionMenu.row);
+									}
+								: undefined
+						}
+						onArchive={() => void archiveSession(sessionMenu.row)}
+						onDelete={() => {
+							setConfirmDelete(sessionMenu.row);
+							setDeleteError("");
+						}}
+						onReveal={sessionMenu.row.cwd ? () => void revealProject(sessionMenu.row.cwd!) : undefined}
+					/>
 				)}
 
-				<Section
-					id="projects"
-					label={t("sidebar.sectionProjects")}
-					open={isOpen("projects")}
-					onToggle={() => toggleSection("projects")}
-					showMenu={openMenu === "projects"}
-					actions={
-						<>
-							<button
-								type="button"
-								className={actionBtn}
-								title={t("sidebar.projectOptions")}
-								aria-label={t("sidebar.projectOptions")}
-								aria-expanded={openMenu === "projects"}
-							onClick={(event) => { if (openMenu === "projects") closeProjectPopup(); else { setProjectPopup({ key: "projects", kind: "projects", anchor: event.currentTarget }); setOpenMenu("projects"); } }}
-							aria-haspopup="menu"
-							aria-controls={openMenu === "projects" ? projectMenuId : undefined}
-							>
-								<IconMore className="h-3.5 w-3.5" />
-							</button>
-							<button
-								type="button"
-								className={actionBtn}
-								title={t("sidebar.newProject")}
-								aria-label={t("sidebar.newProject")}
-								onClick={openNewProject}
-							>
-								<IconPlus className="h-3.5 w-3.5" />
-							</button>
-						</>
-					}
-				>
-					{/* 项目列表：按最近活动排序（切项目不重排）；点击项目名切换，chevron 展开会话 */}
-					{renderProjectContents(defaultProjects, "merged-default")}
-				</Section>
-				{projectPreferences.sections.map((section) => <Section key={section.id} id={`partition-${section.id}`} label={section.name} open={isOpen(`partition-${section.id}`)} onToggle={() => toggleSection(`partition-${section.id}`)} showMenu={openMenu === `partition:${section.id}`} actions={<button type="button" className={actionBtn} aria-label={`${pt("section")}：${section.name}`} aria-haspopup="menu" aria-expanded={openMenu === `partition:${section.id}`} onClick={(event) => { const key = `partition:${section.id}`; if (openMenu === key) closeProjectPopup(); else { setProjectPopup({ key, kind: "section", sectionId: section.id, anchor: event.currentTarget }); setOpenMenu(key); } }}><IconMore className="h-3.5 w-3.5" /></button>}>
-					{renderProjectContents(visibleProjects.filter((path) => projectPreferences.assignments[normPath(path)] === section.id), `merged-${section.id}`)}
-				</Section>)}
+				{showNewProject && (
+					<NewProjectDialog
+						client={client}
+						onClose={() => setShowNewProject(false)}
+						onCreated={(path) => {
+							setShowNewProject(false);
+							restoreProject(path, sessionScope);
+							setKnownProjects((current) => {
+								const next = current.some((entry) => samePath(entry, path)) ? current : [...current, path];
+								localStorage.setItem(keys.projects, JSON.stringify(next));
+								return next;
+							});
+							onSelectProject(path);
+							if (drawerMode) setDrawerOpen(false);
+						}}
+					/>
+				)}
+				{editingProject !== null && (
+					<NewProjectDialog
+						client={client}
+						initialProject={{ path: editingProject, name: projectLabel(editingProject) }}
+						onClose={() => setEditingProject(null)}
+						onCreated={() => setEditingProject(null)}
+					/>
+				)}
+				{sectionDialog !== null && (
+					<ProjectSidebarDialog
+						key={sectionDialog.id ?? `new:${sectionDialog.path}`}
+						title={pt(sectionDialog.id ? "renameSection" : "createSection")}
+						fieldLabel={pt("sectionName")}
+						initialValue={
+							projectPreferences.sections.find((section) => section.id === sectionDialog.id)?.name ?? ""
+						}
+						error={sectionError}
+						confirmLabel={pt("save")}
+						onClose={() => setSectionDialog(null)}
+						onSubmit={(name) => {
+							if (
+								projectPreferences.sections.some(
+									(section) =>
+										section.id !== sectionDialog.id && section.name.toLowerCase() === name.toLowerCase(),
+								)
+							) {
+								setSectionError(pt("sectionDuplicate"));
+								return;
+							}
+							const id = sectionDialog.id ?? crypto.randomUUID();
+							let next = {
+								...projectPreferences,
+								sections: sectionDialog.id
+									? projectPreferences.sections.map((section) =>
+											section.id === id ? { ...section, name } : section,
+										)
+									: [...projectPreferences.sections, { id, name }],
+							};
+							if (sectionDialog.path) next = moveProjectToSection(next, sectionDialog.path, id);
+							savePreferences(next);
+							setSectionDialog(null);
+						}}
+					/>
+				)}
+				{projectConfirm !== null && (
+					<ProjectSidebarDialog
+						title={pt(
+							projectConfirm.type === "archive"
+								? "archiveTitle"
+								: projectConfirm.type === "remove"
+									? "removeTitle"
+									: "removeSection",
+						)}
+						description={
+							(projectConfirm.path ? `${projectLabel(projectConfirm.path)}\n` : "") +
+							pt(
+								projectConfirm.type === "archive"
+									? "archiveHint"
+									: projectConfirm.type === "remove"
+										? "removeHint"
+										: "removeSectionHint",
+							)
+						}
+						busy={projectBusy}
+						confirmLabel={pt("confirm")}
+						onClose={() => {
+							if (!projectBusyRef.current) setProjectConfirm(null);
+						}}
+						onSubmit={() => void confirmProjectAction()}
+					/>
+				)}
 
-				<Section
-					id="recent"
-					label={sessionScope === "research" ? researchText.recent : t("sidebar.sectionRecent")}
-					open={isOpen("recent")}
-					onToggle={() => toggleSection("recent")}
-					showMenu={openMenu === "recent"}
-					actions={
-						<>
-							<button
-								type="button"
-								className={actionBtn}
-								title={t("sidebar.recentOptions")}
-								aria-label={t("sidebar.recentOptions")}
-								aria-expanded={openMenu === "recent"}
-								aria-haspopup="menu"
-								aria-controls={openMenu === "recent" ? projectMenuId : undefined}
-								onClick={(event) => { if (openMenu === "recent") closeProjectPopup(); else { setProjectPopup({ key: "recent", kind: "recent", anchor: event.currentTarget }); setOpenMenu("recent"); } }}
-							>
-								<IconMore className="h-3.5 w-3.5" />
-							</button>
-							<button type="button" className={actionBtn} title={t("sidebar.newChatBtn")} aria-label={t("sidebar.newChatBtn")} onClick={() => { onNewChat(); if (drawerMode) setDrawerOpen(false); }}>
-								<IconCompose className="h-3.5 w-3.5" />
-							</button>
-						</>
-					}
-				>
-					{renderRecentContents()}
-					{recentSessions.length === 0 && <p className="owl-sidebar-empty">{t("sidebar.none")}</p>}
-				</Section>
+				{renaming !== null && (
+					<ProjectSidebarDialog
+						key={renaming.id ?? sessionRenameDraft(renaming)}
+						title={t("sidebar.renameTitle")}
+						fieldLabel={t("sidebar.renameField")}
+						initialValue={sessionRenameDraft(renaming)}
+						error={renameError}
+						busy={renameBusy}
+						confirmLabel={t("sidebar.renameSave")}
+						onClose={() => {
+							if (!renameBusy) setRenaming(null);
+						}}
+						onSubmit={(name) => void renameSession(renaming, name)}
+					/>
+				)}
+				{confirmDelete && (
+					<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
+						<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
+							<h2 className="mb-1 text-sm font-semibold text-owl-text">{t("sidebar.deleteSessionTitle")}</h2>
+							<p className="mb-3 break-all text-xs text-owl-muted">
+								{t("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) })}
+							</p>
+							{deleteError && <p className="mt-2 text-xs text-owl-danger">{deleteError}</p>}
+							<div className="mt-4 flex justify-end gap-2">
+								<button
+									type="button"
+									className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
+									onClick={() => setConfirmDelete(null)}
+									disabled={deleting}
+								>
+									{t("common.cancel")}
+								</button>
+								<button
+									type="button"
+									className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-50"
+									onClick={() => void deleteSession(confirmDelete)}
+									disabled={deleting}
+								>
+									{deleting ? t("sidebar.deleting") : t("common.delete")}
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 
-				{projectNotice && <p className="owl-sidebar-notice" role="status">{projectNotice}</p>}
-			</div>
-			{!sidebarHidden && projectPopup !== null && openMenu === projectPopup.key && (projectPopup.kind === "project" && projectPopup.path ? <ProjectActionsMenu
-				anchor={projectPopup.anchor} menuId={projectMenuId} label={t("sidebar.projectActionsAria", { project: projectLabel(projectPopup.path) })} sections={projectPreferences.sections} sectionId={projectPreferences.assignments[normPath(projectPopup.path)] ?? null} onClose={closeProjectPopup}
-				onEdit={() => setEditingProject(projectPopup.path ?? null)}
-				onSection={(id) => { if (projectPopup.path) savePreferences(moveProjectToSection(projectPreferences, projectPopup.path, id)); }}
-				onNewSection={() => { setSectionError(""); setSectionDialog({ path: projectPopup.path }); }}
-				onReveal={() => { if (projectPopup.path) void revealProject(projectPopup.path); }}
-				onMarkRead={() => { markSessionsRead(sessionScope, sessions.filter((row) => samePath(row.cwd, projectPopup.path))); setProjectNotice(pt("allRead")); }}
-				onArchive={() => setProjectConfirm({ type: "archive", path: projectPopup.path })}
-				onRemove={() => setProjectConfirm({ type: "remove", path: projectPopup.path })}
-			/> : projectPopup.kind === "projects" || projectPopup.kind === "recent" ? <ProjectsSectionMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={t(projectPopup.kind === "recent" ? "sidebar.recentOptions" : "sidebar.projectOptions")} organize={projectPopup.kind === "recent" ? projectPreferences.recentView : projectPreferences.view} sort={recentSort} onClose={closeProjectPopup} onOrganize={(view) => savePreferences(projectPopup.kind === "recent" ? { ...projectPreferences, recentView: view } : { ...projectPreferences, view })} onSort={switchRecentSort} /> : <SectionActionsMenu anchor={projectPopup.anchor} menuId={projectMenuId} label={pt("section")} onClose={closeProjectPopup} onEdit={() => { setSectionError(""); setSectionDialog({ id: projectPopup.sectionId }); }} onRemove={() => setProjectConfirm({ type: "section-remove", sectionId: projectPopup.sectionId })} />)}
-			{!sidebarHidden && sessionMenu !== null && openMenu === sessionMenu.key && (
-				<SessionActionsMenu
-					key={sessionMenu.key}
-					anchor={sessionMenu.anchor}
-					point={sessionMenu.point}
-					menuId={sessionMenuId}
-					label={t("sidebar.sessionActionsAria", { name: sessionTitle(sessionMenu.row) })}
-					pinned={sessionMenu.row.id !== undefined && pinned.includes(sessionMenu.row.id)}
-					session={{
-						id: sessionMenu.row.id,
-						cwd: sessionMenu.row.cwd || undefined,
-						file: sessionMenu.row.path || undefined,
+				<div
+					className={`owl-sidebar-resizer${resizing ? " is-active" : ""}`}
+					hidden={drawerMode}
+					data-tauri-drag-region="false"
+					role="separator"
+					tabIndex={0}
+					aria-orientation="vertical"
+					aria-label={resizeAria}
+					aria-controls="owl-session-sidebar"
+					aria-valuemin={Math.min(SIDEBAR_MIN_WIDTH, maxSidebarWidth)}
+					aria-valuemax={maxSidebarWidth}
+					aria-valuenow={visibleSidebarWidth}
+					title={resizeAria}
+					onPointerDown={beginSidebarResize}
+					onKeyDown={resizeSidebarWithKeyboard}
+					onDoubleClick={() => {
+						try {
+							localStorage.removeItem(WIDTH_KEY);
+						} catch {
+							/* 会话内仍可复位。 */
+						}
+						setSidebarWidth(null);
 					}}
-					onClose={closeSessionMenu}
-					onPin={() => { if (sessionMenu.row.id) togglePin(sessionMenu.row.id); }}
-					onRename={sessionMenu.row.id ? () => { setRenameError(""); setRenaming(sessionMenu.row); } : undefined}
-					onArchive={() => void archiveSession(sessionMenu.row)}
-					onDelete={() => { setConfirmDelete(sessionMenu.row); setDeleteError(""); }}
-					onReveal={sessionMenu.row.cwd ? () => void revealProject(sessionMenu.row.cwd!) : undefined}
 				/>
-			)}
-
-			{showNewProject && (
-				<NewProjectDialog
+			</aside>
+			{searchOpen && (
+				<SessionSearchDialog
 					client={client}
-					onClose={() => setShowNewProject(false)}
-					onCreated={(path) => {
-						setShowNewProject(false);
-						restoreProject(path, sessionScope);
-						setKnownProjects((current) => { const next = current.some((entry) => samePath(entry, path)) ? current : [...current, path]; localStorage.setItem(keys.projects, JSON.stringify(next)); return next; });
+					connected={connected}
+					query={query}
+					activeProject={activeProject}
+					refreshKey={refreshKey}
+					revision={revision}
+					metadataSessions={metadataSessions}
+					projects={searchProjects}
+					placeholder={sessionScope === "research" ? researchText.search : t("sidebar.searchPlaceholder")}
+					onQueryChange={setQuery}
+					onClose={closeSearch}
+					onOpenHit={(hit, searchQuery) => {
+						closeSearch();
+						if (onOpenSearchHit) onOpenSearchHit(hit, searchQuery);
+						else onOpenSession(hit.sessionId);
+						if (drawerMode) setDrawerOpen(false);
+					}}
+					onSelectProject={(path) => {
+						closeSearch();
 						onSelectProject(path);
 						if (drawerMode) setDrawerOpen(false);
 					}}
 				/>
 			)}
-			{editingProject !== null && <NewProjectDialog client={client} initialProject={{ path: editingProject, name: projectLabel(editingProject) }} onClose={() => setEditingProject(null)} onCreated={() => setEditingProject(null)} />}
-			{sectionDialog !== null && <ProjectSidebarDialog key={sectionDialog.id ?? `new:${sectionDialog.path}`} title={pt(sectionDialog.id ? "renameSection" : "createSection")} fieldLabel={pt("sectionName")} initialValue={projectPreferences.sections.find((section) => section.id === sectionDialog.id)?.name ?? ""} error={sectionError} confirmLabel={pt("save")} onClose={() => setSectionDialog(null)} onSubmit={(name) => {
-				if (projectPreferences.sections.some((section) => section.id !== sectionDialog.id && section.name.toLowerCase() === name.toLowerCase())) { setSectionError(pt("sectionDuplicate")); return; }
-				const id = sectionDialog.id ?? crypto.randomUUID();
-				let next = { ...projectPreferences, sections: sectionDialog.id ? projectPreferences.sections.map((section) => section.id === id ? { ...section, name } : section) : [...projectPreferences.sections, { id, name }] };
-				if (sectionDialog.path) next = moveProjectToSection(next, sectionDialog.path, id);
-				savePreferences(next); setSectionDialog(null);
-			}} />}
-			{projectConfirm !== null && <ProjectSidebarDialog title={pt(projectConfirm.type === "archive" ? "archiveTitle" : projectConfirm.type === "remove" ? "removeTitle" : "removeSection")} description={(projectConfirm.path ? `${projectLabel(projectConfirm.path)}\n` : "") + pt(projectConfirm.type === "archive" ? "archiveHint" : projectConfirm.type === "remove" ? "removeHint" : "removeSectionHint")} busy={projectBusy} confirmLabel={pt("confirm")} onClose={() => { if (!projectBusyRef.current) setProjectConfirm(null); }} onSubmit={() => void confirmProjectAction()} />}
-
-			{renaming !== null && (
-				<ProjectSidebarDialog
-					key={renaming.id ?? sessionRenameDraft(renaming)}
-					title={t("sidebar.renameTitle")}
-					fieldLabel={t("sidebar.renameField")}
-					initialValue={sessionRenameDraft(renaming)}
-					error={renameError}
-					busy={renameBusy}
-					confirmLabel={t("sidebar.renameSave")}
-					onClose={() => { if (!renameBusy) setRenaming(null); }}
-					onSubmit={(name) => void renameSession(renaming, name)}
-				/>
-			)}
-			{confirmDelete && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog">
-					<div className="w-80 rounded-xl border border-owl-border bg-owl-panel p-4 shadow-2xl shadow-black/40">
-						<h2 className="mb-1 text-sm font-semibold text-owl-text">{t("sidebar.deleteSessionTitle")}</h2>
-						<p className="mb-3 break-all text-xs text-owl-muted">
-							{t("sidebar.deleteDialogBody", { name: sessionTitle(confirmDelete) })}
-						</p>
-						{deleteError && <p className="mt-2 text-xs text-owl-danger">{deleteError}</p>}
-						<div className="mt-4 flex justify-end gap-2">
-							<button
-								type="button"
-								className="rounded-lg border border-owl-border px-3 py-1.5 text-xs text-owl-muted transition-colors hover:bg-owl-hover hover:text-owl-text"
-								onClick={() => setConfirmDelete(null)}
-								disabled={deleting}
-							>
-								{t("common.cancel")}
-							</button>
-							<button
-								type="button"
-								className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:opacity-50"
-								onClick={() => void deleteSession(confirmDelete)}
-								disabled={deleting}
-							>
-								{deleting ? t("sidebar.deleting") : t("common.delete")}
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			<div
-				className={`owl-sidebar-resizer${resizing ? " is-active" : ""}`}
-				hidden={drawerMode}
-				data-tauri-drag-region="false"
-				role="separator"
-				tabIndex={0}
-				aria-orientation="vertical"
-				aria-label={resizeAria}
-				aria-controls="owl-session-sidebar"
-				aria-valuemin={Math.min(SIDEBAR_MIN_WIDTH, maxSidebarWidth)}
-				aria-valuemax={maxSidebarWidth}
-				aria-valuenow={visibleSidebarWidth}
-				title={resizeAria}
-				onPointerDown={beginSidebarResize}
-				onKeyDown={resizeSidebarWithKeyboard}
-				onDoubleClick={() => {
-					try { localStorage.removeItem(WIDTH_KEY); } catch { /* 会话内仍可复位。 */ }
-					setSidebarWidth(null);
-				}}
-			/>
-		</aside>
-		{searchOpen && <SessionSearchDialog
-			client={client} connected={connected} query={query} activeProject={activeProject} refreshKey={refreshKey} revision={revision}
-			metadataSessions={metadataSessions} projects={searchProjects} placeholder={sessionScope === "research" ? researchText.search : t("sidebar.searchPlaceholder")}
-			onQueryChange={setQuery} onClose={closeSearch}
-			onOpenHit={(hit, searchQuery) => {
-				closeSearch();
-				if (onOpenSearchHit) onOpenSearchHit(hit, searchQuery);
-				else onOpenSession(hit.sessionId);
-				if (drawerMode) setDrawerOpen(false);
-			}}
-			onSelectProject={(path) => { closeSearch(); onSelectProject(path); if (drawerMode) setDrawerOpen(false); }}
-		/>}
 		</>
 	);
 }

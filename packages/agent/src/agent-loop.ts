@@ -542,6 +542,7 @@ async function streamAssistantResponse(
 
 				case "text_start":
 				case "text_delta":
+				case "text_citation":
 				case "text_end":
 				case "thinking_start":
 				case "thinking_delta":

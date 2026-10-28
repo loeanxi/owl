@@ -1271,19 +1271,8 @@ html[data-owl-preset="quiet-light"] {
 	max-height: 192px;
 	overflow-y: auto;
 	white-space: pre-wrap;
-	word-break: break-word;
-}
-.owl-prompt-queue { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
-.owl-prompt-queue-row { display: flex; align-items: center; gap: 8px; border: 1px solid var(--owl-ui-border, var(--owl-reading-border)); border-radius: 10px; background: var(--owl-ui-panel, var(--owl-reading-panel)); padding: 6px 8px 6px 10px; }
-.owl-prompt-queue-lane { flex: none; font-size: 11px; color: var(--color-owl-accent); }
-.owl-prompt-queue-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 1px; }
-.owl-prompt-queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--owl-ui-text, var(--owl-reading-text)); }
-.owl-prompt-queue-copy .owl-prompt-queue-text { flex: none; }
-.owl-prompt-queue-wait { font-size: 11px; line-height: 1.3; color: var(--owl-ui-muted, var(--owl-reading-muted)); }
-.owl-prompt-queue-action { flex: none; border: 0; background: transparent; padding: 0 2px; font-size: 11px; color: var(--owl-ui-muted, var(--owl-reading-muted)); cursor: pointer; }
-.owl-prompt-queue-action:hover { color: var(--owl-ui-text, var(--owl-reading-text)); }
-.owl-prompt-queue-action.is-primary { border-radius: 999px; background: var(--color-owl-accent); padding: 4px 10px; color: var(--color-owl-on-accent); font-weight: 600; }
-.owl-prompt-queue-action.is-primary:hover { background: var(--color-owl-accent-hover); color: var(--color-owl-on-accent-hover); }
+		word-break: break-word;
+	}
 .owl-composer-editor:empty::before {
 	content: attr(data-placeholder);
 	color: var(--owl-ui-muted);
@@ -1575,12 +1564,26 @@ html[data-owl-theme="light"] .owl-chat-surface {
    流式重排中的瞬时越界不再撑出底部横条。此前横条随内容时隐时现，
    每次出现吃掉一行高度、整屏上下弹跳（跟底针逻辑互相拉扯，就是「波动」的来源）。 */
 .owl-chat-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 36px 32px 24px; }
-/* 顶部渐隐（2026-10-25 R12）：滚离顶端后内容在顶边淡出，提示上面还有未读内容。 */
+/* 顶部渐隐（2026-10-25 R12；2026-10-28 改 overlay 实现）：滚离顶端后内容在顶边淡出，
+   提示上面还有未读内容。原先用 mask-image 实现——mask 会把整个滚动器变成遮罩合成组，
+   贴底跟随时随滚动逐帧失效、全量重光栅化，长会话 + 壁纸 WebGL 负载下疑似诱发
+   WebView2 瓦片光栅化失败（对话上半屏整块黑）。改成 sticky 渐变条盖在顶边：
+   滚动器本体不再进遮罩路径，每次滚动只重绘这 22px。 */
 .owl-chat-scroll { position: relative; }
-.owl-chat-scroll::before { content: ""; position: sticky; top: 0; z-index: 6; display: block; height: 0; }
-.owl-chat-scroll[data-top-hidden="true"] { mask-image: linear-gradient(to bottom, transparent 0, #000 22px); -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); }
-/* mask 会波及 sticky 元素与滚动条视觉之外的装饰；恢复方式：关闭遮罩属性即还原。 */
-@media (prefers-reduced-motion: reduce) { .owl-chat-scroll[data-top-hidden="true"] { mask-image: none; -webkit-mask-image: none; } }
+.owl-chat-scroll::before {
+	content: "";
+	position: sticky;
+	top: 0;
+	z-index: 6;
+	display: block;
+	height: 22px;
+	margin-bottom: -22px;
+	pointer-events: none;
+	background: linear-gradient(to bottom, var(--owl-conversation-bg, var(--color-owl-bg)), transparent);
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+.owl-chat-scroll[data-top-hidden="true"]::before { opacity: 1; }
 
 /*
  * 滚动边缘渐隐遮罩（CDS 4.3 的纯 CSS 实现）：贴边硬裁切的内容在上下边缘做多档
@@ -1588,13 +1591,15 @@ html[data-owl-theme="light"] .owl-chat-surface {
  * 用 scroll() 滚动驱动动画驱动两个注册过的自定义属性，零 JS；WebView2/Chromium 生效，
  * 不支持 scroll-timeline 的引擎（如 WKWebView）两条动画不跑，属性停在初始 0px，无遮罩降级。
  * 通用类 .owl-scroll-fade 可挂到任意滚动容器；--owl-fade-size 控制渐隐带宽。
+ * 注意（2026-10-28）：这条 mask 不要挂到 .owl-chat-scroll 上——对话流是全窗最高的
+ * 滚动容器，mask 会把它整个拖进遮罩合成组并随滚动逐帧失效，长会话下疑似诱发
+ * WebView2 瓦片光栅化失败（上半屏黑块）；对话流的顶边渐隐走上面的 sticky overlay。
  */
 @property --owl-fade-top { syntax: "<length>"; initial-value: 0px; inherits: false; }
 @property --owl-fade-bottom { syntax: "<length>"; initial-value: 0px; inherits: false; }
 
 /* 4 档缓出渐变：透明 → 42% → 78% → 实心，比两档线性更接近 CDS 的 7 档手感。 */
 .owl-scroll-fade,
-.owl-chat-scroll,
 .owl-sidebar-list {
 	--owl-fade-size: 28px;
 	mask-image: linear-gradient(
@@ -1839,7 +1844,49 @@ pre > code :is(.xml, .bash, .css, .ini, .less, .scss, .lisp, .markdown) { color:
 @media (prefers-reduced-motion: reduce) {
 	.owl-collapse-body { transition: none; }
 }
-.owl-tool-inline-code { font: inherit; font-family: ui-monospace, Consolas, monospace; color: inherit; }
+/* 行内代码芯片：Claude 把正文里的 `code` 渲染成带底色与细边框的小芯片，
+   与普通文字拉开一层。路径芯片另有一套链接色（见下）。
+   底色走面板色而不是文字色混合：深色主题下文字色接近白，混出来的底太亮抢读。 */
+.owl-tool-inline-code {
+	font: inherit;
+	font-family: ui-monospace, Consolas, monospace;
+	color: inherit;
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--owl-reading-panel) 82%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--owl-reading-text) 10%, transparent);
+}
+.owl-tool-inline-code.owl-path-chip {
+	background: color-mix(in srgb, var(--owl-reading-link) 10%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--owl-reading-link) 22%, transparent);
+}
+/* 行内 code 芯片的 git 三色：新增绿 / 删除红 / 修改黄。
+   色值取自 Claude Desktop 的 design token（--cds-text-git-added / -removed / -modified），
+   浅色主题用浅色值，深色主题用深色值，与 Claude 的观感一致。 */
+code.owl-chip-added,
+code.owl-chip-removed,
+code.owl-chip-modified {
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+}
+code.owl-chip-added {
+	color: #1e9e3c;
+	background: color-mix(in srgb, #1e9e3c 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, #1e9e3c 28%, transparent);
+}
+code.owl-chip-removed {
+	color: #cd2054;
+	background: color-mix(in srgb, #cd2054 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, #cd2054 28%, transparent);
+}
+code.owl-chip-modified {
+	color: #98801f;
+	background: color-mix(in srgb, #98801f 12%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, #98801f 28%, transparent);
+}
+[data-theme="dark"] code.owl-chip-added { color: #32d74b; background: color-mix(in srgb, #32d74b 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #32d74b 32%, transparent); }
+[data-theme="dark"] code.owl-chip-removed { color: #ff2c56; background: color-mix(in srgb, #ff2c56 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff2c56 32%, transparent); }
+[data-theme="dark"] code.owl-chip-modified { color: #ffd014; background: color-mix(in srgb, #ffd014 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffd014 30%, transparent); }
 /* 可点击的路径/URL 芯片：随链接配色 + 虚线下划线提示跳转。只限真正接了点击
  * 代理的容器（主聊天流 / 文档预览）；侧边栏任务行等没有跳转的地方保持普通芯片。 */
 .owl-chat-scroll code.owl-path-chip, .owl-document code.owl-path-chip {

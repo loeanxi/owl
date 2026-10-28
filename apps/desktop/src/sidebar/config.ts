@@ -73,7 +73,9 @@ export function isTabKindEnabled(kind: string, cfg: SidebarConfig = current): bo
 export function viewerKindForPath(path: string, cfg: SidebarConfig = current): string | undefined {
 	const plugin = fileViewerForPath(path);
 	if (plugin?.workspaceViewerId) {
-		return cfg.disabledViewers.includes(plugin.kind) || cfg.disabledTabs.includes(plugin.kind) ? undefined : plugin.kind;
+		return cfg.disabledViewers.includes(plugin.kind) || cfg.disabledTabs.includes(plugin.kind)
+			? undefined
+			: plugin.kind;
 	}
 	// Binary documents belong in the system's document app, never the text editor.
 	if (/\.(?:pdf|docx?|xlsx?|xlsm|pptx?|pptm|odt|ods|odp|rtf|zip|7z)$/i.test(path)) return undefined;

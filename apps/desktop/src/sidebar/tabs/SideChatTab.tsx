@@ -9,16 +9,16 @@
  * 与会话无关）。
  */
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { t, useT } from "../../i18n/index.ts";
-import { SessionWatch } from "../../bridge/session-watch.ts";
 import type { ServerEventMessage } from "../../bridge/protocol.ts";
-import { applyEvent, rebuild, type ChatEntry } from "../../hooks/transcript.ts";
-import { renderMarkdown, InlineSummary } from "../../components/ChatStream.tsx";
+import { SessionWatch } from "../../bridge/session-watch.ts";
+import { InlineSummary, renderMarkdown } from "../../components/ChatStream.tsx";
+import { applyEvent, type ChatEntry, rebuild } from "../../hooks/transcript.ts";
+import { t, useT } from "../../i18n/index.ts";
 import { ExecutionContext } from "../execution-context.tsx";
-import { IconChatDiscussion } from "../quick.tsx";
 import { IconLoader, IconRefresh, IconX } from "../icons.tsx";
-import { normProjectKey } from "../store.ts";
+import { IconChatDiscussion } from "../quick.tsx";
 import type { TabComponentProps } from "../registry.ts";
+import { normProjectKey } from "../store.ts";
 
 /**
  * 侧聊线程的绑定键：按「项目 + 宿主会话」存。
@@ -228,7 +228,9 @@ export function SideChatTab({ client, cwd, onToChat }: TabComponentProps): React
 					if (entry.kind === "user") {
 						return (
 							<div key={index} className="flex justify-end">
-								<div className="max-w-[85%] rounded-2xl rounded-br-md bg-owl-bubble px-3 py-1.5 text-xs whitespace-pre-wrap">{entry.text}</div>
+								<div className="max-w-[85%] rounded-2xl rounded-br-md bg-owl-bubble px-3 py-1.5 text-xs whitespace-pre-wrap">
+									{entry.text}
+								</div>
 							</div>
 						);
 					}
@@ -297,7 +299,8 @@ export function SideChatTab({ client, cwd, onToChat }: TabComponentProps): React
 						aria-label={t("composer.abort")}
 						className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-owl-accent text-white transition-colors hover:bg-owl-accent-hover"
 						onClick={() => {
-							if (sessionIdRef.current) void client.request({ type: "session.abort", sessionId: sessionIdRef.current });
+							if (sessionIdRef.current)
+								void client.request({ type: "session.abort", sessionId: sessionIdRef.current });
 						}}
 					>
 						<IconX size={12} />
@@ -311,7 +314,14 @@ export function SideChatTab({ client, cwd, onToChat }: TabComponentProps): React
 						disabled={!draft.trim() || !attached}
 						onClick={() => void send()}
 					>
-						<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="h-3.5 w-3.5">
+						<svg
+							viewBox="0 0 16 16"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.8"
+							strokeLinecap="round"
+							className="h-3.5 w-3.5"
+						>
 							<path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
 						</svg>
 					</button>

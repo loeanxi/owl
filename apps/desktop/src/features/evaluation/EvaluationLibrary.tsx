@@ -1,16 +1,147 @@
 import { useState } from "react";
-import type { EvaluationCategory, EvaluationTask } from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
+import type {
+	EvaluationCategory,
+	EvaluationTask,
+} from "../../../../../packages/coding-agent/src/core/evaluation/types.ts";
+import { IconPlus, IconSearch } from "./EvaluationIcons.tsx";
 import type { EvaluationText } from "./evaluation-copy.ts";
 import { CATEGORIES } from "./evaluation-model.ts";
-import { IconPlus, IconSearch } from "./EvaluationIcons.tsx";
 import "./evaluation-library.css";
 
-export function EvaluationLibrary({ tasks, onDetails, onCustom, t }: { tasks: EvaluationTask[]; onDetails: (task: EvaluationTask) => void; onCustom: () => void; t: EvaluationText }): React.JSX.Element {
+export function EvaluationLibrary({
+	tasks,
+	onDetails,
+	onCustom,
+	t,
+}: {
+	tasks: EvaluationTask[];
+	onDetails: (task: EvaluationTask) => void;
+	onCustom: () => void;
+	t: EvaluationText;
+}): React.JSX.Element {
 	const [filter, setFilter] = useState<EvaluationCategory | "all" | "custom">("all");
 	const [query, setQuery] = useState("");
-	const filtered = tasks.filter((task) => (filter === "all" || filter === "custom" && !task.builtin || task.category === filter) && `${task.id} ${task.title} ${task.prompt}`.toLowerCase().includes(query.toLowerCase()));
-	return <div className="eval-page"><div className="eval-toolbar"><div><div className="eval-crumb">{t("title")} / {t("library")}</div><h2 className="eval-page-title">{t("library")}</h2><p className="eval-page-description">{tasks.length} · {t("directHint")}</p></div><span className="eval-spacer" /><button className="eval-button primary" onClick={onCustom}><IconPlus />{t("customTitle")}</button></div>
-		<div className="eval-filters">{(["all", ...CATEGORIES, "custom"] as const).map((category) => <button key={category} className={category === filter ? "active" : ""} aria-pressed={category === filter} onClick={() => setFilter(category)}>{t(category)} <small>{tasks.filter((task) => category === "all" || category === "custom" && !task.builtin || task.category === category).length}</small></button>)}<div className="eval-search"><IconSearch /><input placeholder={t("searchTasks")} aria-label={t("searchTasks")} value={query} onChange={(event) => setQuery(event.target.value)} /></div></div>
-		{filtered.length > 0 ? <div className="eval-library-table-wrap"><table className="eval-library-table" aria-label={t("library")}><colgroup><col className="eval-library-id-col" /><col /><col className="eval-library-category-col" /><col className="eval-library-source-col" /><col className="eval-library-action-col" /></colgroup><thead><tr><th scope="col">{t("taskId")}</th><th scope="col">{t("taskTitle")}</th><th scope="col">{t("category")}</th><th scope="col">{t("version")} / {t("origin")}</th><th scope="col">{t("libraryActions")}</th></tr></thead><tbody>{filtered.map((task) => <tr className="eval-library-row" data-task-id={task.id} key={task.id}><td><code className="eval-library-id" title={task.id}>{task.id}</code></td><td><strong className="eval-library-title" title={task.title}>{task.title}</strong><p className="eval-library-summary" title={task.prompt}>{task.prompt}</p></td><td><span className="eval-pill">{t(task.category)}</span>{task.outputType !== task.category && <small className="eval-library-output" title={t("output")}>{task.outputType.toUpperCase()}</small>}</td><td><span className="eval-library-version">v{task.version}</span><span className="eval-library-source" title={task.source?.label || (task.builtin ? "Owl" : t("custom"))}>{task.source?.label || (task.builtin ? "Owl" : t("custom"))}</span></td><td><button className="eval-link" onClick={() => onDetails(task)}>{t("details")}</button></td></tr>)}</tbody></table></div> : <div className="eval-empty">{t("noTasks")}</div>}
-	</div>;
+	const filtered = tasks.filter(
+		(task) =>
+			(filter === "all" || (filter === "custom" && !task.builtin) || task.category === filter) &&
+			`${task.id} ${task.title} ${task.prompt}`.toLowerCase().includes(query.toLowerCase()),
+	);
+	return (
+		<div className="eval-page">
+			<div className="eval-toolbar">
+				<div>
+					<div className="eval-crumb">
+						{t("title")} / {t("library")}
+					</div>
+					<h2 className="eval-page-title">{t("library")}</h2>
+					<p className="eval-page-description">
+						{tasks.length} · {t("directHint")}
+					</p>
+				</div>
+				<span className="eval-spacer" />
+				<button className="eval-button primary" onClick={onCustom}>
+					<IconPlus />
+					{t("customTitle")}
+				</button>
+			</div>
+			<div className="eval-filters">
+				{(["all", ...CATEGORIES, "custom"] as const).map((category) => (
+					<button
+						key={category}
+						className={category === filter ? "active" : ""}
+						aria-pressed={category === filter}
+						onClick={() => setFilter(category)}
+					>
+						{t(category)}{" "}
+						<small>
+							{
+								tasks.filter(
+									(task) =>
+										category === "all" ||
+										(category === "custom" && !task.builtin) ||
+										task.category === category,
+								).length
+							}
+						</small>
+					</button>
+				))}
+				<div className="eval-search">
+					<IconSearch />
+					<input
+						placeholder={t("searchTasks")}
+						aria-label={t("searchTasks")}
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+					/>
+				</div>
+			</div>
+			{filtered.length > 0 ? (
+				<div className="eval-library-table-wrap">
+					<table className="eval-library-table" aria-label={t("library")}>
+						<colgroup>
+							<col className="eval-library-id-col" />
+							<col />
+							<col className="eval-library-category-col" />
+							<col className="eval-library-source-col" />
+							<col className="eval-library-action-col" />
+						</colgroup>
+						<thead>
+							<tr>
+								<th scope="col">{t("taskId")}</th>
+								<th scope="col">{t("taskTitle")}</th>
+								<th scope="col">{t("category")}</th>
+								<th scope="col">
+									{t("version")} / {t("origin")}
+								</th>
+								<th scope="col">{t("libraryActions")}</th>
+							</tr>
+						</thead>
+						<tbody>
+							{filtered.map((task) => (
+								<tr className="eval-library-row" data-task-id={task.id} key={task.id}>
+									<td>
+										<code className="eval-library-id" title={task.id}>
+											{task.id}
+										</code>
+									</td>
+									<td>
+										<strong className="eval-library-title" title={task.title}>
+											{task.title}
+										</strong>
+										<p className="eval-library-summary" title={task.prompt}>
+											{task.prompt}
+										</p>
+									</td>
+									<td>
+										<span className="eval-pill">{t(task.category)}</span>
+										{task.outputType !== task.category && (
+											<small className="eval-library-output" title={t("output")}>
+												{task.outputType.toUpperCase()}
+											</small>
+										)}
+									</td>
+									<td>
+										<span className="eval-library-version">v{task.version}</span>
+										<span
+											className="eval-library-source"
+											title={task.source?.label || (task.builtin ? "Owl" : t("custom"))}
+										>
+											{task.source?.label || (task.builtin ? "Owl" : t("custom"))}
+										</span>
+									</td>
+									<td>
+										<button className="eval-link" onClick={() => onDetails(task)}>
+											{t("details")}
+										</button>
+									</td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			) : (
+				<div className="eval-empty">{t("noTasks")}</div>
+			)}
+		</div>
+	);
 }

@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setUiLanguage } from "../i18n/index.ts";
 import { ImageViewer, type ImageViewerItem } from "./ImageViewer.tsx";
@@ -24,7 +24,9 @@ let hostKey: ReturnType<typeof vi.fn>;
 let hostWheel: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-	const dom = parseHTML("<!doctype html><html><body><button id='trigger'>查看原始截图</button><div id='root'></div></body></html>");
+	const dom = parseHTML(
+		"<!doctype html><html><body><button id='trigger'>查看原始截图</button><div id='root'></div></body></html>",
+	);
 	vi.stubGlobal("window", dom.window);
 	vi.stubGlobal("document", dom.document);
 	vi.stubGlobal("HTMLElement", dom.window.HTMLElement);
@@ -34,32 +36,72 @@ beforeEach(() => {
 	vi.stubGlobal("Event", dom.window.Event);
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 	vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
-	vi.stubGlobal("ResizeObserver", class { observe(): void {} disconnect(): void {} });
-	frames = new Map(); frameSequence = 0;
-	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { const id = ++frameSequence; frames.set(id, callback); return id; });
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe(): void {}
+			disconnect(): void {}
+		},
+	);
+	frames = new Map();
+	frameSequence = 0;
+	vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+		const id = ++frameSequence;
+		frames.set(id, callback);
+		return id;
+	});
 	vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
 	active = null;
 	Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
-	dom.window.HTMLElement.prototype.focus = function (): void { active = this; };
-	dom.window.HTMLElement.prototype.getClientRects = function () { return [this.getBoundingClientRect()] as unknown as DOMRectList; };
-	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 500, top: 0, left: 0, right: 800, bottom: 500, toJSON: () => ({}) });
+	dom.window.HTMLElement.prototype.focus = function (): void {
+		active = this;
+	};
+	dom.window.HTMLElement.prototype.getClientRects = function () {
+		return [this.getBoundingClientRect()] as unknown as DOMRectList;
+	};
+	dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+		x: 0,
+		y: 0,
+		width: 800,
+		height: 500,
+		top: 0,
+		left: 0,
+		right: 800,
+		bottom: 500,
+		toJSON: () => ({}),
+	});
 	dom.window.HTMLElement.prototype.scrollTo = function (options?: ScrollToOptions | number, y?: number): void {
-		this.scrollLeft = typeof options === "number" ? options : options?.left ?? this.scrollLeft;
-		this.scrollTop = typeof options === "number" ? y ?? this.scrollTop : options?.top ?? this.scrollTop;
+		this.scrollLeft = typeof options === "number" ? options : (options?.left ?? this.scrollLeft);
+		this.scrollTop = typeof options === "number" ? (y ?? this.scrollTop) : (options?.top ?? this.scrollTop);
 	};
 	Object.defineProperties(dom.window.HTMLElement.prototype, {
 		clientWidth: { configurable: true, get: () => 800 },
 		clientHeight: { configurable: true, get: () => 500 },
-		tabIndex: { configurable: true,
-			get() { const value = this.getAttribute("tabindex"); return value === null ? /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(this.tagName) ? 0 : -1 : Number(value); },
-			set(value: number) { this.setAttribute("tabindex", String(value)); },
+		tabIndex: {
+			configurable: true,
+			get() {
+				const value = this.getAttribute("tabindex");
+				return value === null ? (/^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(this.tagName) ? 0 : -1) : Number(value);
+			},
+			set(value: number) {
+				this.setAttribute("tabindex", String(value));
+			},
 		},
-		open: { configurable: true, get() { return this.hasAttribute("open"); } },
+		open: {
+			configurable: true,
+			get() {
+				return this.hasAttribute("open");
+			},
+		},
 	});
 	// These shims model the native API calls only. Actual top-layer layout and
 	// browser focus isolation belong to the browser fixture, not Linkedom.
-	showModal = vi.fn(function (this: HTMLElement) { this.setAttribute("open", ""); });
-	closeDialog = vi.fn(function (this: HTMLElement) { this.removeAttribute("open"); });
+	showModal = vi.fn(function (this: HTMLElement) {
+		this.setAttribute("open", "");
+	});
+	closeDialog = vi.fn(function (this: HTMLElement) {
+		this.removeAttribute("open");
+	});
 	dom.window.HTMLElement.prototype.showModal = showModal;
 	dom.window.HTMLElement.prototype.close = closeDialog;
 	host = document.getElementById("root")!;
@@ -69,7 +111,8 @@ beforeEach(() => {
 	trigger.focus();
 	root = createRoot(host);
 	props = { images, index: 0, onIndexChange: vi.fn(), onClose: vi.fn() };
-	hostKey = vi.fn(); hostWheel = vi.fn();
+	hostKey = vi.fn();
+	hostWheel = vi.fn();
 	setUiLanguage("zh");
 });
 
@@ -80,26 +123,55 @@ afterEach(async () => {
 
 async function render(overrides: Partial<Props> = {}): Promise<void> {
 	props = { ...props, ...overrides };
-	await act(async () => root.render(<div onKeyDown={hostKey} onWheel={hostWheel}><ImageViewer {...props} /></div>));
-	await act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach((callback) => callback(0)); });
+	await act(async () =>
+		root.render(
+			<div onKeyDown={hostKey} onWheel={hostWheel}>
+				<ImageViewer {...props} />
+			</div>,
+		),
+	);
+	await act(async () => {
+		const pending = [...frames.values()];
+		frames.clear();
+		pending.forEach((callback) => callback(0));
+	});
 }
 
-function dialog(): HTMLDialogElement { return document.querySelector<HTMLDialogElement>(".owl-image-viewer")!; }
-function picture(): HTMLImageElement { return dialog().querySelector<HTMLImageElement>(".owl-image-viewer-image")!; }
-function stage(): HTMLElement { return dialog().querySelector<HTMLElement>(".owl-image-viewer-stage")!; }
+function dialog(): HTMLDialogElement {
+	return document.querySelector<HTMLDialogElement>(".owl-image-viewer")!;
+}
+function picture(): HTMLImageElement {
+	return dialog().querySelector<HTMLImageElement>(".owl-image-viewer-image")!;
+}
+function stage(): HTMLElement {
+	return dialog().querySelector<HTMLElement>(".owl-image-viewer-stage")!;
+}
 function button(label: string): HTMLButtonElement {
 	const result = dialog().querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 	if (!result) throw new Error(`Missing image viewer button: ${label}`);
 	return result;
 }
-async function click(element: HTMLElement): Promise<void> { await act(async () => element.click()); }
+async function click(element: HTMLElement): Promise<void> {
+	await act(async () => element.click());
+}
 async function key(target: HTMLElement | Document, value: string): Promise<Event> {
-	const event = Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), { key: value, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, isComposing: false });
+	const event = Object.assign(new window.Event("keydown", { bubbles: true, cancelable: true }), {
+		key: value,
+		shiftKey: false,
+		ctrlKey: false,
+		metaKey: false,
+		altKey: false,
+		isComposing: false,
+	});
 	await act(async () => target.dispatchEvent(event));
 	return event;
 }
 async function load(image: HTMLImageElement, width: number, height: number): Promise<void> {
-	Object.defineProperties(image, { naturalWidth: { configurable: true, value: width }, naturalHeight: { configurable: true, value: height }, complete: { configurable: true, value: true } });
+	Object.defineProperties(image, {
+		naturalWidth: { configurable: true, value: width },
+		naturalHeight: { configurable: true, value: height },
+		complete: { configurable: true, value: true },
+	});
 	await act(async () => image.dispatchEvent(new window.Event("load")));
 }
 
@@ -163,13 +235,25 @@ describe("Shared image viewer", () => {
 		await load(picture(), 1600, 1000);
 		await click(button("原始尺寸"));
 		const element = stage();
-		Object.defineProperties(element, { scrollWidth: { configurable: true, value: 1600 }, scrollHeight: { configurable: true, value: 1000 } });
+		Object.defineProperties(element, {
+			scrollWidth: { configurable: true, value: 1600 },
+			scrollHeight: { configurable: true, value: 1000 },
+		});
 		const captured = new Set<number>();
-		element.setPointerCapture = vi.fn((id: number) => { captured.add(id); });
+		element.setPointerCapture = vi.fn((id: number) => {
+			captured.add(id);
+		});
 		element.hasPointerCapture = (id: number) => captured.has(id);
-		element.releasePointerCapture = vi.fn((id: number) => { captured.delete(id); });
+		element.releasePointerCapture = vi.fn((id: number) => {
+			captured.delete(id);
+		});
 		const pointer = async (target: HTMLElement, type: string, x: number, y: number): Promise<void> => {
-			const event = Object.assign(new window.Event(type, { bubbles: true, cancelable: true }), { pointerId: 7, button: 0, clientX: x, clientY: y });
+			const event = Object.assign(new window.Event(type, { bubbles: true, cancelable: true }), {
+				pointerId: 7,
+				button: 0,
+				clientX: x,
+				clientY: y,
+			});
 			await act(async () => target.dispatchEvent(event));
 		};
 		// Feed the retargeted sequence explicitly; this tests our close guard,
@@ -217,7 +301,11 @@ describe("Shared image viewer", () => {
 		await render();
 		const globalWheel = vi.fn();
 		window.addEventListener("wheel", globalWheel);
-		const wheel = Object.assign(new window.Event("wheel", { bubbles: true, cancelable: true }), { deltaY: -100, ctrlKey: true, metaKey: false });
+		const wheel = Object.assign(new window.Event("wheel", { bubbles: true, cancelable: true }), {
+			deltaY: -100,
+			ctrlKey: true,
+			metaKey: false,
+		});
 		await act(async () => stage().dispatchEvent(wheel));
 		expect(wheel.defaultPrevented).toBe(true);
 		expect(hostWheel).not.toHaveBeenCalled();
@@ -242,7 +330,9 @@ describe("Shared image viewer", () => {
 		await render();
 		await act(async () => picture().dispatchEvent(new window.Event("error")));
 		expect(dialog().textContent).toContain("加载失败");
-		const retry = [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((control) => control.textContent?.includes("重试"));
+		const retry = [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((control) =>
+			control.textContent?.includes("重试"),
+		);
 		expect(retry).toBeDefined();
 		await click(retry!);
 		expect(dialog().textContent).not.toContain("加载失败");

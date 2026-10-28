@@ -6,8 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useT } from "../../i18n/index.ts";
-import { mediaApi, type FavoriteEntry, type ListeningEntry, type ListeningReport } from "./hub.ts";
-import { refreshMediaStatus } from "./hub.ts";
+import { type FavoriteEntry, type ListeningEntry, type ListeningReport, mediaApi, refreshMediaStatus } from "./hub.ts";
 
 function formatMinutes(totalSeconds: number): string {
 	if (totalSeconds < 60) return "<1";
@@ -56,7 +55,13 @@ export function MediaMemoryTab({ active }: { active: boolean }): React.JSX.Eleme
 
 	const toggleFavorite = async (entry: ListeningEntry): Promise<void> => {
 		try {
-			await mediaApi.toggleFavorite({ title: entry.title, artist: entry.artist, album: entry.album, artworkUrl: entry.artworkUrl, playerId: entry.playerId });
+			await mediaApi.toggleFavorite({
+				title: entry.title,
+				artist: entry.artist,
+				album: entry.album,
+				artworkUrl: entry.artworkUrl,
+				playerId: entry.playerId,
+			});
 			const favs = await mediaApi.favorites();
 			setFavorites(favs.favorites);
 			refreshMediaStatus();
@@ -95,7 +100,9 @@ export function MediaMemoryTab({ active }: { active: boolean }): React.JSX.Eleme
 						{report !== undefined ? formatClock(report.listenMs) : "—"}
 						<small>{t("media.memory.hoursUnit")}</small>
 					</div>
-					{report !== undefined && <div className="owl-media-stat-d">{t("media.memory.playsCount", { n: report.plays })}</div>}
+					{report !== undefined && (
+						<div className="owl-media-stat-d">{t("media.memory.playsCount", { n: report.plays })}</div>
+					)}
 				</div>
 				<div className="owl-media-stat">
 					<div className="owl-media-stat-k">{t("media.memory.favoritesTitle")}</div>
@@ -119,7 +126,13 @@ export function MediaMemoryTab({ active }: { active: boolean }): React.JSX.Eleme
 									<div className="owl-media-trow-tt">{entry.title}</div>
 									<div className="owl-media-trow-ta">{entry.artist}</div>
 								</div>
-								<button type="button" className="owl-media-heart is-sm" title={t("media.favorite")} onClick={() => void toggleFavorite(entry)} aria-label={t("media.favorite")}>
+								<button
+									type="button"
+									className="owl-media-heart is-sm"
+									title={t("media.favorite")}
+									onClick={() => void toggleFavorite(entry)}
+									aria-label={t("media.favorite")}
+								>
 									♥
 								</button>
 							</div>
@@ -144,7 +157,10 @@ export function MediaMemoryTab({ active }: { active: boolean }): React.JSX.Eleme
 									<div className="owl-media-trow-tt">{artist.artist}</div>
 									<div className="owl-media-trow-ta">{t("media.memory.playsUnit", { n: artist.plays })}</div>
 								</div>
-								<span className="owl-media-when">{formatClock(artist.listenMs)}{t("media.memory.minutesShort")}</span>
+								<span className="owl-media-when">
+									{formatClock(artist.listenMs)}
+									{t("media.memory.minutesShort")}
+								</span>
 							</div>
 						))
 					)}
@@ -160,7 +176,13 @@ export function MediaMemoryTab({ active }: { active: boolean }): React.JSX.Eleme
 									<div className="owl-media-trow-tt">{favorite.title}</div>
 									<div className="owl-media-trow-ta">{favorite.artist}</div>
 								</div>
-								<button type="button" className="owl-media-heart is-sm is-on" title={t("media.unfavorite")} onClick={() => void removeFavorite(favorite.key)} aria-label={t("media.unfavorite")}>
+								<button
+									type="button"
+									className="owl-media-heart is-sm is-on"
+									title={t("media.unfavorite")}
+									onClick={() => void removeFavorite(favorite.key)}
+									aria-label={t("media.unfavorite")}
+								>
 									♥
 								</button>
 							</div>
@@ -180,7 +202,11 @@ function Cover({ title, url, seed }: { title: string; url?: string; seed: string
 		return <img className="owl-media-cover" src={url} alt="" draggable={false} onError={() => setBroken(true)} />;
 	}
 	return (
-		<div className="owl-media-cover" style={{ background: `linear-gradient(135deg, hsl(${hue} 60% 45%), hsl(${(hue + 60) % 360} 60% 35%))` }} aria-hidden="true">
+		<div
+			className="owl-media-cover"
+			style={{ background: `linear-gradient(135deg, hsl(${hue} 60% 45%), hsl(${(hue + 60) % 360} 60% 35%))` }}
+			aria-hidden="true"
+		>
 			{title.slice(0, 1)}
 		</div>
 	);

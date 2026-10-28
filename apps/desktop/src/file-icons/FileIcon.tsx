@@ -8,7 +8,7 @@ import materialRaw from "material-icon-theme/dist/material-icons.json";
 import { useSyncExternalStore } from "react";
 import { resolveSurfaceTheme } from "../owl-appearance.ts";
 import { getFileIconTheme, subscribeFileIconTheme } from "./file-icon-theme.ts";
-import { fontGlyph, iconFileName, type IconThemeManifest, resolveIconId } from "./resolve.ts";
+import { fontGlyph, type IconThemeManifest, iconFileName, resolveIconId } from "./resolve.ts";
 import setiRaw from "./seti/vs-seti-icon-theme.json";
 import "./file-icons.css";
 
@@ -26,7 +26,10 @@ function subscribeSurface(listener: () => void): () => void {
 		surfaceObserver = new MutationObserver(() => {
 			for (const notify of surfaceListeners) notify();
 		});
-		surfaceObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-owl-theme", "data-owl-wallpaper", "data-owl-glass-theme"] });
+		surfaceObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["data-owl-theme", "data-owl-wallpaper", "data-owl-glass-theme"],
+		});
 	}
 	return () => {
 		surfaceListeners.delete(listener);
@@ -63,7 +66,11 @@ export function FileIcon({ name, folder = false, open = false, size = 14, minima
 		const definition = id === undefined ? undefined : SETI.iconDefinitions[id];
 		if (definition?.fontCharacter !== undefined) {
 			return (
-				<span aria-hidden="true" className="owl-file-icon-seti" style={{ width: size, height: size, fontSize: Math.round(size * 1.45), color: definition.fontColor }}>
+				<span
+					aria-hidden="true"
+					className="owl-file-icon-seti"
+					style={{ width: size, height: size, fontSize: Math.round(size * 1.45), color: definition.fontColor }}
+				>
 					{fontGlyph(definition.fontCharacter)}
 				</span>
 			);
@@ -73,7 +80,17 @@ export function FileIcon({ name, folder = false, open = false, size = 14, minima
 		const id = resolveIconId(MATERIAL, name, folder ? (open ? "folderExpanded" : "folder") : "file", light);
 		const iconPath = id === undefined ? undefined : MATERIAL.iconDefinitions[id]?.iconPath;
 		if (iconPath !== undefined) {
-			return <img alt="" aria-hidden="true" draggable={false} className="owl-file-icon-img" width={size} height={size} src={`${MATERIAL_BASE}${iconFileName(iconPath)}`} />;
+			return (
+				<img
+					alt=""
+					aria-hidden="true"
+					draggable={false}
+					className="owl-file-icon-img"
+					width={size}
+					height={size}
+					src={`${MATERIAL_BASE}${iconFileName(iconPath)}`}
+				/>
+			);
 		}
 	}
 	return minimal;

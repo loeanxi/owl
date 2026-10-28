@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useT } from "../i18n/index.ts";
 import { formatAppKeybinding, loadAppKeybindings } from "../app-keybindings.ts";
+import { useT } from "../i18n/index.ts";
 import { useExecutionText } from "./execution-copy.ts";
 
 export type HelpSection = "guide" | "shortcuts";
@@ -14,7 +14,13 @@ interface ShortcutRow {
  * 「帮助」弹窗：使用指南 + 全部键盘快捷键。
  * 从帮助菜单的「使用指南」/「显示键盘快捷键 (Ctrl+/)」两个入口打开，定位到对应小节。
  */
-export function ShortcutsDialog({ section, onClose }: { section: HelpSection; onClose: () => void }): React.JSX.Element {
+export function ShortcutsDialog({
+	section,
+	onClose,
+}: {
+	section: HelpSection;
+	onClose: () => void;
+}): React.JSX.Element {
 	const t = useT();
 	const executionCopy = useExecutionText();
 	const appKeybindings = loadAppKeybindings(localStorage);
@@ -67,7 +73,6 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 		{
 			title: t("titlebar.menuView"),
 			rows: [
-				{ label: executionCopy("cycleView"), keys: formatAppKeybinding(appKeybindings.cycleExecutionView[0]).split("+") },
 				{ label: t("titlebar.showSessions"), keys: ["Ctrl", "Shift", "S"] },
 				{ label: t("view.showBottomPanel"), keys: ["Ctrl", "J"] },
 				{ label: t("view.showRightPanel"), keys: ["Ctrl", "Shift", "E"] },
@@ -98,11 +103,15 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 			>
 				<div className="sticky top-0 flex items-center justify-between border-b border-owl-border bg-owl-panel px-4 py-3">
 					<h2 className="text-sm font-semibold">{t("help.guideTitle")}</h2>
-					<button type="button" className="owl-chrome-button" aria-label={t("app.closeAria")} onClick={onClose}>✕</button>
+					<button type="button" className="owl-chrome-button" aria-label={t("app.closeAria")} onClick={onClose}>
+						✕
+					</button>
 				</div>
 				<div className="px-4 py-3">
 					<section>
-						<h3 className="mb-2 text-xs font-semibold tracking-wide text-owl-muted uppercase">{t("help.guide")}</h3>
+						<h3 className="mb-2 text-xs font-semibold tracking-wide text-owl-muted uppercase">
+							{t("help.guide")}
+						</h3>
 						<ul className="space-y-2 text-xs leading-relaxed text-owl-muted">
 							<li>{executionCopy("projectGuide")}</li>
 							<li>{t("guide.point2")}</li>
@@ -111,7 +120,9 @@ export function ShortcutsDialog({ section, onClose }: { section: HelpSection; on
 						</ul>
 					</section>
 					<section className="mt-4">
-						<h3 className="mb-2 text-xs font-semibold tracking-wide text-owl-muted uppercase">{t("help.shortcuts")}</h3>
+						<h3 className="mb-2 text-xs font-semibold tracking-wide text-owl-muted uppercase">
+							{t("help.shortcuts")}
+						</h3>
 						<div className="space-y-3">
 							{groups.map((group) => (
 								<div key={group.title}>

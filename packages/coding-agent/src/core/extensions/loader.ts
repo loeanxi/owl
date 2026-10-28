@@ -139,7 +139,15 @@ type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 
 let extensionCacheCwd: string | undefined;
 let extensionCacheGeneration = 0;
-const extensionCache = new Map<string, ExtensionFactory>();
+
+/** 缓存的扩展工厂 + 它当时的文件指纹：文件改了才重新求值。 */
+interface CachedExtensionFactory {
+	factory: ExtensionFactory;
+	/** 扩展文件的 mtime（毫秒）；取不到时为 -1。 */
+	mtimeMs: number;
+}
+
+const extensionCache = new Map<string, CachedExtensionFactory>();
 
 interface ExtensionCacheToken {
 	cwd: string;
@@ -152,11 +160,18 @@ export function clearExtensionCache(): void {
 	extensionCacheGeneration++;
 }
 
+/**
+ * 换工作目录不再清空整份缓存。
+ *
+ * 缓存的键是扩展的**绝对路径**：装在 agent 目录 / node_modules 里的扩展在哪个
+ * 工作目录都是同一份文件，没必要重新求值一遍（实测换目录一次要多付 ~330ms
+ * 的模块求值）。工作目录自带的扩展路径本来就不同，天然不会互相串用。
+ *
+ * 插件改完代码能不能生效由文件指纹决定（见 loadExtensionModule），不再依赖
+ * 「换一次目录」这种偶然动作。
+ */
 function useExtensionCacheCwd(cwd: string): ExtensionCacheToken {
 	const resolvedCwd = resolvePath(cwd);
-	if (extensionCacheCwd !== undefined && extensionCacheCwd !== resolvedCwd) {
-		clearExtensionCache();
-	}
 	extensionCacheCwd = resolvedCwd;
 	return { cwd: resolvedCwd, generation: extensionCacheGeneration };
 }
@@ -584,10 +599,12 @@ export async function importExtensionRuntimeModule(modulePath: string): Promise<
 }
 
 async function loadExtensionModule(extensionPath: string, cacheToken?: ExtensionCacheToken) {
+	// 文件指纹：扩展被改过就重新求值，改完代码不必重启整个应用。
+	const mtimeMs = extensionMtimeMs(extensionPath);
 	if (isCurrentCacheToken(cacheToken)) {
-		const cachedFactory = extensionCache.get(extensionPath);
-		if (cachedFactory) {
-			return cachedFactory;
+		const cached = extensionCache.get(extensionPath);
+		if (cached && cached.mtimeMs === mtimeMs) {
+			return cached.factory;
 		}
 	}
 
@@ -597,9 +614,18 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 		return undefined;
 	}
 	if (isCurrentCacheToken(cacheToken)) {
-		extensionCache.set(extensionPath, factory);
+		extensionCache.set(extensionPath, { factory, mtimeMs });
 	}
 	return factory;
+}
+
+/** 扩展文件的 mtime（毫秒）；文件不存在或读不到时用 -1。 */
+function extensionMtimeMs(extensionPath: string): number {
+	try {
+		return fs.statSync(extensionPath).mtimeMs;
+	} catch {
+		return -1;
+	}
 }
 
 /**

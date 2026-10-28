@@ -70,7 +70,9 @@ export const ANIMATION_MIRROR_KEY = "owl.animation";
 const LEGACY_STARTUP_KEY = "owl.startupSplash";
 
 function asRecord(value: unknown): Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -92,7 +94,9 @@ export function parseOwlAnimation(raw: unknown): OwlAnimationSettings {
 		startupSpeed: value.startupSpeed === "fast" ? "fast" : "normal",
 		startupMeteors: bool(value.startupMeteors, d.startupMeteors),
 		ambientEnabled: bool(value.ambientEnabled, d.ambientEnabled),
-		ambientIntensity: Math.round(clampNumber(value.ambientIntensity, AMBIENT_INTENSITY_MIN, AMBIENT_INTENSITY_MAX, d.ambientIntensity)),
+		ambientIntensity: Math.round(
+			clampNumber(value.ambientIntensity, AMBIENT_INTENSITY_MIN, AMBIENT_INTENSITY_MAX, d.ambientIntensity),
+		),
 		ambientMeteors: bool(value.ambientMeteors, d.ambientMeteors),
 		ambientReactive: bool(value.ambientReactive, d.ambientReactive),
 		fps: FPS_VALUES.includes(fps) ? fps : d.fps,

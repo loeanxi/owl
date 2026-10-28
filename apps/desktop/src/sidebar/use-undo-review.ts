@@ -18,7 +18,8 @@ export function useUndoReview(api: SidebarApi, cwd: string, contextKey: string, 
 	const [outcome, setOutcome] = useState<UndoOutcome | undefined>();
 	const [previewIds, setPreviewIds] = useState<string[]>([]);
 	const current = useRef({ key: contextKey, api, lock: false });
-	if (current.current.key !== contextKey || current.current.api !== api) current.current = { key: contextKey, api, lock: false };
+	if (current.current.key !== contextKey || current.current.api !== api)
+		current.current = { key: contextKey, api, lock: false };
 	const settled = useRef(onSettled);
 	settled.current = onSettled;
 
@@ -29,7 +30,9 @@ export function useUndoReview(api: SidebarApi, cwd: string, contextKey: string, 
 		setPreview(undefined);
 		setOutcome(undefined);
 		setPreviewIds([]);
-		return () => { if (current.current === instance) current.current = { key: "", api, lock: false }; };
+		return () => {
+			if (current.current === instance) current.current = { key: "", api, lock: false };
+		};
 	}, [contextKey, api]);
 
 	const requestPreview = async (ids: string[]): Promise<void> => {
@@ -46,9 +49,18 @@ export function useUndoReview(api: SidebarApi, cwd: string, contextKey: string, 
 			setPreview(result);
 		} catch (error) {
 			if (current.current !== invocation) return;
-			setOutcome({ action: "revert", resolved: 0, failed: [], error: error instanceof Error ? error.message : String(error), retryIds: ids });
+			setOutcome({
+				action: "revert",
+				resolved: 0,
+				failed: [],
+				error: error instanceof Error ? error.message : String(error),
+				retryIds: ids,
+			});
 		} finally {
-			if (current.current === invocation) { invocation.lock = false; setBusy(false); }
+			if (current.current === invocation) {
+				invocation.lock = false;
+				setBusy(false);
+			}
 		}
 	};
 
@@ -61,27 +73,48 @@ export function useUndoReview(api: SidebarApi, cwd: string, contextKey: string, 
 			const result: DiffApprovalResolveResult = await api.diffApprovalResolve(cwd, ids, action, token);
 			if (current.current !== invocation) return;
 			const successful = new Set(result.resolvedIds);
-			setOutcome({ action, resolved: result.resolved, failed: result.failed, warnings: result.warnings, retryIds: ids.filter((id) => !successful.has(id)) });
+			setOutcome({
+				action,
+				resolved: result.resolved,
+				failed: result.failed,
+				warnings: result.warnings,
+				retryIds: ids.filter((id) => !successful.has(id)),
+			});
 			setPreview(undefined);
 			settled.current();
 		} catch (error) {
 			if (current.current !== invocation) return;
-			setOutcome({ action, resolved: 0, failed: [], error: error instanceof Error ? error.message : String(error), retryIds: ids });
+			setOutcome({
+				action,
+				resolved: 0,
+				failed: [],
+				error: error instanceof Error ? error.message : String(error),
+				retryIds: ids,
+			});
 			setPreview(undefined);
 			settled.current();
 		} finally {
-			if (current.current === invocation) { invocation.lock = false; setBusy(false); }
+			if (current.current === invocation) {
+				invocation.lock = false;
+				setBusy(false);
+			}
 		}
 	};
 
 	return {
-		busy, preview, outcome,
+		busy,
+		preview,
+		outcome,
 		requestPreview,
 		confirm: () => preview !== undefined && resolve(previewIds, "revert", preview.token),
 		retryPreview: () => requestPreview(previewIds),
 		keep: (ids: string[]) => resolve(ids, "keep"),
-		dismiss: () => { if (!current.current.lock) setPreview(undefined); },
-		retry: () => outcome !== undefined && (outcome.action === "keep" ? resolve(outcome.retryIds, "keep") : requestPreview(outcome.retryIds)),
+		dismiss: () => {
+			if (!current.current.lock) setPreview(undefined);
+		},
+		retry: () =>
+			outcome !== undefined &&
+			(outcome.action === "keep" ? resolve(outcome.retryIds, "keep") : requestPreview(outcome.retryIds)),
 	};
 }
 

@@ -22,23 +22,37 @@ describe("acknowledged pending responses", () => {
 		expect(controller.getSnapshot().size).toBe(0);
 	});
 
-	it.each(["request", "session"] as const)("discards a late transport failure after a terminal %s event", async (scope) => {
-		const controller = new PendingResponses();
-		const response = Promise.withResolvers<{ ok: boolean }>();
-		const confirmed = vi.fn();
-		const request = controller.submit({ requestId: "one", sessionId: "session", respond: () => response.promise, confirmed });
-		if (scope === "request") controller.retire("one"); else controller.retireSession("session", ["one"]);
-		response.reject(new Error("late offline"));
-		await request;
-		expect(controller.getSnapshot().size).toBe(0);
-		expect(confirmed).not.toHaveBeenCalled();
-		controller.retry("one");
-		expect(controller.getSnapshot().size).toBe(0);
-	});
+	it.each(["request", "session"] as const)(
+		"discards a late transport failure after a terminal %s event",
+		async (scope) => {
+			const controller = new PendingResponses();
+			const response = Promise.withResolvers<{ ok: boolean }>();
+			const confirmed = vi.fn();
+			const request = controller.submit({
+				requestId: "one",
+				sessionId: "session",
+				respond: () => response.promise,
+				confirmed,
+			});
+			if (scope === "request") controller.retire("one");
+			else controller.retireSession("session", ["one"]);
+			response.reject(new Error("late offline"));
+			await request;
+			expect(controller.getSnapshot().size).toBe(0);
+			expect(confirmed).not.toHaveBeenCalled();
+			controller.retry("one");
+			expect(controller.getSnapshot().size).toBe(0);
+		},
+	);
 
 	it("does not clear another request when one of several requests is resolved", async () => {
 		const controller = new PendingResponses();
-		await controller.submit({ requestId: "other", sessionId: "b", respond: async () => ({ ok: false, error: "keep me" }), confirmed: vi.fn() });
+		await controller.submit({
+			requestId: "other",
+			sessionId: "b",
+			respond: async () => ({ ok: false, error: "keep me" }),
+			confirmed: vi.fn(),
+		});
 		controller.retireSession("a", ["one"]);
 		expect(controller.getSnapshot().get("other")?.error).toBe("keep me");
 	});
@@ -47,7 +61,12 @@ describe("acknowledged pending responses", () => {
 		const controller = new PendingResponses();
 		controller.saveQuestionDraft("one", { states: [], current: 1, missing: new Set(), collapsed: false });
 		const response = Promise.withResolvers<{ ok: boolean }>();
-		const request = controller.submit({ requestId: "one", sessionId: "a", respond: () => response.promise, confirmed: vi.fn() });
+		const request = controller.submit({
+			requestId: "one",
+			sessionId: "a",
+			respond: () => response.promise,
+			confirmed: vi.fn(),
+		});
 		controller.invalidate();
 		response.reject(new Error("old account"));
 		await request;
@@ -59,14 +78,22 @@ describe("acknowledged pending responses", () => {
 		const controller = new PendingResponses();
 		const old = Promise.withResolvers<{ ok: boolean }>();
 		const next = Promise.withResolvers<{ ok: boolean }>();
-		const oldRequest = controller.submit({ requestId: "same", sessionId: "a", respond: () => old.promise, confirmed: vi.fn() });
-		controller.invalidate(); controller.activate();
+		const oldRequest = controller.submit({
+			requestId: "same",
+			sessionId: "a",
+			respond: () => old.promise,
+			confirmed: vi.fn(),
+		});
+		controller.invalidate();
+		controller.activate();
 		const respond = vi.fn(() => next.promise);
 		const action = { requestId: "same", sessionId: "b", respond, confirmed: vi.fn() };
 		const newRequest = controller.submit(action);
-		old.resolve({ ok: true }); await oldRequest;
+		old.resolve({ ok: true });
+		await oldRequest;
 		expect(await controller.submit(action)).toBe(false);
 		expect(respond).toHaveBeenCalledOnce();
-		next.resolve({ ok: true }); await newRequest;
+		next.resolve({ ok: true });
+		await newRequest;
 	});
 });

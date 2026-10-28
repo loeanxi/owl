@@ -6,8 +6,6 @@
  * （POSIX 分隔符），cwd 由调用方（App 显式跟踪的项目目录）提供。
  */
 import type { BridgeClient } from "../bridge/client.ts";
-import { t } from "../i18n/index.ts";
-import type { DraftMutation, DraftSlot, EditorDraft, EditorSaveResult } from "./editor-controller.ts";
 import type {
 	DiffApprovalFileSummary,
 	DiffApprovalPreviewResult,
@@ -22,6 +20,8 @@ import type {
 	GitLogEntry,
 	GitStatusResult,
 } from "../bridge/protocol.ts";
+import { t } from "../i18n/index.ts";
+import type { DraftMutation, DraftSlot, EditorDraft, EditorSaveResult } from "./editor-controller.ts";
 
 const withRepo = (repo: string | undefined) => (repo !== undefined && repo !== "" ? { repo } : {});
 
@@ -43,31 +43,62 @@ function unwrap<T>(result: { ok: boolean; result?: T; error?: string }, what: st
 export function createSidebarApi(client: BridgeClient) {
 	return {
 		fsTree: (cwd: string, path = "") =>
-			client
-				.request<FsListing>({ type: "fs.tree", cwd, path })
-				.then((r) => unwrap(r, t("api.opReadDir"))),
+			client.request<FsListing>({ type: "fs.tree", cwd, path }).then((r) => unwrap(r, t("api.opReadDir"))),
 		fsRead: (cwd: string, path: string) =>
-			client
-				.request<FsReadResult>({ type: "fs.read", cwd, path })
-				.then((r) => unwrap(r, t("api.opReadFile"))),
+			client.request<FsReadResult>({ type: "fs.read", cwd, path }).then((r) => unwrap(r, t("api.opReadFile"))),
 		fsReadBin: (cwd: string, path: string) =>
-			client
-				.request<FsReadBinResult>({ type: "fs.readBin", cwd, path })
-				.then((r) => unwrap(r, t("api.opReadFile"))),
+			client.request<FsReadBinResult>({ type: "fs.readBin", cwd, path }).then((r) => unwrap(r, t("api.opReadFile"))),
 		fsWrite: (cwd: string, path: string, content: string) =>
 			client
 				.request<{ path: string; size: number }>({ type: "fs.write", cwd, path, content })
 				.then((r) => unwrap(r, t("api.opWriteFile"))),
-		editorFileSave: (cwd: string, path: string, content: string, expectedRevision: string | null, expectedProfile: string) =>
-			client.request<EditorSaveResult>({ type: "editor.file.save", cwd, path, content, expectedRevision, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+		editorFileSave: (
+			cwd: string,
+			path: string,
+			content: string,
+			expectedRevision: string | null,
+			expectedProfile: string,
+		) =>
+			client
+				.request<EditorSaveResult>({
+					type: "editor.file.save",
+					cwd,
+					path,
+					content,
+					expectedRevision,
+					expectedProfile,
+				})
+				.then((r) => unwrap(r, t("api.opWriteFile"))),
 		editorDraftGet: (cwd: string, path: string, expectedProfile: string) =>
-			client.request<DraftSlot>({ type: "editor.draft.get", cwd, path, expectedProfile }).then((r) => unwrap(r, t("api.opReadFile"))),
-		editorDraftPut: (cwd: string, path: string, value: { content: string; baseRevision: string | null; baseContent: string; expectedDraftRevision: string | null; operationId: string; editorId?: string }, expectedProfile: string) =>
-			client.request<DraftMutation>({ type: "editor.draft.put", cwd, path, ...value, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+			client
+				.request<DraftSlot>({ type: "editor.draft.get", cwd, path, expectedProfile })
+				.then((r) => unwrap(r, t("api.opReadFile"))),
+		editorDraftPut: (
+			cwd: string,
+			path: string,
+			value: {
+				content: string;
+				baseRevision: string | null;
+				baseContent: string;
+				expectedDraftRevision: string | null;
+				operationId: string;
+				editorId?: string;
+			},
+			expectedProfile: string,
+		) =>
+			client
+				.request<DraftMutation>({ type: "editor.draft.put", cwd, path, ...value, expectedProfile })
+				.then((r) => unwrap(r, t("api.opWriteFile"))),
 		editorDraftRemove: (cwd: string, path: string, expectedDraftRevision: string, expectedProfile: string) =>
-			client.request<DraftMutation>({ type: "editor.draft.remove", cwd, path, expectedDraftRevision, expectedProfile }).then((r) => unwrap(r, t("api.opWriteFile"))),
+			client
+				.request<DraftMutation>({ type: "editor.draft.remove", cwd, path, expectedDraftRevision, expectedProfile })
+				.then((r) => unwrap(r, t("api.opWriteFile"))),
 		editorDraftList: (expectedProfile: string, cwd?: string) =>
-			client.request<{ drafts: Array<Omit<EditorDraft, "content" | "baseContent" | "operationId"> & { size: number }> }>({ type: "editor.draft.list", expectedProfile, ...(cwd ? { cwd } : {}) }).then((r) => unwrap(r, t("api.opReadFile"))),
+			client
+				.request<{
+					drafts: Array<Omit<EditorDraft, "content" | "baseContent" | "operationId"> & { size: number }>;
+				}>({ type: "editor.draft.list", expectedProfile, ...(cwd ? { cwd } : {}) })
+				.then((r) => unwrap(r, t("api.opReadFile"))),
 		fsMkdir: (cwd: string, path: string, name: string) =>
 			client
 				.request<{ path: string }>({ type: "fs.mkdir", cwd, path, name })
@@ -77,17 +108,11 @@ export function createSidebarApi(client: BridgeClient) {
 				.request<{ path: string }>({ type: "fs.rename", cwd, path, name })
 				.then((r) => unwrap(r, t("api.opRename"))),
 		fsRemove: (cwd: string, path: string) =>
-			client
-				.request<{ path: string }>({ type: "fs.remove", cwd, path })
-				.then((r) => unwrap(r, t("common.delete"))),
+			client.request<{ path: string }>({ type: "fs.remove", cwd, path }).then((r) => unwrap(r, t("common.delete"))),
 		fsSearch: (cwd: string, query: string) =>
-			client
-				.request<FsSearchHit[]>({ type: "fs.search", cwd, query })
-				.then((r) => unwrap(r, t("api.opSearch"))),
+			client.request<FsSearchHit[]>({ type: "fs.search", cwd, query }).then((r) => unwrap(r, t("api.opSearch"))),
 		gitStatus: (cwd: string) =>
-			client
-				.request<GitStatusResult>({ type: "git.status", cwd })
-				.then((r) => unwrap(r, t("api.opGitStatus"))),
+			client.request<GitStatusResult>({ type: "git.status", cwd }).then((r) => unwrap(r, t("api.opGitStatus"))),
 		gitDiff: (cwd: string, path?: string, staged = false) =>
 			client
 				.request<{ diff: string }>({ type: "git.diff", cwd, ...(path !== undefined ? { path } : {}), staged })
@@ -103,9 +128,7 @@ export function createSidebarApi(client: BridgeClient) {
 		gitDiscard: (cwd: string, path: string) =>
 			client.request({ type: "git.discard", cwd, path }).then((r) => unwrap(r, t("api.opGitDiscard"))),
 		gitLog: (cwd: string, count = 50) =>
-			client
-				.request<GitLogEntry[]>({ type: "git.log", cwd, count })
-				.then((r) => unwrap(r, t("api.opGitLog"))),
+			client.request<GitLogEntry[]>({ type: "git.log", cwd, count }).then((r) => unwrap(r, t("api.opGitLog"))),
 		gitHistory: (cwd: string, options: { repo?: string; all?: boolean; skip?: number; count?: number } = {}) =>
 			client
 				.request<GitHistoryResult>({
@@ -133,19 +156,38 @@ export function createSidebarApi(client: BridgeClient) {
 				.then((r) => unwrap(r, t("api.opGitChecks"))),
 		diffApprovalList: (cwd: string, scope?: { sessionId?: string; toolCallIds?: string[] }) =>
 			client
-				.request<{ files: DiffApprovalFileSummary[] }>({ type: "diffApproval.list", cwd, ...(scope !== undefined ? { scope } : {}) })
+				.request<{ files: DiffApprovalFileSummary[] }>({
+					type: "diffApproval.list",
+					cwd,
+					...(scope !== undefined ? { scope } : {}),
+				})
 				.then((r) => unwrap(r, t("api.opReviewList")).files),
 		diffApprovalDiff: (cwd: string, entryId: string) =>
 			client
 				.request<{ diff: string; truncated: boolean }>({ type: "diffApproval.diff", cwd, entryId })
 				.then((r) => unwrap(r, t("api.opReviewDiff"))),
+		/** 批量取 diff：一次往返顶多个条目，避免每个改动一个请求把桥的事件循环堵住。 */
+		diffApprovalDiffs: (cwd: string, entryIds: string[]) =>
+			client
+				.request<{ diffs: Array<{ id: string; diff: string; truncated: boolean; error?: string }> }>({
+					type: "diffApproval.diffs",
+					cwd,
+					entryIds,
+				})
+				.then((r) => unwrap(r, t("api.opReviewDiff")).diffs),
 		diffApprovalPreview: (cwd: string, entryIds: string[], mode: "operations" | "baseline" = "operations") =>
 			client
 				.request<DiffApprovalPreviewResult>({ type: "diffApproval.preview", cwd, entryIds, mode })
 				.then((r) => unwrap(r, t("api.opReviewDiff"))),
 		diffApprovalResolve: (cwd: string, entryIds: string[], action: "keep" | "revert", previewToken?: string) =>
 			client
-				.request<DiffApprovalResolveResult>({ type: "diffApproval.resolve", cwd, entryIds, action, ...(previewToken !== undefined ? { previewToken } : {}) })
+				.request<DiffApprovalResolveResult>({
+					type: "diffApproval.resolve",
+					cwd,
+					entryIds,
+					action,
+					...(previewToken !== undefined ? { previewToken } : {}),
+				})
 				.then((r) => unwrap(r, t("api.opReviewResolve"))),
 		diffApprovalClear: (cwd: string) =>
 			client

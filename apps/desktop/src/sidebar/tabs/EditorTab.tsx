@@ -8,8 +8,7 @@
  * 高亮新增行、内联展示删除块，并滚动到第一个改动块（VS Code inline diff
  * 同款意图：保留"整文件上下文"，同时第一眼看到改动本身）。
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useT } from "../../i18n/index.ts";
+
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { cpp } from "@codemirror/lang-cpp";
 import { css } from "@codemirror/lang-css";
@@ -24,51 +23,73 @@ import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
-import { indentUnit, HighlightStyle, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
-import { Compartment, EditorState, type Extension, type Range, StateEffect, StateField, type Text } from "@codemirror/state";
-import { Decoration, type DecorationSet, drawSelection, EditorView, keymap, lineNumbers, WidgetType } from "@codemirror/view";
+import { HighlightStyle, indentUnit, type LanguageSupport, syntaxHighlighting } from "@codemirror/language";
+import {
+	Compartment,
+	EditorState,
+	type Extension,
+	type Range,
+	StateEffect,
+	StateField,
+	type Text,
+} from "@codemirror/state";
+import {
+	Decoration,
+	type DecorationSet,
+	drawSelection,
+	EditorView,
+	keymap,
+	lineNumbers,
+	WidgetType,
+} from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useT } from "../../i18n/index.ts";
 import { fileUrlOf, samePath } from "../api.ts";
 import { EditorController } from "../editor-controller.ts";
 import { useEditorText } from "../editor-copy.ts";
-import { applyEditorTextChanges, editorDisplayText } from "../editor-text.ts";
 import { editorsTransitionLocked, subscribeEditorTransition } from "../editor-exit-guard.ts";
+import { applyEditorTextChanges, editorDisplayText } from "../editor-text.ts";
 import "./editor-safety.css";
-import type { TabComponentProps } from "../registry.ts";
+import { type EditorDiffMarks, editorDiffMarks } from "../editor-diff.ts";
 import { consumeEditorDiffFocus, EDITOR_DIFF_FOCUS_EVENT, peekEditorDiffFocus } from "../editor-diff-focus.ts";
 import { consumeEditorLineFocus, EDITOR_LINE_FOCUS_EVENT, peekEditorLineFocus } from "../editor-line-focus.ts";
 import { formatFileRef } from "../file-ref.ts";
 import { reportEditorFocus } from "../focus-state.ts";
-import { editorDiffMarks, type EditorDiffMarks } from "../editor-diff.ts";
 import { IconCopy, IconLoader, IconRefresh, IconSave } from "../icons.tsx";
-import { MARKDOWN_PATH, MarkdownPreview } from "./MarkdownPreview.tsx";
+import type { TabComponentProps } from "../registry.ts";
 import { observeWorkbenchTheme, resolveSurfaceTheme } from "../theme-observer.ts";
+import { MARKDOWN_PATH, MarkdownPreview } from "./MarkdownPreview.tsx";
 
 /** CodeMirror follows scoped workbench tokens without rebuilding the editor on theme changes. */
-const owlTheme = EditorView.theme(
-	{
-		"&": { color: "var(--workbench-text, #e9e7e0)", backgroundColor: "transparent", height: "100%", fontSize: "13px" },
-		".cm-scroller": { fontFamily: "Consolas, 'JetBrains Mono', 'Cascadia Code', monospace", lineHeight: "1.55" },
-		".cm-content": { caretColor: "var(--color-owl-accent)", paddingBottom: "40px" },
-		".cm-gutters": { backgroundColor: "transparent", color: "var(--workbench-muted, #8a867c)", border: "none" },
-		".cm-activeLine": { backgroundColor: "var(--workbench-hover)" },
-		".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--workbench-text, #a6a399)" },
-		"&.cm-focused": { outline: "none" },
-		".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 28%, transparent)" },
-		".cm-cursor": { borderLeftColor: "var(--color-owl-accent)" },
-		// diff 装饰（改动卡点文件名进来的待审改动高亮）：配色与 DiffView 同源
-		// （emerald/red-500 调，10% 上下），左缘条用 inset box-shadow 避免行宽抖动
-		".cm-owl-diff-add": { backgroundColor: "rgba(16,185,129,0.12)", boxShadow: "inset 2px 0 0 rgba(16,185,129,0.55)" },
-		".cm-owl-diff-del": { backgroundColor: "rgba(239,68,68,0.08)", boxShadow: "inset 2px 0 0 rgba(239,68,68,0.5)", cursor: "default" },
-		".cm-owl-diff-del > div": { whiteSpace: "pre", color: "var(--workbench-muted, #8a867c)" },
-		// 模型指行（sidebar_show file:line）：定位行的高亮，闪一下就静下来。
-		".cm-owl-focus-line": {
-			backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 14%, transparent)",
-			boxShadow: "inset 2px 0 0 var(--color-owl-accent)",
-			animation: "owl-focus-flash 1.8s ease-out 1",
-		},
+const owlTheme = EditorView.theme({
+	"&": { color: "var(--workbench-text, #e9e7e0)", backgroundColor: "transparent", height: "100%", fontSize: "13px" },
+	".cm-scroller": { fontFamily: "Consolas, 'JetBrains Mono', 'Cascadia Code', monospace", lineHeight: "1.55" },
+	".cm-content": { caretColor: "var(--color-owl-accent)", paddingBottom: "40px" },
+	".cm-gutters": { backgroundColor: "transparent", color: "var(--workbench-muted, #8a867c)", border: "none" },
+	".cm-activeLine": { backgroundColor: "var(--workbench-hover)" },
+	".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--workbench-text, #a6a399)" },
+	"&.cm-focused": { outline: "none" },
+	".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+		backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 28%, transparent)",
 	},
-);
+	".cm-cursor": { borderLeftColor: "var(--color-owl-accent)" },
+	// diff 装饰（改动卡点文件名进来的待审改动高亮）：配色与 DiffView 同源
+	// （emerald/red-500 调，10% 上下），左缘条用 inset box-shadow 避免行宽抖动
+	".cm-owl-diff-add": { backgroundColor: "rgba(16,185,129,0.12)", boxShadow: "inset 2px 0 0 rgba(16,185,129,0.55)" },
+	".cm-owl-diff-del": {
+		backgroundColor: "rgba(239,68,68,0.08)",
+		boxShadow: "inset 2px 0 0 rgba(239,68,68,0.5)",
+		cursor: "default",
+	},
+	".cm-owl-diff-del > div": { whiteSpace: "pre", color: "var(--workbench-muted, #8a867c)" },
+	// 模型指行（sidebar_show file:line）：定位行的高亮，闪一下就静下来。
+	".cm-owl-focus-line": {
+		backgroundColor: "color-mix(in srgb, var(--color-owl-accent) 14%, transparent)",
+		boxShadow: "inset 2px 0 0 var(--color-owl-accent)",
+		animation: "owl-focus-flash 1.8s ease-out 1",
+	},
+});
 
 const owlHighlight = HighlightStyle.define([
 	{ tag: t.keyword, color: "var(--owl-code-keyword, #c792ea)" },
@@ -174,7 +195,10 @@ class DeletedLinesWidget extends WidgetType {
 	}
 
 	override eq(other: DeletedLinesWidget): boolean {
-		return other === this || (other.lines.length === this.lines.length && other.lines.every((line, index) => line === this.lines[index]));
+		return (
+			other === this ||
+			(other.lines.length === this.lines.length && other.lines.every((line, index) => line === this.lines[index]))
+		);
 	}
 
 	override toDOM(): HTMLElement {
@@ -200,11 +224,16 @@ function buildDiffDecorations(marks: EditorDiffMarks | undefined, doc: Text): De
 	const ranges: Array<Range<Decoration>> = [];
 	for (const hunk of marks.hunks) {
 		for (const line of hunk.addLines) {
-			if (line >= 1 && line <= doc.lines) ranges.push(Decoration.line({ class: "cm-owl-diff-add" }).range(doc.line(line).from));
+			if (line >= 1 && line <= doc.lines)
+				ranges.push(Decoration.line({ class: "cm-owl-diff-add" }).range(doc.line(line).from));
 		}
 		for (const group of hunk.dels) {
 			const inside = group.atLine >= 1 && group.atLine <= doc.lines;
-			const deco = Decoration.widget({ widget: new DeletedLinesWidget(group.lines), block: true, side: inside ? -1 : 1 });
+			const deco = Decoration.widget({
+				widget: new DeletedLinesWidget(group.lines),
+				block: true,
+				side: inside ? -1 : 1,
+			});
 			ranges.push(deco.range(inside ? doc.line(group.atLine).from : doc.length));
 		}
 	}
@@ -252,7 +281,16 @@ const editorLineFocusField = StateField.define<DecorationSet>({
 	provide: (field) => EditorView.decorations.from(field),
 });
 
-export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, onToChat }: TabComponentProps): React.JSX.Element {
+export function EditorTab({
+	api,
+	client,
+	store,
+	cwd,
+	profile,
+	tab,
+	onOpenFile,
+	onToChat,
+}: TabComponentProps): React.JSX.Element {
 	const t = useT();
 	const copy = useEditorText();
 	const hostRef = useRef<HTMLDivElement | null>(null);
@@ -260,7 +298,11 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 	const path = tab.path ?? "";
 	const controller = useMemo(() => {
 		let storage: Storage | undefined;
-		try { storage = localStorage; } catch { /* The controller reports missing local protection on edit. */ }
+		try {
+			storage = localStorage;
+		} catch {
+			/* The controller reports missing local protection on edit. */
+		}
 		return new EditorController(api, cwd, path, profile ?? "", storage);
 	}, [api, client, cwd, path, profile]);
 	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
@@ -323,7 +365,13 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 		const marks = marksRef.current;
 		if (view === null || !docReadyRef.current) return;
 		const effects: Array<StateEffect<unknown>> = [setEditorDiff.of(marks)];
-		if (scroll && !scrolledRef.current && marks?.firstLine !== undefined && marks.firstLine >= 1 && marks.firstLine <= view.state.doc.lines) {
+		if (
+			scroll &&
+			!scrolledRef.current &&
+			marks?.firstLine !== undefined &&
+			marks.firstLine >= 1 &&
+			marks.firstLine <= view.state.doc.lines
+		) {
 			effects.push(EditorView.scrollIntoView(view.state.doc.line(marks.firstLine).from, { y: "center" }));
 			scrolledRef.current = true;
 		}
@@ -379,7 +427,9 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 	// 挂载时消费聚焦 + 事件驱动 + 待审清单变化重校验。peek 先行：工作台里
 	// 挂载着多个 EditorTab 实例，路径匹配的才取走，避免盲吞别人的聚焦。
 	useEffect(() => {
-		marksRef.current = undefined; focusSeenRef.current = false; scrolledRef.current = false;
+		marksRef.current = undefined;
+		focusSeenRef.current = false;
+		scrolledRef.current = false;
 		const consume = (): void => {
 			const focus = peekEditorDiffFocus();
 			if (focus === undefined || !samePath(focus, path)) return;
@@ -431,8 +481,11 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 		setPreviewText("");
 
 		controller.activate();
-		setActionError(undefined); setNewPath("");
-		const save = (): void => { void controller.save(); };
+		setActionError(undefined);
+		setNewPath("");
+		const save = (): void => {
+			void controller.save();
+		};
 		const themeMode = new Compartment();
 		const editability = new Compartment();
 		let dark = resolveSurfaceTheme(document.documentElement.dataset) === "dark";
@@ -475,11 +528,14 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 				}
 				if (!update.docChanged || applying) return;
 				let content = controller.getSnapshot().text;
-				for (const transaction of update.transactions) if (transaction.docChanged) {
-					const changes: Array<{ from: number; to: number; insert: string }> = [];
-					transaction.changes.iterChanges((from, to, _fromB, _toB, insert) => changes.push({ from, to, insert: insert.toString() }));
-					content = applyEditorTextChanges(content, changes);
-				}
+				for (const transaction of update.transactions)
+					if (transaction.docChanged) {
+						const changes: Array<{ from: number; to: number; insert: string }> = [];
+						transaction.changes.iterChanges((from, to, _fromB, _toB, insert) =>
+							changes.push({ from, to, insert: insert.toString() }),
+						);
+						content = applyEditorTextChanges(content, changes);
+					}
 				controller.change(content);
 				if (!isMarkdown) return;
 				if (previewTimer !== undefined) clearTimeout(previewTimer);
@@ -507,31 +563,61 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 			const doc = editorDisplayText(snapshot.text);
 			applying = true;
 			try {
-				if (view.state.doc.toString() !== doc) { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } }); setPreviewText(doc); }
+				if (view.state.doc.toString() !== doc) {
+					view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+					setPreviewText(doc);
+				}
 				const nextWritable = snapshot.ready && snapshot.editable && !snapshot.loading && !editorsTransitionLocked();
-				if (nextWritable !== writable) { writable = nextWritable; view.dispatch({ effects: editability.reconfigure([EditorState.readOnly.of(!writable), EditorView.editable.of(writable)]) }); }
-			} finally { applying = false; }
+				if (nextWritable !== writable) {
+					writable = nextWritable;
+					view.dispatch({
+						effects: editability.reconfigure([
+							EditorState.readOnly.of(!writable),
+							EditorView.editable.of(writable),
+						]),
+					});
+				}
+			} finally {
+				applying = false;
+			}
 			store.setDirty(tab.id, snapshot.dirty);
-			if (!docReadyRef.current && snapshot.ready) { docReadyRef.current = true; applyDiffMarks(true); applyLineFocus(); }
+			if (!docReadyRef.current && snapshot.ready) {
+				docReadyRef.current = true;
+				applyDiffMarks(true);
+				applyLineFocus();
+			}
 			if (isMarkdown && !snapshot.dirty) setPreviewText(doc);
 		};
 		const offController = controller.subscribe(sync);
 		const offTransition = subscribeEditorTransition(sync);
-		const offGuard = store.registerEditor(tab.id, { isDirty: controller.isDirty, revision: controller.revision, isProtected: controller.isProtected, save: () => controller.save(), preserveDraft: () => controller.preserveDraft(), discard: () => controller.discard() });
+		const offGuard = store.registerEditor(tab.id, {
+			isDirty: controller.isDirty,
+			revision: controller.revision,
+			isProtected: controller.isProtected,
+			save: () => controller.save(),
+			preserveDraft: () => controller.preserveDraft(),
+			discard: () => controller.discard(),
+		});
 		const offStatus = client.onStatus((connected) => {
 			const snapshot = controller.getSnapshot();
 			if (connected && (!snapshot.ready || (snapshot.dirty && !snapshot.disk))) void controller.load();
 		});
-		sync(); void controller.load();
+		sync();
+		void controller.load();
 
 		return () => {
 			cancelled = true;
 			controller.dispose();
 			if (previewTimer !== undefined) clearTimeout(previewTimer);
-			if (lineFocusTimer.current !== undefined) { clearTimeout(lineFocusTimer.current); lineFocusTimer.current = undefined; }
+			if (lineFocusTimer.current !== undefined) {
+				clearTimeout(lineFocusTimer.current);
+				lineFocusTimer.current = undefined;
+			}
 			offStatus();
 			offTheme();
-			offController(); offTransition(); offGuard();
+			offController();
+			offTransition();
+			offGuard();
 			docReadyRef.current = false;
 			view.destroy();
 			viewRef.current = null;
@@ -543,8 +629,19 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 	// 从磁盘重新加载（refresh 按钮与"磁盘已更改"横幅共用）。整篇替换会把
 	// 装饰坍缩到文档头，落库后按标记重放；消费过聚焦的 tab 顺带按活口径
 	// 重取 diff（条目可能已被保留/回滚）。
-	const refresh = (): void => { void controller.reload().then((changed) => { if (changed && activeController.current === controller) { if (focusSeenRef.current) loadDiffMarks(false); else applyDiffMarks(false); } }); };
-	useEffect(() => { if (!state.dirty || !state.ready) return; const timer = setTimeout(() => void controller.preserveDraft(), 500); return () => clearTimeout(timer); }, [controller, state.version, state.dirty, state.ready]);
+	const refresh = (): void => {
+		void controller.reload().then((changed) => {
+			if (changed && activeController.current === controller) {
+				if (focusSeenRef.current) loadDiffMarks(false);
+				else applyDiffMarks(false);
+			}
+		});
+	};
+	useEffect(() => {
+		if (!state.dirty || !state.ready) return;
+		const timer = setTimeout(() => void controller.preserveDraft(), 500);
+		return () => clearTimeout(timer);
+	}, [controller, state.version, state.dirty, state.ready]);
 
 	// 外部变更：所在目录有 fs_changed 事件时挂"磁盘已更改"横幅。
 	useEffect(() => {
@@ -566,7 +663,11 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 					{path}
 					{stale && <span className="ml-2 text-amber-300">{t("editor.stale")}</span>}
 				</span>
-				{state.dirty ? <span className="text-[11px] text-owl-warning">{copy("dirty")}</span> : savedAt !== undefined && !stale && <span className="text-[11px] text-owl-success">{copy("saved")}</span>}
+				{state.dirty ? (
+					<span className="text-[11px] text-owl-warning">{copy("dirty")}</span>
+				) : (
+					savedAt !== undefined && !stale && <span className="text-[11px] text-owl-success">{copy("saved")}</span>
+				)}
 				{selection !== undefined && onToChat !== undefined && (
 					<button type="button" className="owl-editor-ask" title={copy("askOwl")} onClick={askOwl}>
 						✦ {copy("askOwl")}
@@ -574,7 +675,11 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 				)}
 				{loading && <IconLoader size={13} className="animate-spin text-owl-faint" />}
 				{isMarkdown && (
-					<div role="group" aria-label={t("editor.mdModeLabel")} className="flex items-center rounded-md border border-owl-border/40 p-0.5">
+					<div
+						role="group"
+						aria-label={t("editor.mdModeLabel")}
+						className="flex items-center rounded-md border border-owl-border/40 p-0.5"
+					>
 						{MARKDOWN_MODES.map((item) => (
 							<button
 								key={item}
@@ -583,15 +688,37 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 								className={`rounded px-1.5 py-0.5 text-[11px] ${mode === item ? "bg-owl-hover text-owl-text" : "text-owl-muted hover:text-owl-text"}`}
 								onClick={() => changeMarkdownMode(item)}
 							>
-								{t(item === "edit" ? "editor.mdEdit" : item === "split" ? "editor.mdSplit" : "editor.mdPreview")}
+								{t(
+									item === "edit" ? "editor.mdEdit" : item === "split" ? "editor.mdSplit" : "editor.mdPreview",
+								)}
 							</button>
 						))}
 					</div>
 				)}
-				<button type="button" disabled={transitionLocked || loading || state.saving} title={copy("refresh")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40" onClick={refresh}>
+				<button
+					type="button"
+					disabled={transitionLocked || loading || state.saving}
+					title={copy("refresh")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40"
+					onClick={refresh}
+				>
 					<IconRefresh size={14} />
 				</button>
-				<button type="button" disabled={!state.ready || !state.editable || !state.dirty || loading || state.saving || stale || Boolean(state.conflict)} title={state.saving ? copy("saving") : t("editor.saveTitle")} className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40" onClick={() => void controller.save()}>
+				<button
+					type="button"
+					disabled={
+						!state.ready ||
+						!state.editable ||
+						!state.dirty ||
+						loading ||
+						state.saving ||
+						stale ||
+						Boolean(state.conflict)
+					}
+					title={state.saving ? copy("saving") : t("editor.saveTitle")}
+					className="rounded-md p-1.5 text-owl-muted hover:bg-owl-hover hover:text-owl-text disabled:opacity-40"
+					onClick={() => void controller.save()}
+				>
 					<IconSave size={14} />
 				</button>
 				<button
@@ -606,43 +733,195 @@ export function EditorTab({ api, client, store, cwd, profile, tab, onOpenFile, o
 				</button>
 			</div>
 			<div className="owl-editor-safety-scroll">
-			{transitionLocked && <div className="owl-editor-safety-status" role="status">{copy("accountLocked")}</div>}
-			{state.dirty && <div className="owl-editor-safety-status" role="status"><p>{state.draftStatus === "pending" ? copy("draftPending") : state.draftStatus === "saved" ? copy(state.serverSavedVersion === state.version ? "draftSaved" : "draftOlder") : copy("protectedNone")}</p>{state.walStatus === "saved" && <p>{copy("walSaved")}</p>}<button type="button" disabled={state.draftStatus === "pending"} onClick={() => void controller.preserveDraft()}>{copy(state.draftStatus === "error" ? "retryDraft" : "keep")}</button></div>}
-			{(state.draftError || state.walError) && <div className="owl-editor-safety-error" role="alert">{state.draftError && <p>{state.draftError}</p>}{state.walError && <p>{copy("walError")}: {state.walError}</p>}</div>}
-			{(state.recovery || state.localRecoveries?.length) ? <details className="owl-editor-safety-recovery" open>
-				<summary>{copy("restoreNote")}</summary>
-				{state.recovery && <div><p>{new Date(state.recovery.updatedAt).toLocaleString()}</p><pre>{state.recovery.content}</pre><button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => controller.restore("server")}>{copy("recoverServer")}</button></div>}
-				{state.localRecoveries?.map((draft) => <div key={draft.walKey}>
-					<p>{new Date(draft.updatedAt).toLocaleString()}</p><pre>{draft.content}</pre>
-					<button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => controller.restore("local", draft.walKey)}>{copy("recoverLocal")}</button>
-					{removeRecovery === draft.walKey ? <><button type="button" disabled={transitionLocked || loading || state.saving} onClick={() => { if (draft.walKey && controller.removeLocalRecovery(draft.walKey)) setRemoveRecovery(undefined); }}>{copy("confirmRemoveRecovery")}</button><button type="button" onClick={() => setRemoveRecovery(undefined)}>{copy("cancelRemoveRecovery")}</button></> : <button type="button" disabled={transitionLocked || loading || state.saving || !draft.token || !draft.editorId} onClick={() => setRemoveRecovery(draft.walKey)}>{copy("removeRecovery")}</button>}
-				</div>)}
-			</details> : null}
-			{error !== undefined && (
-				<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</div>
-			)}
-			{stale && (
-				<button
-					type="button"
-					disabled={transitionLocked}
-					className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-left text-xs text-amber-200 hover:bg-amber-500/15"
-					onClick={refresh}
-				>
-					{t("editor.staleBanner")}
-				</button>
-			)}
-			{truncated && (
-				<div className="border-b border-owl-border/40 bg-owl-panel px-3 py-1.5 text-xs text-amber-300">
-					{t("editor.tooLarge")}
-				</div>
-			)}
-			{state.ready && !state.editable && <div className="owl-editor-safety-status" role="status">{copy("readonly")}{state.disk?.readOnlyReason && <p>{state.disk.readOnlyReason}</p>}<button type="button" onClick={() => { void api.openExternal("url", fileUrlOf(cwd, path)).catch((reason: unknown) => { if (activeController.current === controller) setActionError(reason instanceof Error ? reason.message : String(reason)); }); }}>{copy("external")}</button></div>}
-			{state.conflict && <details className="owl-editor-safety-conflict" open><summary>{copy("conflict")}</summary><div className="owl-editor-compare"><section><strong>{copy("mine")}</strong><pre>{state.text}</pre></section><section><strong>{copy("disk")}</strong><pre>{state.conflict.content}</pre></section></div><button type="button" disabled={transitionLocked || loading || state.saving || state.draftStatus === "pending"} onClick={() => void controller.useDiskAfterPreserve()}>{copy("keep")} · {copy("refresh")}</button></details>}
-			{state.ready && saveAsOpen && <div className="owl-editor-safety-saveas"><p>{copy("saveAsNote")}</p><label>{copy("path")}<input disabled={transitionLocked} value={newPath} onChange={(event) => setNewPath(event.target.value)} placeholder={`${path}.copy`} /></label><button type="button" disabled={transitionLocked || !newPath.trim() || loading || state.saving || state.disk?.kind === "binary"} onClick={() => void controller.saveAs(newPath)}>{copy("saveAs")}</button>{state.copyPath && <p role="status">{copy("copySaved")}: <button type="button" onClick={() => onOpenFile(state.copyPath!)}>{state.copyPath}</button></p>}</div>}
-			{state.warnings?.length ? <div className="owl-editor-safety-status" role="alert">{copy("warnings")}: {state.warnings.join("; ")}</div> : null}
+				{transitionLocked && (
+					<div className="owl-editor-safety-status" role="status">
+						{copy("accountLocked")}
+					</div>
+				)}
+				{state.dirty && (
+					<div className="owl-editor-safety-status" role="status">
+						<p>
+							{state.draftStatus === "pending"
+								? copy("draftPending")
+								: state.draftStatus === "saved"
+									? copy(state.serverSavedVersion === state.version ? "draftSaved" : "draftOlder")
+									: copy("protectedNone")}
+						</p>
+						{state.walStatus === "saved" && <p>{copy("walSaved")}</p>}
+						<button
+							type="button"
+							disabled={state.draftStatus === "pending"}
+							onClick={() => void controller.preserveDraft()}
+						>
+							{copy(state.draftStatus === "error" ? "retryDraft" : "keep")}
+						</button>
+					</div>
+				)}
+				{(state.draftError || state.walError) && (
+					<div className="owl-editor-safety-error" role="alert">
+						{state.draftError && <p>{state.draftError}</p>}
+						{state.walError && (
+							<p>
+								{copy("walError")}: {state.walError}
+							</p>
+						)}
+					</div>
+				)}
+				{state.recovery || state.localRecoveries?.length ? (
+					<details className="owl-editor-safety-recovery" open>
+						<summary>{copy("restoreNote")}</summary>
+						{state.recovery && (
+							<div>
+								<p>{new Date(state.recovery.updatedAt).toLocaleString()}</p>
+								<pre>{state.recovery.content}</pre>
+								<button
+									type="button"
+									disabled={transitionLocked || loading || state.saving}
+									onClick={() => controller.restore("server")}
+								>
+									{copy("recoverServer")}
+								</button>
+							</div>
+						)}
+						{state.localRecoveries?.map((draft) => (
+							<div key={draft.walKey}>
+								<p>{new Date(draft.updatedAt).toLocaleString()}</p>
+								<pre>{draft.content}</pre>
+								<button
+									type="button"
+									disabled={transitionLocked || loading || state.saving}
+									onClick={() => controller.restore("local", draft.walKey)}
+								>
+									{copy("recoverLocal")}
+								</button>
+								{removeRecovery === draft.walKey ? (
+									<>
+										<button
+											type="button"
+											disabled={transitionLocked || loading || state.saving}
+											onClick={() => {
+												if (draft.walKey && controller.removeLocalRecovery(draft.walKey))
+													setRemoveRecovery(undefined);
+											}}
+										>
+											{copy("confirmRemoveRecovery")}
+										</button>
+										<button type="button" onClick={() => setRemoveRecovery(undefined)}>
+											{copy("cancelRemoveRecovery")}
+										</button>
+									</>
+								) : (
+									<button
+										type="button"
+										disabled={transitionLocked || loading || state.saving || !draft.token || !draft.editorId}
+										onClick={() => setRemoveRecovery(draft.walKey)}
+									>
+										{copy("removeRecovery")}
+									</button>
+								)}
+							</div>
+						))}
+					</details>
+				) : null}
+				{error !== undefined && (
+					<div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">{error}</div>
+				)}
+				{stale && (
+					<button
+						type="button"
+						disabled={transitionLocked}
+						className="border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-left text-xs text-amber-200 hover:bg-amber-500/15"
+						onClick={refresh}
+					>
+						{t("editor.staleBanner")}
+					</button>
+				)}
+				{truncated && (
+					<div className="border-b border-owl-border/40 bg-owl-panel px-3 py-1.5 text-xs text-amber-300">
+						{t("editor.tooLarge")}
+					</div>
+				)}
+				{state.ready && !state.editable && (
+					<div className="owl-editor-safety-status" role="status">
+						{copy("readonly")}
+						{state.disk?.readOnlyReason && <p>{state.disk.readOnlyReason}</p>}
+						<button
+							type="button"
+							onClick={() => {
+								void api.openExternal("url", fileUrlOf(cwd, path)).catch((reason: unknown) => {
+									if (activeController.current === controller)
+										setActionError(reason instanceof Error ? reason.message : String(reason));
+								});
+							}}
+						>
+							{copy("external")}
+						</button>
+					</div>
+				)}
+				{state.conflict && (
+					<details className="owl-editor-safety-conflict" open>
+						<summary>{copy("conflict")}</summary>
+						<div className="owl-editor-compare">
+							<section>
+								<strong>{copy("mine")}</strong>
+								<pre>{state.text}</pre>
+							</section>
+							<section>
+								<strong>{copy("disk")}</strong>
+								<pre>{state.conflict.content}</pre>
+							</section>
+						</div>
+						<button
+							type="button"
+							disabled={transitionLocked || loading || state.saving || state.draftStatus === "pending"}
+							onClick={() => void controller.useDiskAfterPreserve()}
+						>
+							{copy("keep")} · {copy("refresh")}
+						</button>
+					</details>
+				)}
+				{state.ready && saveAsOpen && (
+					<div className="owl-editor-safety-saveas">
+						<p>{copy("saveAsNote")}</p>
+						<label>
+							{copy("path")}
+							<input
+								disabled={transitionLocked}
+								value={newPath}
+								onChange={(event) => setNewPath(event.target.value)}
+								placeholder={`${path}.copy`}
+							/>
+						</label>
+						<button
+							type="button"
+							disabled={
+								transitionLocked || !newPath.trim() || loading || state.saving || state.disk?.kind === "binary"
+							}
+							onClick={() => void controller.saveAs(newPath)}
+						>
+							{copy("saveAs")}
+						</button>
+						{state.copyPath && (
+							<p role="status">
+								{copy("copySaved")}:{" "}
+								<button type="button" onClick={() => onOpenFile(state.copyPath!)}>
+									{state.copyPath}
+								</button>
+							</p>
+						)}
+					</div>
+				)}
+				{state.warnings?.length ? (
+					<div className="owl-editor-safety-status" role="alert">
+						{copy("warnings")}: {state.warnings.join("; ")}
+					</div>
+				) : null}
 			</div>
 			<div className="owl-editor-content flex flex-1 overflow-hidden">
-				<div ref={hostRef} className={`min-h-0 min-w-0 flex-1 overflow-hidden px-2 ${mode === "preview" ? "hidden" : ""}`} />
+				<div
+					ref={hostRef}
+					className={`min-h-0 min-w-0 flex-1 overflow-hidden px-2 ${mode === "preview" ? "hidden" : ""}`}
+				/>
 				{mode !== "edit" && (
 					<MarkdownPreview
 						content={previewText}

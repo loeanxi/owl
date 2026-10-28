@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dismissFinished, islandFace, type IslandSession } from "./dynamic-island-model.ts";
 import {
 	emptyIslandMemory,
 	islandMemoryKey,
@@ -11,9 +10,19 @@ import {
 	rememberIslandCompletion,
 	saveIslandMemory,
 } from "./dynamic-island-memory.ts";
+import { dismissFinished, type IslandSession, islandFace } from "./dynamic-island-model.ts";
 
 function session(id: string, startedAt = 10): IslandSession {
-	return { id, title: `任务 ${id}`, startedAt, lastActivityAt: 20, step: "writing", waiting: false, waitKind: "", whisper: "" };
+	return {
+		id,
+		title: `任务 ${id}`,
+		startedAt,
+		lastActivityAt: 20,
+		step: "writing",
+		waiting: false,
+		waitKind: "",
+		whisper: "",
+	};
 }
 
 function storage() {
@@ -21,7 +30,9 @@ function storage() {
 	return {
 		saved,
 		getItem: (key: string): string | null => saved.get(key) ?? null,
-		setItem: (key: string, value: string): void => { saved.set(key, value); },
+		setItem: (key: string, value: string): void => {
+			saved.set(key, value);
+		},
 	};
 }
 
@@ -104,8 +115,29 @@ test("malformed storage never prevents island startup", () => {
 	local.setItem(islandMemoryKey("profile"), "{invalid");
 	assert.equal(loadIslandMemory(local, "profile"), null);
 	assert.equal(parseIslandMemory({ version: 2, running: [], finished: [] }), null);
-	assert.equal(loadIslandMemory({ getItem: () => { throw new Error("blocked"); } }, "profile"), null);
-	assert.equal(saveIslandMemory({ setItem: () => { throw new Error("full"); } }, "profile", emptyIslandMemory()), false);
+	assert.equal(
+		loadIslandMemory(
+			{
+				getItem: () => {
+					throw new Error("blocked");
+				},
+			},
+			"profile",
+		),
+		null,
+	);
+	assert.equal(
+		saveIslandMemory(
+			{
+				setItem: () => {
+					throw new Error("full");
+				},
+			},
+			"profile",
+			emptyIslandMemory(),
+		),
+		false,
+	);
 });
 
 test("an early completion before profile hydration is merged without resurrecting its cached running task", () => {
@@ -117,7 +149,10 @@ test("an early completion before profile hydration is merged without resurrectin
 	const pending = rememberIslandCompletion(emptyIslandMemory(), "early", "刚完成的任务", 50, "done");
 	const next = mergeIslandMemory(saved, pending);
 	assert.deepEqual(next.running, []);
-	assert.deepEqual(next.finished.map((row) => row.id), ["older", "early"]);
+	assert.deepEqual(
+		next.finished.map((row) => row.id),
+		["older", "early"],
+	);
 	assert.equal(next.expanded, true);
 	assert.equal(next.finished.find((row) => row.id === "early")?.outcome, "done");
 });

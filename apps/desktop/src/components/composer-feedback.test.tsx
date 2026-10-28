@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderModelsMessage } from "../bridge/protocol.ts";
 import type { AttachmentIssue } from "../hooks/attachment-preflight.ts";
@@ -10,8 +10,21 @@ import { setUiLanguage } from "../i18n/index.ts";
 import { AttachmentPreflightNotice } from "./AttachmentPreflightNotice.tsx";
 import { ModelSelectionNotice } from "./ModelSelectionNotice.tsx";
 
-const providers: ProviderModelsMessage[] = [{ id: "fixture", models: [{ id: "new", name: "New model", contextWindow: 200000, input: ["text", "image"] }, { id: "old", name: "Previous model" }] }];
-const feedback: ModelSelectionFeedback = { status: "pending", target: "fixture/new", actual: "fixture/old", running: true };
+const providers: ProviderModelsMessage[] = [
+	{
+		id: "fixture",
+		models: [
+			{ id: "new", name: "New model", contextWindow: 200000, input: ["text", "image"] },
+			{ id: "old", name: "Previous model" },
+		],
+	},
+];
+const feedback: ModelSelectionFeedback = {
+	status: "pending",
+	target: "fixture/new",
+	actual: "fixture/old",
+	running: true,
+};
 let root: Root;
 let container: HTMLElement;
 
@@ -37,15 +50,26 @@ async function render(children: React.ReactNode): Promise<void> {
 
 describe("compact composer feedback", () => {
 	it("leaves no notice content when there is no model feedback or attachment issue", async () => {
-		await render(<><ModelSelectionNotice providers={providers} /><AttachmentPreflightNotice checking={false} issues={[]} onRemove={vi.fn()} onRetry={vi.fn()} /></>);
+		await render(
+			<>
+				<ModelSelectionNotice providers={providers} />
+				<AttachmentPreflightNotice checking={false} issues={[]} onRemove={vi.fn()} onRetry={vi.fn()} />
+			</>,
+		);
 		expect(container.querySelector(".owl-composer-feedback")?.childElementCount).toBe(0);
 		expect(container.querySelector("[role]")).toBeNull();
 	});
 
 	it("keeps a concrete model error beside retry and preserves its complete safe text in native details", async () => {
 		const onRetry = vi.fn();
-		const error = `No API key for the selected provider\n${"详细诊断 <script>bad()</script> & \"quoted\" ".repeat(12)}\nMODEL_ERROR_TAIL`;
-		await render(<ModelSelectionNotice feedback={{ ...feedback, status: "error", error }} providers={providers} onRetry={onRetry} />);
+		const error = `No API key for the selected provider\n${'详细诊断 <script>bad()</script> & "quoted" '.repeat(12)}\nMODEL_ERROR_TAIL`;
+		await render(
+			<ModelSelectionNotice
+				feedback={{ ...feedback, status: "error", error }}
+				providers={providers}
+				onRetry={onRetry}
+			/>,
+		);
 		const notice = container.querySelector('[role="alert"]')!;
 		const head = notice.querySelector(".owl-composer-notice-head")!;
 		expect(head.textContent).toContain("No API key");
@@ -74,12 +98,30 @@ describe("compact composer feedback", () => {
 	});
 
 	it("keeps a new-task selection distinct from a confirmed active-session model", async () => {
-		await render(<ModelSelectionNotice feedback={{ ...feedback, status: "selected", actual: "fixture/new", running: false }} providers={providers} />);
-		expect(container.querySelector(".owl-composer-notice-head")?.textContent).toContain("已为新任务选择 New model，创建会话时应用");
+		await render(
+			<ModelSelectionNotice
+				feedback={{ ...feedback, status: "selected", actual: "fixture/new", running: false }}
+				providers={providers}
+			/>,
+		);
+		expect(container.querySelector(".owl-composer-notice-head")?.textContent).toContain(
+			"已为新任务选择 New model，创建会话时应用",
+		);
 		expect(container.textContent).not.toContain("会话已确认");
 		expect(container.textContent).not.toContain("后续请求使用已确认");
 		expect(container.textContent).toContain("fixture/new");
-		await render(<ModelSelectionNotice feedback={{ ...feedback, status: "confirmed", target: "fixture/new", actual: "fixture/old", running: false }} providers={providers} />);
+		await render(
+			<ModelSelectionNotice
+				feedback={{
+					...feedback,
+					status: "confirmed",
+					target: "fixture/new",
+					actual: "fixture/old",
+					running: false,
+				}}
+				providers={providers}
+			/>,
+		);
 		const confirmedHead = container.querySelector(".owl-composer-notice-head")!;
 		expect(confirmedHead.textContent).toContain("会话已确认选择 Previous model");
 		expect(confirmedHead.querySelector("details")).not.toBeNull();
@@ -91,8 +133,13 @@ describe("compact composer feedback", () => {
 	it("puts a single file name and reason directly beside exact remove and retry actions", async () => {
 		const onRemove = vi.fn();
 		const onRetry = vi.fn();
-		const issue = { path: "D:\\项目\\很长的完整目录\\<note>&报告.txt", reason: "无法访问此文件，请检查权限或重新选择" };
-		await render(<AttachmentPreflightNotice checking={false} issues={[issue]} onRemove={onRemove} onRetry={onRetry} />);
+		const issue = {
+			path: "D:\\项目\\很长的完整目录\\<note>&报告.txt",
+			reason: "无法访问此文件，请检查权限或重新选择",
+		};
+		await render(
+			<AttachmentPreflightNotice checking={false} issues={[issue]} onRemove={onRemove} onRetry={onRetry} />,
+		);
 		const notice = container.querySelector('[role="alert"]')!;
 		const head = notice.querySelector(".owl-composer-notice-head")!;
 		expect(head.textContent).toContain("<note>&报告.txt");
@@ -104,7 +151,10 @@ describe("compact composer feedback", () => {
 		expect(details.textContent).toContain("此检查只确认文件能否访问");
 		expect(notice.querySelector("note")).toBeNull();
 		const actions = head.querySelectorAll<HTMLButtonElement>("button");
-		await act(async () => { actions[0]!.click(); actions[1]!.click(); });
+		await act(async () => {
+			actions[0]!.click();
+			actions[1]!.click();
+		});
 		expect(onRemove).toHaveBeenCalledExactlyOnceWith(issue.path);
 		expect(onRetry).toHaveBeenCalledOnce();
 		expect(notice.querySelectorAll("button")).toHaveLength(2);
@@ -114,10 +164,15 @@ describe("compact composer feedback", () => {
 		const onRemove = vi.fn();
 		const issues: AttachmentIssue[] = [
 			{ path: "D:/project/one.txt", reason: "文件已不存在" },
-			{ path: `D:/project/${"长路径/".repeat(30)}two.txt`, reason: `EACCES: ${"原始错误\n".repeat(70)}ATTACHMENT_REASON_TAIL` },
+			{
+				path: `D:/project/${"长路径/".repeat(30)}two.txt`,
+				reason: `EACCES: ${"原始错误\n".repeat(70)}ATTACHMENT_REASON_TAIL`,
+			},
 			{ path: "//server/share/three.txt", reason: "权限被拒绝" },
 		];
-		await render(<AttachmentPreflightNotice checking={false} issues={issues} onRemove={onRemove} onRetry={vi.fn()} />);
+		await render(
+			<AttachmentPreflightNotice checking={false} issues={issues} onRemove={onRemove} onRetry={vi.fn()} />,
+		);
 		const head = container.querySelector(".owl-composer-notice-head")!;
 		expect(head.textContent).toContain("3 个文件引用暂时无法访问");
 		expect(head.textContent).toContain("one.txt: 文件已不存在");
@@ -138,7 +193,10 @@ describe("compact composer feedback", () => {
 	it("retains prior attachment blockers while checking and disables retry and every removal", async () => {
 		const onRemove = vi.fn();
 		const onRetry = vi.fn();
-		const issues = [{ path: "D:/one.txt", reason: "无法访问" }, { path: "D:/two.txt", reason: "文件不存在" }];
+		const issues = [
+			{ path: "D:/one.txt", reason: "无法访问" },
+			{ path: "D:/two.txt", reason: "文件不存在" },
+		];
 		await render(<AttachmentPreflightNotice checking={true} issues={issues} onRemove={onRemove} onRetry={onRetry} />);
 		const notice = container.querySelector('[role="status"]')!;
 		expect(notice.getAttribute("aria-busy")).toBe("true");
@@ -156,7 +214,23 @@ describe("compact composer feedback", () => {
 	});
 
 	it("updates both notices to English without losing model-selection or attachment details", async () => {
-		const renderNotices = (): React.JSX.Element => <><ModelSelectionNotice feedback={{ ...feedback, status: "selected", actual: "fixture/new" }} providers={providers} /><AttachmentPreflightNotice checking={false} issues={[{ path: "D:/one.txt", reason: "EACCES" }, { path: "D:/two.txt", reason: "ENOENT" }]} onRemove={vi.fn()} onRetry={vi.fn()} /></>;
+		const renderNotices = (): React.JSX.Element => (
+			<>
+				<ModelSelectionNotice
+					feedback={{ ...feedback, status: "selected", actual: "fixture/new" }}
+					providers={providers}
+				/>
+				<AttachmentPreflightNotice
+					checking={false}
+					issues={[
+						{ path: "D:/one.txt", reason: "EACCES" },
+						{ path: "D:/two.txt", reason: "ENOENT" },
+					]}
+					onRemove={vi.fn()}
+					onRetry={vi.fn()}
+				/>
+			</>
+		);
 		await render(renderNotices());
 		await act(async () => setUiLanguage("en"));
 		expect(container.textContent).toContain("Applied when its session is created");

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n/index.ts";
 import "./window-controls.css";
 
@@ -17,7 +17,10 @@ export function WindowControls(): React.JSX.Element | null {
 		if (!inTauri) return;
 		const current = getCurrentWindow();
 		const sync = (): void => {
-			void current.isMaximized().then(setMaximized).catch(() => {});
+			void current
+				.isMaximized()
+				.then(setMaximized)
+				.catch(() => {});
 		};
 		sync();
 		let disposed = false;
@@ -47,7 +50,17 @@ export function WindowControls(): React.JSX.Element | null {
 				className={buttonClass}
 				onClick={() => void current.minimize()}
 			>
-				<svg className="owl-window-control-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true" focusable="false">
+				<svg
+					className="owl-window-control-icon"
+					width="16"
+					height="16"
+					viewBox="0 0 16 16"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.4"
+					aria-hidden="true"
+					focusable="false"
+				>
 					<path d="M3 8h10" />
 				</svg>
 			</button>
@@ -59,12 +72,32 @@ export function WindowControls(): React.JSX.Element | null {
 				onClick={() => void current.toggleMaximize()}
 			>
 				{maximized ? (
-					<svg className="owl-window-control-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true" focusable="false">
+					<svg
+						className="owl-window-control-icon"
+						width="16"
+						height="16"
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.4"
+						aria-hidden="true"
+						focusable="false"
+					>
 						<rect x="3.5" y="6.5" width="6" height="6" rx="0.5" />
 						<path d="M6.5 6.5V3.5h6v6h-3" />
 					</svg>
 				) : (
-					<svg className="owl-window-control-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true" focusable="false">
+					<svg
+						className="owl-window-control-icon"
+						width="16"
+						height="16"
+						viewBox="0 0 16 16"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.4"
+						aria-hidden="true"
+						focusable="false"
+					>
 						<rect x="3.5" y="3.5" width="9" height="9" rx="0.75" />
 					</svg>
 				)}
@@ -76,7 +109,17 @@ export function WindowControls(): React.JSX.Element | null {
 				className={`${buttonClass} owl-window-close`}
 				onClick={() => void current.close()}
 			>
-				<svg className="owl-window-control-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true" focusable="false">
+				<svg
+					className="owl-window-control-icon"
+					width="16"
+					height="16"
+					viewBox="0 0 16 16"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.4"
+					aria-hidden="true"
+					focusable="false"
+				>
 					<path d="m3 3 10 10M13 3 3 13" />
 				</svg>
 			</button>

@@ -2,7 +2,6 @@
 /* canvas/text 两项留 override 口：外观设置的自定义背景/前景经 <html> 内联变量穿透到这里。 */
 .owl-desktop-shell {
 	--owl-shell-gutter: 8px;
-	--owl-shell-top-inset: 4px;
 	--owl-shell-rail-size: 40px;
 	--owl-ui-canvas: var(--owl-ui-canvas-override, #1c1c1c);
 	--owl-ui-panel: #252525;
@@ -350,6 +349,17 @@ html[data-owl-preset="quiet-light"] .owl-desktop-shell {
 }
 .owl-desktop-menu-trigger:hover,
 .owl-desktop-menu-trigger.is-open { color: var(--owl-ui-text); background: var(--owl-ui-hover); }
+/* 纯图标触发的菜单/入口按钮：28px 方形，与其他 chrome 按钮一致。 */
+.owl-desktop-menu-trigger.owl-desktop-menu-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+}
+/* 模型测评/研究工作台入口原带文字内边距，改图标后收窄并居中。 */
+.owl-desktop-menu-trigger.owl-desktop-menu-icon.owl-desktop-evaluation-entry { margin-left: 2px; }
 .owl-desktop-menu-panel {
 	position: absolute;
 	top: calc(100% + 5px);
@@ -667,7 +677,7 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 	min-height: 0;
 	min-width: 0;
 	gap: var(--owl-shell-gutter);
-	padding: var(--owl-shell-top-inset) var(--owl-shell-gutter) var(--owl-shell-gutter);
+	padding: var(--owl-shell-gutter);
 }
 .owl-workspace-frame {
 	display: flex;
@@ -694,6 +704,8 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 	overflow: hidden;
 	/* Same surface as the conversation so the header sits in the page, not on a separate bar. */
 	background: var(--owl-conversation-bg, var(--color-owl-bg));
+	/* 悬浮顶栏的统一高度：头部自身、对话滚动区的上内边距都读它，避免两处各写一个数。 */
+	--owl-chat-header-h: 44px;
 }
 .owl-main-frame .owl-chat-header,
 .owl-agent-conversation > .owl-chat-header {
@@ -708,25 +720,34 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 }
 .owl-shell-header-info { display: flex; min-width: 0; align-items: center; gap: 10px; }
 .owl-shell-session-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.owl-shell-project { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: 12px; color: var(--owl-ui-muted); }
-.owl-shell-project-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 顶栏 Agent 预设标签：本会话运行哪套组合，resume 一眼可辨 */
+/* 顶栏 Agent 预设标签：本会话运行哪套组合，resume 一眼可辨。
+   A 档痩身：去边框去底色、降成标题旁一小行文字，常驻也不再抢视线；悬浮时提亮。 */
 .owl-shell-preset-tag {
-	display: inline-flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 4px;
-	padding: 1px 8px; border: 1px solid var(--owl-ui-border); border-radius: 999px;
-	background: color-mix(in srgb, var(--owl-ui-hover) 60%, transparent);
-	color: var(--owl-ui-muted);
-	font-size: 12px; font-weight: 500; white-space: nowrap;
+	display: inline-flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 3px;
+	padding: 0;
+	color: color-mix(in srgb, var(--owl-ui-muted) 82%, transparent);
+	font-size: 11px; font-weight: 500; white-space: nowrap;
+	transition: color 120ms;
 }
-.owl-shell-preset-tag svg { width: 11px; height: 11px; }
+.owl-shell-session-title:hover + .owl-shell-preset-tag { color: var(--owl-ui-muted); }
+.owl-shell-preset-tag svg { width: 10px; height: 10px; opacity: 0.8; }
 .owl-shell-preset-tag { overflow: hidden; text-overflow: ellipsis; }
 .owl-shell-preset-tag svg { flex: none; }
 .owl-shell-header-actions { display: flex; min-width: 0; align-items: center; justify-self: end; gap: 4px; }
-.owl-shell-header-actions .owl-chrome-button { width: 34px; height: 34px; color: var(--owl-ui-muted); }
+/* A 档痩身：图标 34 → 28，与 44px 的顶栏成比例（旧 34px 把头部撑满又显得拥挤）。 */
+.owl-shell-header-actions .owl-chrome-button { width: 28px; height: 28px; color: var(--owl-ui-muted); }
 .owl-shell-header-actions .owl-chrome-button:hover { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
 .owl-shell-header-actions .owl-chrome-button.is-active { background: var(--owl-ui-accent-soft); color: var(--color-owl-accent); }
 .owl-shell-header-actions .owl-chrome-button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-shell-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
+/* 顶栏已悬浮（不占行），夹在顶栏与内容之间的提示条（导出结果、项目/恢复失败、
+   模型回退）会被顶到最上面。容器只在真有条时才让出头部高度，平时 height: 0、
+   margin: 0 不影响任何布局。 */
+.owl-shell-notices:not(:empty) {
+	display: flex;
+	flex-direction: column;
+	padding-top: var(--owl-chat-header-h, 44px);
+}
 /* 主列 = 对话 + 终端底栏（底栏开着就在对话之下占一截高度）；工具侧栏是
    owl-shell-content 的右列兄弟节点，两块面板互不依赖、可同时展开。 */
 .owl-shell-content-main { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
@@ -743,33 +764,27 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 	background: var(--owl-ui-sidebar);
 	border-radius: 8px;
 }
-/* 默认只露出当前视图名；悬停弹出小列表切换。 */
+/* 图标触发钮：只露当前视图图标（悬浮 title 出视图名），点击才展开列表；与右侧 chrome 按钮同规格。 */
 .owl-view-tabs .owl-view-tabs-trigger {
 	display: flex;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 auto;
 	align-items: center;
-	gap: 5px;
-	padding: 6px 10px 6px 14px;
-	border-radius: 6px;
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--owl-ui-text);
-	background: var(--owl-ui-panel);
-	white-space: nowrap;
-}
-.owl-view-tabs .owl-view-tabs-trigger:hover { background: var(--owl-ui-hover); }
-.owl-view-tabs .owl-view-tabs-trigger:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
-.owl-view-tabs-chevron {
-	flex: none;
-	width: 12px;
-	height: 12px;
+	justify-content: center;
+	padding: 0;
+	border-radius: 7px;
 	color: var(--owl-ui-muted);
-	transition: transform 0.15s ease;
 }
-.owl-view-tabs .owl-view-tabs-trigger.is-open .owl-view-tabs-chevron { transform: rotate(180deg); }
+.owl-view-tabs .owl-view-tabs-trigger:hover,
+.owl-view-tabs .owl-view-tabs-trigger.is-open { background: var(--owl-ui-hover); color: var(--owl-ui-text); }
+.owl-view-tabs .owl-view-tabs-trigger:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-view-tabs-popover {
 	position: absolute;
 	top: calc(100% + 5px);
-	left: 0;
+	/* 头部贴右边缘，弹层改右对齐向左展开，窄窗下不会被窗口边界裁掉（同导出菜单）。 */
+	right: 0;
+	left: auto;
 	z-index: 30;
 	min-width: 100%;
 	display: flex;
@@ -797,6 +812,8 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 .owl-view-tabs-popover button:focus-visible { background: var(--owl-ui-menu-hover); color: var(--owl-ui-text); }
 .owl-view-tabs-popover button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: -2px; }
 .owl-view-tabs-popover button.is-current { color: var(--owl-ui-text); font-weight: 600; }
+.owl-view-tabs-item { display: inline-flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 8px; }
+.owl-view-tabs-item svg { flex: none; }
 .owl-view-tabs-label { overflow: hidden; text-overflow: ellipsis; }
 .owl-view-tabs-check { flex: none; width: 13px; height: 13px; color: var(--color-owl-accent); }
 /* 平铺 tab 行（专家面板头部的对话/上下文/轨迹）：保留原有的并排三键样式。 */
@@ -836,19 +853,9 @@ html:not([data-owl-theme="light"]) .owl-island.is-open .owl-island-drawer {
 }
 
 @container owl-conversation (max-width: 740px) {
-	.owl-main-frame .owl-chat-header,
-	.owl-agent-conversation > .owl-chat-header {
-		grid-template-columns: minmax(0, 1fr) auto;
-		height: auto;
-		min-height: 88px;
-		flex-basis: auto;
-		gap: 8px 12px;
-		padding: 12px 16px;
-	}
-	.owl-view-tabs { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+	/* 悬浮头不再因为窄窗折成两行（旧版 min-height: 88px），保持单行只收紧间距。 */
+	.owl-view-tabs { justify-self: end; }
 	.owl-shell-header-info { gap: 8px; }
-	.owl-shell-header-actions { grid-column: 2; grid-row: 1; }
-	.owl-shell-header-actions .owl-chrome-button { width: 28px; height: 28px; }
 	.owl-agent-conversation .owl-composer-surface { padding: 16px 20px; }
 }
 
@@ -885,8 +892,14 @@ html[data-owl-wallpaper="on"] .owl-main-frame {
 	background: color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent);
 	backdrop-filter: blur(16px);
 }
+/* 顶栏自带一道面板色渐隐；壁纸档下面板本身是半透明的，这里同样按壁纸面板色渐变，
+   保留“没内容时可忽略、有内容上滑时淡出”的效果。 */
 html[data-owl-wallpaper="on"] .owl-main-frame .owl-chat-header {
-	background: transparent;
+	background: linear-gradient(
+		to bottom,
+		color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent) 58%,
+		transparent
+	);
 }
 html[data-owl-wallpaper="on"] .owl-sidebar {
 	background: color-mix(in srgb, var(--color-owl-sidebar-bg) var(--owl-wp-panel-mix, 36%), transparent);

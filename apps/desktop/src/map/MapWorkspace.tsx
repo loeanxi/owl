@@ -21,8 +21,8 @@ import type {
 	QuestionRequest,
 	RealPlace,
 } from "../bridge/protocol.ts";
-import { QuestionDialog } from "../components/QuestionDialog.tsx";
 import { renderMarkdown } from "../components/ChatStream.tsx";
+import { QuestionDialog } from "../components/QuestionDialog.tsx";
 import { MapConversation, type MapConversationContext } from "./conversation.ts";
 import { type MapCopyKey, useMapCopy } from "./copy.ts";
 import { type DeviceLocation, DeviceLocator } from "./device-location.ts";
@@ -109,11 +109,7 @@ export function MapWorkspace({
 			),
 		[client],
 	);
-	const conversationState = useSyncExternalStore(
-		conversation.subscribe,
-		conversation.getState,
-		conversation.getState,
-	);
+	const conversationState = useSyncExternalStore(conversation.subscribe, conversation.getState, conversation.getState);
 	const deviceLocator = useMemo(
 		() => new DeviceLocator({ readGps: hasTauri() ? () => invoke<unknown>("gps_location") : undefined }),
 		[],
@@ -244,9 +240,7 @@ export function MapWorkspace({
 	const detailPlace = rows.find((place) => place.id === detailId);
 	const hasDetail = Boolean(detailPlace);
 	const centerLabel = locationName || m("mapCenter");
-	const latestReply = conversationState.entries.findLast(
-		(entry) => entry.kind === "assistant" && entry.text.trim(),
-	);
+	const latestReply = conversationState.entries.findLast((entry) => entry.kind === "assistant" && entry.text.trim());
 	const latestReplyText = latestReply?.kind === "assistant" ? latestReply.text : "";
 	const partialResults =
 		sources.some((source) => source.status === "error") &&
@@ -353,12 +347,9 @@ export function MapWorkspace({
 			setMapError(update.result.sources.find((source) => source.error)?.error || m("mapUnavailable"));
 			return;
 		}
-		const data = update.result.data
-			.map(normalizeRealPlace)
-			.filter((place): place is RealPlace => Boolean(place));
+		const data = update.result.data.map(normalizeRealPlace).filter((place): place is RealPlace => Boolean(place));
 		rememberPlaces(data);
-		const nextCenter =
-			update.center ?? (update.action !== "nearby" ? data[0] : undefined) ?? centerRef.current;
+		const nextCenter = update.center ?? (update.action !== "nearby" ? data[0] : undefined) ?? centerRef.current;
 		const nextName =
 			update.action !== "nearby" && data[0]
 				? placeName(data[0])
@@ -392,12 +383,7 @@ export function MapWorkspace({
 		);
 	}, [conversation, conversationState.mapUpdate]);
 	useEffect(() => {
-		if (
-			active &&
-			workspaceView === "conversation" &&
-			conversationPinned.current &&
-			conversationScrollRef.current
-		)
+		if (active && workspaceView === "conversation" && conversationPinned.current && conversationScrollRef.current)
 			conversationScrollRef.current.scrollTop = conversationScrollRef.current.scrollHeight;
 	}, [active, conversationState.entries, conversationState.busy]);
 	useLayoutEffect(() => {
@@ -518,9 +504,7 @@ export function MapWorkspace({
 		setFollowContext(place);
 		switchWorkspaceView("explore");
 		requestAnimationFrame(() => {
-			viewTabsRef.current
-				?.querySelector<HTMLButtonElement>('[data-view="explore"]')
-				?.focus({ preventScroll: true });
+			viewTabsRef.current?.querySelector<HTMLButtonElement>('[data-view="explore"]')?.focus({ preventScroll: true });
 			mapStageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
 		});
 	}
@@ -776,9 +760,7 @@ export function MapWorkspace({
 		const startingCenter = { ...centerRef.current };
 		const lookupLocationName =
 			locationLabel ??
-			(straightLineDistance(point, startingCenter) > 100
-				? pointLabel(point)
-				: locationName || pointLabel(point));
+			(straightLineDistance(point, startingCenter) > 100 ? pointLabel(point) : locationName || pointLabel(point));
 		const request = beginQuery();
 		setCategory(selectedCategory);
 		setRadius(selectedRadius);
@@ -872,11 +854,7 @@ export function MapWorkspace({
 		if (!request) return;
 		if (request.action === "search") void searchPlaces(request.query ?? "", request.locationPanel);
 		else if (request.action === "nearby")
-			void nearbyPlaces(
-				request.point ?? centerRef.current,
-				request.category ?? category,
-				request.radius ?? radius,
-			);
+			void nearbyPlaces(request.point ?? centerRef.current, request.category ?? category, request.radius ?? radius);
 		else if (request.point) void selectCoordinate(request.point, request.searchNearby);
 	}
 	function chooseLocation(place: RealPlace): void {
@@ -1107,10 +1085,8 @@ export function MapWorkspace({
 			.filter(
 				(
 					entry,
-				): entry is readonly [
-					"openingHours" | "phone" | "wheelchair" | "internetAccess" | "cuisine",
-					string,
-				] => Boolean(entry[1]),
+				): entry is readonly ["openingHours" | "phone" | "wheelchair" | "internetAccess" | "cuisine", string] =>
+					Boolean(entry[1]),
 			)
 			.map(([key, value]) => ({ key, value }));
 	}
@@ -1486,7 +1462,9 @@ export function MapWorkspace({
 																	if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
 																})
 																.catch((error: unknown) =>
-																	showToast(error instanceof Error ? error.message : m("mapUnavailable")),
+																	showToast(
+																		error instanceof Error ? error.message : m("mapUnavailable"),
+																	),
 																);
 													}}
 												/>
@@ -1558,14 +1536,10 @@ export function MapWorkspace({
 				</div>
 				{busy && (
 					<output className="map-conversation-status is-generating">
-						{m(
-							aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating",
-						)}
+						{m(aborting ? "chatStopping" : conversationState.submitting ? "chatSubmitting" : "chatGenerating")}
 					</output>
 				)}
-				{stopped && !busy && (
-					<output className="map-conversation-status is-stopped">{m("chatStopped")}</output>
-				)}
+				{stopped && !busy && <output className="map-conversation-status is-stopped">{m("chatStopped")}</output>}
 				{(conversationState.error || conversationError) && (
 					<div className="map-conversation-error" role="alert">
 						<strong>{m("chatError")}</strong>
@@ -1666,9 +1640,7 @@ export function MapWorkspace({
 						<p className="map-position-selection">
 							<MapIcon name="check" />
 							{settingsDraft.name}
-							<small>
-								{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}
-							</small>
+							<small>{m(settingsDraft.precision === "area" ? "positionAreaNote" : "positionPointNote")}</small>
 						</p>
 					)}
 					<footer>
@@ -1758,12 +1730,7 @@ export function MapWorkspace({
 					</p>
 					{savedState.history.length ? (
 						savedState.history.slice(0, 8).map((entry) => (
-							<button
-								key={entry.id}
-								type="button"
-								className="recent-entry"
-								onClick={() => replaySearch(entry)}
-							>
+							<button key={entry.id} type="button" className="recent-entry" onClick={() => replaySearch(entry)}>
 								<MapIcon name="clock" />
 								<span>
 									{entry.query || entry.locationName}
@@ -2074,8 +2041,8 @@ export function MapWorkspace({
 														<div className="detail-section">
 															<h3>{m("sourceDetails")}</h3>
 															<p className="detail-note">
-																{m(detailPlace.source.provider === "user" ? "sourceUser" : "sourceMap")} ·{" "}
-																{m("fetched")}: {fetched(detailPlace)}
+																{m(detailPlace.source.provider === "user" ? "sourceUser" : "sourceMap")}{" "}
+																· {m("fetched")}: {fetched(detailPlace)}
 															</p>
 															{sourceLinks(detailPlace)}
 															<p className="detail-note">{m("sourceNote")}</p>
@@ -2107,7 +2074,9 @@ export function MapWorkspace({
 																		if (!reply.ok) showToast(reply.error || m("mapUnavailable"));
 																	})
 																	.catch((error: unknown) =>
-																		showToast(error instanceof Error ? error.message : m("mapUnavailable")),
+																		showToast(
+																			error instanceof Error ? error.message : m("mapUnavailable"),
+																		),
 																	);
 															}}
 														>
@@ -2122,7 +2091,9 @@ export function MapWorkspace({
 												<div className="detail-actions">
 													<button
 														type="button"
-														aria-pressed={savedState.favorites.some((place) => place.id === detailPlace.id)}
+														aria-pressed={savedState.favorites.some(
+															(place) => place.id === detailPlace.id,
+														)}
 														onClick={() => savePlace(detailPlace)}
 													>
 														<MapIcon name="bookmark" />

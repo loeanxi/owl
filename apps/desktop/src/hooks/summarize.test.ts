@@ -27,7 +27,8 @@ test("bash summary shows the real command and the directory separately", () => {
 });
 
 test("subagent summary names an inline workflow script instead of quoting it", () => {
-	const script = "const jobs = [\n  { key: 'structure', agent: 'scout', task: `勘察 packages/coding-agent/src/core/agent-session.ts` },\n];";
+	const script =
+		"const jobs = [\n  { key: 'structure', agent: 'scout', task: `勘察 packages/coding-agent/src/core/agent-session.ts` },\n];";
 	assert.equal(summarizeToolCall("subagent", { workflow: script, task: "勘察" }).summary, "subagent workflow");
 	assert.equal(summarizeToolCall("subagent", { workflow: "./recon.js" }).summary, "subagent `./recon.js`");
 	assert.equal(summarizeToolCall("subagent", { agent: "scout", task: "读文件" }).summary, "subagent scout");

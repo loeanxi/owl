@@ -1,5 +1,8 @@
 .owl-subagent-view { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.owl-subagent-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border)); }
+/* 悬浮会话头（position:absolute，不占布局行）压在内容上，这里自己让出它的高度，
+   否则「返回父会话 / 状态 / 重新加载」整条会被顶栏盖住且点不到。
+   +8px 与 .owl-chat-scroll 的上内边距对齐，各视图首行视觉齐平。 */
+.owl-subagent-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: calc(var(--owl-chat-header-h, 44px) + 8px) 24px 12px; border-bottom: 1px solid var(--owl-ui-border, var(--color-owl-border)); }
 .owl-subagent-button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; color: var(--owl-ui-text, var(--color-owl-text)); font-size: 12px; cursor: pointer; }
 .owl-subagent-button:hover, .owl-subagent-button[aria-current="page"] { background: var(--color-owl-hover); color: var(--color-owl-accent); }
 .owl-subagent-button:focus-visible { outline: 2px solid var(--color-owl-accent); outline-offset: 2px; }

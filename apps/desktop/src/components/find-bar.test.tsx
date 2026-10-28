@@ -1,7 +1,7 @@
+import { parseHTML } from "linkedom";
 import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FindBar } from "./FindBar.tsx";
 
@@ -10,8 +10,14 @@ class TextRange {
 	startOffset = 0;
 	endContainer?: Node;
 	endOffset = 0;
-	setStart(node: Node, offset: number): void { this.startContainer = node; this.startOffset = offset; }
-	setEnd(node: Node, offset: number): void { this.endContainer = node; this.endOffset = offset; }
+	setStart(node: Node, offset: number): void {
+		this.startContainer = node;
+		this.startOffset = offset;
+	}
+	setEnd(node: Node, offset: number): void {
+		this.endContainer = node;
+		this.endOffset = offset;
+	}
 }
 
 let container: HTMLElement;
@@ -31,7 +37,14 @@ beforeEach(() => {
 	vi.spyOn(document, "createRange").mockImplementation(() => new TextRange() as unknown as Range);
 	highlights = new Map();
 	vi.stubGlobal("CSS", { highlights });
-	vi.stubGlobal("Highlight", class extends Set<unknown> { constructor(...ranges: unknown[]) { super(ranges); } });
+	vi.stubGlobal(
+		"Highlight",
+		class extends Set<unknown> {
+			constructor(...ranges: unknown[]) {
+				super(ranges);
+			}
+		},
+	);
 	(dom.window.Element.prototype as unknown as Record<string, unknown>).scrollIntoView = () => {};
 	// linkedom 的输入框未实现 focus/select，补空实现。
 	(dom.window.HTMLInputElement.prototype as unknown as Record<string, unknown>).focus = () => {};

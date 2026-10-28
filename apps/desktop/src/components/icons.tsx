@@ -21,7 +21,12 @@ function Svg({ children, className }: { children: React.ReactNode; className?: s
 
 /** Primary navigation: news and briefings. */
 export function IconNews({ className }: { className?: string }): React.JSX.Element {
-	return <Svg className={className}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 11h3v4H8zM14 11h2M14 15h2M8 18h8" /></Svg>;
+	return (
+		<Svg className={className}>
+			<rect x="4" y="3" width="16" height="18" rx="2" />
+			<path d="M8 7h8M8 11h3v4H8zM14 11h2M14 15h2M8 18h8" />
+		</Svg>
+	);
 }
 
 /** rail：聊天（主页） */
@@ -147,19 +152,10 @@ export function IconNavForward({ className }: { className?: string }): React.JSX
 }
 
 /** 置顶图钉；filled 时实心表示已置顶 */
-export function IconPin({
-	className,
-	filled = false,
-}: {
-	className?: string;
-	filled?: boolean;
-}): React.JSX.Element {
+export function IconPin({ className, filled = false }: { className?: string; filled?: boolean }): React.JSX.Element {
 	return (
 		<Svg className={className}>
-			<path
-				d="M12 17v5"
-				style={filled ? { opacity: 0.45 } : undefined}
-			/>
+			<path d="M12 17v5" style={filled ? { opacity: 0.45 } : undefined} />
 			<path
 				d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
 				fill={filled ? "currentColor" : "none"}
@@ -460,6 +456,58 @@ export function IconTokenCareer({ className }: { className?: string }): React.JS
 			<circle cx="12" cy="12" r="8" opacity="0.35" />
 			<path d="M12 4a8 8 0 0 1 7.6 5.5" />
 			<path d="M12 12V4" opacity="0.6" />
+		</Svg>
+	);
+}
+
+/** 标题栏：文件菜单（折角文档） */
+export function IconFileDoc({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M14 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z" />
+			<path d="M14 3.5V8h4.5" />
+		</Svg>
+	);
+}
+
+/** 标题栏：编辑菜单（铅笔） */
+export function IconPencil({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M5 19.5 7.8 19 19 7.8a2 2 0 0 0-2.8-2.8L5 16.2z" />
+			<path d="m14 7 3 3" />
+		</Svg>
+	);
+}
+
+/** 标题栏：视图菜单（眼睛） */
+export function IconEye({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+			<circle cx="12" cy="12" r="3" />
+		</Svg>
+	);
+}
+
+/** 标题栏：帮助菜单（圆圈问号） */
+export function IconHelpCircle({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<circle cx="12" cy="12" r="8.5" />
+			<path d="M9.4 9.3a2.7 2.7 0 0 1 5.2.9c0 1.7-2.6 2.2-2.6 3.6" />
+			<path d="M12 17h.01" />
+		</Svg>
+	);
+}
+
+/** 标题栏：研究工作台（锥形瓶） */
+export function IconFlask({ className }: { className?: string }): React.JSX.Element {
+	return (
+		<Svg className={className}>
+			<path d="M9 3h6" />
+			<path d="M10 3v5.5L4.9 18a1.6 1.6 0 0 0 1.4 2.4h11.4a1.6 1.6 0 0 0 1.4-2.4L14 8.5V3" />
+			<path d="M7.2 15h9.6" />
 		</Svg>
 	);
 }
