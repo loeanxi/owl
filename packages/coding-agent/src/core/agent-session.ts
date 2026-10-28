@@ -402,6 +402,8 @@ export class AgentSession {
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _isAgentRunActive = false;
 	private _agentRunAbortRequested = false;
+	/** Whether this run already prepared a request; the first request keeps baseline no-pre-compaction semantics. */
+	private _runPreparedRequest = false;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
 
@@ -981,12 +983,11 @@ export class AgentSession {
 	private _exceedsCompactionThresholdForMessages(model: Model<any>, messages: AgentMessage[]): boolean {
 		const contextWindow = compactionContextWindow(model);
 		if (contextWindow <= 0) return false;
-		const est = estimateContextTokens(messages).tokens;
-		const st = this.settingsManager.getCompactionSettings(this.model);
-		console.error(
-			`[DBG-THRESH] est=${est} window=${contextWindow} settings=${JSON.stringify(st)} compact=${shouldCompact(est, contextWindow, st)} msgs=${messages.length} roles=${messages.map((m) => m.role).join(",")}`,
+		return shouldCompact(
+			estimateContextTokens(messages).tokens,
+			contextWindow,
+			this.settingsManager.getCompactionSettings(this.model),
 		);
-		return shouldCompact(est, contextWindow, st);
 	}
 
 	private async _compactBeforeNextAssistantResponse(context: AgentContext): Promise<AgentContext> {
@@ -1027,8 +1028,14 @@ export class AgentSession {
 			let { previous, context } = await prepare();
 			const model = previous?.model ?? this.agent.state.model;
 			const thinkingLevel = previous?.thinkingLevel ?? this.agent.state.thinkingLevel;
+			// Pre-request threshold compaction guards continuation requests whose freshly prepared
+			// context (rebuilt system prompt, just-declared tool loadout) outgrew the window. The
+			// first request of a run keeps baseline semantics: send it, and let the post-run check
+			// decide from real usage — compacting there also preserves the overflow reason.
+			const preparedEarlier = this._runPreparedRequest;
+			this._runPreparedRequest = true;
 			if (!isVirtualModel(model)) {
-				if (this._exceedsCompactionThresholdForMessages(model, context.messages)) {
+				if (preparedEarlier && this._exceedsCompactionThresholdForMessages(model, context.messages)) {
 					await this._runAutoCompaction("threshold", false);
 					({ previous, context } = await prepare());
 					const refreshedModel = previous?.model ?? this.agent.state.model;
@@ -1272,9 +1279,6 @@ export class AgentSession {
 
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
-		if (event.type === "compaction_start") {
-			console.error(`[DBG-EMIT] compaction_start reason=${event.reason} stack=${new Error("t").stack}`);
-		}
 		for (const l of this._eventListeners) {
 			l(event);
 		}
@@ -2027,6 +2031,7 @@ export class AgentSession {
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 		this._agentRunAbortRequested = false;
+		this._runPreparedRequest = false;
 		// Compaction before the prompt may have scheduled a retry; the new prompt replaces it.
 		this._failedResponse = undefined;
 		this._recordSelection();

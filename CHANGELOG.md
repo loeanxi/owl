@@ -20,6 +20,7 @@
 
 ### 修复
 
+- `coding-agent` 首次请求不再提前做阈值压缩：`_runPreparedRequest` 标记后续请求，只对继续请求（重建系统提示、刚声明的工具集）做 pre-request 压缩，溢出原因仍由运行后的检查给出
 - `desktop` 会话顶部不再出现大片空白：任务清单摘要条改为浮层，不再撑高对话区把正文压到下半屏
 - `desktop` 侧栏浏览器画面不再抖：舞台尺寸改按小数测量、填满交给 CSS，适应缩放下不再出现随布局反复出现消失的滚动条
 
@@ -28,6 +29,7 @@
 - `biome` 覆盖 `apps/desktop/src`：该目录只按 format 收敛 import 顺序与换行，lint 规则仍不施加于桌面端
 - `workflow` 修掉 `erasableSyntaxOnly` 下的构造参数属性、隐式 any、死字段与未用导入，新包并入根 `tsc` 后不再破坏 `npm run check`
 - `.gitignore` 放行早在此前就已被跟踪的 `debug-*` / `prototype-*` 页面：整批忽略会让 pre-commit 的 restage 循环中止提交
+- `coding-agent` 去掉 `agent-session` 里遗留的 `[DBG-THRESH]` / `[DBG-EMIT]` 调试打印
 
 ## 2026-10-27
 
