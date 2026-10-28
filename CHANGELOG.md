@@ -13,6 +13,7 @@
 
 ### 新增
 
+- 新增 `@owl/workflow`：脚本编译后在 `node:vm` 沙箱跑，每次 facade 调用落 journal，resume/amend 按序零成本重放
 - `desktop` 回答流对齐 Claude 桌面端：引用与来源、内部工具不进回答流、产物清单与产物页、下一步建议、工具行标签三态
 - `ai` 引用（citations）打通各 provider：Anthropic `citations_delta`、OpenAI `annotations`、pi-messages 归一后的 `citations` 拍平成同一形状
 - `agent` 工具批次回调 `afterToolBatch`，与 `hiddenInChat` 一起让内部工具留在流水里而不进回答正文
@@ -25,6 +26,8 @@
 ### 维护
 
 - `biome` 覆盖 `apps/desktop/src`：该目录只按 format 收敛 import 顺序与换行，lint 规则仍不施加于桌面端
+- `workflow` 修掉 `erasableSyntaxOnly` 下的构造参数属性、隐式 any、死字段与未用导入，新包并入根 `tsc` 后不再破坏 `npm run check`
+- `.gitignore` 放行早在此前就已被跟踪的 `debug-*` / `prototype-*` 页面：整批忽略会让 pre-commit 的 restage 循环中止提交
 
 ## 2026-10-27
 

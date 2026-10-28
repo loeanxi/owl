@@ -1,0 +1,17 @@
+{
+	"name": "@owl/workflow",
+	"version": "0.1.0",
+	"description": "Dynamic workflow orchestration: typed scripts run in a vm sandbox, journaled step-by-step, resumable and amendable",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"test": "vitest --run"
+	},
+	"devDependencies": {
+		"minimatch": "^10.2.6",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.11"
+	}
+}
