@@ -1821,8 +1821,6 @@ type RowOptions = {
 	onQueuedPromote?: (messageId: string) => void;
 	/** 当前会话的排队快照（steering+followUp 合并）：气泡按它匹配 messageId。 */
 	queuedItems?: ReadonlyArray<{ messageId: string; lane: "steering" | "followUp"; text: string }>;
-	/** 活跃弹卷的已答题号（R18，App 经 dock 持有状态）：小地图实心/空心依据。 */
-	answeredQuestions?: ReadonlySet<number>;
 	/** 桥客户端：任务卡的「暂停任务」需要。 */
 	client?: BridgeClient;
 	/** 会话忙（运行/提交中）：暂停用户消息的编辑重发。 */
@@ -2929,32 +2927,54 @@ function buildRows({
 	return rows;
 }
 
-type QuestionMark = { n: number; text: string; preview: string };
+type QuestionMark = { n: number; text: string; preview: string; answered: boolean };
 
+/** assistant 这一次真的回应了：出了正文/思考/工具调用，或者这一轮已经收尾。 */
+function assistantResponded(entry: Extract<ChatEntry, { kind: "assistant" }>): boolean {
+	return (
+		entry.text.trim() !== "" ||
+		entry.thinking.trim() !== "" ||
+		(entry.tools?.length ?? 0) > 0 ||
+		entry.endedAt !== undefined
+	);
+}
+
+/**
+ * 用户消息导航：标号只数用户消息（排队中的不占号）。
+ *
+ * 「已答」= 这条用户消息之后、下一条用户消息之前，assistant 有过回应。
+ * 早前这里喂的是弹卷里 agent 提问的序号（0 基），与用户消息号（1 基）不是一回事，
+ * 于是已回复的消息反而标成「未答」。
+ */
 function buildQuestions(entries: ChatEntry[]): QuestionMark[] {
-	return entries
-		.filter((entry): entry is Extract<ChatEntry, { kind: "user" }> => entry.kind === "user" && !entry.queued)
-		.map((entry, index) => {
+	const marks: QuestionMark[] = [];
+	for (const entry of entries) {
+		if (entry.kind === "user") {
+			if (entry.queued) continue;
+			const n = marks.length + 1;
 			const preview =
 				userSourceText(entry.text).trim() ||
 				(entry.images?.length
 					? t("chat.questionImages", { n: entry.images.length })
-					: t("chat.questionFallback", { n: index + 1 }));
-			return { n: index + 1, text: preview.split("\n")[0], preview };
-		});
+					: t("chat.questionFallback", { n }));
+			marks.push({ n, text: preview.split("\n")[0], preview, answered: false });
+			continue;
+		}
+		if (entry.kind === "assistant" && marks.length > 0 && assistantResponded(entry)) {
+			marks[marks.length - 1] = { ...marks[marks.length - 1]!, answered: true };
+		}
+	}
+	return marks;
 }
 
 /** 常驻提问短线；预览置于滚动列表外，长会话也不会裁掉浮层。 */
 function QuestionMinimap({
 	questions,
 	active,
-	answered,
 	onJump,
 }: {
 	questions: QuestionMark[];
 	active: number;
-	/** 活跃弹卷已答题号（R18）：实心=已答，空心=未答。 */
-	answered?: ReadonlySet<number>;
 	onJump: (n: number) => void;
 }): React.JSX.Element {
 	const t = useT();
@@ -3012,8 +3032,8 @@ function QuestionMinimap({
 						key={item.n}
 						type="button"
 						data-question-index={item.n}
-						aria-label={`${t("chat.jumpToQuestion", { n: item.n, text: item.text })} · ${answered?.has(item.n) ? t("question.answeredTag") : t("question.unansweredTag")}`}
-						data-answered={answered?.has(item.n) || undefined}
+						aria-label={`${t("chat.jumpToQuestion", { n: item.n, text: item.text })} · ${item.answered ? t("question.answeredTag") : t("question.unansweredTag")}`}
+						data-answered={item.answered || undefined}
 						aria-current={active === item.n ? "location" : undefined}
 						onMouseEnter={(event) => showPreview(item.n, event.currentTarget)}
 						onFocus={(event) => showPreview(item.n, event.currentTarget)}
@@ -3119,7 +3139,6 @@ export function ChatStream({
 	onQueuedRemove,
 	onQueuedPromote,
 	queuedItems,
-	answeredQuestions: propsAnswered,
 	executionView = "normal",
 	onInspectTool,
 }: {
@@ -3184,8 +3203,6 @@ export function ChatStream({
 	onQueuedPromote?: (messageId: string) => void;
 	/** 当前会话的排队快照（steering+followUp 合并）：气泡按它匹配 messageId。 */
 	queuedItems?: ReadonlyArray<{ messageId: string; lane: "steering" | "followUp"; text: string }>;
-	/** 活跃弹卷的已答题号（R18，App 经 dock 持有状态）：小地图实心/空心依据。 */
-	answeredQuestions?: ReadonlySet<number>;
 	/** Changes execution presentation without changing the active run. */
 	executionView?: ExecutionView;
 	/** Open the original tool input/output in the workspace. */
@@ -3238,6 +3255,16 @@ export function ChatStream({
 	onOpenAutomationRef.current = onOpenAutomation;
 	const onInspectToolRef = useRef(onInspectTool);
 	onInspectToolRef.current = onInspectTool;
+	const onApprovePlanRef = useRef(onApprovePlan);
+	onApprovePlanRef.current = onApprovePlan;
+	const onRejectPlanRef = useRef(onRejectPlan);
+	onRejectPlanRef.current = onRejectPlan;
+	const onOpenProductRef = useRef(onOpenProduct);
+	onOpenProductRef.current = onOpenProduct;
+	const onSubmitFeedbackRef = useRef(onSubmitFeedback);
+	onSubmitFeedbackRef.current = onSubmitFeedback;
+	const onPromptExampleRef = useRef(onPromptExample);
+	onPromptExampleRef.current = onPromptExample;
 	const hasRewind = onRewind !== undefined;
 	const hasEditMessage = onEditMessage !== undefined;
 	const hasOpenSubagent = onOpenSubagent !== undefined;
@@ -3301,6 +3328,29 @@ export function ChatStream({
 				? (card: ToolCard, ownerIndex?: number): void => onInspectToolRef.current?.(card, ownerIndex)
 				: undefined,
 		[hasInspectTool],
+	);
+	// 下面这五个也参与 rows 的渲染（计划卡、产物页、反馈、建议芯片），
+	// 必须同样稳定化：否则 App 每次渲染的新引用会把 rows memo 整个打散。
+	const approvePlanStable = useMemo(
+		() => (onApprovePlan ? (): void => onApprovePlanRef.current?.() : undefined),
+		[onApprovePlan !== undefined],
+	);
+	const rejectPlanStable = useMemo(
+		() => (onRejectPlan ? (feedback: string): void => onRejectPlanRef.current?.(feedback) : undefined),
+		[onRejectPlan !== undefined],
+	);
+	const openProductStable = useMemo(
+		() => (onOpenProduct ? (product: Product): void => onOpenProductRef.current?.(product) : undefined),
+		[onOpenProduct !== undefined],
+	);
+	const submitFeedbackStable = useMemo(
+		() =>
+			onSubmitFeedback ? (text: string): Promise<boolean> | void => onSubmitFeedbackRef.current?.(text) : undefined,
+		[onSubmitFeedback !== undefined],
+	);
+	const promptExampleStable = useMemo(
+		() => (onPromptExample ? (text: string): void => onPromptExampleRef.current?.(text) : undefined),
+		[onPromptExample !== undefined],
 	);
 	const executionPresentation = useMemo(
 		() => ({ view: executionView, onInspectTool: inspectToolStable }),
@@ -3370,12 +3420,6 @@ export function ChatStream({
 	};
 	// 离开底部超过 48px 才挂上按钮，回到 24px 内才摘掉。阈值之间保持原状，
 	// 避免流式增高在贴底线附近把「有新进展」一帧挂上、下一帧摘掉。
-	// 初始标记一次，避免首帧就带错误遮罩。
-	useEffect(() => {
-		const el = container.current;
-		if (el) el.dataset.topHidden = el.scrollTop > 8 ? "true" : "false";
-	}, []);
-
 	const publishLatest = (el: HTMLElement): void => {
 		const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
 		setShowLatest((shown) => (stick.current || gap < 24 ? false : shown || gap >= 48));
@@ -3557,12 +3601,12 @@ export function ChatStream({
 				turnCard,
 				renderTurnArtifacts,
 				onLocateProduct,
-				onOpenProduct,
-				onSubmitFeedback,
-				onPromptExample,
+				onOpenProduct: openProductStable,
+				onSubmitFeedback: submitFeedbackStable,
+				onPromptExample: promptExampleStable,
 				approvalMode,
-				onApprovePlan,
-				onRejectPlan,
+				onApprovePlan: approvePlanStable,
+				onRejectPlan: rejectPlanStable,
 				streaming: activity === "working",
 				runActive: activity === "working" || activity === "waiting",
 				canRegenerate,
@@ -3610,6 +3654,13 @@ export function ChatStream({
 			claudeFlow,
 			diffSummary,
 			claudeThinking,
+			// 这几项参与行的渲染：漏了就会渲染出过期内容（审批模式切到 plan 也不换计划卡）。
+			approvalMode,
+			approvePlanStable,
+			rejectPlanStable,
+			openProductStable,
+			submitFeedbackStable,
+			promptExampleStable,
 		],
 	);
 	const rememberWorkReading = (): void => {
@@ -3757,10 +3808,6 @@ export function ChatStream({
 	const uiLanguage = getUiLanguage();
 	const questions = useMemo(() => buildQuestions(entries), [entries, uiLanguage]);
 	const [activeQuestion, setActiveQuestion] = useState(0);
-	// 活跃弹卷的已答题号（QuestionDialog 上报，R18）：小地图实心/空心依据。
-	// 状态归 App（dock props 在 App 配置），此处只消费。
-	const answeredQuestions = propsAnswered;
-
 	const updateActiveQuestion = (): void => {
 		const el = container.current;
 		if (!el || questions.length === 0 || navigationTarget.current !== null) return;
@@ -3816,8 +3863,6 @@ export function ChatStream({
 	const onScrollWithTracking = (): void => {
 		const el = container.current;
 		if (!el) return;
-		// 顶部渐隐：滚离顶端超过 8px 时显示（CSS 渐隐遮罩提示上面还有内容）。
-		el.dataset.topHidden = el.scrollTop > 8 ? "true" : "false";
 		if (isStartPage) {
 			stick.current = false;
 			setShowLatest(false);
@@ -3893,12 +3938,7 @@ export function ChatStream({
 					<ExecutionViewContext.Provider value={executionPresentation}>
 						<div className="owl-chat-surface" data-activity={activity} data-execution-view={executionView}>
 							{questions.length > 0 && (
-								<QuestionMinimap
-									questions={questions}
-									active={activeQuestion}
-									answered={answeredQuestions}
-									onJump={jumpToQuestion}
-								/>
+								<QuestionMinimap questions={questions} active={activeQuestion} onJump={jumpToQuestion} />
 							)}
 							<div className="owl-chat-layout">
 								<main

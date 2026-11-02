@@ -81,6 +81,7 @@ function renderCode(content: string, language: string): string {
 	return (
 		`<div class="owl-answer-code" data-answer-code="" data-answer-code-lines="${lineCount}" data-answer-language="${escape(language)}">` +
 		`<div class="owl-answer-code-toolbar" data-answer-toolbar=""><span class="owl-answer-code-language">${escape(language || replyReadingText("code"))}</span>` +
+		`<span data-answer-code-hint="" hidden></span>` +
 		`<div class="owl-answer-code-actions"><button type="button" data-answer-action="copy-code">${escape(replyReadingText("copy"))}</button>` +
 		`<button type="button" data-answer-action="expand-code" aria-expanded="false" hidden>${escape(replyReadingText("expandCode"))}</button></div>` +
 		'<span data-answer-copy-status="" role="status" aria-live="polite"></span></div>' +

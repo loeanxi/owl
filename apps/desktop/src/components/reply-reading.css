@@ -8,6 +8,9 @@
 	border: 1px solid var(--owl-reading-border);
 	border-radius: 8px;
 	background: var(--owl-reading-panel);
+	/* 折叠高度由 MarkdownAnswer 按行网格对齐后写进 --owl-answer-code-max-height，
+	   目标高度取自 .owl-answer 上的 --owl-answer-code-target-height：
+	   保证裁切线永远落在两行之间，不会把一行切成半行。 */
 }
 
 .owl-answer-code-toolbar,
@@ -33,13 +36,14 @@
 .owl-answer-reading [data-answer-action]:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
 .owl-answer-reading [data-answer-action][hidden],
 .owl-answer-reading [data-answer-table-hint][hidden],
+.owl-answer-reading [data-answer-code-hint][hidden],
 .owl-answer-reading .owl-answer-table-toolbar[hidden] { display: none; }
 .owl-answer-reading [data-answer-copy-status] { min-width: 0; overflow-wrap: anywhere; }
 .owl-answer-reading [data-answer-copy-status][data-copy-state="error"] { color: var(--owl-ui-danger, var(--color-owl-danger)); }
 
 .owl-answer-reading .owl-answer-code pre {
 	max-width: 100%;
-	max-height: 360px;
+	max-height: var(--owl-answer-code-max-height, var(--owl-answer-code-target-height));
 	margin: 0;
 	overflow: auto;
 	overscroll-behavior-x: contain;
@@ -53,6 +57,12 @@
 .owl-answer-reading .owl-answer-code pre code { white-space: pre; overflow-wrap: normal; word-break: normal; }
 .owl-answer-reading .owl-answer-code pre:focus-visible { outline: 2px solid var(--owl-reading-link); outline-offset: -2px; }
 .owl-answer-reading .owl-answer-code[data-answer-expanded="true"] pre { max-height: none; }
+/* 长行横向溢出：边缘渐隐提示右边还有内容（与表格的宽表同一套做法）。 */
+.owl-answer-reading .owl-answer-code pre { --owl-code-fade: 36px; }
+.owl-answer-reading .owl-answer-code pre[data-answer-overflow="right"] { mask-image: linear-gradient(to right, #000 calc(100% - var(--owl-code-fade)), transparent); }
+.owl-answer-reading .owl-answer-code pre[data-answer-overflow="left"] { mask-image: linear-gradient(to left, #000 calc(100% - var(--owl-code-fade)), transparent); }
+.owl-answer-reading .owl-answer-code pre[data-answer-overflow="both"] { mask-image: linear-gradient(to right, transparent, #000 var(--owl-code-fade), #000 calc(100% - var(--owl-code-fade)), transparent); }
+.owl-answer-reading .owl-answer-code pre:is(:hover, :focus-visible) { mask-image: none; }
 
 .owl-answer-reading .owl-answer-table { min-width: 0; max-width: 100%; margin: 1.1em 0; }
 .owl-answer-table-toolbar { justify-content: space-between; padding-right: 0; padding-left: 0; }

@@ -70,9 +70,22 @@ const editor = (): HTMLElement => container.querySelector<HTMLElement>('[role="t
 async function key(keyValue: string, shiftKey = false): Promise<void> {
 	await act(async () => {
 		const event = new window.Event("keydown", { bubbles: true, cancelable: true });
-		Object.defineProperties(event, { key: { value: keyValue }, shiftKey: { value: shiftKey } });
+		Object.defineProperties(event, {
+			key: { value: keyValue },
+			code: { value: keyValue === "Enter" ? "Enter" : keyValue },
+			shiftKey: { value: shiftKey },
+			ctrlKey: { value: false },
+			isComposing: { value: false },
+		});
 		editor().dispatchEvent(event);
 	});
+}
+function button(label: string): HTMLButtonElement {
+	const found = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+		(item) => item.getAttribute("aria-label") === label || item.textContent?.trim() === label,
+	);
+	if (!found) throw new Error(`Missing button: ${label}`);
+	return found;
 }
 
 describe("sent-input recall", () => {
@@ -101,6 +114,16 @@ describe("sent-input recall", () => {
 		// 有内容时 ↑ 不再接管（光标行为交还编辑器）。
 		await key("ArrowUp");
 		expect(editor().textContent).toBe("旧输入");
+	});
+
+	it("makes the recalled text sendable instead of only painting the editor", async () => {
+		// 召回只改 DOM 时，草稿状态仍是空：发送按钮锁死、回车静默不发。
+		await render({ sentHistory: ["旧输入"] });
+		await key("ArrowUp");
+		expect(editor().textContent).toBe("旧输入");
+		expect(button(t("composer.send")).disabled).toBe(false);
+		await key("Enter");
+		expect(props.onSend).toHaveBeenCalledWith("旧输入", undefined, undefined, undefined);
 	});
 
 	it("does not take over when the mention or slash menu is open", async () => {

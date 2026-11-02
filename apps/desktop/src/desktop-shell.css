@@ -892,14 +892,12 @@ html[data-owl-wallpaper="on"] .owl-main-frame {
 	background: color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent);
 	backdrop-filter: blur(16px);
 }
-/* 顶栏自带一道面板色渐隐；壁纸档下面板本身是半透明的，这里同样按壁纸面板色渐变，
-   保留“没内容时可忽略、有内容上滑时淡出”的效果。 */
+/* 顶栏自带一道面板色；壁纸档下面板本身是半透明的，这里用同一块面板色铺满顶栏。
+   原来这里是从面板色渐变到透明：尾部透明 ⇒ 滚过去的正文从顶栏下沿透出来，
+   在标题右侧留下一条模糊压扁的灰带，正文也被横切一刀（与默认档同一个毛病）。
+   改成均匀面板色后，正文在顶栏下沿被面板挡住，不会再冒出灰带。 */
 html[data-owl-wallpaper="on"] .owl-main-frame .owl-chat-header {
-	background: linear-gradient(
-		to bottom,
-		color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent) 58%,
-		transparent
-	);
+	background: color-mix(in srgb, var(--color-owl-bg) var(--owl-wp-panel-mix, 28%), transparent);
 }
 html[data-owl-wallpaper="on"] .owl-sidebar {
 	background: color-mix(in srgb, var(--color-owl-sidebar-bg) var(--owl-wp-panel-mix, 36%), transparent);

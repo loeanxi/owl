@@ -660,6 +660,10 @@
 	max-height: 225px;
 	overflow: auto;
 }
+/* 上下文装不下时底边渐隐：不再把最后一行横切成半行（最后 1px 留给分隔线）。 */
+.owl-news-context[data-answer-overflow="bottom"] {
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent calc(100% - 2px), #000 calc(100% - 1px));
+}
 .owl-news-chip {
 	display: flex;
 	align-items: center;

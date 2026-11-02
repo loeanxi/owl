@@ -1564,26 +1564,19 @@ html[data-owl-theme="light"] .owl-chat-surface {
    流式重排中的瞬时越界不再撑出底部横条。此前横条随内容时隐时现，
    每次出现吃掉一行高度、整屏上下弹跳（跟底针逻辑互相拉扯，就是「波动」的来源）。 */
 .owl-chat-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 36px 32px 24px; }
-/* 顶部渐隐（2026-10-25 R12；2026-10-28 改 overlay 实现）：滚离顶端后内容在顶边淡出，
-   提示上面还有未读内容。原先用 mask-image 实现——mask 会把整个滚动器变成遮罩合成组，
-   贴底跟随时随滚动逐帧失效、全量重光栅化，长会话 + 壁纸 WebGL 负载下疑似诱发
-   WebView2 瓦片光栅化失败（对话上半屏整块黑）。改成 sticky 渐变条盖在顶边：
-   滚动器本体不再进遮罩路径，每次滚动只重绘这 22px。 */
+/* 顶边渐隐条（2026-10-25 R12；2026-10-28 改 overlay 实现）已撤掉（2026-10-29）。
+   它想做的是「滚离顶端后内容在顶边淡出」，但顶栏改成悬浮后，滚动视口顶部 44px
+   已经被顶栏整条盖住，视口顶边根本没有内容可淡，这条渐隐没有对象了。
+   更糟的是它自己：position:sticky 在滚动容器里会被约束在「包含块 = 容器内容盒」
+   之内，也就是被 clamp 到 padding-top 之后（顶栏下沿再往下 8px），
+   于是它长期压在第一条可见文字行上，把那一行从中间削掉——
+   用户截图里「坐标反驳」上灰下黑的双影就是这么来的（实测 alpha 剖面
+   0.89 → 0.10，正好是 22px 的 linear-gradient(面板色, transparent)）。
+   同理，也不要把渐变条挪到顶栏下沿当「接缝淡出」用：那样它会把顶栏下方
+   完整可见的行也洗掉上半截（实测同一条行在无渐变条时是纯黑的），
+   等于把同一个毛病换了个位置。顶栏改成不透明面板色后，正文在顶栏下沿
+   被干净地挡住——就是普通悬浮工具栏的样子，也不需要额外的渐变层。 */
 .owl-chat-scroll { position: relative; }
-.owl-chat-scroll::before {
-	content: "";
-	position: sticky;
-	top: 0;
-	z-index: 6;
-	display: block;
-	height: 22px;
-	margin-bottom: -22px;
-	pointer-events: none;
-	background: linear-gradient(to bottom, var(--owl-conversation-bg, var(--color-owl-bg)), transparent);
-	opacity: 0;
-	transition: opacity 120ms ease;
-}
-.owl-chat-scroll[data-top-hidden="true"]::before { opacity: 1; }
 
 /*
  * 滚动边缘渐隐遮罩（CDS 4.3 的纯 CSS 实现）：贴边硬裁切的内容在上下边缘做多档
@@ -1593,7 +1586,8 @@ html[data-owl-theme="light"] .owl-chat-surface {
  * 通用类 .owl-scroll-fade 可挂到任意滚动容器；--owl-fade-size 控制渐隐带宽。
  * 注意（2026-10-28）：这条 mask 不要挂到 .owl-chat-scroll 上——对话流是全窗最高的
  * 滚动容器，mask 会把它整个拖进遮罩合成组并随滚动逐帧失效，长会话下疑似诱发
- * WebView2 瓦片光栅化失败（上半屏黑块）；对话流的顶边渐隐走上面的 sticky overlay。
+ * WebView2 瓦片光栅化失败（上半屏黑块）；对话流的顶边不需要遮罩，
+ * 顶栏（不透明）本来就盖住了那一段。
  */
 @property --owl-fade-top { syntax: "<length>"; initial-value: 0px; inherits: false; }
 @property --owl-fade-bottom { syntax: "<length>"; initial-value: 0px; inherits: false; }
@@ -1699,7 +1693,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 @keyframes owl-answer-toc-flash { 0% { background: color-mix(in srgb, var(--color-owl-accent) 28%, transparent); } 100% { background: transparent; } }
 .owl-answer-toc-flash { animation: owl-answer-toc-flash 900ms ease-out both; border-radius: 4px; }
 @media (prefers-reduced-motion: reduce) { .owl-answer-toc-flash { animation: none; } }
-.owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); color: var(--owl-reading-text); overflow-wrap: anywhere; }
+.owl-answer { font-family: var(--font-sans); font-size: var(--owl-chat-font-size, 16px); line-height: var(--owl-chat-line-height, 1.65); color: var(--owl-reading-text); overflow-wrap: anywhere; /* 折叠态代码块想看到的高度；MarkdownAnswer 会按行网格把它对齐后写进 --owl-answer-code-max-height。 */ --owl-answer-code-target-height: 360px; }
 .owl-answer > :first-child { margin-top: 0; }
 .owl-answer > :last-child { margin-bottom: 0; }
 .owl-answer p { margin: 0 0 .85em; }
@@ -1717,7 +1711,7 @@ html[data-owl-theme="light"] .owl-chat-surface {
 .owl-answer a:hover { text-decoration: underline; }
 .owl-answer strong { font-weight: 600; }
 .owl-answer code { font-family: ui-monospace, Consolas, monospace; font-size: .87em; background: var(--owl-reading-panel); border: 1px solid var(--owl-reading-border); border-radius: 4px; padding: .08em .3em; color: var(--owl-reading-code); }
-.owl-answer pre { overflow: auto; max-height: 360px; border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 14px 16px; font-size: var(--owl-chat-code-font-size, 13px); line-height: 1.65; }
+.owl-answer pre { overflow: auto; max-height: var(--owl-answer-code-target-height, 360px); border: 1px solid var(--owl-reading-border); border-radius: 8px; background: var(--owl-reading-panel); margin: 1em 0; padding: 14px 16px; font-size: var(--owl-chat-code-font-size, 13px); line-height: 1.65; }
 .owl-answer pre code { font-size: inherit; color: var(--owl-reading-text); border: 0; background: none; border-radius: 0; padding: 0; }
 
 /*
@@ -1918,8 +1912,9 @@ code.owl-chip-modified {
 .owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer { color: var(--owl-reading-muted); font-size: 13px; line-height: 1.5; }
 .owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer p { margin: 0 0 .35em; }
 .owl-work-process-body > .owl-work-process-item[data-work-kind="note"] .owl-answer > :last-child { margin-bottom: 0; }
-.owl-tool-command { max-height: 360px; overflow: auto; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
-.owl-tool-output { max-height: 360px; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-text); font: var(--owl-chat-code-font-size, 12px)/1.65 ui-monospace, Consolas, monospace; }
+/* 工具输出/命令面板：上限按整行算（16 行 + 上内边距），长输出不会把最后一行切成半行。 */
+.owl-tool-command { max-height: 360px; max-height: calc(16lh + 8px); overflow: auto; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-code); background: var(--owl-reading-panel); font: var(--owl-chat-code-font-size, 12px)/1.6 ui-monospace, Consolas, monospace; }
+.owl-tool-output { max-height: 360px; max-height: calc(16lh + 10px); overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--owl-reading-text); font: var(--owl-chat-code-font-size, 12px)/1.65 ui-monospace, Consolas, monospace; }
 .owl-tool-detail > p, .owl-tool-detail > button { margin: 6px 12px; }
 .owl-tool-detail img { margin: 8px 0; }
 .owl-tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1px solid var(--owl-reading-border); border-top-color: var(--owl-reading-muted); border-radius: 50%; animation: owl-tool-spin 1s linear infinite; }

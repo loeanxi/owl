@@ -130,42 +130,20 @@ export function ProductList({
 						</>
 					);
 					// 产物页优先：点产物就是打开它并在页内追问，不是跳去文件预览。
+					// 这里只留一行「点开产物页」，不再挂打开 / 定位文件夹 / 复制路径的次级按钮。
 					if (onOpenProduct !== undefined) {
 						const openPage = (): void => onOpenProduct(product);
 						return (
 							<li key={product.id} className="owl-product-row" data-kind={product.kind}>
-								{product.kind === "file" && product.path !== undefined ? (
-									// 文件产物仍挂着次级动作（在文件夹中显示 / 复制绝对路径）。
-									<ArtifactActions
-										path={product.path}
-										title={product.title}
-										client={client}
-										cwd={cwd}
-										onOpenFile={onOpenFile}
-									>
-										{() => (
-											<button
-												type="button"
-												className="owl-product-button"
-												aria-label={t("products.openAria", { name: product.title })}
-												title={t("products.openPage")}
-												onClick={openPage}
-											>
-												{body}
-											</button>
-										)}
-									</ArtifactActions>
-								) : (
-									<button
-										type="button"
-										className="owl-product-button"
-										aria-label={t("products.openAria", { name: product.title })}
-										title={t("products.openPage")}
-										onClick={openPage}
-									>
-										{body}
-									</button>
-								)}
+								<button
+									type="button"
+									className="owl-product-button"
+									aria-label={t("products.openAria", { name: product.title })}
+									title={t("products.openPage")}
+									onClick={openPage}
+								>
+									{body}
+								</button>
 							</li>
 						);
 					}

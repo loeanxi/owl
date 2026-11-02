@@ -10,13 +10,14 @@ import { replyReadingText } from "./reply-reading-copy.ts";
 
 let root: Root;
 let host: HTMLElement;
+let dom: ReturnType<typeof parseHTML>;
 let writeText: ReturnType<typeof vi.fn<(text: string) => Promise<void>>>;
 let tableWidth: number;
 let codeWidth: number;
 let resized: (() => void)[];
 
 beforeEach(() => {
-	const dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
+	dom = parseHTML("<!doctype html><html><body><div id='root'></div></body></html>");
 	vi.stubGlobal("window", dom.window);
 	vi.stubGlobal("document", dom.document);
 	vi.stubGlobal("Element", dom.window.Element);
@@ -144,6 +145,42 @@ async function click(button: HTMLButtonElement): Promise<void> {
 	await act(async () => button.click());
 }
 
+interface CodeMetrics {
+	lineHeight: string;
+	paddingTop: string;
+	paddingBottom: string;
+}
+
+/** 给代码块一个确定的行盒度量，模拟浏览器里的行网格。 */
+function stubCodeMetrics(metrics: CodeMetrics): void {
+	const base = dom.window.getComputedStyle?.bind(dom.window);
+	Object.defineProperty(dom.window, "getComputedStyle", {
+		configurable: true,
+		writable: true,
+		value: (element: Element) => {
+			const style = {
+				getPropertyValue: () => "",
+			} as unknown as CSSStyleDeclaration;
+			if (element.tagName !== "PRE") return base ? base(element) : style;
+			return {
+				lineHeight: metrics.lineHeight,
+				paddingTop: metrics.paddingTop,
+				paddingBottom: metrics.paddingBottom,
+				borderTopWidth: "0px",
+				borderBottomWidth: "0px",
+				getPropertyValue: () => "",
+			} as unknown as CSSStyleDeclaration;
+		},
+	});
+	Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
+		configurable: true,
+		get(this: HTMLElement) {
+			// 折叠态的盒子高度等于 clientHeight：没有横向滚动条。
+			return this.tagName === "PRE" ? this.clientHeight : 0;
+		},
+	});
+}
+
 describe("Markdown answer reading controls", () => {
 	it("copies only the selected block with its exact indentation and line endings, after clipboard acknowledgement", async () => {
 		const pending = Promise.withResolvers<void>();
@@ -217,6 +254,33 @@ describe("Markdown answer reading controls", () => {
 		expect(pre.querySelector("code")?.textContent).toBe("  const wideLine = true;\n");
 	});
 
+	it("aligns the collapsed code height to the line grid so no line is cut in half", async () => {
+		// 行高 20px、上下内边距 14px、无边框无横向滚动条：360px 的目标高度只放得下 17 整行。
+		stubCodeMetrics({ lineHeight: "20px", paddingTop: "14px", paddingBottom: "14px" });
+		const payload = Array.from({ length: 24 }, (_, index) => `line ${index}`).join("\n");
+		await render(`\`\`\`js\n${payload}\n\`\`\``);
+		const block = codeBlock();
+		const cap = Number.parseFloat(block.style.getPropertyValue("--owl-answer-code-max-height"));
+		// 可见高度 = 上限 − 上内边距 14px = 整行数 × 行高：裁切正好落在两行之间。
+		expect((cap - 14) % 20).toBe(0);
+		expect((cap - 14) / 20).toBe(17);
+		expect(action(block, "expand-code").hidden).toBe(false);
+	});
+
+	it("re-aligns the collapsed code height when the chat appearance changes", async () => {
+		stubCodeMetrics({ lineHeight: "20px", paddingTop: "14px", paddingBottom: "14px" });
+		await render("```js\n" + Array.from({ length: 24 }, (_, index) => `line ${index}`).join("\n") + "\n```");
+		const block = codeBlock();
+		const first = Number.parseFloat(block.style.getPropertyValue("--owl-answer-code-max-height"));
+		expect((first - 14) % 20).toBe(0);
+		// 字号变大 → 行高变高 → 能放下的整行变少，裁切仍然落在行边界上。
+		stubCodeMetrics({ lineHeight: "30px", paddingTop: "14px", paddingBottom: "14px" });
+		await act(async () => window.dispatchEvent(new window.Event("owl-chat-appearance-change")));
+		const cap = Number.parseFloat(block.style.getPropertyValue("--owl-answer-code-max-height"));
+		expect(cap).toBeGreaterThan(0);
+		expect((cap - 14) % 30).toBe(0);
+	});
+
 	it("makes overflowing tables focusable, updates directional hints and expands only long tables", async () => {
 		tableWidth = 720;
 		const rows = Array.from({ length: 18 }, (_, index) => `| row ${index} | details ${index} |`).join("\n");
@@ -240,6 +304,25 @@ describe("Markdown answer reading controls", () => {
 		tableWidth = 240;
 		await act(async () => resized.at(-1)!());
 		expect(hint.hidden).toBe(true);
+	});
+
+	it("tells the reader when a code line is wider than the block and points the way", async () => {
+		codeWidth = 720;
+		await render("```js\n  const wideLine = true;\n```");
+		const block = codeBlock();
+		const pre = block.querySelector("pre")!;
+		const hint = block.querySelector<HTMLElement>("[data-answer-code-hint]")!;
+		expect(hint.hidden).toBe(false);
+		expect(hint.textContent).toBe(replyReadingText("codeScrollRight"));
+		expect(pre.dataset.answerOverflow).toBe("right");
+		pre.scrollLeft = 480;
+		await act(async () => pre.dispatchEvent(new window.Event("scroll")));
+		expect(hint.textContent).toBe(replyReadingText("codeScrollLeft"));
+		expect(pre.dataset.answerOverflow).toBe("left");
+		codeWidth = 240;
+		await act(async () => resized.at(-1)!());
+		expect(hint.hidden).toBe(true);
+		expect(pre.dataset.answerOverflow).toBe("none");
 	});
 
 	it("leaves ordinary path and link clicks available to the parent", async () => {

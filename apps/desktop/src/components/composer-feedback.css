@@ -1,5 +1,7 @@
 /* Feedback shares the composer column; notices remain plain rows rather than separate cards. */
 .owl-composer-feedback { min-width: 0; max-height: min(280px, 28dvh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+/* 提示装不下时底边渐隐：不再把最后一行横切成半行。 */
+.owl-composer-feedback[data-answer-overflow="bottom"] { mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
 .owl-composer-feedback:empty { display: none; }
 .owl-composer-feedback:not(:empty) { margin-top: 8px; padding: 0 4px; }
 .owl-composer-feedback :is(.owl-model-selection, .owl-attachment-preflight) {

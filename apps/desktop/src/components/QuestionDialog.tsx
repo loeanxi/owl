@@ -39,12 +39,9 @@ function initialState(): QuestionUiState {
 export function QuestionDialog({
 	request,
 	onAnswer,
-	onAnsweredChange,
 }: {
 	request: QuestionRequest;
 	onAnswer: (answers: QuestionAnswerPayload[], cancelled: boolean) => void;
-	/** 已答题号集合变化（含恢复草稿时）；小地图用它区分已答/未答。 */
-	onAnsweredChange?: (answered: ReadonlySet<number>) => void;
 }): React.JSX.Element | null {
 	const t = useT();
 	const questionId = useId();
@@ -70,15 +67,6 @@ export function QuestionDialog({
 	useLayoutEffect(() => {
 		controller?.saveQuestionDraft(request.requestId, { states, current, missing, collapsed });
 	}, [controller, request.requestId, states, current, missing, collapsed]);
-	// 已答题号随作答/恢复草稿上报（R18）：小地图的实心/空心依据。
-	useLayoutEffect(() => {
-		const answered = new Set<number>();
-		states.forEach((state, index) => {
-			if (isAnswered(state)) answered.add(index);
-		});
-		onAnsweredChange?.(answered);
-	}, [states, onAnsweredChange]);
-
 	const isAnswered = (s: QuestionUiState) => s.picked.size > 0 || s.custom.trim() !== "";
 
 	function patch(index: number, changes: Partial<QuestionUiState>): void {

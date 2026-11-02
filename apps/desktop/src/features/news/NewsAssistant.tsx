@@ -4,6 +4,7 @@ import type {
 	NewsItem,
 	NewsSnapshot,
 } from "../../../../../packages/coding-agent/src/core/news/types.ts";
+import { useBottomFade } from "../../hooks/use-bottom-fade.ts";
 import { getUiLanguage, useT } from "../../i18n/index.ts";
 import { NewsModelTest } from "./NewsModelTest.tsx";
 import { errorText, type NewsClient } from "./news-client.ts";
@@ -68,6 +69,7 @@ export function NewsAssistant({
 	const [busy, setBusy] = useState(false);
 	const [testing, setTesting] = useState(false);
 	const [error, setError] = useState("");
+	const contextRef = useBottomFade<HTMLDivElement>();
 	const hasContext = context.items.length > 0 || !!context.storyId || !!context.reportId;
 	const model = snapshot?.configuration.models.assistant;
 	const modelName = snapshot?.models.find(
@@ -127,7 +129,7 @@ export function NewsAssistant({
 					×
 				</button>
 			</div>
-			<div className="owl-news-context">
+			<div className="owl-news-context" ref={contextRef}>
 				<div className="owl-news-small-row">
 					<span>{t("news.contextLabel")}</span>
 					<button type="button" disabled={busy} onClick={() => onContext({ items: [] })}>

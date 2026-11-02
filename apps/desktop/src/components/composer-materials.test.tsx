@@ -254,6 +254,28 @@ describe("Composer compact materials", () => {
 		await send();
 		expect(props.onSend).toHaveBeenCalledExactlyOnceWith("检查对应文件", undefined, [files[0]], undefined);
 	});
+
+	it("removes an inline mention chip when its ✕ is clicked", async () => {
+		await render({ draftRequest: { id: 3, text: "检查对应文件", attachedPaths: [files[0]], replace: true } });
+		const editor = container.querySelector<HTMLElement>('[role="textbox"]')!;
+		await act(async () => {
+			const chip = document.createElement("span");
+			chip.className = "owl-mention-chip";
+			chip.dataset.mentionPath = files[0];
+			const x = document.createElement("button");
+			x.type = "button";
+			x.className = "owl-mention-chip__x";
+			chip.appendChild(x);
+			editor.appendChild(chip);
+			editor.dispatchEvent(new window.Event("input", { bubbles: true }));
+		});
+		expect(editor.querySelector(".owl-mention-chip")).not.toBeNull();
+		// 正文里的芯片不会进材料区，✕ 是唯一的删除入口：点了必须真删掉附件。
+		await act(async () => editor.querySelector<HTMLButtonElement>(".owl-mention-chip__x")!.click());
+		expect(editor.querySelector(".owl-mention-chip")).toBeNull();
+		await send();
+		expect(props.onSend).toHaveBeenCalledExactlyOnceWith("检查对应文件", undefined, undefined, undefined);
+	});
 });
 
 describe("Composer material arrivals", () => {

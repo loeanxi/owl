@@ -25,13 +25,15 @@ export function imageMimeOfName(name: string, type = ""): string | undefined {
 
 export function fileUrlToPath(url: string): string | undefined {
 	let parsed: URL;
+	let path: string;
 	try {
 		parsed = new URL(url);
+		if (parsed.protocol !== "file:") return undefined;
+		// 外部工具给的 uri-list 常带未转义的百分号：解码失败只丢这一条，不能连累整次粘贴/拖放。
+		path = decodeURIComponent(parsed.pathname);
 	} catch {
 		return undefined;
 	}
-	if (parsed.protocol !== "file:") return undefined;
-	let path = decodeURIComponent(parsed.pathname);
 	if (/^\/[a-zA-Z]:\//.test(path)) path = path.slice(1);
 	return path.length > 0 ? path : undefined;
 }

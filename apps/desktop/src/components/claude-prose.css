@@ -13,7 +13,7 @@
  *   引用块      4px 左描边（前景 10%）+ 次级色 + 左内距 1em
  *   行内 code   红字芯片（Claude 的 prose-code 默认 text-danger）+ 5% 底 +
  *              0.5px 边 + 0.4em 圆角；改动语义芯片（owl-chip-*）保留原色
- *   代码块      5% 底 + 0.5px 边 + 9px 圆角 + 14px 内距 + 0.875em/1.625
+ *   代码块      5% 底 + 0.5px 边 + 9px 圆角 + 14px 内距 + 代码字号变量/1.625
  *   表格        1px 边 + 6px 圆角 + 单元格 0.4375em/0.75em + 表头 5% 底
  *   分隔线      0.5px、上下 flow×2、左右 0.375em
  */
@@ -107,7 +107,8 @@ html[data-owl-claude-flow="on"] .owl-answer pre {
 	border: 0.5px solid color-mix(in srgb, var(--owl-reading-text) 20%, transparent);
 	border-radius: 9px;
 	padding: 14px;
-	font-size: 0.875em;
+	/* 字号跟「代码字号」设置走（与普通回答流一致），设置缺席时才退回 Claude 的 0.875em 比例。 */
+	font-size: var(--owl-chat-code-font-size, 0.875em);
 	line-height: 1.625;
 	tab-size: 2;
 }

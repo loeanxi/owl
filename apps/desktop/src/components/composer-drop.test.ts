@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyHtmlDrop, dropPointHits, fileUrlToPath, splitDroppedPaths } from "./composer-drop.ts";
+import {
+	classifyHtmlDrop,
+	dropPointHits,
+	fileUrlToPath,
+	pathsFromUriList,
+	splitDroppedPaths,
+} from "./composer-drop.ts";
 
 test("system drops keep every non-image path, including audio and extensionless files", () => {
 	const split = splitDroppedPaths([
@@ -42,6 +48,13 @@ test("html drops count files that have neither a path nor a file uri", () => {
 test("file urls on windows drop the leading slash before the drive letter", () => {
 	assert.equal(fileUrlToPath("file:///C:/Users/%E6%9D%8E%E7%8E%B0/Music/a.mp3"), "C:/Users/李现/Music/a.mp3");
 	assert.equal(fileUrlToPath("https://example.com/a.mp3"), undefined);
+});
+
+test("malformed file uris are skipped instead of throwing out of the whole drop", () => {
+	// 外部工具给的 uri-list 常带未转义的百分号：decodeURIComponent 抛 URIError，
+	// 未捕获时整次粘贴/拖放连同同批的正常文件一起失败。
+	assert.equal(fileUrlToPath("file:///C:/50%off.txt"), undefined);
+	assert.deepEqual(pathsFromUriList("file:///C:/50%off.txt\r\nfile:///D:/ok.txt\r\n"), ["D:/ok.txt"]);
 });
 
 test("drop hit testing accepts physical pixels and css pixels, and ignores a hidden box", () => {

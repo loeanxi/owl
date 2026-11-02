@@ -407,8 +407,6 @@ export default function App(): React.JSX.Element {
 	// 自动重试横幅（auto_retry_start/end 事件驱动）：与转录条目分开放，agent_end 重建不牵连
 	const [retryStatus, setRetryStatus] = useState<RetryBannerState | null>(null);
 	const [draftRequest, setDraftRequest] = useState<ComposerDraftRequest>();
-	// 活跃提问弹卷的已答题号（QuestionDialog 经 dock 上报，R18）：小地图实心/空心依据。
-	const [answeredQuestions, setAnsweredQuestions] = useState<ReadonlySet<number>>(() => new Set());
 	// ↑ 召回的历史输入：本会话已送达的用户消息，最新在前（排队中的不算）。
 	const sentHistory = entries
 		.filter(
@@ -644,7 +642,11 @@ export default function App(): React.JSX.Element {
 	const [researchWorkspaceSelected, setResearchWorkspaceSelected] = useState(
 		() => localStorage.getItem(RESEARCH_WORKSPACE_SELECTED_KEY) === "1",
 	);
-	const lifeProbe = useLifeProbe({ client, connected, cwd: workspaceDir, model: modelValue });
+	// 生效的模型：会话里被宿主确认的模型优先，否则用本地暂存的选择。
+	// 输入框显示的就是它——体检/诊断必须看同一个值，否则会误报「输入框里没有选中模型」。
+	const confirmedModel =
+		sessionId && sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue;
+	const lifeProbe = useLifeProbe({ client, connected, cwd: workspaceDir, model: confirmedModel });
 	const lifeView = useMemo(
 		() => presentLife(lifeProbe.channels, lifeProbe.round),
 		[lifeProbe.channels, lifeProbe.round],
@@ -1215,8 +1217,6 @@ export default function App(): React.JSX.Element {
 			profile === agentDirRef.current
 		);
 	};
-	const confirmedModel =
-		sessionId && sessionInfo?.model ? `${sessionInfo.model.provider}/${sessionInfo.model.id}` : modelValue;
 	const modelScopeRevision = sessionViewSeq.current;
 	const researchQueueRevision = researchActionSequence.current;
 	const modelSelection = useModelSelection({
@@ -4357,7 +4357,6 @@ export default function App(): React.JSX.Element {
 															onBranch={(entryId) => void handleBranch(entryId)}
 															onOpenAutomation={openAutomation}
 															onOpenSubagent={openSubagentCard}
-															answeredQuestions={answeredQuestions}
 															onQueuedRemove={queuedRemove}
 															onQueuedPromote={queuedPromote}
 															queuedItems={(() => {
@@ -4452,7 +4451,6 @@ export default function App(): React.JSX.Element {
 														client.respondQuestion(requestId, answers, cancelled),
 													);
 												},
-												onAnsweredChange: setAnsweredQuestions,
 											}}
 											composer={
 												<Composer

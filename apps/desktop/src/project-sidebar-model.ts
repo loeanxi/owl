@@ -106,8 +106,12 @@ export function getProjectSidebarPreferences(scope: SessionScope): ProjectSideba
 }
 export function saveProjectSidebarPreferences(scope: SessionScope, value: ProjectSidebarPreferences): void {
 	const next = JSON.stringify(parseProjectSidebarPreferences(value));
-	if (localStorage.getItem(preferencesKey(scope)) === next) return;
-	localStorage.setItem(preferencesKey(scope), next);
+	try {
+		if (localStorage.getItem(preferencesKey(scope)) === next) return;
+		localStorage.setItem(preferencesKey(scope), next);
+	} catch {
+		// localStorage 不可用（隐私模式/配额满）：偏好退化为内存态，不能连累调用方。
+	}
 	publish();
 }
 export function getProjectDisplayName(path: string): string {

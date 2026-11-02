@@ -115,6 +115,15 @@ function saveChoice(key: string, value: string): void {
 	}
 }
 
+/** 同 saveChoice：偏好写盘失败（隐私模式/配额满）时退化为会话内状态，不能因此崩掉界面。 */
+function saveJson(key: string, value: unknown): void {
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch {
+		// 存不住就只留内存态
+	}
+}
+
 function sessionTime(row: SessionRow): string {
 	return String(row.modified ?? row.timestamp ?? row.created ?? "");
 }
@@ -809,7 +818,7 @@ export function SessionSidebar({
 			if (current.some((p) => samePath(p, activeProject))) return current;
 			const next = [...current, activeProject];
 			try {
-				localStorage.setItem(keys.projects, JSON.stringify(next));
+				saveJson(keys.projects, next);
 			} catch {
 				// localStorage 不可用时项目列表退化为「有会话的项目 + 当前项目」
 			}
@@ -823,6 +832,8 @@ export function SessionSidebar({
 			const response = await client.request<SessionRow[]>({ type: "session.list" });
 			if (!response.ok || !mounted.current || version !== refreshVersion.current) return;
 			const rows = response.result ?? [];
+			// 先把会话铺上：偏好写盘失败（隐私模式/配额满）不能连列表都加载不出来。
+			setAllSessions(rows);
 			initializeResearchSidebar(localStorage, rows);
 			initializeReadMarkers(
 				sessionScope,
@@ -832,7 +843,6 @@ export function SessionSidebar({
 				setPinned(loadPinned(keys.pinned));
 				setKnownProjects(loadAndScrubProjects(localStorage, keys.projects));
 			}
-			setAllSessions(rows);
 		} catch {
 			// 桥断开/重连瞬间的失败静默跳过：connected 或 refreshKey 变化会重试
 		}
@@ -861,7 +871,7 @@ export function SessionSidebar({
 		if (confirmed.length === 0) return;
 		const valid = pinned.filter((id) => alive.has(id) || !confirmed.includes(id));
 		setPinned(valid);
-		localStorage.setItem(keys.pinned, JSON.stringify(valid));
+		saveJson(keys.pinned, valid);
 	}, [allSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	// 手动排序里已删除的会话 id 顺手清掉。与置顶清理同理：列表为空（尚未加载）不动，
@@ -903,7 +913,7 @@ export function SessionSidebar({
 			const next = new Set(current);
 			if (next.has(id)) next.delete(id);
 			else next.add(id);
-			localStorage.setItem(keys.collapsed, JSON.stringify([...next]));
+			saveJson(keys.collapsed, [...next]);
 			return next;
 		});
 	};
@@ -950,7 +960,7 @@ export function SessionSidebar({
 	const togglePin = (id: string): void => {
 		setPinned((current) => {
 			const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
-			localStorage.setItem(keys.pinned, JSON.stringify(next));
+			saveJson(keys.pinned, next);
 			return next;
 		});
 	};
@@ -1020,7 +1030,7 @@ export function SessionSidebar({
 			}
 			setPinned((current) => {
 				const next = current.filter((v) => v !== id);
-				localStorage.setItem(keys.pinned, JSON.stringify(next));
+				saveJson(keys.pinned, next);
 				return next;
 			});
 			setConfirmDelete(null);
@@ -1097,7 +1107,7 @@ export function SessionSidebar({
 	const recentSessions = useMemo(() => {
 		const rows = sessions.filter((row) => !isArchivedRow(row) && !isPinnedRow(row));
 		if (recentSort === "name") {
-			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), "zh-CN"));
+			rows.sort((a, b) => sessionTitle(a).localeCompare(sessionTitle(b), getUiLanguage()));
 		} else if (recentSort === "oldest")
 			rows.sort((a, b) => String(a.created ?? sessionTime(a)).localeCompare(String(b.created ?? sessionTime(b))));
 		else rows.sort(byLatest);
@@ -1566,7 +1576,7 @@ export function SessionSidebar({
 			savePreferences(hideProject(projectPreferences, path));
 			const nextKnown = knownProjects.filter((entry) => !samePath(entry, path));
 			setKnownProjects(nextKnown);
-			localStorage.setItem(keys.projects, JSON.stringify(nextKnown));
+			saveJson(keys.projects, nextKnown);
 			setProjectConfirm(null);
 			return;
 		}
@@ -2031,7 +2041,7 @@ export function SessionSidebar({
 							restoreProject(path, sessionScope);
 							setKnownProjects((current) => {
 								const next = current.some((entry) => samePath(entry, path)) ? current : [...current, path];
-								localStorage.setItem(keys.projects, JSON.stringify(next));
+								saveJson(keys.projects, next);
 								return next;
 							});
 							onSelectProject(path);

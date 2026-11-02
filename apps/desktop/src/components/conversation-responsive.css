@@ -1,8 +1,12 @@
 /* Keep the reading column and chrome proportional to the space left by panels. */
 /* 顶栏悬浮：不再占布局行，浮在对话区上方。头部本体 pointer-events: none，
    整条透明带上的滚轮与文字选择照常穿到下面的对话区；只有标题块和按钮组恢复
-   可交互（否则悬浮头会变成一条 44px 的鼠标黑洞）。顶部铺一道从面板色到透明的
-   渐变，内容滚到顶时从标题下方淡出，平时与背景同色看不出来。 */
+   可交互（否则悬浮头会变成一条 44px 的鼠标黑洞）。
+   顶栏本体用不透明面板色：它压在滚动视口顶部，正文会从它底下滚过去。
+   原来这里铺的是「面板色 → 透明」的渐变，尾部透明 ⇒ 滚过去的正文从顶栏下沿
+   透出来，在标题右侧留下一条模糊压扁的灰带，正文也被横切一刀。
+   顶栏改成不透明后，正文在顶栏下沿被干净地挡住（就是普通悬浮工具栏的样子），
+   不会再有半截字悬在半空。 */
 .owl-desktop-shell .owl-main-frame > .owl-chat-header,
 .owl-desktop-shell .owl-agent-conversation > .owl-chat-header {
 	position: absolute;
@@ -16,12 +20,7 @@
 	padding: 0 14px;
 	pointer-events: none;
 	border-bottom: 0;
-	background: linear-gradient(
-		to bottom,
-		var(--owl-conversation-bg, var(--color-owl-bg)) 58%,
-		color-mix(in srgb, var(--owl-conversation-bg, var(--color-owl-bg)) 55%, transparent) 82%,
-		transparent
-	);
+	background: var(--owl-conversation-bg, var(--color-owl-bg));
 }
 
 /* 头部内各块恢复指针：视图切换、动作按钮、标题与铅笔都要能点。 */

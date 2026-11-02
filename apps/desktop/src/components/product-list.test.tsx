@@ -121,4 +121,10 @@ describe("the product list", () => {
 		});
 		expect(onOpenProduct).toHaveBeenCalledWith(chartProduct);
 	});
+
+	it("keeps product rows free of open / reveal / copy shortcuts", async () => {
+		await render(<ProductList products={[fileProduct]} onOpenProduct={vi.fn()} onOpenFile={vi.fn()} />);
+		expect(host.querySelector(".owl-artifact-actions")).toBeNull();
+		expect(host.querySelectorAll(".owl-product-row button")).toHaveLength(1);
+	});
 });

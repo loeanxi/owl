@@ -55,6 +55,7 @@ const fixture = vi.hoisted(() => ({
 	editor: undefined as EditorController | undefined,
 	workbenchProfile: undefined as string | undefined,
 	workbenchConnected: false,
+	lifeModel: undefined as string | undefined,
 	recovery: undefined as { onContinue: (model?: string) => Promise<boolean> } | undefined,
 	event: undefined as ((event: Record<string, unknown>) => void) | undefined,
 	overlay: undefined as React.ReactNode | undefined,
@@ -141,7 +142,12 @@ vi.mock("./components/Genui.tsx", () => ({
 }));
 vi.mock("./hooks/use-subagents.ts", () => ({ useSubagents: () => ({ runs: [], refresh: () => {} }) }));
 vi.mock("./components/OwlMascot.tsx", () => ({ useSessionOwlPose: () => "idle" }));
-vi.mock("./features/life-monitor/use-life-probe.ts", () => ({ useLifeProbe: () => ({ channels: [], round: "idle" }) }));
+vi.mock("./features/life-monitor/use-life-probe.ts", () => ({
+	useLifeProbe: (input: { model: string }) => {
+		fixture.lifeModel = input.model;
+		return { channels: [], round: "idle" };
+	},
+}));
 vi.mock("./use-workspace-memory.ts", () => ({ useWorkspaceMemory: () => {} }));
 vi.mock("./sidebar/quick.tsx", () => ({ openQuickAction: () => {} }));
 vi.mock("./components/ActivityRail.tsx", () => ({ ActivityRail: () => null }));
@@ -281,6 +287,7 @@ beforeEach(async () => {
 	fixture.editor = undefined;
 	fixture.workbenchProfile = undefined;
 	fixture.workbenchConnected = false;
+	fixture.lifeModel = undefined;
 	rows = [
 		{ id: "alpha-old", cwd: "D:/alpha", scope: "chat", modified: "2026-10-01", messageCount: 2 },
 		{ id: "alpha-latest", cwd: "D:/alpha", scope: "chat", modified: "2026-10-15", messageCount: 2 },
@@ -658,4 +665,26 @@ describe("App project conversation navigation", () => {
 			assertNoPrompt();
 		},
 	);
+
+	it("probes diagnostics with the model the composer actually shows", async () => {
+		// 会话里宿主确认了模型、但用户没手动选过（owl.model 为空）：
+		// 体检只拿到暂存值就会报「输入框里没有选中模型」，标题栏的异常灯常亮。
+		const base = fixture.request.getMockImplementation()!;
+		fixture.request.mockImplementation((request) =>
+			request.type === "session.stats"
+				? Promise.resolve({
+						ok: true,
+						result: {
+							model: { provider: "loean", id: "deepseek-v4.1-flash" },
+							thinkingLevel: "medium",
+							availableThinkingLevels: ["medium"],
+							supportsThinking: true,
+							stats: { userMessages: 1, assistantMessages: 1, toolCalls: 0, tokens: 0 },
+						},
+					})
+				: base(request),
+		);
+		await act(async () => fixture.sidebar!.onOpenSession("alpha-latest"));
+		expect(fixture.lifeModel).toBe("loean/deepseek-v4.1-flash");
+	});
 });

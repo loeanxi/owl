@@ -11,6 +11,7 @@ import type {
 	SlashCommandEntry,
 } from "../bridge/protocol.ts";
 import { type AttachmentIssue, checkAttachmentPaths } from "../hooks/attachment-preflight.ts";
+import { useBottomFade } from "../hooks/use-bottom-fade.ts";
 import type { ModelSelectionFeedback } from "../hooks/use-model-selection.ts";
 import { usePromptSuggestion } from "../hooks/use-prompt-suggestion.ts";
 import { getUiLanguage, type TextKey, t, useT } from "../i18n/index.ts";
@@ -772,6 +773,7 @@ export function Composer({
 	const hintTimerRef = useRef<number | undefined>(undefined);
 	useEffect(() => () => window.clearTimeout(hintTimerRef.current), []);
 	const editorRef = useRef<HTMLDivElement>(null);
+	const feedbackRef = useBottomFade<HTMLDivElement>();
 	const composing = useRef(false);
 	const inputBoxRef = useRef<HTMLDivElement>(null);
 	const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -1134,6 +1136,18 @@ export function Composer({
 	function insertPlainText(editor: HTMLElement | null, text: string): void {
 		if (!editor) return;
 		editor.appendChild(document.createTextNode(text));
+	}
+
+	// 光标落到编辑器末尾：召回/插入文本后接着打字，才不会插到内容前面。
+	function placeCaretAtEditorEnd(editor: HTMLElement | null): void {
+		if (!editor) return;
+		const selection = window.getSelection();
+		if (!selection) return;
+		const caret = document.createRange();
+		caret.selectNodeContents(editor);
+		caret.collapse(false);
+		selection.removeAllRanges();
+		selection.addRange(caret);
 	}
 
 	// 草稿追加：在尾部拼一段，必要时先补换行。
@@ -2163,6 +2177,18 @@ export function Composer({
 								onCompositionEnd={() => {
 									composing.current = false;
 								}}
+								onClick={(event) => {
+									// 正文里的 @ 芯片不会进材料区，芯片上的 ✕ 是唯一的删除入口：事件在编辑器顶层代理。
+									const target = event.target;
+									if (!(target instanceof Element)) return;
+									const remove = target.closest(".owl-mention-chip__x");
+									if (!remove) return;
+									const path = remove.closest(".owl-mention-chip")?.getAttribute("data-mention-path");
+									if (!path) return;
+									event.preventDefault();
+									event.stopPropagation();
+									removeAttachment(path);
+								}}
 								onPaste={onClipboardPaste}
 								onInput={() => {
 									prediction.dismiss();
@@ -2196,6 +2222,9 @@ export function Composer({
 												recallIndex.current = next;
 												clearEditorContent(editorRef.current);
 												insertPlainText(editorRef.current, recallHistory[next]!);
+												// 召回改的是编辑器 DOM：草稿状态必须同步，否则发送按钮仍锁着、回车也发不出去。
+												setDraftValue(syncEditorToValue(editorRef.current));
+												placeCaretAtEditorEnd(editorRef.current);
 											}
 											return;
 										}
@@ -2205,6 +2234,8 @@ export function Composer({
 											recallIndex.current = next;
 											clearEditorContent(editorRef.current);
 											if (next >= 0) insertPlainText(editorRef.current, recallHistory[next]!);
+											setDraftValue(syncEditorToValue(editorRef.current));
+											placeCaretAtEditorEnd(editorRef.current);
 											return;
 										}
 									}
@@ -2413,7 +2444,7 @@ export function Composer({
 						</button>
 					</div>
 				</div>
-				<div className="owl-composer-feedback">
+				<div className="owl-composer-feedback" ref={feedbackRef}>
 					<ModelSelectionNotice feedback={modelSelection} providers={providers} onRetry={onRetryModelSelection} />
 					<AttachmentPreflightNotice
 						checking={visibleAttachmentCheck?.checking ?? false}

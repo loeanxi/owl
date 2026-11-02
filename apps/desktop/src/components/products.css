@@ -149,18 +149,9 @@
 }
 
 /*
- * 产物列表一行一个：文件的次级动作（在文件夹中显示 / 复制绝对路径）平时收起来，
- * 悬停或聚焦才出现 —— 与 Claude 的产物列表一样安静，也和 owl 自己的
- * 「悬停才出操作」一致。
+ * 产物列表一行一个，只有「点开产物页」这一个动作 —— 打开文件 / 定位文件夹 /
+ * 复制绝对路径那排次级按钮不在这里出现（成果文件列表仍保留）。
  */
-.owl-product-row .owl-artifact-actions-buttons {
-	display: none;
-}
-
-.owl-product-row:hover .owl-artifact-actions-buttons,
-.owl-product-row:focus-within .owl-artifact-actions-buttons {
-	display: flex;
-}
 
 /* 定位产物时闪一下：告诉用户「滚到这里了」。 */
 [data-tool-id].is-product-located {

@@ -18,6 +18,57 @@ function showExpansion(block: HTMLElement, expanded: boolean): void {
 		);
 }
 
+/** 折叠态代码块想看到的高度；CSS 里的 --owl-answer-code-target-height 是同一个数的来源。 */
+const CODE_TARGET_HEIGHT = 360;
+
+/**
+ * 折叠态代码块的可见高度按行网格对齐。
+ *
+ * 固定像素的 max-height 与行高毫无关系，裁切线常常落在某一行中间，
+ * 看起来像代码/JSON 被拦腰截成两截。这里按实测行高换算成整行，
+ * 让裁切正好落在两行之间；横向滚动条占掉的高度一并算进去。
+ *
+ * 返回 undefined 表示当前环境拿不到可靠度量（老浏览器、测试用的简化 DOM），
+ * 这时沿用 CSS 里的默认高度，行为与修复前一致。
+ */
+function alignCodeViewport(
+	block: HTMLElement,
+	pre: HTMLElement,
+): { cap: number; visible: number; content: number } | undefined {
+	if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") return undefined;
+	let blockStyle: CSSStyleDeclaration;
+	let style: CSSStyleDeclaration;
+	try {
+		blockStyle = window.getComputedStyle(block);
+		style = window.getComputedStyle(pre);
+	} catch {
+		return undefined;
+	}
+	const target =
+		Number.parseFloat(blockStyle.getPropertyValue("--owl-answer-code-target-height")) || CODE_TARGET_HEIGHT;
+	if (!Number.isFinite(target) || target <= 0) return undefined;
+	const lineHeight = Number.parseFloat(style.lineHeight);
+	const paddingTop = Number.parseFloat(style.paddingTop);
+	const paddingBottom = Number.parseFloat(style.paddingBottom);
+	const borderTop = Number.parseFloat(style.borderTopWidth);
+	const borderBottom = Number.parseFloat(style.borderBottomWidth);
+	if (![lineHeight, paddingTop, paddingBottom, borderTop, borderBottom].every(Number.isFinite)) return undefined;
+	if (lineHeight <= 0) return undefined;
+	// 横向滚动条会占掉 pre 盒子底部的一段高度，裁切线随之上移。
+	const scrollbar = Number.isFinite(pre.offsetHeight)
+		? Math.max(0, pre.offsetHeight - pre.clientHeight - borderTop - borderBottom)
+		: 0;
+	// 内容溢出时，底部内边距落在折叠线以下（横向滚动条也在那一带），不参与可见高度。
+	const visible = target - borderTop - borderBottom - scrollbar - paddingTop;
+	if (visible < lineHeight) return undefined;
+	const lines = Math.floor(visible / lineHeight + 1e-6);
+	return {
+		cap: lines * lineHeight + borderTop + borderBottom + scrollbar + paddingTop,
+		visible: lines * lineHeight,
+		content: pre.scrollHeight - paddingTop - paddingBottom,
+	};
+}
+
 /** Adds reading controls and image previews while preserving prose, links and code payloads. */
 export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 	const text = useReplyReadingText();
@@ -103,7 +154,14 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 				const key = blockKeys.current.get(block)!;
 				if (block.hasAttribute("data-answer-code")) {
 					const pre = block.querySelector("pre");
-					const canExpand = Boolean(pre && pre.scrollHeight > 361);
+					const viewport = pre ? alignCodeViewport(block, pre) : undefined;
+					if (pre && viewport) {
+						// 折叠高度落到行边界上：裁切线不再切在半行上。
+						block.style.setProperty("--owl-answer-code-max-height", `${Math.round(viewport.cap * 100) / 100}px`);
+					}
+					const canExpand = viewport
+						? viewport.content > viewport.visible + 1
+						: Boolean(pre && pre.scrollHeight > 361);
 					if (pre) {
 						const overflow = pre.scrollHeight > pre.clientHeight + 1 || pre.scrollWidth > pre.clientWidth + 1;
 						if (overflow) {
@@ -118,6 +176,18 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 							pre.removeAttribute("role");
 							pre.removeAttribute("aria-label");
 						}
+						// 横向还有内容：边缘渐隐 + 工具栏提示（与表格同一套做法）。
+						const horizontal = pre.scrollWidth > pre.clientWidth + 1;
+						const left = horizontal && pre.scrollLeft > 1;
+						const right = horizontal && pre.scrollLeft + pre.clientWidth < pre.scrollWidth - 1;
+						const hint = block.querySelector<HTMLElement>("[data-answer-code-hint]");
+						if (hint) {
+							hint.hidden = !horizontal;
+							hint.textContent = text(
+								left && right ? "codeScroll" : left ? "codeScrollLeft" : "codeScrollRight",
+							);
+						}
+						pre.dataset.answerOverflow = left && right ? "both" : left ? "left" : right ? "right" : "none";
 					}
 					const expandButton = block.querySelector<HTMLButtonElement>('[data-answer-action="expand-code"]');
 					if (expandButton) expandButton.hidden = !canExpand;
@@ -158,12 +228,19 @@ export function MarkdownAnswer({ html }: { html: string }): React.JSX.Element {
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(answer);
-		const viewports = [...answer.querySelectorAll<HTMLElement>("[data-answer-table-scroll]")];
+		const viewports = [
+			...answer.querySelectorAll<HTMLElement>("[data-answer-table-scroll]"),
+			...answer.querySelectorAll<HTMLElement>("[data-answer-code] pre"),
+		];
 		for (const viewport of answer.querySelectorAll<HTMLElement>("pre, [data-answer-table-scroll]"))
 			observer.observe(viewport);
+		// 外观（字号/行高）变了要重新按行网格对齐折叠高度：代码块被定高卡住，
+		// 自身尺寸不变，ResizeObserver 不会为字号变化触发。
+		window.addEventListener("owl-chat-appearance-change", measure);
 		for (const viewport of viewports) viewport.addEventListener("scroll", measure, { passive: true });
 		return () => {
 			observer.disconnect();
+			window.removeEventListener("owl-chat-appearance-change", measure);
 			for (const viewport of viewports) viewport.removeEventListener("scroll", measure);
 		};
 	}, [html, language, text, imageText]);
