@@ -247,12 +247,19 @@ it.each([
 			).toBe(staticAnalysis);
 			if ("owlDefaultPreset" in settings) {
 				expect(ordinary.result?.agentPreset).toBe(settings.owlDefaultPreset);
+				// 执行异常上报是桌面会话的常驻汇报通道，预设收窄也保留（与 desktop-agent-presets 的契约一致）。
 				if (settings.owlDefaultPreset === "minimal")
-					expect(ordinaryRecord.snapshots[0]).toEqual(["read", "bash", "edit"]);
+					expect(ordinaryRecord.snapshots[0]).toEqual(["read", "bash", "edit", "execution_anomaly_report"]);
 				if (settings.owlDefaultPreset === "pi")
-					expect(ordinaryRecord.snapshots[0]).toEqual(["read", "bash", "edit", "write"]);
+					expect(ordinaryRecord.snapshots[0]).toEqual([
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"execution_anomaly_report",
+					]);
 			} else {
-				expect(ordinaryRecord.snapshots[0]).toEqual(["read", "bash"]);
+				expect(ordinaryRecord.snapshots[0]).toEqual(["read", "bash", "execution_anomaly_report"]);
 			}
 			const research = await request<SessionSnapshotPayload>(socket, {
 				type: "session.create",

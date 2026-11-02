@@ -3,6 +3,10 @@
   [ValidateSet('unaware', 'per-monitor-v2')][string]$DpiAwareness = 'per-monitor-v2'
 )
 $ErrorActionPreference = 'Stop'
+# Worker 用 UTF-8 写 stdout；`& powershell.exe ... list` 的捕获按 [Console]::OutputEncoding
+# 解码。中文系统默认 cp936：GBK 双字节会把 UTF-8 尾字节和后面的引号配成一对吃掉引号，
+# ConvertFrom-Json 随即失败。这里统一按 UTF-8 解码子进程输出。
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $evidencePath = $env:OWL_MIRROR_GUARD_DIAGNOSTIC
 if ($evidencePath) { $evidencePath = $evidencePath.Replace('{dpi}', $DpiAwareness) }
 Add-Type -AssemblyName System.Windows.Forms

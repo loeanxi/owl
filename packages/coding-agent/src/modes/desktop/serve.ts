@@ -915,7 +915,8 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 				resourceLoaderOptions: {
 					extensionFactories: [
 						// 脏草稿防线放最前：命中就当场挡下，不弹审批框，也不进待审清单。
-						createEditorDraftGuard(agentDir),
+						// Pi 运行时按隔离白名单加载扩展，防线不进 Pi 会话。
+						...(preset.runtime === "pi" ? [] : [createEditorDraftGuard(agentDir)]),
 						...extensionFactories,
 						// 研究会话拿到整套研究工具；普通对话只借用 REA 静态分析，工具白名单与证据留存完全一致。
 						...(researchMode
@@ -1600,7 +1601,17 @@ export async function startDesktopServer(options: DesktopServerOptions = {}): Pr
 		});
 		// 侧栏浏览器的核心动作常驻激活：模型判断需要浏览器时直接调用，不必先
 		// tool_search 去发现；同时让原生族在检索里压过外部 MCP 浏览器。
-		runtime.session.setActiveToolsByName([...runtime.session.getActiveToolNames(), ...BROWSER_CORE_TOOL_NAMES]);
+		// 预设收窄工具集（极简、Pi、显式工具表）或用户替换默认工具表时不激活：
+		// 收窄就是说「只要这些工具」，浏览器常驻会把收窄顶开；研究会话走自己的
+		// 装载表，浏览器按需检索。
+		const toolsetNarrowed =
+			mailContext ||
+			researchMode ||
+			desktopPresetToolAllowlist(presetHolder.current, false) !== undefined ||
+			runtime.services.settingsManager.getDefaultToolsRaw() !== undefined;
+		if (!toolsetNarrowed) {
+			runtime.session.setActiveToolsByName([...runtime.session.getActiveToolNames(), ...BROWSER_CORE_TOOL_NAMES]);
+		}
 		void schedule.onSessionMounted(sessionId);
 		reply(ws, requestId, {
 			ok: true,
